@@ -149,11 +149,12 @@ The pattern separates three responsibilities:
    evidence into `EvidenceInspectionEnvelope<TContent, TEvidence>`.
 3. The host uses `EvidenceBuilder<TContent, TEvidence>` to pass operation state
    to two static delegates. Its `[Conditional("DEBUG")]` request method is
-   omitted by Release callers, including argument evaluation. `Build` invokes
-   exactly one delegate and returns the ordinary inspection plus an optional
-   evidence envelope that contains the same inspection instance. The host uses
-   the ordinary tuple member for normal output and may write the optional
-   enriched member to its evidence destination.
+   omitted by Release callers, including argument evaluation. `Build`, or
+   `BuildAsync` for an asynchronous operation, invokes exactly one delegate and
+   returns the ordinary inspection plus an optional evidence envelope that
+   contains the same inspection instance. The host uses the ordinary tuple
+   member for normal output and may write the optional enriched member to its
+   evidence destination.
 
 This is the preferred split for adopters. Do not put the shared evidence type,
 serializer, or correctness tests behind `#if DEBUG`, because that would make

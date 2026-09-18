@@ -24,6 +24,20 @@ public partial class DependsCommand
     private const int PackageManifestTraversalBudget = 1_024;
     private const int PackageDeclarationTraversalBudget = 16_384;
     private const string SummarySection = "Summary";
+    private static readonly InspectionEnvelopeJsonContract<
+        DependencyInspectionContent> AssetDependencyJson =
+            new(
+                "asset-dependencies",
+                1,
+                DependencyInspectionJsonContext.Default
+                    .DependencyInspectionContent);
+    private static readonly EvidenceInspectionEnvelopeJsonContract<
+        DependencyInspectionContent,
+        DependencyInspectionEvidenceDocument> AssetDependencyEvidenceJson =
+            new(
+                AssetDependencyJson,
+                DependencyInspectionJsonContext.Default
+                    .DependencyInspectionEvidenceDocument);
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
@@ -47,7 +61,15 @@ public partial class DependsCommand
             CommandError.Write(shareError);
             return 1;
         }
-        if (options.ShareFormat is not null)
+        if (options.EnvelopeOutput
+            && options.EvidenceEnvelopePath is null)
+        {
+            CommandError.Write(
+                "--envelope currently requires --evidence-envelope in asset-mode depends.");
+            return 1;
+        }
+        if (options.ShareFormat is not null
+            && options.EvidenceEnvelopePath is null)
         {
             var shareContext = new CommandContext(options.Verbose);
             return await DependsShareProjection.WriteAsync(
@@ -131,16 +153,37 @@ public partial class DependsCommand
         var context = new CommandContext(options.Verbose);
         try
         {
+            var builder = new EvidenceBuilder<
+                DependencyInspectionContent,
+                DependencyInspectionEvidenceDocument>();
+            builder.RequestEvidence(
+                options.EvidenceEnvelopePath is not null
+                || DependsAssetSections.RequestsEvidence(includeSections));
+            var state = new DependsAssetInspectionState(
+                options,
+                context,
+                plan,
+                options.Effective && options.Depth is null
+                    ? 1
+                    : options.Depth,
+                pruneSource,
+                cancellationToken);
+            (
+                InspectionEnvelope<DependencyInspectionContent> inspection,
+                EvidenceInspectionEnvelope<
+                    DependencyInspectionContent,
+                    DependencyInspectionEvidenceDocument>? evidence) =
+                await builder.BuildAsync(
+                    state,
+                    static operation =>
+                        ExecuteAssetInspectionAsync(operation),
+                    static operation =>
+                        ExecuteAssetInspectionWithEvidenceAsync(operation))
+                    .ConfigureAwait(false);
             DependsAssetProjection projection =
-                await AcquireAssetProjectionAsync(
-                    options,
-                    context,
-                    plan,
-                    options.Effective && options.Depth is null
-                        ? 1
-                        : options.Depth,
-                    pruneSource,
-                    cancellationToken).ConfigureAwait(false);
+                state.Projection
+                ?? throw new InvalidOperationException(
+                    "Dependency inspection completed without its host projection.");
             cancellationToken.ThrowIfCancellationRequested();
             if (options.Effective)
             {
@@ -174,16 +217,72 @@ public partial class DependsCommand
                     discoveryExitCode,
                     AssetExitCode(projection));
             }
-            if (!WriteAssetProjection(
-                    projection,
-                    options,
-                    includeSections))
+
+            int primaryExitCode = options.ShareFormat is { } shareFormat
+                ? options.EnvelopeOutput
+                    ? InspectionEnvelopeOutput.TryWrite(
+                        inspection,
+                        AssetDependencyJson,
+                        includeEnvelope: true,
+                        options.CompactJson)
+                        ? 0
+                        : 1
+                    : WorkspaceShareOutput.WritePrimary(
+                        inspection.Share,
+                        shareFormat)
+                : options.EnvelopeOutput
+                    ? InspectionEnvelopeOutput.TryWrite(
+                        inspection,
+                        AssetDependencyJson,
+                        includeEnvelope: true,
+                        options.CompactJson)
+                        ? 0
+                        : 1
+                    : WriteAssetProjection(
+                        projection,
+                        options,
+                        includeSections)
+                        ? 0
+                        : 1;
+            if (primaryExitCode != 0)
             {
-                return 1;
+                return primaryExitCode;
             }
 
             WriteAssetDiagnostics(projection);
-            return AssetExitCode(projection);
+            int exitCode = AssetExitCode(projection);
+            if (options.EvidenceEnvelopePath is { } evidencePath)
+            {
+                if (evidence is null)
+                {
+                    CommandError.Write(
+                        "Evidence envelopes are unavailable in this build.");
+                    exitCode = 1;
+                }
+                else if (!InspectionEnvelopeOutput.TryWriteEvidence(
+                    evidence,
+                    AssetDependencyEvidenceJson,
+                    evidencePath,
+                    options.CompactJson))
+                {
+                    exitCode = 1;
+                }
+            }
+
+            if (options is
+                {
+                    EnvelopeOutput: true,
+                    ShareFormat: { } envelopeShareFormat,
+                })
+            {
+                exitCode = Math.Max(
+                    exitCode,
+                    WorkspaceShareOutput.Write(
+                        inspection.Share,
+                        envelopeShareFormat));
+            }
+
+            return exitCode;
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -195,6 +294,98 @@ public partial class DependsCommand
             CommandError.Write(exception);
             return 1;
         }
+    }
+
+    private static async Task<InspectionEnvelope<DependencyInspectionContent>>
+        ExecuteAssetInspectionAsync(
+            DependsAssetInspectionState operation)
+    {
+        (DependencyInspectionResult result, InspectionShare share) =
+            await PrepareAssetInspectionAsync(operation)
+                .ConfigureAwait(false);
+        return DependencyInspectionOperation.Execute(
+            result,
+            share);
+    }
+
+    private static async Task<EvidenceInspectionEnvelope<
+        DependencyInspectionContent,
+        DependencyInspectionEvidenceDocument>>
+        ExecuteAssetInspectionWithEvidenceAsync(
+            DependsAssetInspectionState operation)
+    {
+        (DependencyInspectionResult result, InspectionShare share) =
+            await PrepareAssetInspectionAsync(operation)
+                .ConfigureAwait(false);
+        return DependencyInspectionOperation.ExecuteWithEvidence(
+            result,
+            share);
+    }
+
+    private static async Task<(
+        DependencyInspectionResult Result,
+        InspectionShare Share)> PrepareAssetInspectionAsync(
+            DependsAssetInspectionState operation)
+    {
+        DependsAssetProjection projection =
+            await AcquireAssetProjectionAsync(
+                operation.Options,
+                operation.Context,
+                operation.Plan,
+                operation.TraversalDepth,
+                operation.PruneSource,
+                operation.CancellationToken).ConfigureAwait(false);
+        operation.Projection = projection;
+        return (
+            projection.Result,
+            CreateAssetInspectionShare(
+                operation.Options,
+                projection));
+    }
+
+    private static InspectionShare CreateAssetInspectionShare(
+        DependsOptions options,
+        DependsAssetProjection projection) =>
+        options.ShareFormat is not null
+            && projection.Evidence.PackageInputs.Roots
+                is [PackageDependencyEvidenceRoot
+                {
+                    Identity:
+                        PackageDependencyEvidenceRootIdentity.Package
+                            package,
+                }]
+            ? DependsShareProjection.ProjectAsset(
+                options,
+                package.Coordinate)
+            : new InspectionShare.NonProjectable(
+                "asset-dependencies/share",
+                options.ShareFormat is null
+                    ? "Share projection was not requested."
+                    : "The asset dependency request is not one exact package root.");
+
+    private sealed class DependsAssetInspectionState(
+        DependsOptions options,
+        CommandContext context,
+        DependsAssetRequestPlan plan,
+        int? traversalDepth,
+        Func<string, InstalledPlatformPruneSource.Result> pruneSource,
+        CancellationToken cancellationToken)
+    {
+        internal DependsOptions Options { get; } = options;
+
+        internal CommandContext Context { get; } = context;
+
+        internal DependsAssetRequestPlan Plan { get; } = plan;
+
+        internal int? TraversalDepth { get; } = traversalDepth;
+
+        internal Func<string, InstalledPlatformPruneSource.Result>
+            PruneSource { get; } = pruneSource;
+
+        internal CancellationToken CancellationToken { get; } =
+            cancellationToken;
+
+        internal DependsAssetProjection? Projection { get; set; }
     }
 
     private static bool ValidateAssetOptions(

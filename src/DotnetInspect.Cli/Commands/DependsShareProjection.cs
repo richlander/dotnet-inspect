@@ -20,7 +20,8 @@ internal static class DependsShareProjection
 
         if (options.OutputFormatExplicitlySet
             || options.LineWindowExplicitlySet
-            || options.CompactJson
+            || (options.CompactJson
+                && options.EvidenceEnvelopePath is null)
             || options.Tree
             || options.NoHeader
             || options.Rows is not null
@@ -134,11 +135,79 @@ internal static class DependsShareProjection
             };
             return NonProjectable($"--share could not resolve an exact NuGet.org package coordinate: {message}");
         }
-        string normalizedVersion = resolved.Coordinate.Version;
-        var coordinate =
+
+        InspectionShare share = ProjectAsset(
+            options,
+            resolved.Coordinate.PackageId,
+            resolved.Coordinate.Version);
+        return WorkspaceShareOutput.WritePrimary(
+            share,
+            options.ShareFormat!.Value);
+    }
+
+    internal static InspectionShare ProjectAsset(
+        DependsOptions options,
+        PackageSourceCoordinate coordinate) =>
+        ProjectAsset(
+            options,
+            coordinate.PackageId,
+            coordinate.Version);
+
+    private static InspectionShare ProjectAsset(
+        DependsOptions options,
+        string packageId,
+        string version)
+    {
+        string packageReference = options.PackageName!;
+        if (packageReference.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return AssetNonProjectableShare(
+                "local package archives cannot be restored by the published Browser.");
+        }
+
+        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            return AssetNonProjectableShare(
+                "the package id is not valid.");
+        }
+        if (string.Equals(
+                packageId,
+                BrowserPlatformPackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return AssetNonProjectableShare(
+                $"NuGet package '{packageId}' is reserved for the .NET Platform.");
+        }
+        if (!TryNormalizeFramework(
+                options.Tfm,
+                out string? framework))
+        {
+            return AssetNonProjectableShare(
+                "one valid target framework is required with --tfm.");
+        }
+
+        PackageSourceAuthorization sourceAuthorization =
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions)
+                .AuthorizeSourcesFor(packageId);
+        if (sourceAuthorization.DenialReason is { } denialReason)
+        {
+            return AssetNonProjectableShare(
+                "the effective package source policy was denied: "
+                + denialReason);
+        }
+        if (sourceAuthorization.Sources.Count != 1
+            || !sourceAuthorization.Sources[0].IsNuGetOrg)
+        {
+            return AssetNonProjectableShare(
+                "the effective package source policy must authorize exactly one NuGet.org source.");
+        }
+
+        var definitionCoordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,
-                normalizedVersion,
+                version,
                 framework);
         var workspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
@@ -147,7 +216,7 @@ internal static class DependsShareProjection
                 new WorkspaceContextDefinition(
                     "g0",
                     framework: framework,
-                    members: [coordinate]),
+                    members: [definitionCoordinate]),
             ]);
         var navigation = new NavigationDefinition(
             InspectionDefinitionSchema.Version1,
@@ -155,7 +224,7 @@ internal static class DependsShareProjection
             [
                 new NavigationTabDefinition(
                     "t0",
-                    coordinate: coordinate),
+                    coordinate: definitionCoordinate),
             ],
             "t0");
         var view = new ViewDefinition(
@@ -180,14 +249,15 @@ internal static class DependsShareProjection
         {
             WorkspaceSharePacketProjectionFailure failure =
                 projection.Failure!;
-            return NonProjectable(
-                $"The package dependency view is not projectable at "
-                + $"{failure.Path}: {failure.Message}");
+            return AssetNonProjectableShare(
+                $"the package dependency view is not projectable at "
+                    + $"{failure.Path}: {failure.Message}");
         }
 
-        return WorkspaceShareOutput.Write(
-            projection.Packet!,
-            options.ShareFormat!.Value);
+        string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
+        return new InspectionShare.Available(
+            WorkspaceShareOutput.UrlPrefix + encoded,
+            encoded);
     }
 
     internal static InspectionShare ProjectType(
@@ -321,6 +391,11 @@ internal static class DependsShareProjection
 
     private static InspectionShare NonProjectableShare(string reason) =>
         new InspectionShare.NonProjectable("type-dependency-share", reason);
+
+    private static InspectionShare AssetNonProjectableShare(string reason) =>
+        new InspectionShare.NonProjectable(
+            "asset-dependency-share",
+            reason);
 
     internal static bool TryNormalizeFramework(
         string? value,

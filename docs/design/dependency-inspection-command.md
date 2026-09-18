@@ -707,8 +707,10 @@ demonstration that diagnostic registration disappears from retail compilation.
 
 ## Debug service-evidence enrichment
 
-**Status:** proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+**Status:** the shared terminal, generated Content/Evidence serialization, and
+Debug CLI sidecar are implemented under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117); the
+Browser/Wasm consumer remains proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -742,9 +744,10 @@ baseline consumer to understand `TEvidence`.
 
 ### Concrete evidence value
 
-The typed Content, evidence Document, root-occurrence currency, and
-same-execution association are implemented. The complete evidence capture
-request, generated serialization, and host adoption remain proposed.
+The typed Content, evidence Document, root-occurrence currency, shared
+ordinary/enriched terminal, full package-input capture, generated
+serialization, and Debug CLI adoption are implemented. Browser/Wasm adoption
+remains proposed.
 
 The dependency service issues one named settled Document:
 

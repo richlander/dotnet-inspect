@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -16,6 +17,13 @@ namespace DotnetInspector.Queries;
 /// living in <c>DotnetInspector.PackageQueries</c> maps the real
 /// <c>PackageDependencyCandidateFailure</c> onto this traversal-owned shape one to one.
 /// </remarks>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateFailure.AuthorizationDenied),
+    "authorizationDenied")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateFailure.NoMatchingVersion),
+    "noMatchingVersion")]
 public abstract record PackageDependencyTraversalCandidateFailure
 {
     private PackageDependencyTraversalCandidateFailure()
@@ -36,6 +44,14 @@ public abstract record PackageDependencyTraversalCandidateFailure
 /// Typed evidence for candidate resolution that could not reach an authoritative
 /// answer within the shared operation deadline.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateIncomplete
+        .PinnedAuthorization),
+    "pinnedAuthorization")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateIncomplete.VersionDiscovery),
+    "versionDiscovery")]
 public abstract record PackageDependencyTraversalCandidateIncomplete
 {
     private PackageDependencyTraversalCandidateIncomplete()
@@ -60,6 +76,16 @@ public abstract record PackageDependencyTraversalCandidateIncomplete
 /// The closed result of resolving one normalized declaration to an exact,
 /// source-authorized candidate for traversal expansion.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateResult.Resolved),
+    "resolved")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateResult.Failed),
+    "failed")]
+[JsonDerivedType(
+    typeof(PackageDependencyTraversalCandidateResult.Incomplete),
+    "incomplete")]
 public abstract record PackageDependencyTraversalCandidateResult
 {
     private PackageDependencyTraversalCandidateResult()

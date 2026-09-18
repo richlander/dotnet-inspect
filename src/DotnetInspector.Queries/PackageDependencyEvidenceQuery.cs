@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using InertText;
@@ -96,6 +97,25 @@ public abstract record PackageDependencyEvidenceInput
 }
 
 /// <summary>One typed upstream failure for a root that could not be admitted.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.AuthoredProject),
+    "authoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.PackageProfile),
+    "packageProfile")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootFailure.Acquisition),
+    "acquisition")]
 public abstract record PackageDependencyEvidenceRootFailure
 {
     private PackageDependencyEvidenceRootFailure()
@@ -234,6 +254,19 @@ public sealed record PackageDependencyEvidenceRequest
 }
 
 /// <summary>Stable owner-issued identity for one admitted package input root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.AuthoredProject),
+    "authoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
 public abstract record PackageDependencyEvidenceRootIdentity
 {
     private PackageDependencyEvidenceRootIdentity()
@@ -255,6 +288,19 @@ public abstract record PackageDependencyEvidenceRootIdentity
 }
 
 /// <summary>Identity trust, content provenance, and acquisition form for one admitted root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.AuthoredProject),
+    "authoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRootProvenance.RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
 public abstract record PackageDependencyEvidenceRootProvenance
 {
     private PackageDependencyEvidenceRootProvenance()
@@ -359,6 +405,16 @@ public sealed record PackageDependencyFrameworkScopeIdentity
 }
 
 /// <summary>Stable identity for one normalized logical declaration group.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupIdentity.AuthoredProject),
+    "authoredProject")]
 public abstract record PackageDependencyEvidenceGroupIdentity
 {
     private PackageDependencyEvidenceGroupIdentity()
@@ -382,6 +438,19 @@ public abstract record PackageDependencyEvidenceGroupIdentity
 }
 
 /// <summary>One owner-issued occurrence contributing to a logical declaration group.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.AuthoredProjectTarget),
+    "authoredProjectTarget")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceGroupOccurrence.AuthoredProjectDeclaration),
+    "authoredProjectDeclaration")]
 public abstract record PackageDependencyEvidenceGroupOccurrence
 {
     private PackageDependencyEvidenceGroupOccurrence()
@@ -447,6 +516,25 @@ public sealed record PackageDependencyEvidenceGroup(
     ImmutableArray<PackageDependencyEvidenceDeclaration> Declarations);
 
 /// <summary>A typed reason one declaration projection is incomplete or failed.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure
+        .ConflictingPackageDeclaration),
+    "conflictingPackageDeclaration")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure
+        .InvalidPackageDeclaration),
+    "invalidPackageDeclaration")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure.AuthoredProject),
+    "authoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationFailure
+        .AuthoredProjectUnresolvedSyntax),
+    "authoredProjectUnresolvedSyntax")]
 public abstract record PackageDependencyEvidenceDeclarationFailure
 {
     private PackageDependencyEvidenceDeclarationFailure()
@@ -484,6 +572,19 @@ public abstract record PackageDependencyEvidenceDeclarationFailure
 }
 
 /// <summary>The closed normalized declaration projection for one root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.NotApplicable),
+    "notApplicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceDeclarationResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceDeclarationResult
 {
     private PackageDependencyEvidenceDeclarationResult()
@@ -548,6 +649,13 @@ public sealed record PackageDependencyEvidenceSelection(
     InertString? SelectedFramework);
 
 /// <summary>Stable provider-issued identity for one resolved package node.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidencePackageIdentity.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidencePackageIdentity.RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
 public abstract record PackageDependencyEvidencePackageIdentity
 {
     private PackageDependencyEvidencePackageIdentity()
@@ -564,6 +672,20 @@ public abstract record PackageDependencyEvidencePackageIdentity
 }
 
 /// <summary>The closed parent identity of one produced package relationship.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Root),
+    "root")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Package),
+    "package")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity.Project),
+    "project")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipParentIdentity
+        .RuntimeDependencyLibrary),
+    "runtimeDependencyLibrary")]
 public abstract record PackageDependencyEvidenceRelationshipParentIdentity
 {
     private PackageDependencyEvidenceRelationshipParentIdentity()
@@ -585,6 +707,14 @@ public abstract record PackageDependencyEvidenceRelationshipParentIdentity
 }
 
 /// <summary>Stable provider-issued identity for one produced relationship.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipIdentity.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipIdentity
+        .RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
 public abstract record PackageDependencyEvidenceRelationshipIdentity
 {
     private PackageDependencyEvidenceRelationshipIdentity()
@@ -625,6 +755,14 @@ public sealed record PackageDependencyEvidenceRelationship(
     PackageDependencyEvidenceDeclarationIdentity? DeclarationAssociation);
 
 /// <summary>A typed provider failure retained by the relationship phase.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipFailure.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipFailure
+        .RuntimeDependencyManifest),
+    "runtimeDependencyManifest")]
 public abstract record PackageDependencyEvidenceRelationshipFailure
 {
     private PackageDependencyEvidenceRelationshipFailure()
@@ -640,6 +778,19 @@ public abstract record PackageDependencyEvidenceRelationshipFailure
 }
 
 /// <summary>The additive produced-relationship state for one normalized root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.NotApplicable),
+    "notApplicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceRelationshipResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceRelationshipResult
 {
     private PackageDependencyEvidenceRelationshipResult()
@@ -702,6 +853,14 @@ public enum PackageDependencyEvidenceProcessingObservation
 }
 
 /// <summary>A typed failure to associate processing evidence with its input and target.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingFailure.Association),
+    "association")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingFailure
+        .RestoredProjectPackagePruning),
+    "restoredProjectPackagePruning")]
 public abstract record PackageDependencyEvidenceProcessingFailure
 {
     private PackageDependencyEvidenceProcessingFailure()
@@ -718,6 +877,19 @@ public abstract record PackageDependencyEvidenceProcessingFailure
 }
 
 /// <summary>The positive processing-evidence state for one normalized root.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.NotApplicable),
+    "notApplicable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Unavailable),
+    "unavailable")]
+[JsonDerivedType(
+    typeof(PackageDependencyEvidenceProcessingResult.Failed),
+    "failed")]
 public abstract record PackageDependencyEvidenceProcessingResult
 {
     private PackageDependencyEvidenceProcessingResult()

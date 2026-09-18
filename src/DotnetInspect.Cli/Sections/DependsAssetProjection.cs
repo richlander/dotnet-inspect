@@ -157,12 +157,16 @@ internal sealed record DependsAssetProjection(
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
     DependencyInspectionEvidenceDocument Evidence)
 {
-    internal DependencyInspectionContent Content { get; } =
+    internal DependencyInspectionResult Result { get; } =
         new(
-            Summary,
-            Graph,
-            [.. Roots.Select(static root => root.Content)],
-            Dependencies,
-            Pruning,
-            Failures);
+            new DependencyInspectionContent(
+                Summary,
+                Graph,
+                [.. Roots.Select(static root => root.Content)],
+                Dependencies,
+                Pruning,
+                Failures),
+            Evidence);
+
+    internal DependencyInspectionContent Content => Result.Content;
 }

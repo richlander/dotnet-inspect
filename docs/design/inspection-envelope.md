@@ -297,6 +297,8 @@ ordinary and evidence-enabled static delegates, invokes exactly one, and
 returns the ordinary inspection plus an optional evidence envelope. When
 enriched, both tuple members reference the same `InspectionEnvelope<TContent>`;
 the tuple is host orchestration rather than a third service return form.
+`BuildAsync` preserves the same selection and reference rules for operations
+whose acquisition or inspection work is asynchronous.
 
 The host resolves both capture intent and delivery intent before execution.
 Delivery may replace a host's primary output or accompany its ordinary Content

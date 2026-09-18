@@ -62,4 +62,46 @@ public sealed class EvidenceBuilder<TContent, TEvidence>
             inspectWithEvidence(state);
         return (evidence.Inspection, evidence);
     }
+
+    /// <summary>
+    /// Asynchronously invokes exactly one inspection delegate and returns the
+    /// ordinary inspection with its optional evidence envelope.
+    /// </summary>
+    /// <typeparam name="TState">
+    /// The state supplied to the static inspection delegates.
+    /// </typeparam>
+    /// <param name="state">The operation state.</param>
+    /// <param name="inspect">The ordinary inspection operation.</param>
+    /// <param name="inspectWithEvidence">
+    /// The evidence-enabled inspection operation.
+    /// </param>
+    /// <returns>
+    /// The ordinary inspection and, when requested, an evidence envelope that
+    /// contains that same inspection instance.
+    /// </returns>
+    public async Task<(
+        InspectionEnvelope<TContent> Inspection,
+        EvidenceInspectionEnvelope<TContent, TEvidence>? Evidence)>
+        BuildAsync<TState>(
+            TState state,
+            Func<TState, Task<InspectionEnvelope<TContent>>> inspect,
+            Func<
+                TState,
+                Task<EvidenceInspectionEnvelope<TContent, TEvidence>>>
+                inspectWithEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(inspect);
+        ArgumentNullException.ThrowIfNull(inspectWithEvidence);
+
+        if (!_evidenceRequested)
+        {
+            return (
+                await inspect(state).ConfigureAwait(false),
+                null);
+        }
+
+        EvidenceInspectionEnvelope<TContent, TEvidence> evidence =
+            await inspectWithEvidence(state).ConfigureAwait(false);
+        return (evidence.Inspection, evidence);
+    }
 }

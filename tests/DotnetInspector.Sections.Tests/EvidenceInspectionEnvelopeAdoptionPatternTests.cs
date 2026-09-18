@@ -109,6 +109,62 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
         }
     }
 
+    [Fact]
+    public async Task AsyncBuilderWithoutEvidenceRequestUsesOrdinaryEntryPoint()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+
+        (
+            InspectionEnvelope<ExampleInspectionContent> inspection,
+            EvidenceInspectionEnvelope<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence>? evidence) =
+            await BuildAsync(builder, service, Request());
+
+        Assert.Null(evidence);
+        Assert.Equal(0, inspection.Content.MatchCount);
+        Assert.Equal(1, service.ExecutionCount);
+        Assert.Equal(0, service.EvidenceCaptureCount);
+    }
+
+    [Fact]
+    public async Task AsyncBuilderRequestMatchesCompilationAndReusesBaseline()
+    {
+        var service = new ExampleInspectionService();
+        var builder = new EvidenceBuilder<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>();
+        var requestProbe = new EvidenceRequestProbe();
+
+        builder.RequestEvidence(requestProbe.Request());
+        (
+            InspectionEnvelope<ExampleInspectionContent> inspection,
+            EvidenceInspectionEnvelope<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence>? evidence) =
+            await BuildAsync(builder, service, Request());
+
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+
+        Assert.Equal(
+            buildProbe.IsDebugBuild ? 1 : 0,
+            requestProbe.EvaluationCount);
+        Assert.Equal(1, service.ExecutionCount);
+        Assert.Equal(
+            buildProbe.IsDebugBuild ? 1 : 0,
+            service.EvidenceCaptureCount);
+        Assert.Equal(buildProbe.IsDebugBuild, evidence is not null);
+        if (evidence is not null)
+        {
+            Assert.Same(inspection, evidence.Inspection);
+            Assert.Equal(2, evidence.Evidence.Decisions.Length);
+        }
+    }
+
     private static (
         InspectionEnvelope<ExampleInspectionContent> Inspection,
         EvidenceInspectionEnvelope<
@@ -124,6 +180,25 @@ public sealed class EvidenceInspectionEnvelopeAdoptionPatternTests
             (Service: service, Request: request),
             static state => state.Service.Execute(state.Request),
             static state => state.Service.ExecuteWithEvidence(state.Request));
+
+    private static Task<(
+        InspectionEnvelope<ExampleInspectionContent> Inspection,
+        EvidenceInspectionEnvelope<
+            ExampleInspectionContent,
+            ExampleInspectionEvidence>? Evidence)>
+        BuildAsync(
+            EvidenceBuilder<
+                ExampleInspectionContent,
+                ExampleInspectionEvidence> builder,
+            ExampleInspectionService service,
+            ExampleInspectionRequest request) =>
+        builder.BuildAsync(
+            (Service: service, Request: request),
+            static state =>
+                Task.FromResult(state.Service.Execute(state.Request)),
+            static state =>
+                Task.FromResult(
+                    state.Service.ExecuteWithEvidence(state.Request)));
 
     private static ExampleInspectionRequest Request() =>
         new(["alpha", "beta"], "z");

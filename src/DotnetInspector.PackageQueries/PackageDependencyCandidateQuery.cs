@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using NuGetFetch;
@@ -22,6 +23,16 @@ public abstract record PackageDependencyCandidateRequest(
 }
 
 /// <summary>Why one exact dependency candidate could not be issued.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateFailure.AuthorizationDenied),
+    "authorizationDenied")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateFailure.NoMatchingVersion),
+    "noMatchingVersion")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateFailure.ResolvedCoordinateMismatch),
+    "resolvedCoordinateMismatch")]
 public abstract record PackageDependencyCandidateFailure
 {
     private PackageDependencyCandidateFailure()
@@ -41,6 +52,13 @@ public abstract record PackageDependencyCandidateFailure
 }
 
 /// <summary>Typed evidence for an incomplete candidate resolution.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateIncomplete.PinnedAuthorization),
+    "pinnedAuthorization")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateIncomplete.VersionDiscovery),
+    "versionDiscovery")]
 public abstract record PackageDependencyCandidateIncomplete
 {
     private PackageDependencyCandidateIncomplete()
@@ -60,6 +78,16 @@ public abstract record PackageDependencyCandidateIncomplete
 }
 
 /// <summary>The closed result of resolving one normalized declaration.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateResult.Resolved),
+    "resolved")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateResult.Failed),
+    "failed")]
+[JsonDerivedType(
+    typeof(PackageDependencyCandidateResult.Incomplete),
+    "incomplete")]
 public abstract record PackageDependencyCandidateResult(
     PackageDependencyEvidenceDeclaration Declaration)
 {

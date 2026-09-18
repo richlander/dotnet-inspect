@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -28,6 +29,28 @@ public enum DependencyGraphResolutionState
     Rejected,
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Type), "type")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Library), "library")]
+[JsonDerivedType(typeof(DependencyGraphNodeIdentity.Package), "package")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.RestoredRoot),
+    "restoredRoot")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.RestoredProject),
+    "restoredProject")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.RestoredPackage),
+    "restoredPackage")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageBoundary),
+    "packageBoundary")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageFailure),
+    "packageFailure")]
+[JsonDerivedType(
+    typeof(DependencyGraphNodeIdentity.PackageBudget),
+    "packageBudget")]
 public abstract record DependencyGraphNodeIdentity
 {
     private DependencyGraphNodeIdentity()
@@ -152,6 +175,22 @@ public sealed record DependencyGraphPackageProjection(
     int? RootOccurrence,
     ImmutableArray<PackageAuthorityFailure> Diagnostics);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.AssemblyReference),
+    "assemblyReference")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.PackageVersionConstraint),
+    "packageVersionConstraint")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.PackageDeclaration),
+    "packageDeclaration")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.RestoredProjectRelationship),
+    "restoredProjectRelationship")]
+[JsonDerivedType(
+    typeof(DependencyGraphEvidenceIdentity.RestoredPackageRelationship),
+    "restoredPackageRelationship")]
 public abstract record DependencyGraphEvidenceIdentity
 {
     private DependencyGraphEvidenceIdentity()
@@ -194,7 +233,13 @@ public sealed record DependencyGraphEdge(
     int? TargetPackageProjectionId = null,
     PackageDependencyTraversalEdgeEmissionAuthority? PackageEmissionAuthority =
         null,
-    ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default);
+    ImmutableArray<PackageAuthorityFailure> PackageDiagnostics = default)
+{
+    public ImmutableArray<PackageAuthorityFailure> PackageDiagnostics
+        { get; init; } = PackageDiagnostics.IsDefault
+            ? []
+            : PackageDiagnostics;
+}
 
 public sealed record DependencyGraphDocument(
     ImmutableArray<DependencyGraphRootOccurrence> Roots,
