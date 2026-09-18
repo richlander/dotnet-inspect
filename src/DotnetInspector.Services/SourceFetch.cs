@@ -4,7 +4,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services;
 
-internal enum SourceError
+public enum SourceError
 {
     InvalidUrl,
     RequestNotAuthorized,
@@ -14,15 +14,15 @@ internal enum SourceError
     StorageFailed,
 }
 
-internal abstract record FetchSourceResult
+public abstract record FetchSourceResult
 {
     private protected FetchSourceResult()
     {
     }
 
-    internal sealed record Success(byte[] Content) : FetchSourceResult;
+    public sealed record Success(byte[] Content) : FetchSourceResult;
 
-    internal sealed record Failure(SourceError Error) : FetchSourceResult;
+    public sealed record Failure(SourceError Error) : FetchSourceResult;
 }
 
 /// <summary>
@@ -61,7 +61,7 @@ public class SourceFetch
     /// <paramref name="validator"/>. Invalid cached bytes are bypassed; invalid network bytes are
     /// neither returned nor cached.
     /// </summary>
-    internal Task<FetchSourceResult> FetchVerifiedSourceBytesAsync(
+    public Task<FetchSourceResult> FetchVerifiedSourceBytesAsync(
         string url,
         Func<ReadOnlyMemory<byte>, bool> validator,
         CancellationToken cancellationToken = default)

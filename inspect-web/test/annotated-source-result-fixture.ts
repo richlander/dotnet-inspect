@@ -60,10 +60,15 @@ export const sampleCalleeEvidence = {
     ilOffset: 2,
     kind: "Localloc",
   }],
-  document: sampleCalleeDocument,
+  documentId: 0,
   nodeIds: [0],
   unavailableReason: null,
 } as const;
+
+export const sampleCalleeEvidenceDocuments = [{
+  id: 0,
+  document: sampleCalleeDocument,
+}] as const;
 
 export const sampleViewerCatalog = {
   defaultFindingIds: [0, 1],
