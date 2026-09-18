@@ -1,5 +1,7 @@
 using System.IO.Compression;
+using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
@@ -86,6 +88,22 @@ public sealed class ExactLibraryWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
+                    JsonOutput = true,
+                    Verbosity = Verbosity.Normal,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Verbosity = Verbosity.Detailed,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
                     Tfm = "all",
                 },
                 out _));
@@ -96,7 +114,7 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     TypeName = typeof(ApiType).FullName,
                 },
                 out _));
-        Assert.False(
+        Assert.True(
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
@@ -112,6 +130,124 @@ public sealed class ExactLibraryWorkspaceRouteTests
                     ShowDocs = true,
                 },
                 out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Tree = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Bare = true,
+                },
+                out _));
+    }
+
+    [Theory]
+    [InlineData("n")]
+    [InlineData("d")]
+    [Trait("Speed", "Slow")]
+    public async Task RicherJsonVerbosityUsesCompatibilityPath(
+        string verbosity)
+    {
+        string[] arguments =
+        [
+            "type",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--library",
+            "System.Text.Json.dll",
+            "--tfm",
+            "net10.0",
+            "--json",
+            "--compact",
+            $"-v:{verbosity}",
+            "-T",
+            "q",
+        ];
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed =
+            CommandLineBuilder.PreprocessArgs(arguments, root);
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeAsync(
+                    root.Parse(processed),
+                    processed));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement json = document.RootElement;
+        Assert.True(json.TryGetProperty("types", out JsonElement types));
+        Assert.True(types.GetArrayLength() > 0);
+        Assert.False(json.TryGetProperty("outcome", out _));
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesUnprojectedJson()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            TipLevel = TipLevel.Quiet,
+            CompactJson = true,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        (int jsonExit, string jsonOutput, string jsonError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline with
+                    {
+                        JsonOutput = true,
+                        Format = OutputFormat.Json,
+                        FormatExplicitlySet = true,
+                        FormatFlagExplicitlySet = true,
+                    },
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+        (int envelopeExit, string envelopeOutput, string envelopeError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline with { EnvelopeOutput = true },
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+
+        Assert.Equal(0, jsonExit);
+        Assert.Equal(0, envelopeExit);
+        Assert.Empty(jsonError);
+        Assert.Empty(envelopeError);
+        using JsonDocument contentDocument =
+            JsonDocument.Parse(jsonOutput);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelopeOutput);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal(
+            "exact-library-api",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(JsonElement.DeepEquals(
+            contentDocument.RootElement,
+            root.GetProperty("content")));
+        Assert.Equal(
+            "available",
+            root.GetProperty("share").GetProperty("kind").GetString());
     }
 
     [Fact]
@@ -143,6 +279,45 @@ public sealed class ExactLibraryWorkspaceRouteTests
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
+        Assert.Contains(
+            "Library 'Missing.dll' not found in package.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MissingLibraryContentJsonRemainsVisible()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = "Missing.dll",
+            Tfm = Framework,
+            TipLevel = TipLevel.Quiet,
+            JsonOutput = true,
+            Format = OutputFormat.Json,
+            FormatExplicitlySet = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("outcome", out _));
         Assert.Contains(
             "Library 'Missing.dll' not found in package.",
             error,

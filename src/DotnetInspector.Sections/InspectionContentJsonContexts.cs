@@ -35,3 +35,15 @@ public partial class PackageQueryJsonContext : JsonSerializerContext;
     TypeInfoPropertyName = "PackageAssemblyEvaluationFailure")]
 public partial class PackageAssemblySemanticQueryJsonContext
     : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(ExactTypeInspectionResult))]
+public partial class ExactTypeInspectionJsonContext
+    : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(ExactLibraryApiInspectionResult))]
+public partial class ExactLibraryApiInspectionJsonContext
+    : JsonSerializerContext;

@@ -53,6 +53,7 @@ public class TypeOptionsParserTests
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
+        typeCommand.Options.Add(opts.Envelope);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 
@@ -117,6 +118,41 @@ public class TypeOptionsParserTests
         finally
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("table")]
+    public async Task Envelope_IgnoresEnvironmentFormat(string format)
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+            var options = await ParseSuccessAsync(
+                "type",
+                "JsonSerializer",
+                "--package",
+                "System.Text.Json@10.0.0",
+                "--tfm",
+                "net10.0",
+                "--envelope");
+
+            Assert.True(options.EnvelopeOutput);
+            Assert.False(options.JsonOutput);
+            Assert.False(options.Tabular);
+            Assert.False(options.FormatExplicitlySet);
+            Assert.Equal(OutputFormat.Json, options.Format);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
         }
     }
 

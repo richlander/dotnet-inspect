@@ -296,6 +296,10 @@ public static class TypeOptionsParser
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
 
+        bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+        OutputFormat outputFormat = envelopeOutput
+            ? OutputFormat.Json
+            : opts.ResolveFormat(parseResult);
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
@@ -316,16 +320,19 @@ public static class TypeOptionsParser
             DocsExplicitlySet = false,
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                 && !parseResult.GetValue(opts.RawUrls),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
+            EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-            Format = opts.ResolveFormat(parseResult),
+            Tabular = !envelopeOutput && opts.ResolveTabular(parseResult),
+            Tsv = !envelopeOutput && opts.ResolveTsv(parseResult),
+            Jsonl = !envelopeOutput && opts.ResolveJsonl(parseResult),
+            TabularExplicitlySet =
+                !envelopeOutput && opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet =
+                !envelopeOutput && opts.IsFormatExplicitlySet(parseResult),
+            Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-            PlainText = parseResult.GetValue(opts.PlainText),
+            PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),

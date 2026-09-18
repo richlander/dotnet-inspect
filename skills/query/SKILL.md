@@ -15,10 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Positional
-`depends <type>` also has a separate complete-service `--envelope` path
-described below. Other relationship commands may still expose fixed output.
-Discover the shape first where available, then select and project.
+projection across its dependency graph and evidence sections. Several commands
+also expose a separate complete-service `--envelope` path described below.
+Other relationship commands may still expose fixed output. Discover the shape
+first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -41,9 +41,10 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-Positional `depends <type>`, single-Library API `diff`, Package Activity, and
-ordinary or `--library-literal` Package Query support presence-only
-`--envelope`. It implies JSON and emits the complete service value with
+Positional `depends <type>`, single-Library API `diff`, Package Activity,
+ordinary or `--library-literal` Package Query, and eligible exact
+package-backed `type` gestures support presence-only `--envelope`. It implies
+JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
 For dependencies, `content` is semantically identical to the owner-issued camelCase
 `TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
@@ -58,12 +59,14 @@ explicit verbosity, row/line controls, and non-API modes are incompatible with
 envelope output. Explicitly projected Diff JSON retains its presentation
 schema. Load `skill compatibility` for outcome and scope details.
 Package Activity uses `ecosystem-change-report`; ordinary Package Query uses
-`package-query`; and assembly-semantic Package Query uses
-`package-assembly-semantic-query`. Their unprojected `--json` uses the same
-Content serializer. Query controls remain admitted, while Count, row or section
-selection, projection, discovery, and competing formats are incompatible.
-Asset-mode `depends`, other command routes, internal sub-operations, and
-`--evidence-envelope` remain unadopted.
+`package-query`; assembly-semantic Package Query uses
+`package-assembly-semantic-query`; and exact Type and Library API inspection use
+`exact-type` and `exact-library-api`. Their unprojected `--json` uses the same
+Content serializer. Query controls remain admitted for Package Query. Exact
+Type and Library API admission is limited to complete quiet/minimal output.
+Count, row or section selection, projection, discovery, and competing formats
+are incompatible with envelope output. Asset-mode `depends`, other command
+routes, internal sub-operations, and `--evidence-envelope` remain unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a

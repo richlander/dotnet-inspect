@@ -27,6 +27,22 @@ public static class TypeCommand
 {
     public const string Name = "type";
 
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactTypeInspectionResult> ExactTypeJsonContract =
+            new(
+                "exact-type",
+                1,
+                ExactTypeInspectionJsonContext.Default
+                    .ExactTypeInspectionResult);
+
+    private static readonly InspectionEnvelopeJsonContract<
+        ExactLibraryApiInspectionResult> ExactLibraryApiJsonContract =
+            new(
+                "exact-library-api",
+                1,
+                ExactLibraryApiInspectionJsonContext.Default
+                    .ExactLibraryApiInspectionResult);
+
     public static Task<int> ExecuteAsync(TypeOptions options)
         => ExecuteAsync(
             options,
@@ -187,6 +203,13 @@ public static class TypeCommand
                     exactLibraryRequest,
                     exactTypeCapabilities)
                 .ConfigureAwait(false);
+        }
+
+        if (options.EnvelopeOutput)
+        {
+            CommandError.Write(
+                "--envelope on type requires exact package-backed Type or Library API inspection, or --match.");
+            return 1;
         }
 
         bool ownsSource = resolvedSource is null;
@@ -689,17 +712,19 @@ public static class TypeCommand
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(options.TypeName)
+            || !string.IsNullOrWhiteSpace(options.TypeFilter)
             || new TypeGestureIntent(options.TypeFilter)
                 .SelectsListingCatalog(options.TypeName)
             || options.EffectiveDiscovery
             || options.Verbosity is not (
                 Verbosity.Quiet or Verbosity.Minimal)
-            || !options.IsDefaultInvocation
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
+            || options.UseLocalDocs
             || options.ShowSamples
             || options.BrowsableUrls
             || options.MemberFilter.Count > 0
@@ -720,7 +745,7 @@ public static class TypeCommand
         }
 
         (string packageId, string? version) =
-            PackageExtractor.ParsePackageReference(options.PackagePath);
+            PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
             || string.IsNullOrWhiteSpace(version))
         {
@@ -732,8 +757,8 @@ public static class TypeCommand
             request = new ExactTypeInspectionRequest(
                 packageId,
                 version,
-                options.Tfm,
-                options.TypeName);
+                options.Tfm!,
+                options.TypeName!);
             return true;
         }
         catch (ArgumentException)
@@ -758,16 +783,20 @@ public static class TypeCommand
             || options.ProjectAssetsPath is not null
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(options.TypeFilter)
             || !(string.IsNullOrWhiteSpace(options.TypeName)
                 || new TypeGestureIntent(options.TypeFilter)
                     .SelectsListingCatalog(options.TypeName))
             || options.EffectiveDiscovery
-            || !options.IsDefaultInvocation
+            || options.Verbosity is not (
+                Verbosity.Quiet or Verbosity.Minimal)
+            || !IsCompleteInspectionOutput(options)
             || options.HasSectionQuery
             || options.IncludeSections is { Count: > 0 }
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
+            || options.UseLocalDocs
             || options.ShowSamples
             || options.BrowsableUrls
             || options.MemberFilter.Count > 0
@@ -788,7 +817,7 @@ public static class TypeCommand
         }
 
         (string packageId, string? version) =
-            PackageExtractor.ParsePackageReference(options.PackagePath);
+            PackageExtractor.ParsePackageReference(options.PackagePath!);
         if (string.IsNullOrWhiteSpace(packageId)
             || string.IsNullOrWhiteSpace(version))
         {
@@ -800,14 +829,48 @@ public static class TypeCommand
             request = new ExactLibraryApiInspectionRequest(
                 packageId,
                 version,
-                options.Tfm,
-                options.AssemblyPath);
+                options.Tfm!,
+                options.AssemblyPath!);
             return true;
         }
         catch (ArgumentException)
         {
             return false;
         }
+    }
+
+    static bool IsCompleteInspectionOutput(TypeOptions options)
+    {
+        bool completeFormat =
+            options.IsDefaultInvocation
+            || options.JsonOutput
+            || options.EnvelopeOutput;
+
+        return completeFormat
+            && !options.Bare
+            && !options.Tree
+            && !options.ShapeOutput
+            && !options.ShapeExplicitlySet
+            && !options.Print
+            && options.PrintRow is null
+            && !options.Value
+            && !options.Urls
+            && !options.Paths
+            && !options.JsonArray
+            && !options.NoHeader
+            && !options.MarkdownExplicitlySet
+            && !options.PlainText
+            && !options.Tabular
+            && !options.Tsv
+            && !options.Jsonl
+            && !options.MermaidOutput
+            && !options.EmbeddedMermaid
+            && !options.Count
+            && options.Discover is null
+            && !options.Schema
+            && options.Columns is null
+            && options.Fields is null
+            && !options.RequestAllTaste;
     }
 
     static Task<int> ExecuteSharedExactLibraryApiAsync(
@@ -844,6 +907,27 @@ public static class TypeCommand
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
         ExactLibraryApiInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactLibraryApiJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            WriteInspectionDiagnostics(envelope.Diagnostics);
+            if (result.Outcome
+                    is not ExactLibraryApiInspectionOutcome.Available
+                && !envelope.Diagnostics.Any(diagnostic =>
+                    diagnostic.Severity
+                        == InspectionDiagnosticSeverity.Error))
+            {
+                CommandError.Write(
+                    result.Failures.FirstOrDefault()?.Detail
+                    ?? "Could not extract API from library.");
+            }
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (result.Outcome
                 is not ExactLibraryApiInspectionOutcome.Available
             || execution.Surface is null)
@@ -938,13 +1022,27 @@ public static class TypeCommand
         }
 
         ExactTypeInspectionResult result = envelope.Content;
+        if (options.EnvelopeOutput || options.JsonOutput)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                ExactTypeJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            if (!result.IsAvailable)
+                WriteExactTypeNonSuccess(envelope);
+            else
+                WriteInspectionDiagnostics(envelope.Diagnostics);
+            return wrote && result.IsComplete ? 0 : 1;
+        }
+
         if (!result.IsAvailable)
         {
             WriteExactTypeNonSuccess(envelope);
             return 1;
         }
 
-        WriteExactTypeDiagnostics(envelope.Diagnostics);
+        WriteInspectionDiagnostics(envelope.Diagnostics);
 
         ExactTypeApi exactType = result.Type!;
         MetadataTypeDefinitionName definitionName =
@@ -1076,7 +1174,7 @@ public static class TypeCommand
             ? null
             : envelope.Diagnostics.FirstOrDefault(diagnostic =>
                 diagnostic.Code == primaryCode);
-        WriteExactTypeDiagnostics(
+        WriteInspectionDiagnostics(
             primary is null
                 ? envelope.Diagnostics
                 : envelope.Diagnostics.Where(diagnostic =>
@@ -1099,7 +1197,7 @@ public static class TypeCommand
         }
     }
 
-    static void WriteExactTypeDiagnostics(
+    static void WriteInspectionDiagnostics(
         IEnumerable<InspectionDiagnostic> diagnostics)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)
@@ -1120,7 +1218,7 @@ public static class TypeCommand
                     throw new ArgumentOutOfRangeException(
                         nameof(diagnostics),
                         diagnostic.Severity,
-                        "Unknown exact Type diagnostic severity.");
+                        "Unknown inspection diagnostic severity.");
             }
         }
     }

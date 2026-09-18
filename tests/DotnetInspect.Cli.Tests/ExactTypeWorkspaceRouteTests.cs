@@ -3,7 +3,9 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Planning;
@@ -88,10 +90,74 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactTypeRequest(
                 options with
                 {
-                    IncludeSections = ["Summary"],
+                    JsonOutput = true,
+                    Tree = true,
                 },
                 out _));
         Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Bare = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Schema = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    ShapeOutput = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Print = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    Count = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    RequestAllTaste = true,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
+                    TypeFilter = typeof(ApiType).FullName,
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    IncludeSections = ["Summary"],
+                },
+                out _));
+        Assert.True(
             TypeCommand.TryCreateSharedExactTypeRequest(
                 options with
                 {
@@ -110,6 +176,106 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.DoesNotContain(
             typeof(ExactTypeInspectionRequest).GetProperties(),
             property => property.Name == "IncludeAll");
+    }
+
+    [Fact]
+    public async Task EnvelopeContentMatchesUnprojectedJson()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var baseline = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            TipLevel = TipLevel.Quiet,
+            CompactJson = true,
+        };
+        WorkspaceContextLoadOptions capabilities = new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+        (int jsonExit, string jsonOutput, string jsonError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline with
+                    {
+                        JsonOutput = true,
+                        Format = OutputFormat.Json,
+                        FormatExplicitlySet = true,
+                        FormatFlagExplicitlySet = true,
+                    },
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+        (int envelopeExit, string envelopeOutput, string envelopeError) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    baseline with { EnvelopeOutput = true },
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(baseline),
+                    capabilities));
+
+        Assert.Equal(0, jsonExit);
+        Assert.Equal(0, envelopeExit);
+        Assert.Empty(jsonError);
+        Assert.Empty(envelopeError);
+        using JsonDocument contentDocument =
+            JsonDocument.Parse(jsonOutput);
+        using JsonDocument envelopeDocument =
+            JsonDocument.Parse(envelopeOutput);
+        JsonElement root = envelopeDocument.RootElement;
+        Assert.Equal(
+            "exact-type",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(JsonElement.DeepEquals(
+            contentDocument.RootElement,
+            root.GetProperty("content")));
+        Assert.Equal(
+            "available",
+            root.GetProperty("share").GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task UnavailableContentJsonRemainsVisible()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/PartiallyMalformed.dll",
+                BuildPartiallyMalformedTypeAssembly()));
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = "Exact.Type.Malformed",
+            TipLevel = TipLevel.Quiet,
+            JsonOutput = true,
+            Format = OutputFormat.Json,
+            FormatExplicitlySet = true,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(1, exitCode);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("outcome", out _));
+        Assert.Contains("MalformedMetadata", error, StringComparison.Ordinal);
     }
 
     [Fact]
