@@ -1340,6 +1340,12 @@ public sealed partial class CSharpPrinter
         // to the default value spelling.
         if (ArgumentLvalue(argument, pointerAsAddress) is not { } place)
             return null;
+        if (refKind == ArgumentRefKind.Out
+            && argument is LoadLocalAddress address
+            && _outVariableDeclarations.Contains(address))
+        {
+            return $"out {TypeText(_function.Locals[address.Index])} {LocalName(address.Index)}";
+        }
         return refKind == ArgumentRefKind.Out ? $"out {place}" : $"ref {place}";
     }
 
