@@ -17,7 +17,7 @@ namespace DotnetInspector.SourceHouse.Tests;
 
 // PR-fast unless individually tagged: bounded settlement over this repository's
 // real production assemblies, portable PDBs, and authored source files.
-public sealed class AuthoredSourceHouseTests
+public sealed partial class AuthoredSourceHouseTests
 {
     private static readonly ApiSurfaceExtractionBounds s_targetBounds =
         new(
