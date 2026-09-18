@@ -3120,15 +3120,25 @@ public partial class CommandExecutionTests
         Assert.Equal(expectedCount, output.Trim());
     }
 
-    [Fact]
-    public async Task Member_FactsStructuralDiscovery_DoesNotActivateProjectedJsonAdoption()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption(
+        bool schema)
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] discovery = schema
+            ? ["-D", "--schema"]
+            : ["-D"];
+        string[] arguments =
+        [
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             nameof(FactsTableFixture.MultipleFacts),
-            "-D", "--schema", "-S", "Facts", "--json",
-            "--columns", "Name", "-n", "1", "--tips", "q");
+            .. discovery,
+            "-S", "Facts", "--json",
+            "--columns", "Name", "-n", "1", "--tips", "q",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
