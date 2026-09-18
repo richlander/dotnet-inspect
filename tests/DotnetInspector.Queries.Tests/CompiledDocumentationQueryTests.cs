@@ -534,7 +534,7 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
-        AuthoritativePackageAbsencePreservesSourceProvenance()
+        AuthoritativePackageAbsenceSurvivesBoundedProvenance()
     {
         await using LibraryFixture library =
             await LibraryFixture.CreateAsync();
@@ -547,10 +547,25 @@ public sealed class CompiledDocumentationQueryTests
                 DocumentationSourceReference.Create(
                     DocumentationSourceKind.Package,
                     "package:System.Text.Json@10.0.0"));
+        CompiledXmlContribution[] precedingUnavailable =
+            Enumerable.Range(0, 8)
+                .Select(
+                    index =>
+                        CompiledXmlContribution.Unavailable(
+                            subject,
+                            library.Reference,
+                            library.Reference.ApiAssembly,
+                            DocumentationSourceReference.Create(
+                                DocumentationSourceKind.DirectLibrary,
+                                $"unavailable-source-{index}")))
+                .ToArray();
 
         CompiledDocumentationQueryResult result =
             await CompiledDocumentationQuery.ExecuteAsync(
-                Request(subject, [absentContribution]),
+                Request(
+                    subject,
+                    [.. precedingUnavailable, absentContribution],
+                    maximumContributions: 9),
                 library.IssueOperation(),
                 TestContext.Current.CancellationToken);
 
@@ -566,7 +581,11 @@ public sealed class CompiledDocumentationQueryTests
             Assert.IsType<CompiledDocumentationOutcome.Absent>(
                 result.Content);
         CompiledDocumentationSourceEvidence evidence =
-            Assert.Single(content.Sources);
+            Assert.Single(
+                content.Sources,
+                static source =>
+                    source.Kind
+                        == CompiledDocumentationSourceEvidenceKind.Absent);
         Assert.Equal(
             CompiledDocumentationSourceEvidenceKind.Absent,
             evidence.Kind);
@@ -576,7 +595,15 @@ public sealed class CompiledDocumentationQueryTests
         Assert.Equal(
             "package:System.Text.Json@10.0.0",
             evidence.Source.Name);
-        Assert.False(content.SourcesTruncated);
+        Assert.Equal(8, content.Sources.Length);
+        Assert.Equal(
+            7,
+            content.Sources.Count(
+                static source =>
+                    source.Kind
+                        == CompiledDocumentationSourceEvidenceKind
+                            .Unavailable));
+        Assert.True(content.SourcesTruncated);
 
         await library.RetireAsync();
         byte[] payload = Serialize(result.Content);
@@ -588,13 +615,14 @@ public sealed class CompiledDocumentationQueryTests
             document.RootElement,
             "kind",
             "subject",
-            "sources");
-        JsonElement sourceEvidence =
-            Assert.Single(
-                document.RootElement
-                    .GetProperty("sources")
-                    .EnumerateArray());
+            "sources",
+            "sourcesTruncated");
+        JsonElement sourceEvidence = document.RootElement
+            .GetProperty("sources")[0];
         AssertPropertyNames(sourceEvidence, "kind", "source");
+        Assert.Equal(
+            nameof(CompiledDocumentationSourceEvidenceKind.Absent),
+            sourceEvidence.GetProperty("kind").GetString());
         AssertPropertyNames(
             sourceEvidence.GetProperty("source"),
             "kind",

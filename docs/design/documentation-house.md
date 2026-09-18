@@ -740,8 +740,9 @@ evidence; repeated source arrays retain at most eight distinct values and state
 when more values were omitted. An `absent` result caused by a selected compiled
 XML document that lacks the requested member carries that selected candidate as
 its sole decisive evidence. An `absent` result with no selected candidate
-carries the bounded contribution evidence, including an authoritative package
-source that reported no compiled XML companion.
+carries the bounded contribution evidence. Contributions that authoritatively
+report absence take precedence within that bound, so earlier unavailable
+sources cannot displace the evidence that establishes the terminal case.
 
 Request, operation-plan, policy-generation, demand, work-charge, lease-consumer,
 duplicate type/member anchors, full contribution history, and nullable
@@ -968,8 +969,9 @@ outcome. Neighboring absent, unavailable, contribution-rejected,
 contribution-failed, and top-level lease-rejected results each retain a
 discriminator-specific shape rather than becoming empty documentation.
 The absent gates cover both a selected document without the requested member
-and a package-shaped authoritative missing-companion contribution; each
-preserves its applicable source provenance after Library retirement.
+and a package-shaped authoritative missing-companion contribution preceded by
+eight distinct unavailable sources; each preserves its applicable source
+provenance after Library retirement.
 A four-million-contribution input constrained by a nine-entry House limit
 retains eight distinct source, kind, and precedence values plus explicit
 truncation without presenting unfinished work as available documentation. That

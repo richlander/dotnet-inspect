@@ -308,7 +308,16 @@ public static class CompiledDocumentationQuery
         IEnumerable<CompiledXmlContribution> applicableContributions =
             absent.Selected is { } selected
                 ? [selected]
-                : absent.Contributions;
+                : absent.Contributions
+                    .Where(
+                        static contribution =>
+                            contribution.Kind
+                                == CompiledXmlContributionKind.Absent)
+                    .Concat(
+                        absent.Contributions.Where(
+                            static contribution =>
+                                contribution.Kind
+                                    != CompiledXmlContributionKind.Absent));
         (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
             bool truncated) =
             TakeDistinct(
