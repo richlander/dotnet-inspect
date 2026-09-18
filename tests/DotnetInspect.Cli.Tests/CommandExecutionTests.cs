@@ -1069,6 +1069,18 @@ public partial class CommandExecutionTests
                 GC.KeepAlive(value);
             }
         }
+
+        public int FilteredCatch(int value)
+        {
+            try
+            {
+                return 100 / value;
+            }
+            catch (DivideByZeroException) when (value == 0)
+            {
+                return -1;
+            }
+        }
     }
 
     private sealed class ILOffsetFunctionPointerFixture
@@ -2094,8 +2106,6 @@ public partial class CommandExecutionTests
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {
         List<string> args = [.. command];
-        if (command is ["library", ..] && section == "Context: Source Location")
-            args.AddRange(["--il-offset", "0x06000041+0x0"]);
         args.AddRange(section == SectionNames.FindingCensus
             ? ["-S", section, "--tips", "q"]
             : ["-S", section, "--table", "--tips", "q", "-n", "40"]);

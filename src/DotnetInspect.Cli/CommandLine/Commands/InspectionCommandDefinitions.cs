@@ -379,9 +379,6 @@ public static class InspectionCommandDefinitions
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
-        var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
-        var ilOffsetsOption = new Option<string?>("--il-offsets") { Description = "Text file of sparse MethodDef token + IL offset coordinates to explain" };
-        var heapOption = new Option<string?>("--heap") { Description = "Metadata heap coordinate for the coordinate-scoped heap section (e.g., #Strings:0x1a4)" };
         var metadataRootOption = new Option<string?>("--metadata-root")
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
@@ -402,9 +399,6 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
-        assemblyCommand.Options.Add(ilOffsetOption);
-        assemblyCommand.Options.Add(ilOffsetsOption);
-        assemblyCommand.Options.Add(heapOption);
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
@@ -428,6 +422,7 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            var source = parseResult.GetValue(assemblyPathArg);
             if (!IntegrationQueryOptions.TryExtract(
                     parseResult.GetValue(opts.RowWhere) ?? [],
                     out var integrationQuery,
@@ -460,7 +455,6 @@ public static class InspectionCommandDefinitions
                     + "Body Shapes, or Performance Triage predicates/ranking.");
                 return 1;
             }
-            var source = parseResult.GetValue(assemblyPathArg);
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
             if (parseResult.GetResult(assemblyPathArg)
@@ -661,9 +655,6 @@ public static class InspectionCommandDefinitions
                 Tfm = parseResult.GetValue(asmTfmOption),
                 IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
-                ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
-                ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),
-                HeapParameter = parseResult.GetValue(heapOption),
                 MetadataRoot = metadataRoot,
                 BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
                     && !parseResult.GetValue(opts.RawUrls),

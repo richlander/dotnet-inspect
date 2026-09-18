@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace DotnetInspect.Cli.Commands;
@@ -15,7 +16,32 @@ internal static class ILOffsetQuery
 {
     internal const int MaximumCoordinatePopulation = 1024;
 
-    internal static Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+    internal static async Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+        SourceLinkService service,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        var (exitCode, result, _) = await ResolveAsync(
+            service,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            options,
+            httpClient,
+            logger,
+            writeErrors: true,
+            allowNonBoundaryContextAbsence: false);
+        return (exitCode, result);
+    }
+
+    internal static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)> ResolveBatchAsync(
         SourceLinkService service,
         string? packageName,
         string? packageVersion,
@@ -31,18 +57,22 @@ internal static class ILOffsetQuery
             options,
             httpClient,
             logger,
-            writeErrors: true);
+            writeErrors: false,
+            allowNonBoundaryContextAbsence: false);
 
-    internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)> ResolveBatchAsync(
-        SourceLinkService service,
-        string? packageName,
-        string? packageVersion,
-        bool isPlatformAssembly,
-        LibraryOptions options,
-        HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        var (exitCode, result) = await ResolveAsync(
+    internal static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)>
+        ResolveDiscoveryAsync(
+            SourceLinkService service,
+            string? packageName,
+            string? packageVersion,
+            bool isPlatformAssembly,
+            LibraryOptions options,
+            HttpClient httpClient,
+            VerboseLogger logger) =>
+        ResolveAsync(
             service,
             packageName,
             packageVersion,
@@ -50,11 +80,13 @@ internal static class ILOffsetQuery
             options,
             httpClient,
             logger,
-            writeErrors: false);
-        return (exitCode, result, exitCode == 0 ? null : "could not resolve");
-    }
+            writeErrors: false,
+            allowNonBoundaryContextAbsence: true);
 
-    static async Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+    static async Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)> ResolveAsync(
         SourceLinkService service,
         string? packageName,
         string? packageVersion,
@@ -62,21 +94,14 @@ internal static class ILOffsetQuery
         LibraryOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool writeErrors)
+        bool writeErrors,
+        bool allowNonBoundaryContextAbsence)
     {
-        if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.IlPoint coordinate)
         {
-            // One diagnostic, not two: the hint is a continuation of the
-            // error, so CommandError indents it rather than prefixing it a
-            // second time. Containment belongs to that writer, so the value is
-            // interpolated raw here.
-            if (writeErrors)
-                CommandError.Write(
-                    options.IsCoordinateCommand
-                        ? $"Invalid coordinate '{options.ILOffsetParameter ?? string.Empty}'."
-                        : $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
-                    "Expected format: 0x6000001+0x5 (method token + IL offset)");
-            return (1, null);
+            throw new UnreachableException(
+                "IL coordinate resolution requires an admitted IL point.");
         }
 
         var capabilities = ProjectionCapabilities(options);
@@ -97,11 +122,13 @@ internal static class ILOffsetQuery
 
         var outcome = ResearchViews.ProjectILOffset(new ILOffsetProjectionRequest(
             service,
-            methodToken,
-            ilOffset,
+            coordinate.MethodToken,
+            coordinate.ILOffset,
             capabilities,
             options.BrowsableUrls,
-            logger.Log));
+            logger.Log,
+            AllowNonBoundaryContextAbsence:
+                allowNonBoundaryContextAbsence));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
@@ -117,11 +144,18 @@ internal static class ILOffsetQuery
                 if (failure.Detail is { Length: > 0 } detail)
                     WriteError(writeErrors, detail);
             }
-            return (1, null);
+            return (1, null, failure);
         }
 
-        return (0, outcome.Projection);
+        return (0, outcome.Projection, null);
     }
+
+    internal static string FormatFailure(ILOffsetProjectionFailure? failure)
+        => failure is null
+            ? "unknown failure"
+            : failure.Detail is { Length: > 0 } detail
+                ? $"{failure.Message} {detail}"
+                : failure.Message;
 
     static ILOffsetProjectionCapabilities ProjectionCapabilities(LibraryOptions options)
     {
@@ -251,9 +285,14 @@ internal static class ILOffsetQuery
             string[] tokens = line.Split(
                 (char[]?)null,
                 StringSplitOptions.RemoveEmptyEntries);
+            int methodToken = 0;
+            int ilOffset = 0;
             int coordinateIndex = Array.FindIndex(
                 tokens,
-                token => TryParse(token, out _, out _));
+                token => TryParse(
+                    token,
+                    out methodToken,
+                    out ilOffset));
             if (coordinateIndex < 0)
             {
                 records.Add(
@@ -273,7 +312,9 @@ internal static class ILOffsetQuery
                     tokens[coordinateIndex],
                     labelTokens.Length == 0
                         ? null
-                        : string.Join(' ', labelTokens)));
+                        : string.Join(' ', labelTokens),
+                    methodToken,
+                    ilOffset));
         }
 
         if (records.Count == 0)
@@ -289,18 +330,13 @@ internal static class ILOffsetQuery
     }
 
     internal static string PopulationFailureMessage(
-        ILCoordinatePopulationFailure failure,
-        bool coordinateCommand) =>
+        ILCoordinatePopulationFailure failure) =>
         failure.Kind switch
         {
             ILCoordinatePopulationFailureKind.FileNotFound =>
-                coordinateCommand
-                    ? $"Coordinate file not found: {failure.Path}"
-                    : $"IL offsets file not found: {failure.Path}",
+                $"Coordinate file not found: {failure.Path}",
             ILCoordinatePopulationFailureKind.FileReadFailed =>
-                coordinateCommand
-                    ? $"Could not read coordinate file '{failure.Path}': {failure.Detail}"
-                    : $"Could not read IL offsets file '{failure.Path}': {failure.Detail}",
+                $"Could not read coordinate file '{failure.Path}': {failure.Detail}",
             ILCoordinatePopulationFailureKind.NoCoordinates =>
                 $"{failure.Path} did not contain any IL coordinates.",
             ILCoordinatePopulationFailureKind.CoordinatePopulationLimitExceeded =>
