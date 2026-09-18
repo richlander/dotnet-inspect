@@ -285,6 +285,11 @@ substrates, and inspection producers that will extend that space.
   occurrences, occurrence-local generic substitution, compatibility, and
   visible resolution incompleteness. Neither owner defines control-flow or
   Finding policy.
+  [Resource Occurrence Analysis](design/resource-occurrence-analysis.md) owns
+  method-local association of those resolved effects with exact ownership
+  roots and physical operations. It publishes detached root-bound terminal
+  resource facts and visible limitations without deriving lifecycle Findings,
+  interprocedural paths, or ArrayPool compatibility.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution. Its internal `AsyncCache<TKey, TValue>` lives beside its sole
@@ -404,7 +409,7 @@ substrates, and inspection producers that will extend that space.
   Ecosystem loader binding. It preserves exact Workspace, registration,
   capability, source-result, and admission correspondence while keeping loader
   execution out of catalog discovery, registration, construction, and
-  restoration. The `.NET` and `ASP.NET Core` Ecosystems are the first
+  restoration. The `.NET Runtime` and `ASP.NET Core` Ecosystems are the first
   consumers; each composes its exact PlatformHouse family without exposing a
   user-facing Platform component or merging focus and binding-support roles.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
