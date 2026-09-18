@@ -6,7 +6,8 @@ namespace ILInspector.Decompiler.Pipeline;
 
 internal sealed record EnumMetadataFacts(
     IReadOnlyDictionary<long, string> Members,
-    TypeRef UnderlyingType);
+    TypeRef UnderlyingType,
+    bool IsFlags);
 
 internal static class EnumMetadataFactReader
 {
@@ -56,7 +57,10 @@ internal static class EnumMetadataFactReader
 
         return underlyingType is null
             ? null
-            : new EnumMetadataFacts(members, underlyingType);
+            : new EnumMetadataFacts(
+                members,
+                underlyingType,
+                AttributeReader.HasFlagsAttribute(reader, typeDefinition.GetCustomAttributes()));
     }
 
     static bool IsEnum(MetadataReader reader, TypeDefinition typeDefinition)
