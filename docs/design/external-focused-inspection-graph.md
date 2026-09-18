@@ -163,7 +163,7 @@ The four-step path under #7451 is:
 
 1. #7470: CallGraph-owned boundary and connector projection — complete.
 2. #7498: this Queries/Inspection Graph composition.
-3. CLI Graph lowers the shared document through Markout.
+3. #7595: CLI Graph lowers the shared document through Markout.
 4. Inspect Web consumes the same host-neutral document.
 
 The two hosts may present roles and incomplete classification differently.

@@ -172,14 +172,14 @@ No adjacent owner should decide the product result:
 - hosts choose authorization and presentation but should not reproduce
   companion selection, channel interpretation, or conflict handling.
 
-The current CLI `SourceEnricher` combines package-adjacent and platform
-reference-pack XML selection, source acquisition, comment search, parsing,
-field merging, and warnings. Inspect Web package-member documentation has
-moved from its Browser-local adjacent-path reader to DocumentationHouse;
-platform reference-pack documentation remains on the previous host path until
-slice 11. PlatformHouse contracts express the remaining platform settlement
-path. DocumentationHouse replaces these with one source-neutral product
-boundary.
+The CLI package and direct-Library paths and the Inspect Web package-member
+path compose compiled documentation through DocumentationHouse. The remaining
+CLI `SourceEnricher` path combines platform reference-pack XML selection,
+source acquisition, comment search, parsing, field merging, and warnings;
+platform reference-pack documentation remains on the previous host paths until
+slices 11 and 12. PlatformHouse contracts express that remaining platform
+settlement path. DocumentationHouse replaces these with one source-neutral
+product boundary.
 
 ## Relationship to adjacent owners
 
@@ -268,6 +268,15 @@ same-named XML file or SourceHouse target from another library.
 
 Display names, package IDs, assembly file names, source paths, URLs, overload
 ordinals, and rendered signatures are not substitute identity.
+
+Multi-subject execution is a bounded execution optimization, not a broader
+subject contract. It accepts several ordinary exact requests under one
+matching Library operation lease, preserves request order and one independent
+terminal outcome and settlement per subject, and groups only the selected
+companion read. Each distinct selected content reference and read-limit policy
+is snapshotted and scanned once; the scan retains only the requested exact IDs.
+Work evidence charges the read and parse once rather than repeating those
+costs on every outcome.
 
 ## Library input and operation ownership
 
@@ -452,6 +461,12 @@ subject, then binds the receipt's Library and API content to the exact
 API-associated compiled-XML content materialized by PackageHouse. A present
 companion becomes one candidate contribution; a completed materialization
 without that companion becomes authoritative absence.
+
+The implemented package adapter consumes PackageHouse's compile
+materialization. A configured in-package assembly outside the exact selected
+compile-asset set is not relabeled as a direct Library: the host preserves its
+ordinary inspection result without compiled-documentation enrichment until an
+owner-issued adapter exists for that asset kind.
 
 The adapter creates only resource-free contribution evidence. It does not
 retain the PackageHouse payload, `LibraryContentOwner`, `ArtifactSetSession`,
@@ -895,7 +910,8 @@ assembly and XML companion in the .NET 11 reference pack.
 5. **Completed.** Add the direct-library adapter;
 6. **Completed.** Add the shared Queries compiled-documentation result;
 7. **Completed.** Adopt package compiled documentation in Inspect Web;
-8. adopt package and direct-library compiled documentation in the CLI;
+8. **Completed.** Adopt package and direct-library compiled documentation in
+   the CLI;
 9. add the PlatformHouse adapter;
 10. remove PlatformHouse's superseded documentation contracts;
 11. adopt platform reference-pack compiled documentation in Inspect Web;
@@ -942,6 +958,7 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred provider. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
 | Cheap-first ordering | Provider construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the provider receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
+| Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
 | Authored-source boundary | Source documentation consumes SourceHouse-authored evidence plus #6584 trusted physical-declaration correspondence and never decompiled or PDB-only output. |
@@ -958,9 +975,16 @@ Implementation and adoption slices own these Release gates:
 slice. It exercises the real `System.Text.Json` 10.0.0 assembly and XML
 companion, equal-ID cross-Library substitution, readable absence, unavailable
 and partial selection, distinct-content precedence with duplicate
-observations, malformed and bounded XML, stage-boundary deadline and
-cancellation, in-flight owner retirement, and the resource-free result
-closure.
+observations, malformed and bounded XML, the deadline boundary between content
+snapshot and parsing, cancellation, in-flight owner retirement, and the
+resource-free result closure.
+`DeadlineReachedDuringSnapshot_PreventsCompiledXmlParsing` proves that an
+expired latest matching deadline stops before parsing while retaining the
+snapshot byte charge.
+`SharedParseCompletedAfterFirstDeadline_IsChargedExactlyOnce` proves that a
+later live matching request may authorize the shared parse and that the
+request performing it retains the sole parse and byte charge even when its own
+terminal attempt is deadline-incomplete.
 
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
@@ -978,8 +1002,13 @@ content from another direct Library is offered for the selected subject.
 
 `CompiledDocumentationQueryTests` gates the shared Queries result over the same
 real `System.Text.Json` 10.0.0 assembly and documentation. It demonstrates that
-the exact House outcome remains available in process, the transferred operation
-is settled, the Library owner can retire before serialization, and the
+multi-subject type/member execution scans the selected companion once while
+publishing independent typed outcomes, that same-policy requests retain
+independent text budgets, and that heterogeneous read policies retain only
+their own subjects. Both batch shapes match their corresponding single-request
+outcomes. It also demonstrates that the exact House outcome remains available
+in process, the transferred operation is settled, the Library owner can retire
+before serialization, and the
 source-generated JSON contract round trips the separately copied portable
 outcome. Neighboring absent, unavailable, contribution-rejected,
 malformed-document, content-access-failed, and top-level lease-rejected results
@@ -1006,6 +1035,16 @@ at no more than 1,100 code units.
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
 immutable-array, and Queries-owned values.
+
+The CLI documentation command gates require a projected extension method on
+its receiver type to receive the exact declaration-owned compiled
+documentation, and require a direct Library without a companion to omit both
+documentation and `XmlDoc` source-resolution provenance. The neighboring
+declaring extension type, explicit `--all` non-public member, malformed
+companion, and configured-package compile-asset paths retain their established
+outcomes. A configured runtime-only package asset gates the non-compile
+boundary: detailed inspection remains successful without relabeling its
+package evidence as direct-Library evidence.
 
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0
