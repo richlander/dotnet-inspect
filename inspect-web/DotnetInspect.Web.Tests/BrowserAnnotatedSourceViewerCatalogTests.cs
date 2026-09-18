@@ -31,6 +31,10 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             catalog.Destinations.UnavailableReason);
+        Assert.False(catalog.CallCycles.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            catalog.CallCycles.UnavailableReason);
     }
 
     [Theory]
@@ -120,6 +124,13 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         var unavailable = new BrowserAnnotatedSourceCapabilityAvailability(
             Available: false,
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+        var unavailableCycles =
+            new BrowserAnnotatedSourceCallCycleInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                IsComplete: false,
+                Limits: [],
+                Findings: []);
         var catalog = new BrowserAnnotatedSourceViewerCatalog(
             defaultFindingIds,
             supportedMedia,
@@ -127,6 +138,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             unavailable,
             unavailable,
             unavailable,
+            unavailableCycles,
             []);
 
         defaultFindingIds[0] = 99;
@@ -189,6 +201,78 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                         Kind = (BrowserAnnotatedSourceCallKind)99,
                     },
                 ]));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesCallCycleEvidence()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceCallRelationship[] relationships =
+        [
+            new(
+                EdgeRow: 1,
+                FactId: 1,
+                ModuleVersionId:
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CallerToken: 0x06000001,
+                IlOffset: 0,
+                OperandToken: 0x0A000001,
+                BrowserAnnotatedSourceCallKind.Call,
+                InLoop: false,
+                Target("n1", "Call")),
+        ];
+        var cycle = new BrowserAnnotatedSourceCallCycle(
+            "cycle:key",
+            Ordinal: 0,
+            EdgeRows: [1],
+            FactIds: [1],
+            Targets: [Target("n0", "Caller")]);
+        var cycles = new BrowserAnnotatedSourceCallCycleInspection(
+            Available: true,
+            UnavailableReason: null,
+            IsComplete: true,
+            Limits: [],
+            Findings: [cycle]);
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                callCycles: cycles);
+
+        Assert.True(catalog.CallCycles.Available);
+        Assert.True(catalog.CallCycles.IsComplete);
+        Assert.Single(catalog.CallCycles.Findings);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                callCycles:
+                    new BrowserAnnotatedSourceCallCycleInspection(
+                        Available: true,
+                        UnavailableReason: null,
+                        IsComplete: true,
+                        Limits: [],
+                        Findings:
+                        [
+                            new BrowserAnnotatedSourceCallCycle(
+                                "cycle:key",
+                                Ordinal: 0,
+                                EdgeRows: [1],
+                                FactIds: [0],
+                                Targets: [Target("n0", "Caller")]),
+                        ])));
+        Assert.Throws<ArgumentException>(() =>
+            new BrowserAnnotatedSourceCallCycleInspection(
+                Available: true,
+                UnavailableReason: null,
+                IsComplete: true,
+                Limits:
+                [
+                    BrowserAnnotatedSourceCallCycleLimit
+                        .TraversalBoundary,
+                ],
+                Findings: []));
     }
 
     [Fact]
