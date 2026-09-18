@@ -1214,6 +1214,17 @@ DocumentationHouse owns channel demand, compiled-XML and authored-source
 attempts, field provenance, conflict preservation, and terminal documentation
 outcomes.
 
+One-Library realization accepts an explicit
+`CompiledXmlDocumentation` content demand only with a reference view. The
+authorized installed or package-backed reference source performs exact
+same-basename companion acquisition under the House work budget. The shared
+Platform Artifact materializer publishes any returned XML bytes beside the
+reference assembly and assigns the closed `CompiledXmlDocumentation` role
+associated with the API assembly. This is Library construction, not
+documentation settlement: PlatformHouse does not parse XML, select a
+documentation subject, or create a DocumentationHouse outcome. Omitting the
+content demand performs no companion acquisition and cannot prove absence.
+
 Existing PlatformHouse documentation contracts remain temporary migration
 evidence until #6579 step 10 removes them. New product consumers must not adopt
 those contracts as the target architecture.

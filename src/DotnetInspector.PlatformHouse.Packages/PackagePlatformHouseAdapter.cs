@@ -151,6 +151,21 @@ public sealed class PackagePlatformHouseAdapter
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
                     "The House work allowance does not permit reference realization.", incomplete: true));
+            bool includeCompiledXmlDocumentation =
+                realize.ContentDemand.HasFlag(
+                    PlatformLibraryContentDemand
+                        .CompiledXmlDocumentation);
+            if (includeCompiledXmlDocumentation
+                && request.Work.MaxXmlDocuments == 0)
+            {
+                return Task.FromResult(
+                    Stop<PackageReferenceRealization>(
+                        request,
+                        PlatformSourceFacet.Reference,
+                        exact,
+                        "The House work allowance does not permit compiled XML realization.",
+                        incomplete: true));
+            }
             ValidateOperation(request, operation);
 
             if (fromDiscovery
@@ -170,8 +185,18 @@ public sealed class PackagePlatformHouseAdapter
             };
             var work = new PackageReferenceWorkBudget(request.Work.MaxAssemblies, request.Work.MaxBytes);
             Task<PackagePlatformSourceOutcome<PackageReferenceRealization>> pending = !fromDiscovery
-                ? _source.RealizeAsync(new PackageReferencePackCoordinate(exact), population, work, operation)
-                : _source.RealizeAsync(selection!, population, work, operation);
+                ? _source.RealizeAsync(
+                    new PackageReferencePackCoordinate(exact),
+                    population,
+                    work,
+                    includeCompiledXmlDocumentation,
+                    operation)
+                : _source.RealizeAsync(
+                    selection!,
+                    population,
+                    work,
+                    includeCompiledXmlDocumentation,
+                    operation);
             transferred = true;
             return ProjectRealizationAsync(request, exact, pending);
         }

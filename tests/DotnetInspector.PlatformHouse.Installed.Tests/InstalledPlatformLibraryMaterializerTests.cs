@@ -2,7 +2,10 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.DocumentationHouse.Platform;
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
 using ILInspector.Metadata;
@@ -13,6 +16,16 @@ namespace DotnetInspector.PlatformHouse.Installed.Tests;
 
 public sealed class InstalledPlatformLibraryMaterializerTests
 {
+    private static readonly ApiSurfaceExtractionBounds
+        s_documentationApiSurfaceBounds =
+            new(
+                maxTypes: 5_000,
+                maxMembers: 100_000,
+                maxInspectionFailures: 1_000,
+                maxTypeForwarders: 10_000,
+                maxMetadataRows: 1_000_000,
+                maxRetainedTextCharacters: 20_000_000);
+
     [Fact]
     public async Task
         InstalledReferencePopulation_TransfersOrderedLibraryAuthorities()
@@ -601,8 +614,183 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 .ImplementationAssembly);
         Assert.Single(
             completed.Library.Value.Reference.Contents);
+        CompiledXmlContribution contribution =
+            PlatformDocumentationHouseAdapter
+                .CreateCompiledXmlContribution(
+                    completed.Library.Receipt,
+                    Subject(completed.Library));
+        Assert.Equal(
+            CompiledXmlContributionKind.Unavailable,
+            contribution.Kind);
         await completed.Library.Owner.DisposeAsync();
         await completed.Artifacts.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task
+        InstalledReferenceDocumentation_BecomesExactPlatformCandidate()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string referencePath = FindReferenceAssembly(
+            "System.Text.Json.dll");
+        string documentationPath = FindReferenceAssembly(
+            "System.Text.Json.xml");
+        string implementationPath =
+            typeof(JsonSerializer).Assembly.Location;
+        string referencePack = hive.CreateReferencePack();
+        hive.CopyAssembly(referencePack, referencePath);
+        hive.CopyFile(referencePack, documentationPath);
+        hive.CopyAssembly(
+            hive.CreateImplementationFramework(
+                implementationPath),
+            implementationPath);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = Request(
+            adapter,
+            ReadIdentity(referencePath),
+            PlatformViewDemand.ReferenceAndImplementation,
+            cancellationToken,
+            includeCompiledXmlDocumentation: true);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request));
+        InstalledReferenceLibrary sourceLibrary =
+            Assert.Single(reference.Value.Libraries);
+        InstalledImplementationLibrary implementationLibrary =
+            Assert.Single(
+                implementation.Value.Libraries);
+        Assert.NotNull(sourceLibrary.Documentation);
+
+        var completed = Assert.IsType<
+            InstalledPlatformLibraryMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        Consumed(
+                            sourceOperations: 2,
+                            assemblies: 2,
+                            bytes:
+                                sourceLibrary
+                                    .TotalContentLength
+                                + implementationLibrary
+                                    .ContentLength,
+                            xmlDocuments: 1)));
+        try
+        {
+            LibraryReference library =
+                completed.Library.Value.Reference;
+            DocumentationSubjectReference subject =
+                Subject(completed.Library);
+            CompiledXmlContribution contribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Library.Receipt,
+                        subject);
+
+            Assert.Equal(
+                CompiledXmlContributionKind.Candidate,
+                contribution.Kind);
+            Assert.Equal(
+                DocumentationSourceKind.Platform,
+                contribution.Source.Kind);
+            Assert.Equal(
+                "platform:DotNetRuntime/net11.0/11.0.0",
+                contribution.Source.Name);
+            Assert.Same(library, contribution.Library);
+            Assert.Same(
+                library.ApiAssembly,
+                contribution.CompiledXmlContent!
+                    .AssociatedAssembly);
+            Assert.NotSame(
+                library.ImplementationAssembly,
+                contribution.CompiledXmlContent
+                    .AssociatedAssembly);
+            var provenance =
+                Assert.IsType<
+                    PlatformLibraryArtifactProvenance>(
+                        contribution.CompiledXmlContent
+                            .Provenance);
+            var installed =
+                Assert.IsType<
+                    InstalledReferenceDocumentationArtifactProvenance>(
+                        provenance.SourceProvenance);
+            Assert.Equal(
+                "System.Text.Json.xml",
+                installed.FileName);
+        }
+        finally
+        {
+            await completed.Library.Owner.DisposeAsync();
+            await completed.Artifacts.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task
+        RequestedMissingReferenceDocumentation_IsAuthoritativelyAbsent()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string referencePath = FindReferenceAssembly(
+            "System.Text.Json.dll");
+        hive.CopyAssembly(
+            hive.CreateReferencePack(),
+            referencePath);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = Request(
+            adapter,
+            ReadIdentity(referencePath),
+            PlatformViewDemand.Reference,
+            cancellationToken,
+            includeCompiledXmlDocumentation: true);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        InstalledReferenceLibrary sourceLibrary =
+            Assert.Single(reference.Value.Libraries);
+        Assert.Null(sourceLibrary.Documentation);
+        var completed = Assert.IsType<
+            InstalledPlatformLibraryMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeReferenceAsync(
+                        request,
+                        reference,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 1,
+                            bytes:
+                                sourceLibrary
+                                    .TotalContentLength)));
+        try
+        {
+            CompiledXmlContribution contribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Library.Receipt,
+                        Subject(completed.Library));
+
+            Assert.Equal(
+                CompiledXmlContributionKind.Absent,
+                contribution.Kind);
+            Assert.Null(contribution.CompiledXmlContent);
+        }
+        finally
+        {
+            await completed.Library.Owner.DisposeAsync();
+            await completed.Artifacts.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -840,7 +1028,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         AssemblyReferenceIdentity identity,
         PlatformViewDemand view,
         CancellationToken cancellationToken,
-        bool installedFirst = true)
+        bool installedFirst = true,
+        bool includeCompiledXmlDocumentation = false)
     {
         var selections = new List<PlatformSourceSelection>();
         if (view is PlatformViewDemand.Reference
@@ -874,13 +1063,20 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.Assembly(identity)),
-                view),
+                view,
+                includeCompiledXmlDocumentation
+                    ? PlatformLibraryContentDemand
+                        .CompiledXmlDocumentation
+                    : PlatformLibraryContentDemand.None),
             new PlatformSourcePlan(
                 PlatformSourcePlanIdentity.Create("installed-plan"),
                 PlatformSourcePolicyGeneration.Create(
                     "installed-policy"),
                 selections),
-            Work(),
+            Work(
+                includeCompiledXmlDocumentation
+                    ? 1
+                    : 0),
             cancellationToken);
     }
 
@@ -943,12 +1139,13 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 installed,
             ];
 
-    static PlatformHouseWorkBudget Work() =>
+    static PlatformHouseWorkBudget Work(
+        int maxXmlDocuments = 0) =>
         new(
             maxSourceOperations: 2,
             maxTargetCandidates: 0,
             maxAssemblies: 8,
-            maxXmlDocuments: 0,
+            maxXmlDocuments,
             maxPortablePdbs: 0,
             maxSourceDocuments: 0,
             maxBytes: 64 * 1024 * 1024,
@@ -958,18 +1155,48 @@ public sealed class InstalledPlatformLibraryMaterializerTests
     static PlatformHouseConsumedWork Consumed(
         int sourceOperations,
         int assemblies,
-        long bytes) =>
+        long bytes,
+        int xmlDocuments = 0) =>
         new(
             sourceOperations,
             targetCandidates: 0,
             assemblies,
-            xmlDocuments: 0,
+            xmlDocuments,
             portablePdbs: 0,
             sourceDocuments: 0,
             bytes,
             forwardingHops: 0,
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
+
+    static DocumentationSubjectReference Subject(
+        PlatformLibraryRealizationResult.Completed materialized)
+    {
+        LibraryReference library = materialized.Value.Reference;
+        using LibraryOperationLease operation =
+            Issued(materialized.Owner, library);
+        var request = new LibraryApiSurfaceInspectionRequest(
+            library,
+            ApiSurfaceExtractionScope.Public,
+            s_documentationApiSurfaceBounds);
+        LibraryApiSurfaceCorrespondence correspondence =
+            Assert.IsType<
+                LibraryApiSurfaceInspectionOutcome.Completed>(
+                    LibraryApiSurfaceInspection.Execute(
+                        request,
+                        operation,
+                        TestContext.Current
+                            .CancellationToken))
+                .Correspondence;
+        ApiType type = Assert.Single(
+            correspondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.JsonSerializer");
+        return DocumentationSubjectReference.ForType(
+            correspondence,
+            type);
+    }
 
     static PlatformFamilyTarget Target() =>
         new(

@@ -1,5 +1,8 @@
 using System.Reflection;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.DocumentationHouse.Platform;
 using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using ILInspector.Metadata;
@@ -10,6 +13,16 @@ namespace DotnetInspector.PlatformHouse.Packages.Tests;
 
 public sealed class PackagePlatformLibraryMaterializerTests
 {
+    private static readonly ApiSurfaceExtractionBounds
+        s_documentationApiSurfaceBounds =
+            new(
+                maxTypes: 5_000,
+                maxMembers: 100_000,
+                maxInspectionFailures: 1_000,
+                maxTypeForwarders: 10_000,
+                maxMetadataRows: 1_000_000,
+                maxRetainedTextCharacters: 20_000_000);
+
     [Fact]
     public async Task
         PackageReferencePopulation_TransfersOrderedLibraryAuthorities()
@@ -969,6 +982,86 @@ public sealed class PackagePlatformLibraryMaterializerTests
     }
 
     [Fact]
+    public async Task
+        InMemoryReferenceDocumentation_BecomesExactPlatformCandidate()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] referenceImage = await File.ReadAllBytesAsync(
+            FindReferenceAsset("System.Text.Json.dll"),
+            cancellationToken);
+        byte[] documentation = await File.ReadAllBytesAsync(
+            FindReferenceAsset("System.Text.Json.xml"),
+            cancellationToken);
+        await using PackagePlatformTestEnvironment environment =
+            Environment(
+                referenceImage,
+                referenceDocumentation: documentation);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = Request(
+            adapter,
+            PackagePlatformTestData.Identity(referenceImage),
+            PlatformViewDemand.Reference,
+            cancellationToken,
+            includeCompiledXmlDocumentation: true);
+        var reference = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(
+                        request,
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        PackageReferenceLibrary sourceLibrary =
+            Assert.Single(reference.Value.Libraries);
+        Assert.NotNull(sourceLibrary.Documentation);
+        var completed = Assert.IsType<
+            PackagePlatformLibraryMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeReferenceAsync(
+                        request,
+                        reference,
+                        Consumed(reference.Value)));
+        try
+        {
+            LibraryReference library =
+                completed.Library.Value.Reference;
+            CompiledXmlContribution contribution =
+                PlatformDocumentationHouseAdapter
+                    .CreateCompiledXmlContribution(
+                        completed.Library.Receipt,
+                        Subject(completed.Library));
+
+            Assert.Equal(
+                CompiledXmlContributionKind.Candidate,
+                contribution.Kind);
+            Assert.Same(
+                library.ApiAssembly,
+                contribution.CompiledXmlContent!
+                    .AssociatedAssembly);
+            var provenance =
+                Assert.IsType<
+                    PlatformLibraryArtifactProvenance>(
+                        contribution.CompiledXmlContent
+                            .Provenance);
+            var package =
+                Assert.IsType<
+                    PackageReferenceDocumentationArtifactProvenance>(
+                        provenance.SourceProvenance);
+            Assert.Equal(
+                "ref/net11.0/System.Text.Json.xml",
+                package.Path);
+        }
+        finally
+        {
+            await completed.Library.Owner.DisposeAsync();
+            await completed.Artifacts.DisposeAsync();
+        }
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
     public async Task PackageImplementationOnly_AssignsBothRoles()
     {
         CancellationToken cancellationToken =
@@ -1195,7 +1288,8 @@ public sealed class PackagePlatformLibraryMaterializerTests
 
     static PackagePlatformTestEnvironment Environment(
         byte[]? referenceImage,
-        byte[]? implementationImage = null)
+        byte[]? implementationImage = null,
+        byte[]? referenceDocumentation = null)
     {
         var packages = new List<(
             string PackageId,
@@ -1203,15 +1297,25 @@ public sealed class PackagePlatformLibraryMaterializerTests
             IReadOnlyList<KeyValuePair<string, byte[]>> Entries)>();
         if (referenceImage is not null)
         {
+            var entries =
+                new List<KeyValuePair<string, byte[]>>
+                {
+                    PackagePlatformTestData.Entry(
+                        "ref/net11.0/System.Text.Json.dll",
+                        referenceImage),
+                };
+            if (referenceDocumentation is not null)
+            {
+                entries.Add(
+                    PackagePlatformTestData.Entry(
+                        "ref/net11.0/System.Text.Json.xml",
+                        referenceDocumentation));
+            }
             packages.Add(
                 (
                     PackagePlatformTestEnvironment.RuntimePackageId,
                     PackagePlatformTestEnvironment.Version,
-                    [
-                        PackagePlatformTestData.Entry(
-                            "ref/net11.0/System.Text.Json.dll",
-                            referenceImage),
-                    ]));
+                    entries));
         }
         if (implementationImage is not null)
         {
@@ -1280,7 +1384,8 @@ public sealed class PackagePlatformLibraryMaterializerTests
         AssemblyReferenceIdentity identity,
         PlatformViewDemand view,
         CancellationToken cancellationToken,
-        bool packageFirst = true)
+        bool packageFirst = true,
+        bool includeCompiledXmlDocumentation = false)
     {
         var selections = new List<PlatformSourceSelection>();
         if (view is PlatformViewDemand.Reference
@@ -1314,13 +1419,20 @@ public sealed class PackagePlatformLibraryMaterializerTests
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.Library(
                     new PlatformLibraryDemand.Assembly(identity)),
-                view),
+                view,
+                includeCompiledXmlDocumentation
+                    ? PlatformLibraryContentDemand
+                        .CompiledXmlDocumentation
+                    : PlatformLibraryContentDemand.None),
             new PlatformSourcePlan(
                 PlatformSourcePlanIdentity.Create("package-plan"),
                 PlatformSourcePolicyGeneration.Create(
                     "package-policy"),
                 selections),
-            Work(),
+            Work(
+                includeCompiledXmlDocumentation
+                    ? 1
+                    : 0),
             cancellationToken);
     }
 
@@ -1379,12 +1491,13 @@ public sealed class PackagePlatformLibraryMaterializerTests
                 package,
             ];
 
-    static PlatformHouseWorkBudget Work() =>
+    static PlatformHouseWorkBudget Work(
+        int maxXmlDocuments = 0) =>
         new(
             maxSourceOperations: 8,
             maxTargetCandidates: 0,
             maxAssemblies: 512,
-            maxXmlDocuments: 0,
+            maxXmlDocuments,
             maxPortablePdbs: 0,
             maxSourceDocuments: 0,
             maxBytes: 64 * 1024 * 1024,
@@ -1397,7 +1510,11 @@ public sealed class PackagePlatformLibraryMaterializerTests
             sourceOperations: 1,
             assemblies: reference.Libraries.Length,
             bytes: reference.Libraries.Sum(
-                static library => library.ContentLength));
+                static library =>
+                    library.TotalContentLength),
+            xmlDocuments: reference.Libraries.Count(
+                static library =>
+                    library.Documentation is not null));
 
     static PlatformHouseConsumedWork Consumed(
         PackageImplementationRealization implementation) =>
@@ -1424,18 +1541,78 @@ public sealed class PackagePlatformLibraryMaterializerTests
     static PlatformHouseConsumedWork Consumed(
         int sourceOperations,
         int assemblies,
-        long bytes) =>
+        long bytes,
+        int xmlDocuments = 0) =>
         new(
             sourceOperations,
             targetCandidates: 0,
             assemblies,
-            xmlDocuments: 0,
+            xmlDocuments,
             portablePdbs: 0,
             sourceDocuments: 0,
             bytes,
             forwardingHops: 0,
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
+
+    static DocumentationSubjectReference Subject(
+        PlatformLibraryRealizationResult.Completed materialized)
+    {
+        LibraryReference library = materialized.Value.Reference;
+        using LibraryOperationLease operation =
+            Issued(materialized.Owner, library);
+        var request = new LibraryApiSurfaceInspectionRequest(
+            library,
+            ApiSurfaceExtractionScope.Public,
+            s_documentationApiSurfaceBounds);
+        LibraryApiSurfaceCorrespondence correspondence =
+            Assert.IsType<
+                LibraryApiSurfaceInspectionOutcome.Completed>(
+                    LibraryApiSurfaceInspection.Execute(
+                        request,
+                        operation,
+                        TestContext.Current
+                            .CancellationToken))
+                .Correspondence;
+        ApiType type = Assert.Single(
+            correspondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.JsonSerializer");
+        return DocumentationSubjectReference.ForType(
+            correspondence,
+            type);
+    }
+
+    static string FindReferenceAsset(string fileName)
+    {
+        DirectoryInfo runtimeVersion =
+            new FileInfo(typeof(object).Assembly.Location)
+                .Directory
+            ?? throw new InvalidOperationException(
+                "The runtime assembly location has no directory.");
+        DirectoryInfo dotnetRoot =
+            runtimeVersion.Parent?.Parent?.Parent
+            ?? throw new InvalidOperationException(
+                "The runtime assembly location is outside a dotnet root.");
+        string referenceRoot = Path.Combine(
+            dotnetRoot.FullName,
+            "packs",
+            "Microsoft.NETCore.App.Ref");
+        return Directory.EnumerateFiles(
+                referenceRoot,
+                fileName,
+                SearchOption.AllDirectories)
+            .Where(
+                path => string.Equals(
+                    new FileInfo(path).Directory?.Name,
+                    "net11.0",
+                    StringComparison.Ordinal))
+            .OrderByDescending(
+                static path => path,
+                StringComparer.Ordinal)
+            .First();
+    }
 
     static PlatformFamilyTarget Target() =>
         new(
