@@ -1,7 +1,7 @@
 ---
 id: perf-version-queries
 description: Latency targets for version-related commands
-commands: [--version, --versions, --latest-version]
+commands: [--version, --versions, @latest]
 areas: [performance, versioning, cache]
 ---
 
@@ -11,7 +11,7 @@ areas: [performance, versioning, cache]
 
 All timings invoke the published NativeAOT executable directly. Local,
 cache-backed scenarios use five warm samples so a single process launch does
-not dominate the result. NuGet latest-version resolution remains a network
+not dominate the result. NuGet `@latest` resolution remains a network
 operation even after its local payload is warm and has a separate, looser smoke
 bound.
 
@@ -44,7 +44,7 @@ Prime an exact package payload and the version index:
 Warm the payload for the actual latest version without pinning its value:
 
 ```bash
-latest=$("$INSPECT" package System.CommandLine --latest-version | head -1)
+latest=$("$INSPECT" package System.CommandLine@latest --version | head -1)
 "$INSPECT" package "System.CommandLine@$latest" -v:q > /dev/null
 "$INSPECT" type System.Text.Json -v:q > /dev/null
 "$INSPECT" library System.Text.Json -v:q > /dev/null
@@ -84,7 +84,7 @@ head -1
 > The 5s bound is an external-service smoke target, not a local latency target.
 
 ```bash
-"$INSPECT" package System.CommandLine --latest-version
+"$INSPECT" package System.CommandLine@latest --version
 ```
 
 ```perf

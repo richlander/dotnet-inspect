@@ -169,8 +169,6 @@ public static class SearchCommandDefinitions
             }
         });
 
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
         CliRowSelectionCommandRegistry.Register(
             findCommand,
             new(
@@ -180,11 +178,16 @@ public static class SearchCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         return findCommand;
     }
 
@@ -232,7 +235,10 @@ public static class SearchCommandDefinitions
         {
             Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
         };
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        var typeFilterOption = new Option<string?>("-t")
+        {
+            Description = "Filter implementer types by glob or name"
+        };
         typeFilterOption.Aliases.Add("--type");
 
         implCommand.Arguments.Add(targetTypeArg);
@@ -303,7 +309,8 @@ public static class SearchCommandDefinitions
                 Projects = [.. sources.Projects],
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
+                Limit = null,
                 Rows = rowSelection is null ? opts.ParseRows(parseResult) : null,
                 RowSelection = rowSelection,
                 Count = parseResult.GetValue(opts.Count),
@@ -325,8 +332,6 @@ public static class SearchCommandDefinitions
             return await ImplementsCommand.ExecuteAsync(options, ct);
         });
 
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
         CliRowSelectionCommandRegistry.Register(
             implCommand,
             new(
@@ -336,11 +341,16 @@ public static class SearchCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return implCommand;
     }
@@ -398,7 +408,10 @@ public static class SearchCommandDefinitions
         {
             Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
         };
-        var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
+        var typeFilterOption = new Option<string?>("-t")
+        {
+            Description = "Filter declaring types by glob or name"
+        };
         typeFilterOption.Aliases.Add("--type");
 
         extCommand.Arguments.Add(targetTypeArg);
@@ -473,7 +486,8 @@ public static class SearchCommandDefinitions
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                TypeFilter = parseResult.GetValue(typeFilterOption),
+                Limit = null,
                 Rows = rowSelection is null ? opts.ParseRows(parseResult) : null,
                 RowSelection = rowSelection,
                 Count = parseResult.GetValue(opts.Count),
@@ -494,8 +508,6 @@ public static class SearchCommandDefinitions
             return await ExtensionsCommand.ExecuteAsync(options, ct);
         });
 
-        var linesOption = new Option<bool>("--lines");
-        var tailLinesOption = new Option<bool>("--tail-lines");
         CliRowSelectionCommandRegistry.Register(
             extCommand,
             new(
@@ -505,11 +517,16 @@ public static class SearchCommandDefinitions
                 orderBy: null,
                 opts.Head,
                 opts.Tail,
-                linesOption,
-                tailLinesOption),
+                opts.Lines,
+                opts.TailLines),
             CliRowSelectionCapabilities.HeadTail
-                | CliRowSelectionCapabilities.Window,
-            isActive: static _ => true);
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return extCommand;
     }
@@ -944,6 +961,31 @@ public static class SearchCommandDefinitions
             return outcome.ExitCode;
         });
 
+        var legacyDependsRows =
+            new Option<string?>("--unavailable-depends-semantic-rows")
+            {
+                Hidden = true,
+            };
+        CliRowSelectionCommandRegistry.Register(
+            dependsCommand,
+            new(
+                opts.Limit,
+                legacyDependsRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return dependsCommand;
     }
 
@@ -954,13 +996,13 @@ public static class SearchCommandDefinitions
         Option<string[]> libraryOption,
         Option<string[]> projectOption)
     {
-        var aliases = new Dictionary<string, DependsAssetRootKind>(
+        var aliases = new Dictionary<string, DependencyInspectionRootKind>(
             StringComparer.Ordinal)
         {
-            [packageOption.Name] = DependsAssetRootKind.Package,
-            [nuspecOption.Name] = DependsAssetRootKind.Nuspec,
-            [libraryOption.Name] = DependsAssetRootKind.Library,
-            [projectOption.Name] = DependsAssetRootKind.Project,
+            [packageOption.Name] = DependencyInspectionRootKind.Package,
+            [nuspecOption.Name] = DependencyInspectionRootKind.Nuspec,
+            [libraryOption.Name] = DependencyInspectionRootKind.Library,
+            [projectOption.Name] = DependencyInspectionRootKind.Project,
         };
         var roots = new List<DependsAssetRoot>();
         for (int index = 0; index < parseResult.Tokens.Count; index++)
@@ -969,7 +1011,7 @@ public static class SearchCommandDefinitions
             if (token.Type != TokenType.Option
                 || !aliases.TryGetValue(
                     token.Value,
-                    out DependsAssetRootKind kind))
+                    out DependencyInspectionRootKind kind))
             {
                 continue;
             }
@@ -997,6 +1039,9 @@ public static class SearchCommandDefinitions
         RowWindow? rows = opts.ParseRows(parseResult);
         if (rows is not null)
             return rows;
+
+        if (UsesRenderedLineSelection(parseResult, opts))
+            return null;
 
         if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
             || parseResult.GetValue(opts.Limit) is not int count)
@@ -1054,6 +1099,9 @@ public static class SearchCommandDefinitions
                     [operation]));
         }
 
+        if (UsesRenderedLineSelection(parseResult, opts))
+            return RowQueryIntent.Empty;
+
         if (parseResult.GetResult(opts.Limit) is not { Implicit: false }
             || parseResult.GetValue(opts.Limit) is not int count)
         {
@@ -1072,4 +1120,10 @@ public static class SearchCommandDefinitions
                             RowQueryOrderIntent>.Head(count),
                 ]));
     }
+
+    private static bool UsesRenderedLineSelection(
+        ParseResult parseResult,
+        SharedOptions opts) =>
+        parseResult.GetResult(opts.Lines) is { Implicit: false }
+        || parseResult.GetResult(opts.TailLines) is { Implicit: false };
 }

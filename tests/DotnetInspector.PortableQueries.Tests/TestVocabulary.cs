@@ -50,8 +50,11 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
     /// <summary>A key whose binder folds case, so two spellings can collide.</summary>
     public const string DependsKey = "depends";
 
-    /// <summary>A key in a combining family.</summary>
+    /// <summary>A broad tool-presence key outside the format family.</summary>
     public const string ToolKey = "tool";
+
+    /// <summary>A key in the combining tool-format family.</summary>
+    public const string ToolFormatKey = "tool-format";
 
     /// <summary>A key in an exclusive family.</summary>
     public const string DependenciesKey = "dependencies";
@@ -75,6 +78,17 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
     /// to <c>v1 AND v2</c>.
     /// </summary>
     public const string ToolAliasKey = "alias-tool";
+
+    /// <summary>
+    /// A second spelling in the tool-format family that binds to the same
+    /// predicate as <see cref="ToolFormatKey"/>.
+    /// </summary>
+    public const string ToolFormatAliasKey = "alias-tool-format";
+
+    /// <summary>
+    /// A later key used to prove compatibility sees collapsed occurrences.
+    /// </summary>
+    public const string ToolFormatConsumerKey = "tool-user";
 
     /// <summary>A key whose presence narrows the candidate dimension's range.</summary>
     public const string ContentKey = "content";
@@ -137,6 +151,10 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
             ToolKey => new TestKey(
                 ToolKey,
                 [PortableQueryOperator.Equal],
+                value => value is "true" ? value : null),
+            ToolFormatKey => new TestKey(
+                ToolFormatKey,
+                [PortableQueryOperator.Equal],
                 value => value is "v1" or "v2" ? value : null)
             {
                 DeclaredFamily = "tool-format",
@@ -163,8 +181,21 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
                 [PortableQueryOperator.Equal],
                 value => value is "v1" or "v2" ? value : null)
             {
-                PredicateKey = ToolKey,
+                PredicateKey = ToolFormatKey,
             },
+            ToolFormatAliasKey => new TestKey(
+                ToolFormatAliasKey,
+                [PortableQueryOperator.Equal],
+                value => value is "v1" or "v2" ? value : null)
+            {
+                DeclaredFamily = "tool-format",
+                DeclaredFamilyKind = PortableQueryFamilyKind.Combining,
+                PredicateKey = ToolFormatKey,
+            },
+            ToolFormatConsumerKey => new TestKey(
+                ToolFormatConsumerKey,
+                [PortableQueryOperator.Equal],
+                value => value is "true" ? value : null),
             ContentKey => new TestKey(
                 ContentKey,
                 [PortableQueryOperator.Equal],
@@ -214,12 +245,26 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
 
     public override bool IsOrderable(string key) => key is NameKey or DependsKey;
 
+    public override bool AreTermsCompatible(
+        PortableQueryResolvedTerm<TestPredicate> first,
+        PortableQueryResolvedTerm<TestPredicate> second) =>
+        !IsToolPresenceAndFormat(first.Term.Key, second.Term.Key)
+        && !IsCollapsedFormatAndConsumer(first.Term.Key, second.Term.Key);
+
     public override TestPlan CreatePlan(PortableQueryResolvedIntent<TestPredicate> resolved)
     {
         PlansCreated++;
         acquisition?.Acquire();
         return new TestPlan(resolved);
     }
+
+    private static bool IsToolPresenceAndFormat(string first, string second) =>
+        first is ToolKey && second is ToolFormatKey
+        || first is ToolFormatKey && second is ToolKey;
+
+    private static bool IsCollapsedFormatAndConsumer(string first, string second) =>
+        first is ToolFormatKey && second is ToolFormatConsumerKey
+        || first is ToolFormatConsumerKey && second is ToolFormatKey;
 
     private sealed class TestKey(
         string key,

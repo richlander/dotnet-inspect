@@ -117,7 +117,7 @@ public sealed partial class EhStructuringPass : IIrPass
         var continuations = new Dictionary<IrNode, int>();
         var rebuilt = BuildContainer(function, blocks, 0, blocks.Count, forest.Roots, offsetToIndex, continuations);
         TrimTailLeaves(rebuilt, continuations);
-        InlineReturnLeaves(rebuilt);
+        InlineReturnLeaves(function, rebuilt);
         SynthesizeInlineCatchVariables(function, rebuilt);
         context.Stepper.StepOver("raise exception regions into try/catch/finally", function.Body);
         function.Body.ReplaceWith(rebuilt);
@@ -1030,22 +1030,191 @@ public sealed partial class EhStructuringPass : IIrPass
     /// the return/throw at the leave site — a C# <c>return</c> inside a try runs
     /// exactly the finallys the leave did — and drop each return block once it
     /// is unreachable (no remaining reference, not reached by falling out of the
-    /// previous block). The single normal-continuation return stays put. With
-    /// the leaves gone the structuring pass raises the bodies.
+    /// previous block). Keep a return outside when reaching it first exits an
+    /// enclosing finally that may change the local it returns. With the leaves
+    /// gone the structuring pass raises the bodies.
     /// </summary>
-    static void InlineReturnLeaves(BlockContainer root)
+    static void InlineReturnLeaves(IrFunction function, BlockContainer root)
     {
         var byOffset = new Dictionary<int, Block>();
         foreach (var block in root.Descendants.OfType<Block>())
             byOffset.TryAdd(block.StartOffset, block);
 
         foreach (var leave in root.Descendants.OfType<Leave>().ToList())
-            if (byOffset.TryGetValue(leave.TargetOffset, out var target) && CloneTerminator(target) is { } clone)
+            if (byOffset.TryGetValue(leave.TargetOffset, out var target)
+                && CloneTerminator(target) is { } clone)
+            {
+                if (TerminatorValueMayChangeAcrossFinally(
+                    function,
+                    root,
+                    leave,
+                    target))
+                {
+                    continue;
+                }
+
                 leave.ReplaceWith(clone);
+            }
 
         // The multi-return blocks sit in the top-level slice after the
         // constructs; once their leaves are inlined they are unreachable.
         RemoveDeadReturns(root, ReferencedOffsets(root));
+    }
+
+    static bool TerminatorValueMayChangeAcrossFinally(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        Block target)
+    {
+        (int Index, bool IsArgument)? place = target.Children is [var terminator]
+            ? terminator switch
+            {
+                Return { Value: LoadLocal local } => (local.Index, false),
+                Throw { Value: LoadLocal local } => (local.Index, false),
+                Return { Value: LoadArgument argument } => (argument.Index, true),
+                Throw { Value: LoadArgument argument } => (argument.Index, true),
+                _ => null,
+            }
+            : null;
+        if (place is not { } returned)
+            return false;
+
+        bool addressTaken = AddressTaken(root, returned.Index, returned.IsArgument);
+        if (function.IsMetadataBacked)
+        {
+            return SharedCleanupMayWritePlace(
+                function,
+                root,
+                leave,
+                returned.Index,
+                returned.IsArgument,
+                addressTaken);
+        }
+
+        for (IrNode? ancestor = leave.Parent;
+             ancestor is not null;
+             ancestor = ancestor.Parent)
+        {
+            if (ancestor is TryFinally tryFinally
+                && IsDescendantOf(leave, tryFinally.TryBody)
+                && !IsDescendantOf(target, tryFinally)
+                && (MayWritePlace(
+                        tryFinally.FinallyBody,
+                        returned.Index,
+                        returned.IsArgument)
+                    || addressTaken))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool SharedCleanupMayWritePlace(
+        IrFunction function,
+        BlockContainer root,
+        Leave leave,
+        int index,
+        bool isArgument,
+        bool addressTaken)
+    {
+        if (function.ExceptionFlow is not
+            InstructionExceptionFlowResult<
+                InstructionExceptionFlowFacts>.Available available
+            || available.Value.NormalTransferAt(
+                leave.SourceOffset,
+                leave.TargetOffset) is not
+                InstructionExceptionFlowResult<
+                    InstructionNormalTransfer>.Available
+                    {
+                        Value:
+                        {
+                            Kind: InstructionNormalTransferKind.Leave,
+                        } transfer,
+                    })
+        {
+            return true;
+        }
+
+        foreach (InstructionCleanupHandler cleanup
+            in transfer.CleanupHandlers)
+        {
+            if (available.Value.GetClause(cleanup.Clause) is not
+                InstructionExceptionFlowResult<
+                    InstructionExceptionClause>.Available clause
+                || clause.Value.HandlerRegion != cleanup.Handler)
+            {
+                return true;
+            }
+
+            TryFinally? matched = null;
+            foreach (TryFinally candidate in
+                root.Descendants.OfType<TryFinally>())
+            {
+                if (candidate.ExceptionClause?.Id != clause.Value.Id)
+                    continue;
+                if (matched is not null)
+                    return true;
+                matched = candidate;
+            }
+
+            if (matched is null
+                || addressTaken
+                || MayWritePlace(
+                    matched.FinallyBody,
+                    index,
+                    isArgument))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool MayWritePlace(BlockContainer body, int index, bool isArgument)
+    {
+        foreach (var node in body.Descendants)
+        {
+            int? writtenIndex = node switch
+            {
+                StoreLocal store when !isArgument => store.Index,
+                LoadLocalAddress address when !isArgument => address.Index,
+                StoreArgument store when isArgument => store.Index,
+                LoadArgumentAddress address when isArgument => address.Index,
+                _ => null,
+            };
+            if (writtenIndex == index
+                && !ReferenceOwnership.IsInsideNestedFunctionBody(node))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool AddressTaken(BlockContainer root, int index, bool isArgument)
+        => root.Descendants.Any(node =>
+            node switch
+            {
+                LoadLocalAddress address when !isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                LoadArgumentAddress address when isArgument =>
+                    address.Index == index
+                    && !ReferenceOwnership.IsInsideNestedFunctionBody(address),
+                _ => false,
+            });
+
+    static bool IsDescendantOf(IrNode node, IrNode ancestor)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        return false;
     }
 
     static HashSet<int> ReferencedOffsets(BlockContainer root)

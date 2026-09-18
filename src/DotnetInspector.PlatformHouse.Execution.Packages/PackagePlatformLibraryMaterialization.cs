@@ -106,12 +106,67 @@ public abstract class PackagePlatformLibraryMaterializationResult
 }
 
 /// <summary>
+/// Result of materializing authoritative package-backed populations.
+/// </summary>
+public abstract class PackagePlatformPopulationMaterializationResult
+{
+    private protected PackagePlatformPopulationMaterializationResult(
+        PlatformPopulationRealizationResult realization) =>
+        Realization = realization;
+
+    public PlatformPopulationRealizationResult Realization { get; }
+
+    /// <summary>
+    /// Transfers every Library owner and the adjacent Artifact authority only
+    /// through complete population settlement.
+    /// </summary>
+    public sealed class Completed :
+        PackagePlatformPopulationMaterializationResult
+    {
+        internal Completed(
+            PlatformPopulationRealizationResult.Completed population,
+            ArtifactSetSession artifacts)
+            : base(population)
+        {
+            ArgumentNullException.ThrowIfNull(artifacts);
+            Population = population;
+            Artifacts = artifacts;
+        }
+
+        public PlatformPopulationRealizationResult.Completed Population
+        {
+            get;
+        }
+
+        public ArtifactSetSession Artifacts { get; }
+    }
+
+    /// <summary>
+    /// Retains only resource-free terminal evidence after population cleanup.
+    /// </summary>
+    public sealed class Terminal :
+        PackagePlatformPopulationMaterializationResult
+    {
+        internal Terminal(
+            PlatformPopulationRealizationResult.Terminal realization)
+            : base(realization) =>
+            TerminalRealization = realization;
+
+        public PlatformPopulationRealizationResult.Terminal
+            TerminalRealization
+        { get; }
+    }
+}
+
+/// <summary>
 /// Selects successful package-backed source snapshots for the shared Artifact
 /// and exact one-Library ownership handoff.
 /// </summary>
 public static class PackagePlatformLibraryMaterializer
 {
     private const string IdentityPrefix = "package-platform-library";
+    private const string PopulationIdentityPrefix =
+        "package-platform-population";
 
     /// <summary>
     /// Materializes one successful package-backed reference result.
@@ -164,6 +219,117 @@ public static class PackagePlatformLibraryMaterializer
             reference: null,
             implementation,
             consumedWork);
+
+    /// <summary>
+    /// Materializes one authoritative package-backed reference population.
+    /// </summary>
+    public static async ValueTask<
+        PackagePlatformPopulationMaterializationResult>
+        MaterializeReferencePopulationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool prepared = TryPrepareReferencePopulation(
+            request,
+            PlatformViewDemand.Reference,
+            reference,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeReferencesAsync(
+                    request,
+                    prepared ? items : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToPackagePopulationResult(outcome);
+    }
+
+    /// <summary>
+    /// Materializes authoritative package-backed reference and implementation
+    /// populations through PlatformHouse-issued view correspondence.
+    /// </summary>
+    public static async ValueTask<
+        PackagePlatformPopulationMaterializationResult>
+        MaterializeReferenceAndImplementationPopulationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool referencePrepared = TryPrepareReferencePopulation(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            reference,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> references);
+        bool implementationPrepared = TryPrepareImplementationPopulation(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            implementation,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> implementations);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeReferenceAndImplementationAsync(
+                    request,
+                    referencePrepared ? references : [],
+                    implementationPrepared ? implementations : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToPackagePopulationResult(outcome);
+    }
+
+    /// <summary>
+    /// Materializes one authoritative package-backed implementation
+    /// population.
+    /// </summary>
+    public static async ValueTask<
+        PackagePlatformPopulationMaterializationResult>
+        MaterializeImplementationPopulationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool prepared = TryPrepareImplementationPopulation(
+            request,
+            PlatformViewDemand.Implementation,
+            implementation,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeImplementationsAsync(
+                    request,
+                    prepared ? items : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToPackagePopulationResult(outcome);
+    }
 
     static async ValueTask<PackagePlatformLibraryMaterializationResult>
         MaterializeAsync(
@@ -269,25 +435,7 @@ public static class PackagePlatformLibraryMaterializer
                 return false;
             }
 
-            var provenance =
-                new PackageReferenceArtifactProvenance(
-                    reference.Value.Generation,
-                    reference.Value.Coordinate,
-                    library!.Path,
-                    reference.Value.Candidate,
-                    reference.Value.Authority,
-                    reference.Value.Source,
-                    reference.Value.ContentGeneration,
-                    reference.Value.Origin,
-                    library.Identity);
-            prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        reference.Contribution,
-                    provenance,
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+            prepared.Add(ReferenceItem(reference, library!));
         }
 
         if (implementation is not null)
@@ -314,38 +462,183 @@ public static class PackagePlatformLibraryMaterializer
                 return false;
             }
 
-            PackageImplementationFramework framework =
-                library.Framework;
-            var provenance =
-                new PackageImplementationArtifactProvenance(
-                    implementation.Value.Generation,
-                    implementation.Value.Coordinate,
-                    framework.Name,
-                    framework.Family,
-                    framework.Version,
-                    framework.PackageId,
-                    framework.RuntimeIdentifier,
-                    library.ManifestCoordinate,
-                    framework.Candidate,
-                    framework.Authority,
-                    framework.Source,
-                    framework.ContentGeneration,
-                    framework.Origin,
-                    library.Identity,
-                    library.ContentDigest);
-            prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        implementation.Contribution,
-                    provenance,
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+            prepared.Add(ImplementationItem(implementation, library));
         }
 
         items = prepared;
         return true;
     }
+
+    static bool TryPrepareReferencePopulation(
+        PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
+    {
+        items = [];
+        if (expectedView is not PlatformViewDemand.Reference
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
+            || request.Operation is not PlatformHouseOperation.Realize
+            {
+                View: var view,
+                Population:
+                    PlatformPopulationDemand.CompletePopulation,
+            }
+            || view != expectedView
+            || !ValidContribution(
+                request,
+                exact.Target,
+                reference.Contribution,
+                PlatformSourceFacet.Reference,
+                reference.Value.Generation.Name)
+            || reference.Value.Coordinate.Target != exact.Target
+            || reference.Value.Population
+                is not PackageReferencePopulationDemand.CompletePopulation
+            || reference.Value.Libraries.Length == 0)
+        {
+            return false;
+        }
+
+        var identities = new HashSet<AssemblyReferenceIdentity>(
+            AssemblyReferenceIdentity.EquivalentComparer);
+        var prepared =
+            new List<PlatformLibraryArtifactMaterializationItem>(
+                reference.Value.Libraries.Length);
+        foreach (PackageReferenceLibrary library
+            in reference.Value.Libraries)
+        {
+            if (!identities.Add(library.Identity))
+                return false;
+            prepared.Add(ReferenceItem(reference, library));
+        }
+
+        items = prepared;
+        return true;
+    }
+
+    static bool TryPrepareImplementationPopulation(
+        PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
+        PackagePlatformHouseResult<
+            PackageImplementationRealization>.Succeeded implementation,
+        out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
+    {
+        items = [];
+        if (expectedView is not PlatformViewDemand.Implementation
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
+            || request.Operation is not PlatformHouseOperation.Realize
+            {
+                View: var view,
+                Population:
+                    PlatformPopulationDemand.CompletePopulation,
+            }
+            || view != expectedView
+            || !ValidContribution(
+                request,
+                exact.Target,
+                implementation.Contribution,
+                PlatformSourceFacet.Implementation,
+                implementation.Value.Generation.Name)
+            || implementation.Value.Coordinate.Target != exact.Target
+            || implementation.Value.Libraries.Length == 0)
+        {
+            return false;
+        }
+
+        var identities = new HashSet<AssemblyReferenceIdentity>(
+            AssemblyReferenceIdentity.EquivalentComparer);
+        var prepared =
+            new List<PlatformLibraryArtifactMaterializationItem>(
+                implementation.Value.Libraries.Length);
+        foreach (PackageImplementationLibrary library
+            in implementation.Value.Libraries)
+        {
+            if (!string.Equals(
+                    library.Framework.RuntimeIdentifier,
+                    implementation.Value.Coordinate.RuntimeIdentifier,
+                    StringComparison.Ordinal)
+                || !identities.Add(library.Identity))
+            {
+                return false;
+            }
+            prepared.Add(ImplementationItem(implementation, library));
+        }
+
+        items = prepared;
+        return true;
+    }
+
+    static PlatformLibraryArtifactMaterializationItem ReferenceItem(
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        PackageReferenceLibrary library) =>
+        new(
+            (PlatformSourceContribution.Realization)
+                reference.Contribution,
+            new PackageReferenceArtifactProvenance(
+                reference.Value.Generation,
+                reference.Value.Coordinate,
+                library.Path,
+                reference.Value.Candidate,
+                reference.Value.Authority,
+                reference.Value.Source,
+                reference.Value.ContentGeneration,
+                reference.Value.Origin,
+                library.Identity),
+            library.Identity,
+            library.ContentLength,
+            _ => library.OpenRead());
+
+    static PlatformLibraryArtifactMaterializationItem ImplementationItem(
+        PackagePlatformHouseResult<
+            PackageImplementationRealization>.Succeeded implementation,
+        PackageImplementationLibrary library)
+    {
+        PackageImplementationFramework framework = library.Framework;
+        return new(
+            (PlatformSourceContribution.Realization)
+                implementation.Contribution,
+            new PackageImplementationArtifactProvenance(
+                implementation.Value.Generation,
+                implementation.Value.Coordinate,
+                framework.Name,
+                framework.Family,
+                framework.Version,
+                framework.PackageId,
+                framework.RuntimeIdentifier,
+                library.ManifestCoordinate,
+                framework.Candidate,
+                framework.Authority,
+                framework.Source,
+                framework.ContentGeneration,
+                framework.Origin,
+                library.Identity,
+                library.ContentDigest),
+            library.Identity,
+            library.ContentLength,
+            _ => library.OpenRead());
+    }
+
+    static PackagePlatformPopulationMaterializationResult
+        ToPackagePopulationResult(
+            PlatformPopulationArtifactMaterializationOutcome outcome) =>
+        outcome switch
+        {
+            PlatformPopulationArtifactMaterializationOutcome.Completed
+                completed =>
+                new PackagePlatformPopulationMaterializationResult.Completed(
+                    completed.Population,
+                    completed.Artifacts),
+            PlatformPopulationArtifactMaterializationOutcome.Terminal
+                terminal =>
+                new PackagePlatformPopulationMaterializationResult.Terminal(
+                    terminal.TerminalRealization),
+            _ => throw new InvalidOperationException(
+                "Unknown Platform population Artifact materialization outcome."),
+        };
 
     static bool ValidContribution(
         PlatformHouseRequest request,

@@ -55,12 +55,23 @@ selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates
-   the package id. An exact pin bypasses discovery; an omitted version uses the
-   NuGet Gallery search endpoint and accepts only the exact package ID's listed
-   stable result. Neither path requests the NuGet.org v3 service index. The
-   Browser adapter then selects one target framework — never "whatever the
-   package happens to ship".
+1. **Settle an exact identity.**
+   `PackageVersionSettlementInspection` validates and settles the request
+   through `PackageHouse`. An exact pin bypasses discovery; an omitted version
+   refreshes the Gallery's authoritative version and listing evidence and
+   selects the latest listed stable result. The shared result carries the
+   centrally normalized request. Exact settlement authorizes its coordinate
+   but does not claim that the package exists; payload acquisition establishes
+   that separately. Neither path requests the NuGet.org v3 service index.
+   Framework is request context outside version settlement. The package facade
+   returns a request-specific load result containing the complete settlement
+   envelope and a nullable rich package surface. A settled result carries both
+   values; `NotSettled` carries the failure Content, Share, and diagnostics to
+   TypeScript with no fabricated surface. The application then reports that
+   typed failure, while payload or Workspace failures retain their existing
+   rejected-operation contract. Settlement evidence is not stored on a
+   reusable exact workspace. The Browser adapter then selects one target
+   framework — never "whatever the package happens to ship".
 2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
    admits the package from the Gallery package CDN through the shared typed
    source, transport, and archive policy. The Gallery payload carries its
@@ -90,8 +101,8 @@ selected assembly set.
    its coordinate/asset provenance adapter; it does not select package assets,
    decode identities, mint descriptors, or compose groups.
    The Browser adapter places one 30-second operation deadline around coordinate
-   resolution and payload acquisition. The deadline token flows through the
-   shared resolver, retry, response-body, archive-validation, and store paths;
+   settlement and payload acquisition. The deadline token flows through the
+   shared House, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
    Gallery version enumeration joins the flat-container list with bounded
@@ -2069,8 +2080,8 @@ unclaimed globally.
 
 `test/keybinding-registry.test.ts` gates precedence, scoped arbitration,
 handled fallthrough, exact modifiers, conflict reporting, disposal, and the
-original stack-navigation collision. `test/spotlight-identity.test.js` gates
-the single-listener wiring and the complete workbench priority order.
+original stack-navigation collision. `test/composition-root-controls.test.ts`
+gates the single-listener wiring and the complete workbench priority order.
 `test/workspace-navigation.test.ts` gates
 history traversal, stale-entry removal, navigation cancellation, generated
 codec delegation, canonical topology and identity adaptation, visible typed
@@ -2099,8 +2110,8 @@ or in-flight work, request-local failure reporting, replacement-slot
 preservation, retry after failure, and resident-pack reuse;
 exact Platform pins additionally gate version-aware resident reuse and engine
 invocation;
-`test/spotlight-identity.test.js` gates provenance, failure adaptation, and
-composition-root wiring.
+`test/composition-root-controls.test.ts` gates provenance, failure adaptation,
+and composition-root wiring.
 
 `src/package-inspection.ts` owns the async request lifecycle for Dependencies,
 Integrations, Opportunities, Analysis, and package-level Metadata, including
@@ -2110,7 +2121,7 @@ diagnostics, and rendering ports while retaining lens selection and
 presentation. `test/package-inspection.test.ts` gates complete cache identity,
 resident-package checks, visible partial/failure results, package/platform
 routing, stale publication, and explicit Platform library scope;
-`test/spotlight-identity.test.js` gates the composition-root wiring.
+`test/composition-root-controls.test.ts` gates the composition-root wiring.
 
 `src/source-inspection.ts` owns the mutually exclusive member, type, and
 call-graph source request lifecycle: shared cancellation, request-owned Type
@@ -2122,7 +2133,8 @@ state and rendering ports, and retains source presentation.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
 settled empty graph failure, and graph auto-load eligibility;
-`test/spotlight-identity.test.js` gates engine and composition-root wiring.
+`test/composition-root-member-source.test.ts` gates engine and composition-root
+wiring.
 The focused Type and Member Source state contract is
 [Inspect Web Type and Member Source State](../docs/design/inspect-web-type-member-source-state.md).
 
@@ -2135,7 +2147,7 @@ requests, and retains mutable state, rendering, and annotated-source
 interaction handlers. `test/member-detail-inspection.test.ts` gates current and
 stale completion, cached failures, runtime documentation, exact request
 coordinates, cross-surface invalidation, and focus restoration;
-`test/spotlight-identity.test.js` gates composition-root wiring.
+`test/composition-root-member-source.test.ts` gates composition-root wiring.
 
 `src/call-graph-inspection.ts` owns member call-graph request coordination:
 fast local publication followed by full-workspace expansion, runtime-member
@@ -2145,8 +2157,8 @@ the selected overload, constructs exact engine requests, and supplies paint,
 rendering, DOM patching, package-stat, and platform-navigation ports.
 `test/call-graph-inspection.test.ts` gates cache reuse, progressive ordering,
 workspace and runtime routing, partial failures, stale completion, drill
-navigation, and focus restoration; `test/spotlight-identity.test.js` gates
-composition-root wiring.
+navigation, and focus restoration; `test/composition-root-call-graph.test.ts`
+gates composition-root wiring.
 
 `src/metadata-inspection.ts` owns the type-metadata request lifecycle and the
 Metadata Explorer's table-window and heap-listing requests, including cache
@@ -2156,7 +2168,8 @@ typed state, engine, rendering, and scroll ports while retaining selection
 validation, explorer focus/history navigation, and DOM effects.
 `test/metadata-inspection.test.ts` gates cached and stale type completions,
 focus preservation, explorer routing, window identity, failure publication,
-and focused scrolling; `test/spotlight-identity.test.js` gates composition-root
+and focused scrolling;
+`test/composition-root-workspace-navigation.test.ts` gates composition-root
 wiring.
 
 `src/spotlight.ts` owns the modal workbench search, embedded home search,

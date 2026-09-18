@@ -14,8 +14,20 @@ public sealed class WorkspacePlanTests
     public async Task EmptyPlanIsReusableWithoutSharingLiveIdentity()
     {
         WorkspacePlan plan = new();
+        Assert.Same(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            plan.TraversalTargetPolicy);
+        Assert.Equal(
+            "net12.0",
+            plan.TraversalTargetPolicy.TargetFramework);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicySource.ProductDefault,
+            plan.TraversalTargetPolicy.Source);
         Assert.Empty(plan.Registrations);
         Assert.Empty(plan.Contexts);
+        Assert.Same(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            WorkspacePlan.Empty.TraversalTargetPolicy);
         Assert.Empty(WorkspacePlan.Empty.Registrations);
         Assert.Empty(WorkspacePlan.Empty.Contexts);
         await using InspectionWorkspace first = WorkspaceRegistrationConsumer.Create(plan);
@@ -27,9 +39,39 @@ public sealed class WorkspacePlanTests
             WorkspaceRegistrationConsumer.Observe(first);
         Assert.Same(plan, firstRevision.Plan);
         Assert.Same(plan, secondRevision.Plan);
+        Assert.Same(
+            plan.TraversalTargetPolicy,
+            firstObservation.TraversalTargetPolicy);
         Assert.Equal(plan.Contexts, firstObservation.Contexts);
         Assert.NotSame(firstRevision.Workspace, secondRevision.Workspace);
         Assert.NotSame(firstRevision.Identity, secondRevision.Identity);
+    }
+
+    [Fact]
+    public async Task ExplicitTraversalTargetPolicyIsCanonicalReusableConstructionIntent()
+    {
+        var policy = new TraversalTargetFrameworkPolicy("NET10.0");
+        WorkspacePlan emptyPlan = new(policy);
+        WorkspacePlan plan =
+            WorkspaceRegistrationConsumer.CreatePlan(
+                policy,
+                [],
+                RealContexts());
+
+        Assert.Equal("net10.0", policy.TargetFramework);
+        Assert.Equal(
+            TraversalTargetFrameworkPolicySource.Configured,
+            policy.Source);
+        Assert.Equal("net10.0", policy.ToString());
+        Assert.Same(policy, emptyPlan.TraversalTargetPolicy);
+        Assert.Same(policy, plan.TraversalTargetPolicy);
+
+        await using InspectionWorkspace first =
+            WorkspaceRegistrationConsumer.Create(plan);
+        await using InspectionWorkspace second =
+            WorkspaceRegistrationConsumer.Create(plan);
+        Assert.Same(policy, Current(first).Plan.TraversalTargetPolicy);
+        Assert.Same(policy, Current(second).Plan.TraversalTargetPolicy);
     }
 
     [Fact]
@@ -208,6 +250,17 @@ public sealed class WorkspacePlanTests
         Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.Create((WorkspacePlan)null!));
         Assert.Throws<ArgumentNullException>(
+            () => WorkspaceRegistrationConsumer.CreatePlan(
+                null!,
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new TraversalTargetFrameworkPolicy("not a framework"));
+        Assert.Throws<ArgumentException>(
+            () => new TraversalTargetFrameworkPolicy(" net10.0"));
+        Assert.Throws<ArgumentNullException>(
+            () => new TraversalTargetFrameworkPolicy(null!));
+        Assert.Throws<ArgumentNullException>(
             () => WorkspaceRegistrationConsumer.CreatePlan([], null!));
         Assert.Throws<ArgumentException>(
             () => WorkspaceRegistrationConsumer.CreatePlan([], [null!]));
@@ -237,6 +290,9 @@ public sealed class WorkspacePlanTests
         Assert.NotSame(plan, changed.Revision.Plan);
         Assert.Equal([replacement], changed.Revision.Plan.Registrations);
         Assert.Equal(2, changed.Revision.Plan.Contexts.Length);
+        Assert.Same(
+            plan.TraversalTargetPolicy,
+            changed.Revision.Plan.TraversalTargetPolicy);
         Assert.Same(plan.Contexts[0], changed.Revision.Plan.Contexts[0]);
         Assert.Same(plan.Contexts[1], changed.Revision.Plan.Contexts[1]);
         Assert.Equal([original], plan.Registrations);

@@ -229,9 +229,19 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
-    public void SharedDisplayClassEnvironment_RaisesEveryLambda()
+    public void SharedDisplayClassEnvironment_RaisesEveryLambdaAndEliminatesEnvironmentSlot()
     {
-        string output = PrintRaised(nameof(CfgSampleClass.SharedCaptureLambdas));
+        string output = PrintRaised(
+            nameof(CfgSampleClass.SharedCaptureLambdas),
+            inspectFunction: function =>
+            {
+                int displayClassSlot = Assert.Single(
+                    function.Locals.Select((type, index) => (type, index)),
+                    local => GeneratedCodeIdentity.IsDisplayClassName(local.type)).index;
+                Assert.Contains(displayClassSlot, function.EliminatedLocalSlots);
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+                function.CheckInvariant();
+            });
 
         Assert.Contains("x => x + n", output);
         Assert.Contains("y => y - n", output);
@@ -2232,7 +2242,17 @@ public class LambdaRaisingPassTests
     [Fact]
     public void CapturedFieldReassignedInOuterBody_StaysLowered()
     {
-        string output = PrintRaised(nameof(CfgSampleClass.CapturedParamReassignedInOuterBody));
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturedParamReassignedInOuterBody),
+            inspectFunction: function =>
+            {
+                int displayClassSlot = Assert.Single(
+                    function.Locals.Select((type, index) => (type, index)),
+                    local => GeneratedCodeIdentity.IsDisplayClassName(local.type)).index;
+                Assert.DoesNotContain(displayClassSlot, function.EliminatedLocalSlots);
+                Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+                function.CheckInvariant();
+            });
 
         Assert.Contains("DisplayClass", output);   // environment kept
         Assert.Contains("new Func", output);        // delegate creation survives

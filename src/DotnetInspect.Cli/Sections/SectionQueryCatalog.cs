@@ -96,20 +96,18 @@ public sealed record SectionQueryCatalog(
         }
         if (command == "library")
         {
-            string[] integrationSections =
-            [
-                LibraryIntegrationCatalog.RollupName,
-                .. LibraryIntegrationCatalog.CategorySections,
+            foreach (string section in new[]
+            {
+                IntegrationSectionNames.Integrations,
                 IntegrationSectionNames.Opportunities,
-            ];
-            foreach (string section in integrationSections)
+            })
             {
                 queries.Add(new(
                     section,
-                    "All integrations are enabled by default. An ecosystem equality predicate narrows "
-                    + "ordinary Integration evidence and opportunities; it does not replace full-library presence or Census. "
+                    "All integrations are enabled by default. Integration and ecosystem equality predicates narrow "
+                    + "ordinary Integration evidence and opportunities; they do not replace full-library presence or Census. "
                     + "This query cannot be combined with Body Shapes or Performance Triage predicates/ranking.",
-                    [IntegrationQueryOptions.QueryKey]));
+                    IntegrationQueryOptions.QueryKeys));
             }
         }
         if (command == "graph libraries")
@@ -120,12 +118,15 @@ public sealed record SectionQueryCatalog(
                 LibraryCallUseCommand.ProviderApiTypesSection,
                 LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
+                LibraryCallUseCommand.PublicRootPathsSection,
             })
             {
                 queries.Add(new(
                     section,
-                    "An exact Cluster=... equality predicate scopes the pair occurrence population "
-                    + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
+                    section == LibraryCallUseCommand.PublicRootPathsSection
+                        ? "An exact Cluster=... equality predicate selects one direct-use component before public roots and local paths are inspected. Name this section explicitly; wildcard selection does not opt into it."
+                        : "An exact Cluster=... equality predicate scopes the pair occurrence population "
+                            + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
                     [LibraryCallUseQueryOptions.QueryKey]));
             }
         }
@@ -140,6 +141,7 @@ public sealed record SectionQueryCatalog(
                 LibraryCallUseCommand.ProviderApiTypesSection,
                 LibraryCallUseCommand.DirectUseClustersSection,
                 LibraryCallUseCommand.CallSitesSection,
+                LibraryCallUseCommand.PublicRootPathsSection,
             ],
             _ => [.. projections.SelectMany(projection => projection.Schema.SectionNames)
                 .Concat(queries.Select(query => query.Section))

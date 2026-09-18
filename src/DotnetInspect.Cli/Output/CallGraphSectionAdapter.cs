@@ -7,6 +7,22 @@ namespace DotnetInspect.Cli.Output;
 internal readonly record struct CallGraphOpportunityAnnotations(
     int AsyncAlternatives);
 
+internal readonly record struct CallGraphRenderedFieldEvidence(
+    IReadOnlySet<CallGraphField> GraphFields,
+    IReadOnlySet<CallGraphField> FromFields,
+    IReadOnlySet<CallGraphField> ToFields)
+{
+    internal static CallGraphRenderedFieldEvidence Empty { get; } =
+        new(
+            new HashSet<CallGraphField>(),
+            new HashSet<CallGraphField>(),
+            new HashSet<CallGraphField>());
+}
+
+internal readonly record struct CallGraphSectionOutput(
+    Markout.Graph Graph,
+    CallGraphRenderedFieldEvidence RenderedFieldEvidence);
+
 /// <summary>
 /// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
 /// <see cref="Markout.Graph"/> shape the writer lowers per format.
@@ -45,12 +61,14 @@ internal static class CallGraphSectionAdapter
     /// empty <paramref name="requestedFields"/> then means the projection did
     /// not request graph fields, not that default graph cues were requested.
     /// </param>
-    public static Markout.Graph ToGraph(
+    public static CallGraphSectionOutput ToGraph(
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<CallGraphField>? requestedFields = null,
         bool hasFieldProjection = false,
         IReadOnlyList<CallGraphRow>? rows = null,
+        IReadOnlyList<CallGraphRow>? evidenceRows = null,
+        bool includeFocusInEvidence = false,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations = null)
     {
@@ -114,7 +132,59 @@ internal static class CallGraphSectionAdapter
                 });
         }
 
-        return new Markout.Graph(nodes, edges, focusKey: Key(projection.Focus.Id));
+        var graphFields = new HashSet<CallGraphField>();
+        var fromFields = new HashSet<CallGraphField>();
+        var toFields = new HashSet<CallGraphField>();
+        if (hasFieldProjection && requestedFields is { Count: > 0 })
+        {
+            var fromEvidenceNodeIds = new HashSet<int>();
+            var toEvidenceNodeIds = new HashSet<int>();
+            foreach (CallGraphRow row in evidenceRows ?? selectedRows)
+            {
+                fromEvidenceNodeIds.Add(row.Edge.From);
+                toEvidenceNodeIds.Add(row.Edge.To);
+            }
+
+            foreach (CallGraphNode node in projection.Nodes)
+            {
+                bool isFromEvidence = fromEvidenceNodeIds.Contains(node.Id);
+                bool isToEvidence = toEvidenceNodeIds.Contains(node.Id);
+                bool isGraphEvidence =
+                    isFromEvidence
+                    || isToEvidence
+                    || includeFocusInEvidence
+                    && node.Id == projection.Focus.Id;
+                if (!isGraphEvidence)
+                    continue;
+
+                foreach (CallGraphField field in requestedFields)
+                {
+                    if (Annotation(node.Perf, field) is not null
+                        || opportunityAnnotations is not null
+                        && opportunityAnnotations.TryGetValue(
+                            node.Id,
+                            out CallGraphOpportunityAnnotations opportunities)
+                        && OpportunityAnnotation(opportunities, field) is not null)
+                    {
+                        graphFields.Add(field);
+                        if (isFromEvidence)
+                            fromFields.Add(field);
+                        if (isToEvidence)
+                            toFields.Add(field);
+                    }
+                }
+            }
+        }
+
+        return new CallGraphSectionOutput(
+            new Markout.Graph(
+                nodes,
+                edges,
+                focusKey: Key(projection.Focus.Id)),
+            new CallGraphRenderedFieldEvidence(
+                graphFields,
+                fromFields,
+                toFields));
     }
 
     // The projection's dense ids are the node identity. They are opaque to Markout and never

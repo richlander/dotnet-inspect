@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
@@ -136,16 +137,16 @@ public static partial class SourceExports
             var request = AssemblyTypeSourceRequest.From(
                 type,
                 BrowserStyleOptions.Resolve(styleOptionsJson));
-            AssemblyTypeSourceEntry result = await scope.UseImplementationParticipant(
+            InspectionEnvelope<AssemblyTypeSourceEntry> inspection = await scope.UseImplementationParticipant(
                 participant,
-                (group, member) => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                (group, member) => TypeSourceInspection.ExecuteAsync(
                     group,
                     member,
                     request,
                     CreateSourceContext(),
                     cancellationToken));
 
-            return Adapt(result, participant);
+            return Adapt(inspection.Content, participant);
         }
     }
 
@@ -217,17 +218,17 @@ public static partial class SourceExports
             resolution.Type,
             resolution.Member,
             BrowserStyleOptions.Resolve(styleOptionsJson));
-        AssemblyMemberSourceEntry result =
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
             await scope.UseImplementationParticipant(
                 participant,
-                (group, member) => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                (group, member) => MemberSourceInspection.ExecuteAsync(
                     group,
                     member,
                     request,
                     CreateSourceContext(),
                     operation.CancellationToken));
 
-        return Adapt(result, participant);
+        return Adapt(inspection.Content, participant);
     }
 
     static async Task<(

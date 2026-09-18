@@ -229,7 +229,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 settlement.Result.Evidence.Realization);
 
         var evidence =
-            new PackageVersionCellMetadataInspectionEvidence(
+            new PackageVersionCellExecutionEvidence(
                 request.HouseExecution,
                 settlement.Result,
                 compile,
@@ -282,17 +282,17 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var limits = limit switch
         {
             RealizationLimit.Assemblies =>
-                new PackageVersionCellMetadataInspectionLimits(
+                new PackageVersionCellWorkspaceLimits(
                     1,
                     image.Length,
                     image.Length * 2L),
             RealizationLimit.EntryBytes =>
-                new PackageVersionCellMetadataInspectionLimits(
+                new PackageVersionCellWorkspaceLimits(
                     2,
                     image.Length - 1L,
                     image.Length * 2L),
             RealizationLimit.AggregateBytes =>
-                new PackageVersionCellMetadataInspectionLimits(
+                new PackageVersionCellWorkspaceLimits(
                     2,
                     image.Length,
                     image.Length * 2L - 1L),
@@ -348,13 +348,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     public void CleanupFailureSupersedesSuccessAndRemainsSecondaryToFailure()
     {
         CellFixture fixture = CellFixture.Create();
-        PackageVersionCellMetadataInspectionEvidence evidence =
+        PackageVersionCellExecutionEvidence evidence =
             fixture.ResourceFreeEvidence();
         var cleanup =
-            new PackageVersionCellMetadataCleanupEvidence(
+            new PackageVersionCellWorkspaceCleanupEvidence(
                 [
                     new(
-                        PackageVersionCellMetadataCleanupStage.GroupRelease,
+                        PackageVersionCellWorkspaceCleanupStage.GroupRelease,
                         1),
                 ]);
         var available =
@@ -396,17 +396,18 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             ],
             [new IOException("artifact fixture")]);
 
-        ImmutableArray<PackageVersionCellMetadataCleanupFailure> failures =
-            PackageVersionCellMetadataInspector.DescribeClose(
-                report,
-                scopeCommitted: true,
-                closeFaulted: true);
+        ImmutableArray<PackageVersionCellWorkspaceCleanupFailure> failures =
+            PackageVersionCellWorkspaceCleanup.Describe(
+                    report,
+                    scopeCommitted: true,
+                    closeFaulted: true)
+                .Failures;
 
         Assert.Equal(
             [
-                PackageVersionCellMetadataCleanupStage.GroupRelease,
-                PackageVersionCellMetadataCleanupStage.ArtifactRelease,
-                PackageVersionCellMetadataCleanupStage.CloseOrchestration,
+                PackageVersionCellWorkspaceCleanupStage.GroupRelease,
+                PackageVersionCellWorkspaceCleanupStage.ArtifactRelease,
+                PackageVersionCellWorkspaceCleanupStage.CloseOrchestration,
             ],
             failures.Select(failure => failure.Stage));
         Assert.All(failures, failure => Assert.Equal(1, failure.Count));
@@ -446,7 +447,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         Assert.Equal(inspectApi, available.ApiInspection is not null);
         Assert.Equal(cancellation.Token, failure.CancellationToken);
         Assert.False(
-            PackageVersionCellMetadataInspectionExceptionEvidence
+            PackageVersionCellWorkspaceExceptionEvidence
                 .TryGetCleanup(failure, out _));
     }
 
@@ -457,9 +458,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         foreach (Type root in new[]
         {
             typeof(PackageVersionCellMetadataInspectionOutcome),
-            typeof(PackageVersionCellMetadataInspectionEvidence),
+            typeof(PackageVersionCellExecutionEvidence),
             typeof(PackageVersionCellMetadataWorkspaceFailure),
-            typeof(PackageVersionCellMetadataCleanupEvidence),
+            typeof(PackageVersionCellWorkspaceCleanupEvidence),
         })
         {
             Visit(root);
@@ -579,41 +580,50 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     {
         public static CellFixture Create(
             string packageId = PackageId,
-            string version = Version)
+            string version = Version) =>
+            Assert.Single(CreatePopulation(packageId, version));
+
+        public static ImmutableArray<CellFixture> CreatePopulation(
+            string packageId,
+            params string[] versions)
         {
+            if (versions.Length == 0)
+                throw new ArgumentException("At least one Version is required.", nameof(versions));
             var authority = new ConfiguredPackageAuthority(
                 PackageSource.NuGetOrg);
             PackageSourceResultFactory results =
                 CreateResultFactory(authority.Association);
-            PackageSourceCoordinate coordinate =
-                PackageSourceCoordinate.Create(packageId, version);
             var discovery = new PackageVersionDiscoveryResult(
                 packageId,
                 PackageVersionDiscoveryState.Authoritative,
                 [
-                    new PackageVersionSourceInfo(
-                        version,
-                        "nuget.org",
-                        Listed: true),
+                    .. versions.Select(version =>
+                        new PackageVersionSourceInfo(
+                            version,
+                            "nuget.org",
+                            Listed: true)),
                 ],
                 failures: [],
                 hasAnyCandidate: true,
                 candidates:
                 [
-                    new ConfiguredPackageCandidateObservation(
-                        authority,
-                        results.Candidate(
-                            coordinate,
-                            PackageDiscoveryContract
-                                .CompleteVersionEnumeration,
-                            PackageListingState.Listed)),
+                    .. versions.Select(version =>
+                        new ConfiguredPackageCandidateObservation(
+                            authority,
+                            results.Candidate(
+                                PackageSourceCoordinate.Create(
+                                    packageId,
+                                    version),
+                                PackageDiscoveryContract
+                                    .CompleteVersionEnumeration,
+                                PackageListingState.Listed))),
                 ],
                 PackageVersionDiscoveryContract
                     .CompleteVersionEnumeration,
                 candidateIssuer: new object());
             Assert.True(
                 PackageVersionRange.TryParse(
-                    $"{packageId}@{version}..{version}",
+                    $"{packageId}@{versions[0]}..{versions[^1]}",
                     out PackageVersionRange? range,
                     out string? error),
                 error);
@@ -627,14 +637,33 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                     new PackageHouseVersionPopulationEvidence(
                         populationRequest,
                         discovery));
-            PackageHouseVersionPopulationCell cell =
-                population.SelectCell(
-                    Assert.Single(population.Vector.Addresses));
-            return new(cell, authority, results.Source);
+            return
+            [
+                .. population.Vector.Addresses.Select(address =>
+                    new CellFixture(
+                        population.SelectCell(address),
+                        authority,
+                        results.Source)),
+            ];
         }
 
+        public PackageHouseVersionPopulationCell Cell => cell;
+
+        public string CellVersion =>
+            cell.Address.Version.ToNormalizedString();
+
+        public PackageVersionCellAnalysisEndpoint AnalysisEndpoint(
+            string framework = Framework,
+            PackageHouseTargetContext? targetContext = null) =>
+            new(
+                cell,
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                targetContext
+                    ?? PackageHouseTargetContext.Exact(framework));
+
         public PackageVersionCellMetadataInspectionRequest Request(
-            PackageVersionCellMetadataInspectionLimits? limits = null,
+            PackageVersionCellWorkspaceLimits? limits = null,
             string framework = Framework,
             DateTimeOffset? deadline = null,
             PackageHouseTargetContext? targetContext = null,
@@ -646,7 +675,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 targetContext
                     ?? PackageHouseTargetContext.Exact(framework),
                 limits
-                    ?? new PackageVersionCellMetadataInspectionLimits(
+                    ?? new PackageVersionCellWorkspaceLimits(
                         16,
                         16_000_000,
                         32_000_000),
@@ -674,6 +703,12 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 fromCache: true,
                 source.Producer.Key);
         }
+
+        public IPackageContent PackageContent(byte[] bytes) =>
+            new InMemoryPackageContent(
+                bytes,
+                fromCache: true,
+                source.Producer.Key);
 
         public PackageHouseSettlement Realize(
             PackageHouseVersionPopulationCellExecution execution,
@@ -719,8 +754,11 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 PackageCompileAssetSelector.Evaluate(
                     payload.Content,
                     coordinate.PackageId,
-                    request.TargetContext!.RequestedFramework,
-                    request.TargetContext.RuntimeIdentifier);
+                    request.TargetContext?.RequestedFramework is null
+                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    request.TargetContext?.RequestedFramework,
+                    request.TargetContext?.RuntimeIdentifier);
             var realization =
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
@@ -738,7 +776,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 selectionUsesOriginalSources: true);
         }
 
-        public PackageVersionCellMetadataInspectionEvidence
+        public PackageVersionCellExecutionEvidence
             ResourceFreeEvidence()
         {
             PackageVersionCellMetadataInspectionRequest request = Request();

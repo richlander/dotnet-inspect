@@ -102,6 +102,10 @@ dnx dotnet-inspect -y -- diff --package Foo@1.0.0..2.0.0 -S "Analysis Diff"
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll -S "Analysis Diff" --changed
 ```
 
+Use `-S @Diff` to compose the API `Changes`, `Analysis Diff`, and
+`Implementation Diff` views. `Finding Transitions` remains exact-name-only
+because its focused endpoint-confirmation semantics do not compose with them.
+
 Use `Analysis Diff` for aggregate regression triage. To confirm whether one
 allocation occurrence was introduced at a caller-selected boundary, resolve one
 method and request the native Analysis Finding pairs:
@@ -183,10 +187,10 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is source-scoped. Online `Foo --version` and
-`Foo --latest-version` resolve the newest listed version from fresh, complete
-discovery across all eligible configured sources, without legacy candidate
-cache reuse. Use `Foo --versions` (add `-n N` for N rows or `--preview` for
+Version resolution is source-scoped. Online `Foo@latest --version` resolves the
+newest listed version from fresh, complete discovery across all eligible
+configured sources, without legacy candidate cache reuse. Use `Foo --versions`
+(add `-n N` for N rows or `--preview` for
 prerelease) to list published versions. Unlisted
 versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each

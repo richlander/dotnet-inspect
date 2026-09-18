@@ -87,11 +87,14 @@ public sealed class LibraryBodyIndex
     LibraryBodyIndex(
         string path,
         LibraryBodyModuleIdentity moduleIdentity,
+        string? moduleName,
         LibraryBodyAnalysisResult analysis,
-        LibraryBodyAnalysisFeatures features)
+        LibraryBodyAnalysisFeatures features,
+        bool hasFullMethodEvidenceScope)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
+        _moduleName = moduleName;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
@@ -139,6 +142,9 @@ public sealed class LibraryBodyIndex
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
+        HasFullMethodEvidenceScope =
+            (features & LibraryBodyAnalysisFeatures.MethodEvidence) != 0
+            && hasFullMethodEvidenceScope;
         _leakTriage = analysis.Resources.LeakTriage;
         ResourceOwnership = analysis.OwnershipFlow.Methods;
         ArrayPoolOwnership = analysis.OwnershipFlow.ArrayPoolMethods;
@@ -226,6 +232,12 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
     public LibraryBodyAnalysisFeatures Features { get; }
+    /// <summary>
+    /// True when method evidence covers the full module rather than a
+    /// caller-supplied method or type scope. Recoverable body diagnostics are
+    /// reported separately through <see cref="Diagnostics"/>.
+    /// </summary>
+    public bool HasFullMethodEvidenceScope { get; }
 
     /// <summary>
     /// Compact per-method resource ownership summaries produced from resolved
@@ -269,8 +281,10 @@ public sealed class LibraryBodyIndex
         _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
     MethodDefinitionMap? _methodMap;
+    MethodDefinitionMap? _declaredMethodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
+    LibraryBodyLocalCallGraph? _rootPathGraph;
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
     /// definition map, distinct-caller counts and edges, and direct-call
@@ -293,8 +307,10 @@ public sealed class LibraryBodyIndex
     public void ReleaseCallGraphCaches()
     {
         _methodMap = null;
+        _declaredMethodMap = null;
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
+        _rootPathGraph = null;
         _directCallsByCaller = null;
         _directCallsByEvidenceMethod = null;
         _overloadRelationships = default;
@@ -373,7 +389,8 @@ public sealed class LibraryBodyIndex
                                     _physicalDirectCalls,
                                     _rawOpportunities,
                                     _suppressedOpportunityTokens,
-                                    reachByToken)
+                                    reachByToken,
+                                    DeclaredMethodMap)
                                 .Select(OptimizationOpportunityAnalysis
                                     .AddFallbackMetadata),
                         ]
@@ -416,9 +433,11 @@ public sealed class LibraryBodyIndex
                             ClassifyExactCallTargets(
                                 Path,
                                 _physicalDirectCalls,
-                                Methods),
+                                DeclaredMethodMap,
+                                MethodMap),
                             _allocationOccurrences,
-                            _scopeExcludedOpportunityTokens)
+                            _scopeExcludedOpportunityTokens,
+                            DeclaredMethodMap)
                         .Where(summary =>
                             !_scopeExcludedOpportunityTokens
                                 .Contains(
@@ -455,7 +474,8 @@ public sealed class LibraryBodyIndex
         => _directCallerLoops ??= CallerLoopEvidenceAnalysis.FindNearest(
             Methods,
             _physicalDirectCalls,
-            maxDepth: 1);
+            maxDepth: 1,
+            DeclaredMethodMap);
 
     Dictionary<int, int> RootReachByToken
     {
@@ -475,18 +495,21 @@ public sealed class LibraryBodyIndex
     static ImmutableArray<DirectCall> ClassifyExactCallTargets(
         string path,
         ImmutableArray<DirectCall> calls,
-        ImmutableArray<MethodIdentity> methods)
+        MethodDefinitionMap declarationMap,
+        MethodDefinitionMap bodyMap)
     {
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         var reader = peReader.GetMetadataReader();
-        var methodMap = MethodDefinitionMap.Create(methods);
         return
         [
             .. calls.Select(call =>
             {
-                int targetToken = methodMap.Resolve(call);
-                bool exact = targetToken != 0 && call.Kind switch
+                int targetToken =
+                    declarationMap.Resolve(call);
+                bool exact =
+                    bodyMap.ContainsToken(targetToken)
+                    && call.Kind switch
                 {
                     CallKind.Call or CallKind.NewObject => true,
                     CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
@@ -781,7 +804,8 @@ public sealed class LibraryBodyIndex
         => DirectCalls.Any(call =>
             call.Kind == CallKind.NewObject
             && call.InLoop
-            && call.CalleeDefinitionToken == constructor.MetadataToken);
+            && DeclaredMethodMap.Resolve(call)
+                == constructor.MetadataToken);
 
     IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
     {
@@ -975,7 +999,8 @@ public sealed class LibraryBodyIndex
                     _implementationProfiles,
                     DirectCalls,
                     Signals,
-                    OverloadRelationships());
+                    OverloadRelationships(),
+                    DeclaredMethodMap);
         }
 
         return scope is null
@@ -999,7 +1024,8 @@ public sealed class LibraryBodyIndex
             _overloadRelationships = MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
                     DeclaredMethods,
-                    DirectCalls);
+                    DirectCalls,
+                    DeclaredMethodMap);
         }
         return _overloadRelationships;
     }
@@ -1056,11 +1082,26 @@ public sealed class LibraryBodyIndex
     }
 
     /// <summary>
-    /// Token/signature resolution over this assembly's defined methods. Depends only on
-    /// <see cref="Methods"/>, so it is built once instead of per call-tree request: a single
-    /// progressive render asks for several trees over the same index.
+    /// Membership map for definitions with analyzable bodies. Correspondence
+    /// always resolves through <see cref="DeclaredMethodMap"/> first.
     /// </summary>
-    MethodDefinitionMap MethodMap => _methodMap ??= MethodDefinitionMap.Create(Methods);
+    readonly string? _moduleName;
+
+    MethodDefinitionMap MethodMap =>
+        _methodMap ??=
+            MethodDefinitionMap.Create(
+                Methods,
+                _moduleName);
+
+    internal MethodDefinitionMap DeclaredMethodMap =>
+        _declaredMethodMap ??=
+            MethodDefinitionMap.Create(
+                DeclaredMethods,
+                _moduleName);
+
+    internal LibraryBodyLocalCallGraph RootPathGraph()
+        => _rootPathGraph ??=
+            LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
 
     readonly record struct LocalCalleeKey(
         int DefinitionToken,
@@ -1098,7 +1139,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     IReadOnlyDictionary<int, int> DistinctCallersByCallee()
         => _distinctCallersByCallee ??= DirectCalls
-            .GroupBy(call => MethodMap.Resolve(call))
+            .GroupBy(call => DeclaredMethodMap.Resolve(call))
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
@@ -1109,17 +1150,13 @@ public sealed class LibraryBodyIndex
     /// Inbound call edges per callee definition token, collapsed to one edge per distinct caller
     /// method and preserving an in-loop call site when the same caller has one.
     ///
-    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/>, which is root-independent. The caller
-    /// tree's own resolution additionally maps any edge whose callee definition token equals the
-    /// requested root onto that root, which matters only when the root is bodiless
-    /// (abstract/interface/extern) and therefore absent from <see cref="Methods"/>; for a root with
-    /// a body <c>Resolve</c> already returns that same token. <see cref="BuildCallerTree(int, int,
-    /// int)"/> therefore uses this cache only for rooted-in-a-body requests and builds its own map
-    /// for the bodiless case, rather than caching a map that silently depends on the root.
+    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/> over all declarations,
+    /// so abstract, interface, extern, and runtime declarations retain inbound
+    /// identity even though they have no analyzable body.
     /// </summary>
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>> DistinctCallerEdgesByCallee()
         => _distinctCallerEdgesByCallee ??= DirectCalls
-            .GroupBy(call => MethodMap.Resolve(call))
+            .GroupBy(call => DeclaredMethodMap.Resolve(call))
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
@@ -1212,6 +1249,7 @@ public sealed class LibraryBodyIndex
         return new(
             path: "",
             moduleIdentity,
+            moduleName: null,
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
@@ -1269,7 +1307,8 @@ public sealed class LibraryBodyIndex
             features: LibraryBodyAnalysisFeatures.MethodEvidence
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
-                    : LibraryBodyAnalysisFeatures.Allocations));
+                    : LibraryBodyAnalysisFeatures.Allocations),
+            hasFullMethodEvidenceScope: true);
     }
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
@@ -1601,8 +1640,11 @@ public sealed class LibraryBodyIndex
         return new LibraryBodyIndex(
             path,
             moduleIdentity,
+            reader.GetString(
+                reader.GetModuleDefinition().Name),
             analysis,
-            plan.Features);
+            plan.Features,
+            hasFullMethodEvidenceScope: !plan.IsScoped);
     }
 
     static ResolvedAssemblyReference CreateRootAssembly(
@@ -1802,7 +1844,8 @@ public sealed class LibraryBodyIndex
         => UnsafeLeverage.Top(
             _physicalDirectCalls,
             _unsafeLeverageMethods,
-            count);
+            count,
+            DeclaredMethodMap);
 
     /// <summary>
     /// The most-leveraged methods in this assembly, ranked by distinct direct
@@ -1815,7 +1858,9 @@ public sealed class LibraryBodyIndex
             DirectCalls,
             Methods,
             count,
-            scope);
+            scope,
+            maxDepth: 64,
+            DeclaredMethodMap);
 
     /// <summary>
     /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
@@ -1893,7 +1938,9 @@ public sealed class LibraryBodyIndex
 
         var callsByCaller = GetDirectCallsByCaller();
 
-        var methodMap = MethodMap;
+        MethodDefinitionMap bodyMap = MethodMap;
+        MethodDefinitionMap declarationMap =
+            DeclaredMethodMap;
         var diagnosticsByToken = Diagnostics
             .GroupBy(diagnostic => diagnostic.MethodToken)
             .ToDictionary(group => group.Key, group => group.First());
@@ -1905,7 +1952,7 @@ public sealed class LibraryBodyIndex
         int ResolveCallee(DirectCall call)
             => DeclaredMethod(call.CalleeDefinitionToken)
                     ?.MetadataToken
-                ?? methodMap.Resolve(call);
+                ?? declarationMap.Resolve(call);
 
         // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
         // members depend on this one"), and the reverse graph draws one edge per distinct
@@ -1951,7 +1998,7 @@ public sealed class LibraryBodyIndex
                     : diagnostic is not null
                         ? CallTreeStatus.AnalysisIncomplete
                         : definition is not null
-                            && !methodMap.ContainsToken(token)
+                            && !bodyMap.ContainsToken(token)
                             ? CallTreeStatus.Bodiless
                             : CallTreeStatus.Leaf;
                 return Node(
@@ -2066,7 +2113,8 @@ public sealed class LibraryBodyIndex
                 ? resolvedCallee
                 : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
-        var methodMap = MethodMap;
+        MethodDefinitionMap methodMap =
+            DeclaredMethodMap;
 
         int ResolveCalleeToken(DirectCall call)
         {
@@ -2087,11 +2135,9 @@ public sealed class LibraryBodyIndex
         // if any call site from a caller hits the target inside a loop, keep that edge so the
         // loop annotation survives deduplication.
         //
-        // When the root has a body, ResolveCalleeToken agrees with MethodDefinitionMap.Resolve
-        // for every edge — Resolve returns CalleeDefinitionToken whenever that token is a defined
-        // method — so the shared per-index cache applies. A bodiless root is the one case where
-        // the grouping genuinely depends on the root, because edges naming it would otherwise be
-        // resolved onto some other defined method; that case builds its own map.
+        // DeclaredMethodMap includes bodiless definitions, so every declared root
+        // uses the shared root-independent grouping. Only an unknown token needs
+        // the root-specific raw-token fallback.
         IReadOnlyDictionary<int, ImmutableArray<DirectCall>> reverseEdges =
             methodMap.ContainsToken(rootMethodToken)
                 ? DistinctCallerEdgesByCallee()

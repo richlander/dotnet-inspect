@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Reflection;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
@@ -57,6 +58,19 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
             destination.Library.Identity.Registration);
         Assert.Equal(source.Identity.Type, destination.Identity.Type);
         Assert.Null(result.Failure);
+
+        ApiCoordinateCorrespondenceEvidence evidence = result.Detach();
+        await workspace.CloseAsync();
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Exact, evidence.Status);
+        Assert.False(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal("1.0.0", evidence.Source.Library.Package.PackageVersion);
+        Assert.Equal("ref/net11.0/Target.dll", evidence.Source.Library.Asset!.Path);
+        Assert.Equal(ApiDeclarationKind.Type, evidence.Source.Kind);
+        Assert.Equal(source.Identity.Type, evidence.Source.DeclaringType);
+        Assert.Equal("2.0.0", evidence.Destination!.Library.Package.PackageVersion);
+        Assert.Equal("ref/net11.0/Target.dll", evidence.Destination.Library.Asset!.Path);
+        Assert.Equal(source.Identity.Type, evidence.Destination.DeclaringType);
     }
 
     [Fact]
@@ -100,6 +114,15 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
             ApiCoordinateCorrespondenceFailureKind.SourceRootUnavailable,
             result.Failure!.Kind);
         Assert.NotNull(result.Failure.RootFailure);
+
+        ApiCoordinateCorrespondenceEvidence evidence = result.Detach();
+        await workspace.CloseAsync();
+
+        Assert.False(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Failed, evidence.Status);
+        Assert.Equal(
+            ApiCoordinateCorrespondenceFailureKind.SourceRootUnavailable,
+            evidence.Failure!.Kind);
     }
 
     [Fact]
@@ -135,6 +158,13 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
         Assert.Null(result.Resolution);
         Assert.Null(result.Correspondence);
         Assert.Null(result.Destination);
+
+        ApiCoordinateCorrespondenceEvidence evidence = result.Detach();
+        await workspace.CloseAsync();
+
+        Assert.False(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(ApiDeclarationKind.Type, evidence.Source.Kind);
+        Assert.Equal("1.0.0", evidence.Source.Library.Package.PackageVersion);
     }
 
     [Fact]
@@ -170,7 +200,93 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
         Assert.Null(result.Resolution);
         Assert.Null(result.Correspondence);
         Assert.Null(result.Destination);
+
+        ApiCoordinateCorrespondenceEvidence evidence = result.Detach();
+        await workspace.CloseAsync();
+
+        Assert.True(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(
+            CoordinateLibraryPairingStatus.Absent,
+            evidence.LibraryPairing.Status);
+        Assert.Equal("1.0.0", evidence.Source.Library.Package.PackageVersion);
+        Assert.Equal("2.0.0", evidence.LibraryPairing.After.PackageVersion);
+        Assert.Null(evidence.LibraryPairing.Destination);
     }
+
+    [Fact]
+    public async Task AmbiguousDestinationLibraries_DetachAsNonAbsence()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding before = Binding(
+            "1.0.0",
+            ("ref/net11.0/Target.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()));
+        PackageRootBinding after = Binding(
+            "2.0.0",
+            ("ref/net11.0/First.dll",
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath()),
+            ("ref/net11.0/Second.dll",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath()));
+        (CoordinatePackageObservation first, CoordinatePackageObservation second) =
+            await ObservePair(workspace, before, after);
+        StructuralSubjectIdentity.TypeSubject source =
+            StructuralSubjectIdentity.ForType(
+                Assert.Single(first.Libraries).Subject,
+                Type("Target", "Api"));
+
+        ApiCoordinateCorrespondenceEvidence evidence =
+            (await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
+                workspace, source, first, second, Cancellation)).Detach();
+        await workspace.CloseAsync();
+
+        Assert.Equal(ApiCoordinateCorrespondenceStatus.Ambiguous, evidence.Status);
+        Assert.False(evidence.IsCompleteDestinationAbsence);
+        Assert.Equal(
+            CoordinateLibraryPairingStatus.Ambiguous,
+            evidence.LibraryPairing.Status);
+        Assert.Equal(2, evidence.LibraryPairing.Candidates.Length);
+        Assert.Null(evidence.Destination);
+    }
+
+    [Fact]
+    public void DetachedEvidence_PublicBoundaryExcludesLiveQueryTypes()
+    {
+        Type[] boundaries =
+        [
+            typeof(ApiCoordinateCorrespondenceEvidence),
+            typeof(ApiCoordinateDeclarationEvidence),
+            typeof(CoordinateLibraryPairingEvidence),
+            typeof(CoordinateApiLibraryEvidence),
+            typeof(CoordinateResolutionAssemblyEvidence),
+        ];
+        Type[] liveTypes =
+        [
+            typeof(InspectionWorkspace),
+            typeof(StructuralSubjectIdentity),
+            typeof(CoordinatePackageObservation),
+            typeof(CoordinateApiLibraryObservation),
+            typeof(CoordinateLibraryPairingResult),
+            typeof(ApiCoordinateCorrespondenceResult),
+        ];
+
+        foreach (PropertyInfo property in boundaries.SelectMany(type =>
+            type.GetProperties(BindingFlags.Instance | BindingFlags.Public)))
+        {
+            foreach (Type liveType in liveTypes)
+            {
+                Assert.False(
+                    ContainsType(property.PropertyType, liveType),
+                    $"{property.DeclaringType!.Name}.{property.Name} exposes {liveType.Name}.");
+            }
+        }
+    }
+
+    static bool ContainsType(Type candidate, Type prohibited) =>
+        prohibited.IsAssignableFrom(candidate)
+        || candidate.IsArray && ContainsType(candidate.GetElementType()!, prohibited)
+        || candidate.IsGenericType
+            && candidate.GetGenericArguments().Any(argument =>
+                ContainsType(argument, prohibited));
 
     static MetadataTypeDefinitionName Type(
         string @namespace,
@@ -213,7 +329,7 @@ public sealed class ApiCoordinateCorrespondenceQueryTests
                 scope.FindPackageOccurrence(binding)!,
                 Cancellation)).Observation;
 
-    static PackageRootBinding Binding(
+    internal static PackageRootBinding Binding(
         string version,
         params (string Entry, string Image)[] assets)
     {

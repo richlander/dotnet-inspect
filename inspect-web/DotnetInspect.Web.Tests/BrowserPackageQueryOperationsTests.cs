@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -31,7 +32,6 @@ public sealed class BrowserPackageQueryOperationsTests
         var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
             BrowserPackageQueryOperations.Plan(
                 text,
-                [],
                 terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
@@ -63,7 +63,6 @@ public sealed class BrowserPackageQueryOperationsTests
         var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
             BrowserPackageQueryOperations.Plan(
                 text,
-                [],
                 terms: null,
                 maximumCandidates: 200,
                 maximumMatches: 10,
@@ -71,6 +70,34 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.Equal(
             PackageQueryRequestFailureReason.InvalidPackageInput,
+            rejected.Failure.Reason);
+    }
+
+    [Fact]
+    public void PackagePlan_UsesProductPortableInspectionTermBoundary()
+    {
+        PortableQueryTerm[] maximum = InspectionTerms(
+            PackageQuery.MaximumInspectionTerms);
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                maximum,
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: false));
+        Assert.Equal(
+            PortableQueryPayloadCodec.MaxTerms,
+            accepted.Plan.Intent.Terms.Count);
+
+        var rejected = Assert.IsType<PackageQueryPlanResult.Rejected>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                InspectionTerms(PackageQuery.MaximumInspectionTerms + 1),
+                maximumCandidates: 200,
+                maximumMatches: 10,
+                includePrerelease: false));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyTerms,
             rejected.Failure.Reason);
     }
 
@@ -108,37 +135,49 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public void Catalog_MatchesProductFacetAndTermOrderAndMetadata()
+    public void Catalog_MatchesProductPresetAndFreeTermOrderAndMetadata()
     {
         BrowserPackageQueryCatalog catalog =
             BrowserPackageQueryOperations.Catalog();
 
-        Assert.Equal(PackageQuery.Facets.Length, catalog.Facets.Length);
-        for (int index = 0; index < catalog.Facets.Length; index++)
+        var expectedPresets = PackageQuery.Terms
+            .Where(term => term.Role == PackageQueryTermRole.Inspection)
+            .SelectMany(term => term.Options.Select(option => (term, option)))
+            .ToArray();
+        Assert.Equal(expectedPresets.Length, catalog.Presets.Length);
+        for (int index = 0; index < catalog.Presets.Length; index++)
         {
-            PackageQueryFacetDescriptor expected = PackageQuery.Facets[index];
-            BrowserPackageQueryFacetDescriptor actual = catalog.Facets[index];
-            Assert.Equal(expected.Id, actual.Id);
-            Assert.Equal(expected.Label, actual.Label);
-            Assert.Equal(expected.Summary, actual.Summary);
-            Assert.Equal(expected.Weight, actual.Weight);
-            Assert.Equal(expected.SelectionGroupId, actual.SelectionGroupId);
+            (PackageQueryTermDescriptor term,
+                PackageQueryTermOptionDescriptor option) = expectedPresets[index];
+            BrowserPackageQueryPresetDescriptor actual = catalog.Presets[index];
+            Assert.Equal(term.Key, actual.Key);
+            Assert.Equal("eq", actual.Operator);
+            Assert.Equal(option.Value, actual.Value);
+            Assert.Equal(option.Label, actual.Label);
+            Assert.Equal(option.Summary, actual.Summary);
+            Assert.Equal(term.Weight, actual.Weight);
+            Assert.Equal(term.SelectionGroupId, actual.SelectionGroupId);
             Assert.Equal(
-                expected.CombinesWithinSelectionGroup,
+                term.CombinesWithinSelectionGroup,
                 actual.CombinesWithinSelectionGroup);
-            Assert.Equal(expected.DisplayGroupId, actual.DisplayGroupId);
-            Assert.Equal(expected.DisplayGroupLabel, actual.DisplayGroupLabel);
+            Assert.Equal(term.ReplacementGroupId, actual.ReplacementGroupId);
+            Assert.Equal(term.DisplayGroupId, actual.DisplayGroupId);
+            Assert.Equal(term.DisplayGroupLabel, actual.DisplayGroupLabel);
             Assert.Equal(
-                expected.Tier == PackageQueryFacetTier.Nuspec
-                    ? BrowserPackageQueryFacetTier.Nuspec
-                    : BrowserPackageQueryFacetTier.PackageContent,
+                BrowserTier(term.Tier),
                 actual.Tier);
         }
 
-        Assert.Equal(PackageQuery.Terms.Length, catalog.Terms.Length);
-        for (int index = 0; index < catalog.Terms.Length; index++)
+        PackageQueryTermDescriptor[] expectedTerms =
+        [
+            .. PackageQuery.Terms.Where(term =>
+                term.Role == PackageQueryTermRole.Inspection
+                && term.ControlKind == PackageQueryTermControlKind.Input),
+        ];
+        Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
+        for (int index = 0; index < expectedTerms.Length; index++)
         {
-            PackageQueryTermDescriptor expected = PackageQuery.Terms[index];
+            PackageQueryTermDescriptor expected = expectedTerms[index];
             BrowserPackageQueryTermDescriptor actual = catalog.Terms[index];
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Label, actual.Label);
@@ -147,11 +186,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Assert.Equal(expected.Operators, actual.Operators);
             Assert.Equal(expected.ValueKind, actual.ValueKind);
             Assert.Equal(expected.ExampleValue, actual.Example);
-            Assert.Equal(
-                expected.Tier == PackageQueryFacetTier.Nuspec
-                    ? BrowserPackageQueryFacetTier.Nuspec
-                    : BrowserPackageQueryFacetTier.PackageContent,
-                actual.Tier);
+            Assert.Equal(BrowserTier(expected.Tier), actual.Tier);
         }
     }
 
@@ -166,7 +201,6 @@ public sealed class BrowserPackageQueryOperationsTests
         var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
             BrowserPackageQueryOperations.Plan(
                 "Microsoft.*",
-                [],
                 [term],
                 maximumCandidates: 200,
                 maximumMatches: 100,
@@ -175,7 +209,18 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Same(term, Assert.Single(accepted.Plan.Terms));
         Assert.Equal(
             "Microsoft.Extensions.Hosting",
-            Assert.Single(accepted.Plan.BoundTerms).Value.ToString());
+            Assert.Single(accepted.Plan.BoundTerms).Term.Value);
+        Assert.Contains(
+            accepted.Plan.Intent.Terms,
+            item => item.Key == PackageQuery.PrefixTermKey
+                && item.Value == "Microsoft.");
+        Assert.Contains(
+            accepted.Plan.Intent.Terms,
+            item => item.Key == PackageQuery.PrereleaseTermKey
+                && item.Value == "stable");
+        Assert.Equal(
+            RowSelectionStageKind.Head,
+            Assert.Single(accepted.Plan.Intent.Stages).Kind);
     }
 
     [Fact]
@@ -285,7 +330,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 new PackageQueryEvent.Match(
                     new PackageQueryMatch(
                         profile,
-                        PackageQueryFacetTier.Nuspec,
+                        PackageQueryAcquisitionTier.Nuspec,
                         [])));
         string expectedProducer =
             source.Source.Producer.Display.ToString();
@@ -387,10 +432,10 @@ public sealed class BrowserPackageQueryOperationsTests
                 isToolPackage: true));
         var match = new PackageQueryMatch(
             package,
-            PackageQueryFacetTier.PackageContent,
+            PackageQueryAcquisitionTier.PackageContent,
             [
                 new PackageQueryEvidence(
-                    PackageQuery.EmbeddedSkillFacetId,
+                    PackageQuery.SkillTermKey,
                     new InertString(
                         TextPolicy.Prose,
                         "2 skill documents: skills/SKILL.md, skills/build/SKILL.md."))
@@ -429,7 +474,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 new PackageQueryEvent.Failure(failure));
 
         Assert.Equal(
-            BrowserPackageQueryFacetTier.PackageContent,
+            BrowserPackageQueryAcquisitionTier.PackageContent,
             projectedMatch.Row!.Tier);
         Assert.Collection(
             projectedMatch.Row.Evidence,
@@ -475,7 +520,7 @@ public sealed class BrowserPackageQueryOperationsTests
             "Microsoft.Extensions.Hosting");
         var match = new PackageQueryMatch(
             package,
-            PackageQueryFacetTier.Nuspec,
+            PackageQueryAcquisitionTier.Nuspec,
             [
                 new PackageQueryEvidence(
                     "depends",
@@ -541,7 +586,7 @@ public sealed class BrowserPackageQueryOperationsTests
             Row: new BrowserPackageQueryRow(
                 "Contoso.Unicode",
                 "1.0.0",
-                BrowserPackageQueryFacetTier.Nuspec,
+                BrowserPackageQueryAcquisitionTier.Nuspec,
                 Evidence: [],
                 TotalDownloads: null,
                 Verified: null,
@@ -600,8 +645,8 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.NotNull(catalog);
         Assert.Equal(
-            BrowserPackageQueryOperations.Catalog().Facets,
-            catalog.Facets);
+            BrowserPackageQueryOperations.Catalog().Presets,
+            catalog.Presets);
         BrowserPackageQueryTermDescriptor[] expectedTerms =
             BrowserPackageQueryOperations.Catalog().Terms;
         Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
@@ -760,7 +805,12 @@ public sealed class BrowserPackageQueryOperationsTests
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(
             () => BrowserPackageQueryOperations.ExecuteAsync(
                 "Contoso.Package",
-                ["package.query.unknown"],
+                [
+                    new PortableQueryTerm(
+                        "unknown",
+                        PortableQueryOperator.Equal,
+                        "true"),
+                ],
                 maximumCandidates: 200,
                 maximumMatches: 100,
                 includePrerelease: false,
@@ -768,7 +818,9 @@ public sealed class BrowserPackageQueryOperationsTests
                 _ => { },
                 TestContext.Current.CancellationToken));
 
-        Assert.Contains("facet IDs are unknown", error.Message);
+        Assert.Contains(
+            "does not define term 'unknown'",
+            error.Message);
     }
 
     [Fact]
@@ -874,6 +926,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryOperations.Complete(envelope);
 
         Assert.Empty(inspection.Content.Results);
+        Assert.False(inspection.Content.HasPackages);
         Assert.Empty(inspection.Content.Failures);
         Assert.Equal(
             BrowserPackageQueryCompletionKind.Exhausted,
@@ -887,6 +940,28 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryEventKind.Progress,
             emitted[0].Kind);
+    }
+
+    [Fact]
+    public void OperationCompletionProjectsHasPackages()
+    {
+        PackageQueryEvent.Match match = MatchEvent("Contoso.One");
+        var completed = Assert.IsType<PackageQueryEvent.Completed>(
+            CompletedEvent());
+        var envelope = new InspectionEnvelope<PackageQueryDocument>(
+            new(
+                Results: [match.Value],
+                Failures: [],
+                completed.Value),
+            new InspectionShare.NonProjectable(
+                "package-query/share",
+                "No canonical Workspace packet."));
+
+        BrowserPackageQueryInspection inspection =
+            BrowserPackageQueryOperations.Complete(envelope);
+
+        Assert.True(inspection.Content.HasPackages);
+        Assert.Single(inspection.Content.Results);
     }
 
     [Fact]
@@ -908,6 +983,7 @@ public sealed class BrowserPackageQueryOperationsTests
         var inspection = new BrowserPackageQueryInspection(
             new BrowserPackageQueryDocument(
                 Results: [],
+                HasPackages: false,
                 Failures: [],
                 completed.Completion!),
             new BrowserInspectionShare(
@@ -944,6 +1020,7 @@ public sealed class BrowserPackageQueryOperationsTests
             inspection.Content.Completion,
             roundTripped.Inspection.Content.Completion);
         Assert.Empty(roundTripped.Inspection.Content.Results);
+        Assert.False(roundTripped.Inspection.Content.HasPackages);
         Assert.Empty(roundTripped.Inspection.Content.Failures);
         Assert.Equal(inspection.Share, roundTripped.Inspection.Share);
         Assert.Equal(
@@ -1131,7 +1208,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryEventKind.Match,
             Row: new BrowserPackageQueryRow(
                 "Contoso.Match", "1.0.0",
-                BrowserPackageQueryFacetTier.Assembly,
+                BrowserPackageQueryAcquisitionTier.Assembly,
                 [new BrowserPackageQueryEvidence(
                     "il-string-literal-contains",
                     "Matched.",
@@ -1313,6 +1390,28 @@ public sealed class BrowserPackageQueryOperationsTests
                 TestContext.Current.CancellationToken));
     }
 
+    static BrowserPackageQueryAcquisitionTier BrowserTier(
+        PackageQueryAcquisitionTier tier) => tier switch
+        {
+            PackageQueryAcquisitionTier.Nuspec =>
+                BrowserPackageQueryAcquisitionTier.Nuspec,
+            PackageQueryAcquisitionTier.PackageContent =>
+                BrowserPackageQueryAcquisitionTier.PackageContent,
+            PackageQueryAcquisitionTier.SearchMetadata =>
+                BrowserPackageQueryAcquisitionTier.SearchMetadata,
+            _ => throw new InvalidOperationException(
+                "Unknown package-query tier."),
+        };
+
+    static PortableQueryTerm[] InspectionTerms(int count) =>
+    [
+        .. Enumerable.Range(0, count).Select(index =>
+            new PortableQueryTerm(
+                PackageQuery.DependsTermKey,
+                PortableQueryOperator.Equal,
+                $"Contoso.Dependency.{index:D2}")),
+    ];
+
     static async Task WaitUntilAsync(Func<bool> condition)
     {
         for (int attempt = 0; attempt < 100 && !condition(); attempt++)
@@ -1364,7 +1463,7 @@ public sealed class BrowserPackageQueryOperationsTests
         return new PackageQueryEvent.Match(
             new PackageQueryMatch(
                 package,
-                PackageQueryFacetTier.Nuspec,
+                PackageQueryAcquisitionTier.Nuspec,
                 [
                     new PackageQueryEvidence(
                         "package.query.source-verified",

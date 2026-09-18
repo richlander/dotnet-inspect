@@ -86,7 +86,9 @@ comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
 slices, seeded structural-clone retrieval, group-scoped
 PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
-bounded package-prefix profiles, and product-owned nuspec package-query facets.
+bounded package-prefix profiles, product-owned nuspec package-query facets,
+and compiled-documentation settlement over an already-authorized
+DocumentationHouse request.
 The optional `DotnetInspector.PackageQueries` companion also implements
 [package version-cell Metadata inspection](package-version-cell-metadata-inspection.md):
 one exact host-executed PackageHouse cell realization, one bounded ephemeral
@@ -124,6 +126,15 @@ call-graph and extension-reachability seams compose evidence over
 workspace-owned immutable snapshots; call graphs retain one catalog generation
 for both traversal directions. These queries return typed results without
 choosing a renderer or output format.
+The compiled-documentation result retains DocumentationHouse's exact detached
+outcome for in-process composition and separately owns the portable,
+discriminated terminal outcome registered for source-generated JSON. The
+portable value is copied before the query returns, carries no Library or
+Artifact authority, omits operation and lease accounting, and bounds repeated
+source provenance.
+L1 returns that bare Query result; a later completed L2 or host handoff
+envelopes the portable outcome rather than the lower DocumentationHouse
+outcome.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, method-classification, audit-metadata, unsafe-evidence,
@@ -145,7 +156,7 @@ The command projects per-participant evidence or failure into compatibility
 models and continues each library inspection over the same retained immutable
 image. Package `--all-libraries` partitions those groups by package asset
 directory, preserving non-`net*` framework and runtime contexts, and releases
-each participant after inspection. `Integration: Opportunities` consumes the
+each participant after inspection. `Integration Opportunities` consumes the
 typed Integrations result as a declared prerequisite and scans the same
 retained participant snapshot before release; direct `library` and package
 `--library` retain their existing controls.

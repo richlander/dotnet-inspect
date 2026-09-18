@@ -54,8 +54,8 @@ public sealed record CommittedSelectorResolutionFailure(
     string Message);
 
 /// <summary>
-/// Closed result of resolving schema-version-2 portable selectors inside one
-/// exact fresh Workspace.
+/// Closed result of resolving committed portable selectors inside one exact
+/// fresh Workspace.
 /// </summary>
 public abstract record CommittedScenarioSelectorResolutionResult
 {
@@ -156,7 +156,7 @@ public sealed class ResolvedCommittedDormantViewState :
 }
 
 /// <summary>
-/// Exact resolved state for one schema-version-2 scenario composition.
+/// Exact resolved state for one schema-version-2-or-3 scenario composition.
 /// </summary>
 public sealed class CommittedScenarioSelectorResolution
 {
@@ -207,8 +207,8 @@ public sealed class CommittedScenarioSelectorResolution
 }
 
 /// <summary>
-/// Resolves portable schema-version-2 subject and context selectors against
-/// exact owner-issued Workspace evidence without activating Navigation.
+/// Resolves portable committed subject and context selectors against exact
+/// owner-issued Workspace evidence without activating Navigation.
 /// </summary>
 public static class CommittedScenarioSelectorResolver
 {
@@ -716,6 +716,15 @@ public static class CommittedScenarioSelectorResolver
             PortableSubjectRequest.Package => package
                 ?? throw new InvalidOperationException(
                     "A Package subject requires exact Package facts."),
+            PortableSubjectRequest.Library => context?.Library
+                ?? throw new InvalidOperationException(
+                    "A Library subject requires resolved Library context."),
+            PortableSubjectRequest.Type => context?.Type
+                ?? throw new InvalidOperationException(
+                    "A Type subject requires resolved Type context."),
+            PortableSubjectRequest.Member => context?.Member
+                ?? throw new InvalidOperationException(
+                    "A Member subject requires resolved Member context."),
             _ => throw new InvalidOperationException(
                 "Unknown portable subject-request kind."),
         };
@@ -755,7 +764,7 @@ public static class CommittedScenarioSelectorResolver
             selector.Culture,
             selector.PublicKeyToken);
 
-    private static bool MatchesCoordinate(
+    internal static bool MatchesCoordinate(
         DefinitionMemberCoordinate.PackageCoordinate requested,
         WorkspacePackageDescriptor actual)
     {

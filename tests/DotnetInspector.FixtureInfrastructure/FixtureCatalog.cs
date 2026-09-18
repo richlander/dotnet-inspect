@@ -59,6 +59,8 @@ public static class FixtureIds
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
+    public const string MetadataPublicMethodRoots =
+        "metadata.public-method-roots";
     public const string MetadataTypeDependencyConsumer =
         "metadata.type-dependency.consumer";
     public const string MetadataTypeDependencyReference =
@@ -103,6 +105,9 @@ public static class FixtureIds
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
     public const string AnalysisResourceOwnershipApi =
         "analysis.resource-ownership-api";
+    public const string AnalysisCallOverloads = "analysis.call-overloads";
+    public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
+    public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
     public const string AnalysisTopLevelAsync = "analysis.top-level-async";
     public const string AnalysisTopLevelClassicAsync = "analysis.top-level-classic-async";
     public const string AnalysisProtobuf = "analysis.protobuf";
@@ -206,6 +211,14 @@ public static class FixtureCatalog
             "ILInspector.Metadata.ApiDeclarationCorrespondence.dll",
             Boundaries(FixtureBoundary.VersionPair),
             "metadata", "api-correspondence", "version-pair");
+
+    public static readonly FixtureDefinition MetadataPublicMethodRoots =
+        Fixture(
+            FixtureIds.MetadataPublicMethodRoots,
+            "ILInspector.Metadata.PublicMethodRootFixtures",
+            "ILInspector.Metadata.PublicMethodRootFixtures.dll",
+            Boundaries(FixtureBoundary.AssemblyIdentity),
+            "metadata", "public-method-roots");
 
     public static readonly FixtureDefinition MetadataTypeDependencyConsumer =
         Fixture(
@@ -472,6 +485,27 @@ public static class FixtureCatalog
                 FixtureBoundary.CrossAssemblyBoundary,
                 FixtureBoundary.CompilerLowering),
             "analysis", "ownership-flow", "resource-api");
+
+    public static readonly FixtureDefinition AnalysisCallOverloads = Fixture(
+        FixtureIds.AnalysisCallOverloads,
+        "ILInspector.Analysis.CallOverloadFixtures",
+        "ILInspector.Analysis.CallOverloadFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallGenericScope = Fixture(
+        FixtureIds.AnalysisCallGenericScope,
+        "ILInspector.Analysis.CallGenericScopeFixtures",
+        "ILInspector.Analysis.CallGenericScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "same-image-calls");
+
+    public static readonly FixtureDefinition AnalysisCallFunctionPointerScope = Fixture(
+        FixtureIds.AnalysisCallFunctionPointerScope,
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures",
+        "ILInspector.Analysis.CallFunctionPointerScopeFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.ModuleAttribute),
+        "analysis", "same-image-calls");
 
     public static readonly FixtureDefinition AnalysisTopLevelAsync = Fixture(
         FixtureIds.AnalysisTopLevelAsync,
@@ -942,6 +976,7 @@ public static class FixtureCatalog
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
         MetadataMemorySafety,
+        MetadataPublicMethodRoots,
         MetadataTypeDependencyConsumer,
         MetadataTypeDependencyReference,
         InspectWebCloneTransport,
@@ -968,6 +1003,9 @@ public static class FixtureCatalog
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
         AnalysisResourceOwnershipApi,
+        AnalysisCallOverloads,
+        AnalysisCallGenericScope,
+        AnalysisCallFunctionPointerScope,
         AnalysisTopLevelAsync,
         AnalysisTopLevelClassicAsync,
         AnalysisCallerGraphCallerTwin,
@@ -1060,6 +1098,9 @@ public static class FixtureCatalog
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
             AnalysisResourceOwnershipApi,
+            AnalysisCallOverloads,
+            AnalysisCallGenericScope,
+            AnalysisCallFunctionPointerScope,
             AnalysisStringLiterals,
             AnalysisTopLevelAsync,
             AnalysisTopLevelClassicAsync,
@@ -1344,6 +1385,8 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
+            "ILInspector.Metadata.PublicMethodRootFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures",
             "ILInspector.Metadata.TypeDependencyConsumer" =>
                 "fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer",
             "ILInspector.Metadata.TypeDependencyReference" =>
@@ -1401,6 +1444,9 @@ public static class FixtureCatalog
             "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
             "ILInspector.Analysis.ResourceOwnershipApiFixtures" => "fixtures/analysis/ILInspector.Analysis.ResourceOwnershipApiFixtures",
+            "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
+            "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
+            "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",
             "ILInspector.Analysis.ProtobufFixtures" => "fixtures/analysis/ILInspector.Analysis.ProtobufFixtures",
             "ILInspector.Analysis.RenderFixtures" => "fixtures/analysis/ILInspector.Analysis.RenderFixtures",
             "ILInspector.Analysis.SpoofFixtures" => "fixtures/analysis/ILInspector.Analysis.SpoofFixtures",

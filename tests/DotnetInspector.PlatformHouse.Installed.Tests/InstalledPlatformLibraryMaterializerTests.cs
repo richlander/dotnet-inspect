@@ -15,6 +15,427 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 {
     [Fact]
     public async Task
+        InstalledReferencePopulation_TransfersOrderedLibraryAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string referencePack = hive.CreateReferencePack();
+        string systemRuntime =
+            FindReferenceAssembly("System.Runtime.dll");
+        string systemTextJson =
+            FindReferenceAssembly("System.Text.Json.dll");
+        hive.CopyAssembly(referencePack, systemRuntime);
+        hive.CopyAssembly(referencePack, systemTextJson);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request =
+            PopulationRequest(adapter, cancellationToken);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        PlatformHouseConsumedWork consumed = Consumed(
+            sourceOperations: 1,
+            assemblies: reference.Value.Libraries.Count,
+            bytes: reference.Value.Libraries.Sum(
+                static library => library.ContentLength));
+
+        var completed = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeReferencePopulationAsync(
+                        request,
+                        reference,
+                        consumed));
+
+        Assert.Equal(2, completed.Population.Value.Libraries.Count);
+        Assert.Equal(2, completed.Population.Owners.Count);
+        Assert.Same(
+            reference.Contribution,
+            Assert.Single(
+                    completed.Population.Receipt.HouseReceipt
+                        .SourceSettlements)
+                .Contribution);
+        for (int index = 0;
+            index < reference.Value.Libraries.Count;
+            index++)
+        {
+            InstalledReferenceLibrary source =
+                reference.Value.Libraries[index];
+            LibraryReference library =
+                completed.Population.Value.Libraries[index];
+            Assert.Same(
+                library,
+                completed.Population.Owners[index].Reference);
+            Assert.True(
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.Identity,
+                    Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                            library.ApiAssembly.AssemblyIdentity)
+                        .Identity));
+            var provenance =
+                Assert.IsType<InstalledReferenceArtifactProvenance>(
+                    Assert.IsType<PlatformLibraryArtifactProvenance>(
+                            library.ApiAssembly.ArtifactReference
+                                .Provenance)
+                        .SourceProvenance);
+            Assert.Same(
+                reference.Value.Generation,
+                provenance.SourceGeneration);
+            Assert.Same(
+                reference.Value.Coordinate,
+                provenance.Coordinate);
+            Assert.Equal(source.FileName, provenance.FileName);
+            using LibraryOperationLease operation =
+                Issued(completed.Population.Owners[index], library);
+            Assert.Equal(
+                (byte)'M',
+                operation.Snapshot(
+                    library.ApiAssembly,
+                    static (view, _) => view.Content[0],
+                    cancellationToken));
+        }
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        await completed.Population.Owners[0].DisposeAsync();
+        Assert.False(artifactRetirement.IsCompleted);
+        await completed.Population.Owners[1].DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        InstalledImplementationPopulation_TransfersOrderedLibraryAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string systemTextJson =
+            typeof(JsonSerializer).Assembly.Location;
+        string systemNetHttp =
+            typeof(System.Net.Http.HttpClient).Assembly.Location;
+        string framework = hive.CreateImplementationFramework(
+            systemTextJson,
+            systemNetHttp);
+        hive.CopyAssembly(framework, systemTextJson);
+        hive.CopyAssembly(framework, systemNetHttp);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation);
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        PlatformHouseConsumedWork consumed = Consumed(
+            sourceOperations: 1,
+            assemblies: implementation.Value.Libraries.Count,
+            bytes: implementation.Value.Libraries.Sum(
+                static library => library.ContentLength));
+
+        var completed = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        consumed));
+
+        Assert.Equal(
+            implementation.Value.Libraries.Count,
+            completed.Population.Value.Libraries.Count);
+        Assert.Equal(
+            implementation.Value.Libraries.Count,
+            completed.Population.Owners.Count);
+        Assert.Same(
+            implementation.Contribution,
+            Assert.Single(
+                    completed.Population.Receipt.HouseReceipt
+                        .SourceSettlements)
+                .Contribution);
+        Assert.NotNull(
+            Assert.IsType<PlatformHouseCompletion.Realization>(
+                    completed.Population.Receipt.HouseReceipt.Completion)
+                .ViewCorrespondence);
+        for (int index = 0;
+            index < implementation.Value.Libraries.Count;
+            index++)
+        {
+            InstalledImplementationLibrary source =
+                implementation.Value.Libraries[index];
+            LibraryReference library =
+                completed.Population.Value.Libraries[index];
+            Assert.Same(
+                library,
+                completed.Population.Owners[index].Reference);
+            Assert.Same(
+                library.ApiAssembly,
+                library.ImplementationAssembly);
+            Assert.Equal(2, library.ApiAssembly.Roles.Count);
+            Assert.True(
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.Identity,
+                    Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                            library.ApiAssembly.AssemblyIdentity)
+                        .Identity));
+            var provenance =
+                Assert.IsType<InstalledImplementationArtifactProvenance>(
+                    Assert.IsType<PlatformLibraryArtifactProvenance>(
+                            library.ApiAssembly.ArtifactReference
+                                .Provenance)
+                        .SourceProvenance);
+            Assert.Same(
+                implementation.Value.Generation,
+                provenance.SourceGeneration);
+            Assert.Same(
+                implementation.Value.Coordinate,
+                provenance.Coordinate);
+            Assert.Equal(
+                source.ManifestCoordinate,
+                provenance.ManifestCoordinate);
+            Assert.Equal(
+                source.ContentDigest,
+                provenance.ContentDigest);
+            using LibraryOperationLease operation =
+                Issued(completed.Population.Owners[index], library);
+            Assert.Equal(
+                (byte)'M',
+                operation.Snapshot(
+                    library.ApiAssembly,
+                    static (view, _) => view.Content[0],
+                    cancellationToken));
+        }
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        for (int index = 0;
+            index < completed.Population.Owners.Count - 1;
+            index++)
+        {
+            await completed.Population.Owners[index].DisposeAsync();
+            Assert.False(artifactRetirement.IsCompleted);
+        }
+        await completed.Population.Owners[^1].DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        InstalledPairedPopulation_TransfersLosslessUnionAuthorities()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string referenceJson =
+            FindReferenceAssembly("System.Text.Json.dll");
+        string referenceRuntime =
+            FindReferenceAssembly("System.Runtime.dll");
+        string implementationJson =
+            typeof(JsonSerializer).Assembly.Location;
+        string implementationHttp =
+            typeof(System.Net.Http.HttpClient).Assembly.Location;
+        string referencePack = hive.CreateReferencePack();
+        hive.CopyAssembly(referencePack, referenceJson);
+        hive.CopyAssembly(referencePack, referenceRuntime);
+        string framework = hive.CreateImplementationFramework(
+            implementationJson,
+            implementationHttp);
+        hive.CopyAssembly(framework, implementationJson);
+        hive.CopyAssembly(framework, implementationHttp);
+
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.ReferenceAndImplementation);
+        var reference = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded>(
+                    await adapter.RealizeReferenceAsync(request));
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        PlatformHouseConsumedWork consumed = Consumed(
+            sourceOperations: 2,
+            assemblies:
+                reference.Value.Libraries.Count
+                + implementation.Value.Libraries.Count,
+            bytes:
+                reference.Value.Libraries.Sum(
+                    static library => library.ContentLength)
+                + implementation.Value.Libraries.Sum(
+                    static library => library.ContentLength));
+
+        var completed = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeReferenceAndImplementationPopulationAsync(
+                        request,
+                        reference,
+                        implementation,
+                        consumed));
+
+        Assert.Equal(3, completed.Population.Value.Libraries.Count);
+        Assert.Equal(3, completed.Population.Owners.Count);
+        Assert.Equal(
+            [reference.Contribution, implementation.Contribution],
+            completed.Population.Receipt.HouseReceipt.SourceSettlements
+                .Select(static settlement => settlement.Contribution));
+        Assert.NotNull(
+            Assert.IsType<PlatformHouseCompletion.Realization>(
+                    completed.Population.Receipt.HouseReceipt.Completion)
+                .ViewCorrespondence);
+
+        for (int index = 0;
+            index < reference.Value.Libraries.Count;
+            index++)
+        {
+            InstalledReferenceLibrary source =
+                reference.Value.Libraries[index];
+            LibraryReference library =
+                completed.Population.Value.Libraries[index];
+            Assert.True(
+                AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.Identity,
+                    Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                            library.ApiAssembly.AssemblyIdentity)
+                        .Identity));
+            bool paired = implementation.Value.Libraries.Any(
+                candidate =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        source.Identity,
+                        candidate.Identity));
+            Assert.Equal(
+                paired,
+                library.ImplementationAssembly is not null);
+        }
+
+        LibraryReference implementationOnly =
+            completed.Population.Value.Libraries[^1];
+        Assert.Equal(
+            typeof(System.Net.Http.HttpClient).Assembly.GetName().Name,
+            Assert.IsType<ManagedMetadataIdentity.Assembly>(
+                    implementationOnly.ApiAssembly.AssemblyIdentity)
+                .Identity.Name);
+        Assert.Same(
+            implementationOnly.ApiAssembly,
+            implementationOnly.ImplementationAssembly);
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        for (int index = 0;
+            index < completed.Population.Owners.Count - 1;
+            index++)
+        {
+            await completed.Population.Owners[index].DisposeAsync();
+            Assert.False(artifactRetirement.IsCompleted);
+        }
+        await completed.Population.Owners[^1].DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+        Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        ForeignImplementationPopulation_ReturnsTerminal()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string implementationPath =
+            typeof(JsonSerializer).Assembly.Location;
+        using var requestedHive = new TestHive();
+        InstalledPlatformHouseAdapter requestedAdapter =
+            requestedHive.CreateAdapter();
+        PlatformHouseRequest request = PopulationRequest(
+            requestedAdapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation);
+
+        using var foreignHive = new TestHive();
+        string foreignFramework =
+            foreignHive.CreateImplementationFramework(
+                implementationPath);
+        foreignHive.CopyAssembly(
+            foreignFramework,
+            implementationPath);
+        InstalledPlatformHouseAdapter foreignAdapter =
+            foreignHive.CreateAdapter();
+        PlatformHouseRequest foreignRequest = PopulationRequest(
+            foreignAdapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation);
+        var foreign = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await foreignAdapter.RealizeImplementationAsync(
+                        foreignRequest));
+
+        var terminal = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Terminal>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        foreign,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: foreign.Value.Libraries.Count,
+                            bytes: foreign.Value.Libraries.Sum(
+                                static library =>
+                                    library.ContentLength))));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.TerminalRealization.Outcome);
+    }
+
+    [Fact]
+    public async Task
+        ImplementationPopulationCancellationPrecedesArtifactOwnership()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var hive = new TestHive();
+        string implementationPath =
+            typeof(JsonSerializer).Assembly.Location;
+        string framework =
+            hive.CreateImplementationFramework(implementationPath);
+        hive.CopyAssembly(framework, implementationPath);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellation.Token,
+            PlatformViewDemand.Implementation);
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            async () =>
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies:
+                                implementation.Value.Libraries.Count,
+                            bytes: implementation.Value.Libraries.Sum(
+                                static library =>
+                                    library.ContentLength))));
+    }
+
+    [Fact]
+    public async Task
         InstalledSystemTextJson_TransfersLibraryAndArtifactAuthorities()
     {
         CancellationToken cancellationToken =
@@ -364,6 +785,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             typeof(InstalledReferenceArtifactProvenance),
             typeof(InstalledImplementationArtifactProvenance),
             typeof(InstalledPlatformLibraryMaterializationResult.Terminal),
+            typeof(InstalledPlatformPopulationMaterializationResult.Terminal),
         ];
 
         foreach (Type type in types)
@@ -457,6 +879,54 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 PlatformSourcePlanIdentity.Create("installed-plan"),
                 PlatformSourcePolicyGeneration.Create(
                     "installed-policy"),
+                selections),
+            Work(),
+            cancellationToken);
+    }
+
+    static PlatformHouseRequest PopulationRequest(
+        InstalledPlatformHouseAdapter adapter,
+        CancellationToken cancellationToken,
+        PlatformViewDemand view = PlatformViewDemand.Reference)
+    {
+        var selections = new List<PlatformSourceSelection>();
+        if (view is PlatformViewDemand.Reference
+            or PlatformViewDemand.ReferenceAndImplementation)
+        {
+            selections.Add(
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.Reference,
+                    PlatformSourceSelectionMode.Precedence,
+                    [
+                        adapter.Capabilities.ReferenceRealization,
+                    ]));
+        }
+        if (view is PlatformViewDemand.Implementation
+            or PlatformViewDemand.ReferenceAndImplementation)
+        {
+            selections.Add(
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.Implementation,
+                    PlatformSourceSelectionMode.Precedence,
+                    [
+                        adapter.Capabilities.ImplementationRealization,
+                    ]));
+        }
+        return
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "installed-population"),
+            new PlatformTargetDemand.Exact(Target()),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create("test")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                view),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "installed-population-plan"),
+                PlatformSourcePolicyGeneration.Create(
+                    "installed-population-policy"),
                 selections),
             Work(),
             cancellationToken);

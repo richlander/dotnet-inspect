@@ -196,6 +196,9 @@ public class MarkoutRowContainmentTests
         "FactRow.Conditionality",
         "FactRow.CsLine",
         "FactRow.Detail",
+        "FactRow.EvidenceLocations",
+        "FactRow.EvidenceState",
+        "FactRow.EvidenceSubject",
         "FactRow.IL",
         "FactRow.Id",
         "FactRow.Member",
@@ -368,9 +371,9 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt246MembersAcross53Types()
+    public void ResidualCensus_IsPinnedAt249MembersAcross53Types()
     {
-        Assert.Equal(246, NotSelfContaining.Length);
+        Assert.Equal(249, NotSelfContaining.Length);
         Assert.Equal(
             53,
             NotSelfContaining

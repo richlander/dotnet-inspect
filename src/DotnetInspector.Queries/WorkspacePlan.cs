@@ -7,30 +7,70 @@ namespace DotnetInspector.Queries;
 public sealed class WorkspacePlan
 {
     public WorkspacePlan()
-        : this([], Array.Empty<WorkspaceContextInput>())
+        : this(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            [],
+            Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(ImmutableArray<WorkspaceRegistration> registrations)
-        : this(registrations, Array.Empty<WorkspaceContextInput>())
+        : this(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            registrations,
+            Array.Empty<WorkspaceContextInput>())
+    {
+    }
+
+    public WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy)
+        : this(
+            traversalTargetPolicy,
+            [],
+            Array.Empty<WorkspaceContextInput>())
+    {
+    }
+
+    public WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
+        ImmutableArray<WorkspaceRegistration> registrations)
+        : this(
+            traversalTargetPolicy,
+            registrations,
+            Array.Empty<WorkspaceContextInput>())
     {
     }
 
     public WorkspacePlan(
         ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts)
+        : this(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            registrations,
+            contexts)
     {
+    }
+
+    public WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
+        ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspaceContextInput> contexts)
+    {
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         if (ValidateRegistrations(registrations) is { } invalid)
             throw new ArgumentException(
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
         ArgumentNullException.ThrowIfNull(contexts);
 
+        TraversalTargetPolicy = traversalTargetPolicy;
         Registrations = registrations;
         Contexts = SnapshotContexts(contexts);
     }
 
     public static WorkspacePlan Empty { get; } = new();
+
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
 
     public ImmutableArray<WorkspaceRegistration> Registrations { get; }
 
@@ -43,7 +83,10 @@ public sealed class WorkspacePlan
             throw new ArgumentException(
                 $"The Workspace plan registration set is invalid ({invalid}).",
                 nameof(registrations));
-        return new WorkspacePlan(registrations, Contexts);
+        return new WorkspacePlan(
+            TraversalTargetPolicy,
+            registrations,
+            Contexts);
     }
 
     internal static WorkspaceRegistrationRejection? ValidateRegistrations(
@@ -73,9 +116,11 @@ public sealed class WorkspacePlan
     }
 
     WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
         ImmutableArray<WorkspaceContextInput> contexts)
     {
+        TraversalTargetPolicy = traversalTargetPolicy;
         Registrations = registrations;
         Contexts = contexts;
     }

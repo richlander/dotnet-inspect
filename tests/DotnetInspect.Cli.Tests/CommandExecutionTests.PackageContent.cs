@@ -193,7 +193,7 @@ public partial class CommandExecutionTests
                 var noDependencies = await RunAppAsync(
                     "package", noDependenciesPath, "-S", "Dependencies", "--tree",
                     "--out", outputPath, "--tips", "q",
-                    "-n", "2", "--tail");
+                    "-n", "2", "--tail-lines");
 
                 Assert.Equal(0, noDependencies.Exit);
                 Assert.Empty(noDependencies.Output);
@@ -220,7 +220,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "System.CommandLine",
-            "-S", "Source Files", "--tips", "q", "-n", "18");
+            "-S", "Source Files", "--tips", "q", "-n", "18", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -269,6 +269,7 @@ public partial class CommandExecutionTests
         {
             var lineWindowPath = Path.Combine(tempDirectory.FullName, "line-window.txt");
             var rowWindowPath = Path.Combine(tempDirectory.FullName, "row-window.txt");
+            var composedPath = Path.Combine(tempDirectory.FullName, "composed.txt");
             string[] args =
             [
                 "package", "Newtonsoft.Json@13.0.3",
@@ -278,24 +279,37 @@ public partial class CommandExecutionTests
 
             var stdout = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "-n1", "--tips", "q"]);
+                [.. args, "--lines", "-n1", "--tips", "q"]);
             var redirected = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
-                [.. args, "-n1", "--out", lineWindowPath, "--tips", "q"]);
+                [.. args, "--lines", "-n1", "--out", lineWindowPath, "--tips", "q"]);
             var rowWindow = await RunAppInDirectoryAsync(
                 tempDirectory.FullName,
                 [.. args, "--rows", "1", "--out", rowWindowPath, "--tips", "q"]);
+            var composed = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [
+                    .. args,
+                    "--rows", "2",
+                    "--lines", "-n1",
+                    "--out", composedPath,
+                    "--tips", "q",
+                ]);
 
             Assert.Equal(0, stdout.Exit);
             Assert.Equal(0, redirected.Exit);
             Assert.Equal(0, rowWindow.Exit);
+            Assert.Equal(0, composed.Exit);
             Assert.Empty(stdout.Error);
             Assert.Empty(redirected.Output);
             Assert.Empty(redirected.Error);
             Assert.Empty(rowWindow.Output);
             Assert.Empty(rowWindow.Error);
+            Assert.Empty(composed.Output);
+            Assert.Empty(composed.Error);
             Assert.Equal(stdout.Output, File.ReadAllText(lineWindowPath));
             Assert.Equal(stdout.Output, File.ReadAllText(rowWindowPath));
+            Assert.Equal(stdout.Output, File.ReadAllText(composedPath));
             Assert.Single(
                 stdout.Output.Split(
                     '\n',
@@ -836,23 +850,23 @@ public partial class CommandExecutionTests
             [
                 (
                     "paths-head",
-                    ["-S", "Package skill files", "--paths", "-n", "1"],
+                    ["-S", "Package skill files", "--paths", "-n", "1", "--lines"],
                     "skills/alpha/SKILL.md\n"),
                 (
                     "paths-tail",
-                    ["-S", "Package skill files", "--paths", "-n", "1", "--tail"],
+                    ["-S", "Package skill files", "--paths", "-n", "1", "--tail-lines"],
                     "skills/beta/SKILL.md\n"),
                 (
                     "paths-tail-inline",
-                    ["-S", "Package skill files", "--paths", "-n1", "--tail=true"],
+                    ["-S", "Package skill files", "--paths", "-n1", "--tail-lines"],
                     "skills/beta/SKILL.md\n"),
                 (
                     "print-head",
-                    ["-S", "Package README file", "--print", "--body", "-n", "2"],
+                    ["-S", "Package README file", "--print", "--body", "-n", "2", "--lines"],
                     "first\nsecond\n"),
                 (
                     "print-tail",
-                    ["-S", "Package README file", "--print", "--body", "-n", "2", "--tail"],
+                    ["-S", "Package README file", "--print", "--body", "-n", "2", "--tail-lines"],
                     "second\nthird\n"),
             ];
 
@@ -895,25 +909,37 @@ public partial class CommandExecutionTests
             [
                 (
                     "print-separated",
-                    ["-S", "Package README file", "--print", "--bare", "-n", "1"]),
+                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n", "1"]),
                 (
                     "print-inline",
-                    ["-S", "Package README file", "--print", "--bare", "-n=1"]),
+                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n=1"]),
                 (
                     "print-attached",
-                    ["-S", "Package README file", "--print", "--bare", "-n1"]),
+                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n1"]),
                 (
                     "print-colon",
-                    ["-S", "Package README file", "--print", "--bare", "-n:1"]),
+                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n:1"]),
                 (
                     "bare",
-                    ["-S", "Package README file", "--bare", "-n", "1"]),
+                    ["-S", "Package README file", "--bare", "--lines", "-n", "1"]),
                 (
                     "content",
-                    ["--content", "--path", "README.md", "-n", "1"]),
+                    ["--content", "--path", "README.md", "--lines", "-n", "1"]),
                 (
                     "content-readme-role",
-                    ["--content", "--path", "@readme", "-n", "1"]),
+                    ["--content", "--path", "@readme", "--lines", "-n", "1"]),
+                (
+                    "content-rows-lines",
+                    [
+                        "--content",
+                        "--path",
+                        "README.md",
+                        "--rows",
+                        "1..1",
+                        "--lines",
+                        "-n",
+                        "1",
+                    ]),
             ];
 
             foreach (var testCase in cases)
@@ -996,7 +1022,7 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package", packagePath,
                 "-S", "Package README file",
-                "--print", "--out", "--tfm", lineWindow,
+                "--print", "--out", "--tfm", "--lines", lineWindow,
                 "--tips", "q");
 
             Assert.Equal(1, result.Exit);
@@ -1011,7 +1037,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageExactTransfer_ExplicitPathLineWindowRejectsBeforePackageAcquisition()
+    public async Task PackageExactTransfer_InferredPathLineWindowRejectsBeforePackageAcquisition()
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -1072,6 +1098,7 @@ public partial class CommandExecutionTests
                 "--bare",
                 "--out",
                 " ",
+                "--lines",
                 "-n1",
                 "--tips",
                 "q");
@@ -1133,7 +1160,7 @@ public partial class CommandExecutionTests
             var result = await RunAppAsync(
                 "package", packagePath,
                 "--content", "--path", "README.md",
-                "--count", "-n", "1",
+                "--count", "-n", "1", "--lines",
                 "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, result.Exit);
@@ -2803,37 +2830,37 @@ public partial class CommandExecutionTests
             [
                 (
                     "print-safe",
-                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "-n1"],
+                    ["-S", "Package skill files", "--print", "--row", "2", "--bare", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "content-safe",
-                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "-n1"],
+                    ["--content", "--path", "skills/safe/SKILL.md", "--bare", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "print-readme-skill",
-                    ["-S", "Package README file", "--print", "--bare", "-n1"],
+                    ["-S", "Package README file", "--print", "--bare", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "content-readme-skill",
-                    ["--content", "--path", "@readme", "--bare", "-n1"],
+                    ["--content", "--path", "@readme", "--bare", "--lines", "-n1"],
                     "safe-first\n",
                     "safe-first\n",
                     null),
                 (
                     "print-contained",
-                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "-n1"],
+                    ["-S", "Package skill files", "--print", "--row", "1", "--bare", "--lines", "-n1"],
                     placeholder,
                     placeholder,
                     "skills/contained/SKILL.md"),
                 (
                     "content-contained",
-                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "-n1"],
+                    ["--content", "--path", "skills/contained/SKILL.md", "--bare", "--lines", "-n1"],
                     placeholder + "\n",
                     placeholder,
                     "skills/contained/SKILL.md"),
@@ -2874,7 +2901,7 @@ public partial class CommandExecutionTests
             var wildcardPath = Path.Combine(tempDir, "wildcard.md");
             var wildcard = await RunAppAsync(
                 "package", packagePath,
-                "--content", "--path", "skills/safe/*.md", "--bare", "-n1",
+                "--content", "--path", "skills/safe/*.md", "--bare", "--lines", "-n1",
                 "--out", wildcardPath, "--tips", "q");
 
             Assert.Equal(1, wildcard.Exit);
@@ -2889,7 +2916,7 @@ public partial class CommandExecutionTests
             File.WriteAllText(directoryPath, "sentinel");
             var directory = await RunAppAsync(
                 "package", packagePath,
-                "--content", "--path", "skills/example/SKILL.md", "--bare", "-n1",
+                "--content", "--path", "skills/example/SKILL.md", "--bare", "--lines", "-n1",
                 "--out", directoryPath, "--tips", "q");
 
             Assert.Equal(1, directory.Exit);
@@ -3016,6 +3043,7 @@ public partial class CommandExecutionTests
                 "--content",
                 "-n",
                 "1",
+                "--lines",
                 "--out",
                 outputPath,
                 "--tips",

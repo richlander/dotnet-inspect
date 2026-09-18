@@ -609,6 +609,9 @@ internal static class PackageHouseRealizationCorrespondence
             || !receipt.PackageId.Equals(
                 acquisition.Decision.Coordinate!.PackageId,
                 StringComparison.OrdinalIgnoreCase)
+            || !PolicyMatches(
+                acquisition.Decision.Request.TargetContext,
+                receipt.Policy)
             || !RequestMatches(
                 acquisition.Decision.Request.TargetContext,
                 receipt.RequestedTargetFramework,
@@ -654,6 +657,18 @@ internal static class PackageHouseRealizationCorrespondence
                 nameof(receipt));
         }
     }
+
+    private static bool PolicyMatches(
+        PackageHouseTargetContext? target,
+        PackageCompileAssetSelectionPolicy policy) =>
+        target?.Mode switch
+        {
+            PackageHouseTargetSelectionMode.Exact =>
+                policy == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.OwnerDefault or null =>
+                policy == PackageCompileAssetSelectionPolicy.HighestAvailable,
+            _ => false,
+        };
 
     private static bool RequestMatches(
         PackageHouseTargetContext? target,
@@ -866,7 +881,7 @@ public sealed class PackageHouseEvidence
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 
-    internal bool HasOperationTimeout =>
+    public bool HasOperationTimeout =>
         Failures.OfType<PackageHouseFailure.Timeout>().Any(timeout =>
             timeout.Kind == PackageHouseTimeoutKind.Operation)
         || Failures.OfType<PackageHouseFailure.Authority>().Any(authority =>

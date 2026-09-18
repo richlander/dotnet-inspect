@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
@@ -331,6 +332,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
@@ -344,6 +346,14 @@ public record MemberOptions : ApiOptions
     /// control later member-pipeline transitions.
     /// </summary>
     internal bool MemberSectionsPreResolved { get; init; }
+
+    /// <summary>
+    /// Sections implied by non-selector command options. These may require a narrower target but
+    /// do not make category- or glob-expanded sections exact.
+    /// </summary>
+    internal HashSet<string> ImplicitIncludeSections { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     internal int? SelectedBodyMethodToken { get; init; }
 
     public bool CtorOnly { get; init; }
@@ -352,6 +362,11 @@ public record MemberOptions : ApiOptions
     public int? MemberGenericArity { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
     public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
+    public InspectionEnvelope<AssemblyMemberSourceComparisonEntry>? MemberSourceComparisonInspection
+    {
+        get;
+        init;
+    }
     public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
     {
         get;

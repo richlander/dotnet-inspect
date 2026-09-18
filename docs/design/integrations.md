@@ -1,7 +1,7 @@
 # Integrations
 
 The Integration owner describes ecosystem support discovered from assembly
-metadata. Its existing focused library sections answer:
+metadata. The library `Integrations` section answers:
 
 ```text
 Which .NET ecosystem integration surfaces can a caller use from this library?
@@ -15,12 +15,10 @@ finite workspace universe?
 ```
 
 It is intentionally different from `Signals`. `Signals` is an evidence report.
-Integration sections form a usability index: they point to APIs that are useful
-currency for wiring the library into common .NET application systems.
-
-Each focused integration section is named with an `Integration:` prefix (for
-example `Integration: Logging`, `Integration: OpenTelemetry`) so alphabetical
-section ordering clusters the whole family together.
+The `Integrations` section is a usability index: it points to APIs that are
+useful currency for wiring the library into common .NET application systems.
+Integration concepts are rows and query values within that homogeneous section,
+not independently named sections.
 
 Tracking: [#3629](https://github.com/richlander/dotnet-inspect/issues/3629).
 
@@ -89,20 +87,42 @@ receipts, never browser HTML with CLI Markdown.
 
 ## User model
 
-Discover the family, then select a focused section:
+Discover the Integration domain, then select its observed-currency section:
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI --library -D @Integrations
-dotnet-inspect package Microsoft.Extensions.AI --library -S "Integration: Dependency Injection"
-dotnet-inspect package Microsoft.Extensions.AI --library -S "Integration: OpenTelemetry"
+dotnet-inspect package Microsoft.Extensions.AI@10.10.0 --library -D @Integrations
+dotnet-inspect package Microsoft.Extensions.AI@10.10.0 --library -S Integrations
 ```
 
-Select the whole category, or add `--count` to see per-integration API counts:
+Filter one concept by its canonical Integration identity, or enable one
+ecosystem pack's registered Integration set:
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI --library -S @Integrations
-dotnet-inspect package Microsoft.Extensions.AI --library --count -S @Integrations
+dotnet-inspect library --package Microsoft.Extensions.AI@10.10.0 \
+  -S Integrations --where "integration=integration.dependency-injection"
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
+  -S Integrations --where "ecosystem=ecosystem.aspire"
 ```
+
+The concept and ecosystem facets are composable typed identities. An ecosystem
+enables its registered concept set; an optional concept predicate narrows
+within that set. The current `ecosystem.aspire` registration enables the
+complete configured Integration catalog, while the inspected library still
+emits rows only for concepts it actually exposes. One concept may also be
+observed without selecting any ecosystem. Malformed, unknown, or unbound
+identities fail rather than falling back to display-name matching.
+
+`Microsoft.Extensions.AI@10.10.0` is the motivating multi-integration asset. Its
+`Microsoft.Extensions.AI.dll` library exposes distinct AI and Dependency
+Injection currency through the same producer and row shape. This makes concept
+identity important while demonstrating that separate section identities add
+catalog and format cost without adding producer backpressure.
+
+`@Integrations` contains `Integrations` and `Integration Opportunities`.
+Selecting the category renders both observed and potential integration
+evidence when applicable. Add `--count` to count each section. Opportunities
+remain separate because they describe missing or potential wiring, use a
+different row schema, and depend on the observed Integrations result.
 
 `Library Info` also includes an `Integrations` field. That field counts detected
 integration categories, not example rows. It is computed from cheap metadata
@@ -139,38 +159,26 @@ API to use.
 
 ## Detail section shape
 
-Focused sections render examples as types when every row is a type:
+The `Integrations` section has one stable row schema across Markdown, table,
+TSV, JSONL, row projection, package `--all-libraries`, and query filtering:
 
 ```markdown
-| Type |
-| ---- |
-| `Microsoft.Extensions.DependencyInjection.IServiceCollection` |
-| `Microsoft.Extensions.DependencyInjection.ChatClientBuilderServiceCollectionExtensions` |
+| Integration | Kind | Shape | Symbol |
+| ----------- | ---- | ----- | ------ |
+| AI | Chat | Type | `Microsoft.Extensions.AI.ChatClientBuilder` |
+| Dependency Injection | Service Registration | API | `Microsoft.Extensions.DependencyInjection.ChatClientBuilderServiceCollectionExtensions.AddChatClient(...)` |
 ```
 
-When an integration has multiple kinds of currency, keep the `Kind` column:
+`Integration` is the concept display label; filtering uses its separate
+canonical identity. `Kind` retains the concept-owned currency classification.
+`Shape` is `API` or `Type`, and `Symbol` is the actionable type or member
+display. These columns remain present when a selected result is uniform so the
+section keeps one machine-readable shape and concept remains visible in an
+unfiltered multi-integration result.
 
-```markdown
-| Kind | Type |
-| ---- | ---- |
-| Tracing | `System.Diagnostics.ActivitySource` |
-| Metrics | `System.Diagnostics.Metrics.Meter` |
-```
-
-When the useful currency includes member-level entry points or a mix of member
-and type shapes, use `API` instead of `Type`:
-
-```markdown
-| Kind | API |
-| ---- | --- |
-| Hosting | `Microsoft.Extensions.Hosting.AspireOpenAIExtensions.AddOpenAIClient(...)` |
-| Chat | `Microsoft.Extensions.Hosting.AspireOpenAIClientBuilderChatClientExtensions.AddChatClient(...)` |
-| Configuration | `Aspire.OpenAI.OpenAISettings` |
-```
-
-If every row in a focused section has the same kind, hide `Kind` and render only
-`Type` or `API`. This keeps the common case compact while preserving useful
-distinctions for integrations such as OpenTelemetry and AI.
+This is a CLI-owned Markout lowering over existing Integration signals. It does
+not change producer rows, concept identity, signal ordering, unprojected
+library JSON properties, the Workspace Census, or browser presentation.
 
 ## Detection and ranking
 
@@ -183,12 +191,12 @@ Detection reads metadata only:
 3. Public package-owned telemetry control APIs such as `DisableTracing` and
    `DisableMetrics` are OpenTelemetry currency because they reveal emitted
    telemetry kinds and how callers configure them.
-4. The `@Integrations` category lists every focused section with at least one
-   actionable type or starter API.
-5. The current projection uses configured concept/kind priorities rather than
-   alphabetical kind order. Within each bucket, API rows precede type rows;
-   API kind priority and preferred type-currency rank precede ordinal display
-   tie-breaking.
+4. The `Integrations` section contains every matched concept with at least one
+   actionable type or starter API. `@Integrations` exposes that section and
+   `Integration Opportunities`.
+5. The current projection preserves configured concept order, then orders each
+   concept's rows by kind and symbol. Existing per-concept policy determines
+   whether type rows remain when actionable API rows are present.
 
 The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
@@ -250,8 +258,8 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-The library CLI and package `--all-libraries` host execute this query when a
-focused detected-integration section is selected. `Integration: Opportunities`
+The library CLI and package `--all-libraries` host execute this query when the
+`Integrations` section is selected. `Integration Opportunities`
 binds to `AssemblyContextIntegrationOpportunitiesQuery`, which declares the
 Integrations query as a typed prerequisite. The dependent query composes the
 existing-integration set from the prerequisite result, scans the same immutable
@@ -260,24 +268,37 @@ available, rejected, and failed participant outcomes. Its declared local cost
 is network-free, while the registry exposes the unbounded transitive cost of its
 Integrations prerequisite.
 
-The completed participant-scoped host-neutral boundary is
-`AssemblyIntegrationOpportunitiesInspection`. It returns
+The completed participant-scoped host-neutral boundaries are
+`AssemblyIntegrationsInspection` and
+`AssemblyIntegrationOpportunitiesInspection`. The first returns
+`InspectionEnvelope<AssemblyIntegrationsEntry>`. The second returns
 `InspectionEnvelope<AssemblyIntegrationOpportunitiesInspectionResult>`, whose
 Content preserves both the typed Integrations prerequisite and dependent
 Opportunities outcome for the same acquisition registration. Share remains
 explicitly non-projectable until a canonical Workspace projection exists, and
-supplemental diagnostics remain distinct from both query outcomes.
+supplemental diagnostics remain distinct from the query outcomes.
 
-The reusable execution form returns the detached envelope without releasing the
-group, which lets Inspect Web keep its exact package workspace alive across
-exports. The streaming execution form lends the retained image to one callback,
-then returns the same detached envelope after release, which lets the CLI keep
-participant-at-a-time package retention. The first bounded consumers are
-Inspect Web package Opportunities and CLI package `--all-libraries`
-`Integration: Opportunities`; their package workspaces are acquired through
-the PackageHouse/package-realization paths. Direct local-library CLI queries
-and Inspect Web platform Opportunities remain neighboring query consumers and
-are not claimed by this package-backed adoption.
+Both inspections expose a reusable execution form that returns the detached
+envelope without releasing the group, which lets Inspect Web keep its exact
+package workspace alive across exports. Their streaming forms lend the retained
+image to one callback, then return the same detached envelope after release,
+which lets the CLI keep participant-at-a-time package retention. The
+package-backed production consumers are Inspect Web package Integrations and
+Opportunities and CLI package `--all-libraries` Integration rows; their
+package workspaces are acquired through the PackageHouse/package-realization
+paths. Direct local-library CLI queries and Inspect Web platform Integrations
+and Opportunities remain neighboring query consumers and are not claimed by
+these package-backed adoptions.
+
+The Inspect Web package exports preserve each shared envelope as an identifiable
+wire value alongside the existing Browser presentation. A Sections-owned
+source-generated JSON context serializes the exact owner-issued Content into
+`JsonElement`; the Browser projection lowers the envelope into
+Analysis-facade-local wire records that preserve every Share field and the
+ordered diagnostic fields without source-generating product-owned types at the
+JSExport boundary. Serialization occurs from the detached Content and therefore
+neither retains nor reopens the immutable image borrowed by the CLI streaming
+form.
 
 The section catalog binds each member of the family to its owning query
 definition by object identity and owns a separate group-query registry because
@@ -297,10 +318,18 @@ gates typed prerequisite composition and suppression of integrations already
 present.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_OpportunityQueryUsesOneImmutableSnapshot`
 gates reuse of the acquired image across both queries.
+`AssemblyContextIntegrationsQueryTests.IntegrationsInspection_ReturnsDetachedReusableEnvelope`
+and
+`AssemblyContextIntegrationsQueryTests.IntegrationsInspection_StreamingEnvelopeSurvivesRelease`
+gate the Integrations reusable and participant-at-a-time handoffs.
 `AssemblyContextIntegrationsQueryTests.OpportunitiesInspection_ReturnsDetachedReusableEnvelope`
 gates the reusable detached handoff, and
 `AssemblyContextIntegrationsQueryTests.OpportunitiesInspection_StreamingEnvelopeSurvivesRelease`
 gates the participant-at-a-time envelope handoff and release boundary.
+Those streaming tests also serialize the owner-issued Content after terminal
+release. `BrowserIntegrationsEnvelopeParityTests` compares the real
+`Serilog.Sinks.OpenTelemetry` package's Browser-delivered Content JSON, Share,
+and diagnostics with the reusable shared service envelopes.
 `AssemblyIntegrationOpportunitiesFailure_ProjectsToItsSection` gates the
 section-specific structured failure surface. Independently inducing a late
 opportunity metadata-decode failure remains unverified. Cancellation-aware
@@ -1378,17 +1407,20 @@ candidate identity or deriving it after admission must make the gate fail.
 
 ## Relationship to sections and categories
 
-The focused `Integration:` sections are members of the `@Integrations` section
-category. Categories are section-selection macros, not a new filtering
-axis. They expand to command-local section sets and then normal section
-renderability still applies.
+`Integrations` and `Integration Opportunities` are members of the
+`@Integrations` section category. Categories are section-selection macros, not
+a filtering axis. They expand to command-local section sets and then normal
+section renderability still applies. Integration concepts are values within
+the observed section and are narrowed with `--where`.
 
 Use:
 
 ```bash
+-S Integrations
+-S Integrations --where "integration=integration.logging"
 -S @Integrations
--S "Integration: <focused integration>"
 --count -S @Integrations
 ```
 
-This keeps integrations aligned with section backpressure and schema discovery.
+This keeps integrations aligned with section backpressure and schema discovery
+without publishing one section identity per configured concept.

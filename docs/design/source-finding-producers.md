@@ -129,7 +129,12 @@ reachability and checksum statuses are operation results and presentation
 folds, not additional Findings.
 
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
-token. `PdbSourceHouse` consumes the same token-scoped mapping and
+token. Member queries now use
+[shared authored acquisition](member-source-acquisition.md) through SourceHouse.
+The [type query](type-source-acquisition.md) uses the same internal handoff with
+its own bounds and primary-document projection, preserving the correlation and
+fallback semantics below.
+`PdbSourceHouse` remains the legacy consumer of the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
@@ -264,6 +269,11 @@ instead of PDB-source success;
 gates both outcomes, and
 `AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
 gates host-specific non-fatal exception types.
+
+Member acquisition closes the upstream PDB reader before House admission and
+source retrieval, so a disposal failure now prevents the source request itself.
+The type path retains its existing ordering. Both disposal gates assert that
+distinction while retaining the same visible failure and cancellation outcomes.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

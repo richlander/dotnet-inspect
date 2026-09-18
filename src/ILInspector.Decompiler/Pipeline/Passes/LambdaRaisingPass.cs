@@ -264,6 +264,7 @@ public sealed class LambdaRaisingPass : IIrPass
             foreach (var store in captureStores)
                 store.Detach();
             alloc.Detach();
+            function.MarkLocalEliminated(slot);
         }
     }
 
@@ -460,6 +461,9 @@ public sealed class LambdaRaisingPass : IIrPass
             ReturnsVoid = returnsVoid,
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
             SynthesizedLocalNames = body.SynthesizedLocalNames,
+            LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
+            LocalDeclarationBindings = body.LocalDeclarationBindings,
+            LocalNameImportCauses = body.LocalNameImportCauses,
             CapturedBinderNames = capturedBinderNames.IsDefault ? [] : capturedBinderNames,
         };
         lambda.InheritSourceOffset(provenance);
@@ -504,6 +508,7 @@ public sealed class LambdaRaisingPass : IIrPass
     {
         if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
             return false;
+        statements = PdbLocalScopePass.WithoutLexicalBlocks(statements);
 
         for (int i = 0; i < statements.Count; i++)
         {
@@ -516,6 +521,8 @@ public sealed class LambdaRaisingPass : IIrPass
             if (allowLocalStatements && statement is StoreLocal)
                 continue;
             if (allowLocalStatements && statement is StoreStackSlot)
+                continue;
+            if (allowLocalStatements && statement is PointerCompoundAssignment { Target: LoadLocal or LoadStackSlot })
                 continue;
             if (statement is not ExpressionStatement)
                 return false;

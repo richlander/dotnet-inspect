@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
 using ILInspector.Metadata;
@@ -688,7 +689,8 @@ public sealed class DependencyGraphOutputAdapterTests
                         PackageDependencyResolutionState.Unavailable,
                         Ordinal: 0),
                 ],
-                []));
+                []),
+            Diagnostics: []);
 
         DependencyGraphEdgeRow row = Assert.Single(
             DependencyGraphOutputAdapter.EdgeRows(

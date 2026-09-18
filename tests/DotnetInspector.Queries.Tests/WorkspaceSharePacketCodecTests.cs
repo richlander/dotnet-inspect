@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.Platforms;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -25,6 +27,12 @@ public sealed class WorkspaceSharePacketCodecTests
 
     private const string CanonicalFormat2Json =
         """{"f":2,"t":[[":Platform","10.0.10","net10.0",null],["System.Text.Json","10.0.0","net10.0",null]],"g":[[0,1]],"a":1,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"member","l":["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],"y":"System.Text.Json.JsonSerializer","m":"74b6b4b321"},"u":{"k":"workspace"},"f":"workspace.overview"}]}""";
+
+    private const string CanonicalFormat3RegistrationOnlyJson =
+        """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+
+    private const string CanonicalFormat3CompositeJson =
+        """{"f":3,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"r":[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["l",["t","DotNetRuntime",["System.Runtime","11.0.0.0",null,"b03f5f7f11d50a3a"]]],["e","ecosystem.platform",["System"],["system.runtime"],[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["t","AspNetCore"],["p","Microsoft.Extensions."]]]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
 
     [Fact]
     public void Decode_CanonicalVector_RoundTripsExactly()
@@ -175,10 +183,12 @@ public sealed class WorkspaceSharePacketCodecTests
 
         Assert.Equal(1, packet.ActiveTabIndex);
         Assert.Equal(0, packet.SelectedContextIndex);
-        Assert.Equal([0], packet.Contexts[packet.SelectedContextIndex].TabIndexes);
+        Assert.Equal(
+            [0],
+            packet.Contexts[packet.SelectedContextIndex!.Value].TabIndexes);
         Assert.DoesNotContain(
             packet.ActiveTabIndex,
-            packet.Contexts[packet.SelectedContextIndex].TabIndexes);
+            packet.Contexts[packet.SelectedContextIndex.Value].TabIndexes);
         Assert.Equal(IndependentFocusVector, WorkspaceSharePacketCodec.Encode(packet));
     }
 
@@ -223,6 +233,134 @@ public sealed class WorkspaceSharePacketCodecTests
         Assert.Null(packet.FocusedTabIndex);
         Assert.Equal(-1, packet.ActiveTabIndex);
         Assert.Equal(json, WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Decode_Format3RegistrationOnlyVector_RoundTripsExactly()
+    {
+        string encoded = EncodeJson(
+            CanonicalFormat3RegistrationOnlyJson);
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            encoded,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, packet.FormatVersion);
+        Assert.Empty(packet.Tabs);
+        Assert.Empty(packet.Contexts);
+        Assert.Null(packet.FocusedTabIndex);
+        Assert.Null(packet.SelectedContextIndex);
+        var prefix = Assert.IsType<WorkspaceRegistration.PackagePrefix>(
+            Assert.Single(packet.Registrations));
+        Assert.Equal("Microsoft.Extensions.", prefix.Prefix.Prefix);
+        Assert.Single(packet.ViewStates);
+        Assert.Equal(
+            CanonicalFormat3RegistrationOnlyJson,
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+        Assert.Equal(encoded, WorkspaceSharePacketCodec.Encode(packet));
+    }
+
+    [Fact]
+    public void Decode_Format3CompositeVector_PreservesRegistrationArms()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            CanonicalFormat3CompositeJson,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, packet.FormatVersion);
+        Assert.Equal(3, packet.Registrations.Count);
+        var package = Assert.IsType<ExactLibrarySourceCoordinate.Package>(
+            Assert.IsType<WorkspaceRegistration.ExactLibrary>(
+                packet.Registrations[0]).Coordinate);
+        Assert.Equal(
+            "system.text.json",
+            package.PackageCoordinate.PackageId);
+        var platform = Assert.IsType<ExactLibrarySourceCoordinate.Platform>(
+            Assert.IsType<WorkspaceRegistration.ExactLibrary>(
+                packet.Registrations[1]).Coordinate);
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            platform.Population.Family);
+        var ecosystem = Assert.IsType<WorkspaceRegistration.Ecosystem>(
+            packet.Registrations[2]).Declaration;
+        Assert.Equal("ecosystem.platform", ecosystem.Id.Value);
+        Assert.Equal(["System"], ecosystem.NamespaceRoots);
+        Assert.Equal(
+            ["system.runtime"],
+            ecosystem.CorePackages.Select(package => package.PackageId));
+        Assert.Collection(
+            ecosystem.Populations,
+            population => Assert.IsType<
+                WorkspaceEcosystemPopulationDeclaration.ExactLibrary>(
+                    population),
+            population => Assert.IsType<
+                WorkspaceEcosystemPopulationDeclaration.Platform>(
+                    population),
+            population => Assert.IsType<
+                WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                    population));
+        Assert.Equal(
+            CanonicalFormat3CompositeJson,
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Theory]
+    [InlineData("""{"f":3,"t":[],"g":[],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["p","P."]],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"r":[],"a":0,"x":null,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["q","P."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["p"]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["l",["p","P","1.0.0"]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["l",["x","P",["P","1.0.0.0",null,null]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["e","ecosystem.test",[],[],[["x","P."]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    [InlineData("""{"f":3,"t":[],"g":[],"r":[["e","ecosystem.test",[],[],[["t","dotnetruntime"]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""")]
+    public void Format3_RejectsMalformedRegistrationTopology(
+        string json)
+    {
+        WorkspaceSharePacketException exception =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    json,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.InvalidShape,
+            exception.Kind);
+    }
+
+    [Fact]
+    public void Format3_RejectsDuplicateAndExcessRegistrations()
+    {
+        const string duplicate =
+            """{"f":3,"t":[],"g":[],"r":[["p","P."],["p","P."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        WorkspaceSharePacketException duplicateFailure =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    duplicate,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.InvalidShape,
+            duplicateFailure.Kind);
+
+        string registrations = string.Join(
+            ",",
+            Enumerable.Range(
+                0,
+                WorkspaceSharePacketCodec.MaxRegistrations + 1)
+                .Select(index => $$"""["p","P{{index}}."]"""));
+        string excessive =
+            """{"f":3,"t":[],"g":[],"r":["""
+            + registrations
+            + """],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        WorkspaceSharePacketException excessiveFailure =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    excessive,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.InvalidShape,
+            excessiveFailure.Kind);
     }
 
     [Fact]
@@ -385,7 +523,7 @@ public sealed class WorkspaceSharePacketCodecTests
             WorkspaceSharePacketFailureKind.InvalidShape);
         AssertFailure(
             EncodeJson(
-                """{"f":3,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
+                """{"f":5,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0}"""),
             WorkspaceSharePacketFailureKind.UnsupportedFormat);
     }
 

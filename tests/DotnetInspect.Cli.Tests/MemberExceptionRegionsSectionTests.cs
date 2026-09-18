@@ -101,7 +101,7 @@ public class MemberExceptionRegionsSectionTests
         {
             TypeName = typeof(MemberExceptionRegionsFixture).FullName,
             AssemblyPath = typeof(MemberExceptionRegionsFixture).Assembly.Location,
-            Discover = [],
+            Discover = [SectionCategoryNames.Decompiler],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,

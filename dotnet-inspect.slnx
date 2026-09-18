@@ -12,6 +12,9 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CallerGraphTargetV2/ILInspector.Analysis.CallerGraphTargetV2.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures/ILInspector.Analysis.CallFunctionPointerScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures/ILInspector.Analysis.CallGenericScopeFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures/ILInspector.Analysis.CallOverloadFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.Fixtures/ILInspector.Analysis.Fixtures.csproj" />
@@ -91,6 +94,7 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.PublicMethodRootFixtures/ILInspector.Metadata.PublicMethodRootFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
@@ -129,11 +133,15 @@
     <Project Path="src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj" />
     <Project Path="src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Direct/DotnetInspector.DocumentationHouse.Direct.csproj" />
+    <Project Path="src/DotnetInspector.DocumentationHouse.Packages/DotnetInspector.DocumentationHouse.Packages.csproj" />
+    <Project Path="src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj" />
     <Project Path="src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Networking/DotnetInspector.Networking.csproj" />
+    <Project Path="src/DotnetInspector.PackageHouse.Execution/DotnetInspector.PackageHouse.Execution.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
@@ -152,6 +160,7 @@
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.SourceDelegation/DotnetInspector.SourceDelegation.csproj" />
+    <Project Path="src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj" />
     <Project Path="src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
@@ -192,6 +201,7 @@
     <Project Path="tests/DotnetInspector.Cache.Tests/DotnetInspector.Cache.Tests.csproj" />
     <Project Path="tests/DotnetInspector.DependencyManifests.Tests/DotnetInspector.DependencyManifests.Tests.csproj" />
     <Project Path="tests/DotnetInspector.DocumentationHouse.Tests/DotnetInspector.DocumentationHouse.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.EcosystemLoading.Tests/DotnetInspector.EcosystemLoading.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
@@ -235,6 +245,7 @@
     <Project Path="tests/DotnetInspector.Sections.Tests/DotnetInspector.Sections.Tests.csproj" />
     <Project Path="tests/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceDelegation.Tests/DotnetInspector.SourceDelegation.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.SourceHouse.Tests/DotnetInspector.SourceHouse.Tests.csproj" />
     <Project Path="tests/DotnetInspector.SourceSelection.Tests/DotnetInspector.SourceSelection.Tests.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
     <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />

@@ -19,6 +19,14 @@ House facade, request, settlement, result, receipts, and typed handoffs.
 Adjacent owners retain their identities, algorithms, failures, and lifetimes.
 Their adoption remains separately reviewed.
 
+[#7423](https://github.com/richlander/dotnet-inspect/issues/7423) extends that
+composition with package-slice policy. Its first focused slice defines only the
+package-local compile inventory and selected projection that PackageHouse
+retains. [#7431](https://github.com/richlander/dotnet-inspect/issues/7431)
+implements the owner-issued selection evidence. Package Dependency Query
+scope, size measurements, traversal targets, call graphs, Navigation, and host
+adoption remain separate slices.
+
 The first production adopter is shared package realization for
 `Workspace`. The CLI and Inspect Web then consume the same House contract
 through their package and Workspace paths.
@@ -46,20 +54,22 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package --latest-version` and equivalent `@latest` version
-queries also consume House selecting `Settle` through
-`DesktopPackageSourceComposition.SettleVersionAsync`. They render the exact
-version from its resolution receipt and preserve source listing evidence for
-feed projections; the command no longer chooses the latest row itself.
+The CLI's online `package Package@latest --version` query and `@latest` package
+opening consume the shared `PackageVersionSettlementInspection` envelope, also
+used by Inspect Web exact/latest package opening. The shared inspection
+projects House `Settle` evidence into a serialization-ready outcome; hosts
+render or consume the selected coordinate rather than choosing a latest row.
+The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
+composition now supplies only the configured House and source operation.
 Requested `--verbose` source-fetch progress still flows to stderr through the
 settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
-existing latest-version, source-failure, listing, and rendering cases preserve
+existing latest-settlement, source-failure, listing, and rendering cases preserve
 neighboring behavior.
-This is payload-free adoption: ordinary version listings, pinned and range
-queries, offline behavior, Browser settlement, and package-content/Workspace
+This is payload-free adoption: ordinary version listings, CLI pinned and range
+queries, offline behavior, and package-content/Workspace
 adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
@@ -88,6 +98,8 @@ The owner defines:
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
+- package-local compile-selection policy and preservation of the complete
+  owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;
 - the package decision, acquisition, and realization receipts;
 - typed package-to-platform delegation;
@@ -108,6 +120,8 @@ It does not define:
 - dependency candidate resolution or graph traversal;
 - package archive admission, content generation, or cache publication;
 - compile, runtime, resource, analyzer, or build asset selection;
+- framework compatibility, compile-slice ranking, asset-role preference,
+  empty-group interpretation, or managed-image classification;
 - artifact identity, Workspace admission, revisions, leases, replacement, or
   participant lifetime;
 - platform target settlement or realization;
@@ -291,13 +305,15 @@ later become exact candidate-bound demands.
 
 - one canonical `PackageVersionRange`;
 - one `Settle`-profile `PackageHouseOperation`;
-- the explicit prerelease-inclusion policy; and
+- the explicit prerelease- and unlisted-inclusion policies; and
 - an optional opaque caller association.
 
 PackageHouse consumes one request-deadline-matched
 `PackageSourceOperationLease`, obtains the current source authorization for the
 range package ID, and requests one
-`CompleteVersionEnumeration` from Package Source. Settlement acquires no
+`CompleteVersionEnumeration` from Package Source. The request may select its
+unlisted-inclusive form when a consumer must retain unlisted range endpoints
+or rows. Settlement acquires no
 package manifest, payload, store, composition, library, or Workspace
 participant.
 
@@ -358,14 +374,37 @@ candidate-bound cell execution. Neither the result nor a cell retains the
 composition, lease, operation context, or an execution callback. Browser/Wasm
 adoption uses the same host-neutral contract in a later slice.
 
-This slice does not migrate current API-range or top-level `timeline`
-consumers, remove a command, add History coordination, or inspect
-process-global offline state. Offline range discovery and extraction remain on
-their documented legacy path until a host explicitly adopts an offline
-capability. The target production consumer is subject-owned Diff History and
-metadata-only package version Count under
+The original #7115 slice did not migrate current API-range or top-level
+`timeline` consumers. [#7410](https://github.com/richlander/dotnet-inspect/issues/7410)
+later adopts only online `package Package@A..B --versions` listing as a direct
+population consumer.
+[Issue #7434](https://github.com/richlander/dotnet-inspect/issues/7434)
+completes that leaf as
+`InspectionEnvelope<PackageVersionPopulationOutcome>`. Its available Content
+contains a detached `PackageVersionPopulationDocument` with the normalized
+request, direction-preserving ordinal and selector addresses, listing state,
+and ordered source rows. The closed House terminal family becomes typed
+non-available Content with inert reason text, timeout state, and credential-safe
+authority failures. Neighboring source failures on an available population are
+ordered envelope diagnostics.
+
+Count is an optional semantic component of the same available Content. Its
+request names either the version or version/source cohort and applies the
+already-bound semantic row selection before returning a typed Count result.
+Ordinary `--count` projects that result as the existing scalar; `--count
+--envelope` preserves both the complete population Document and Count
+component. The CLI's ordinary version, feed, JSON, JSONL, and TSV renderers
+remain projections over the shared Document. Neither the inspection nor the
+command selects or executes population cells.
+
+This adoption does not remove a command, add History coordination, migrate
+range-address payload acquisition, or inspect process-global offline state.
+Offline range discovery and extraction remain on their documented legacy path
+until a host explicitly adopts an offline capability. The broader target
+production consumer remains subject-owned Diff History under
 [Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior.
+`timeline` behavior; the metadata-only package version Count is now the
+resource-free CLI consumer described above.
 
 ## Package target context
 
@@ -391,6 +430,69 @@ cannot manufacture it.
 Requested target framework and selected asset-folder framework remain
 separate. Compatibility may select a lower applicable folder. The receipt
 retains both.
+
+## Package-local compile inventory and selected projection
+
+A package-local compile realization asks one question about one acquired
+package generation: which compile-time Library assets does this package offer
+under this request? PackageHouse retains two distinct owner-issued views in the
+answer:
+
+- **compile inventory** contains every available target-framework slice and
+  every compile candidate observed by the compile asset-selection owner,
+  including an explicitly empty reference group; and
+- **selected projection** contains the one applicable slice and zero, one, or
+  many selected compile assets, or one typed non-success.
+
+Complete means complete for compile selection within the exact acquired
+package-content generation. It does not mean every package entry is a compile
+candidate, turn package inventory into Workspace inventory, or authorize
+opening selected content. The package remains the container that retains its
+full content and acquisition evidence.
+
+PackageHouse owns the policy supplied to the selector, not the compatibility
+or asset-selection algorithm:
+
+| Package-local request | PackageHouse selection policy |
+| --- | --- |
+| No requested target framework | `HighestAvailable` |
+| Explicit requested target framework | `ExplicitTarget` |
+
+`HighestAvailable` asks the owner to select its highest available compile
+slice. An explicit target asks the owner to select the applicable compile
+slice for that request. In both cases PackageHouse preserves the policy source,
+the requested framework when present, the selected framework when one exists,
+and the exact selector receipt. It does not choose a framework by sorting
+strings, infer one from a host default, or rerun selection over rendered paths.
+
+The selected projection preserves these distinct outcomes:
+
+- selected with one or many compile assets;
+- selected-empty because the applicable compile group explicitly contributes
+  no compile assets;
+- no compile slices;
+- no applicable target-framework slice;
+- invalid asset correspondence; and
+- operation or owner failure.
+
+Selected-empty is successful package realization with zero Library handoffs.
+No slices and no applicable slice are `NoMatch`. Invalid compile
+correspondence, including lower implementation ambiguity that the compile
+owner normalizes as invalid, is `Rejected`. Failures do not become an empty
+projection. PackageHouse preserves all completed acquisition and selection
+evidence in every arm.
+
+The compile asset-selection owner decides slice ranking, NuGet compatibility,
+reference-versus-implementation preference, explicit empty-group meaning, and
+compile-to-implementation pairing. Its result must retain available slices
+even when the selected projection is empty or unsuccessful. PackageHouse does
+not select a namesake or representative assembly: every selected asset remains
+available for a later Library-focused consumer.
+
+An operation that wants multiple framework slices issues separately associated
+package-local selections and reports them as separate projections. It does not
+merge incompatible slices into one selected universe. The coordinator for that
+multi-selection operation owns its completion and ordering.
 
 ## Operation profiles
 
@@ -440,6 +542,71 @@ coordinate, producer, origin, and content generation match the result's
 acquisition receipt. Every terminal result after successful acquisition remains
 an `Acquired` settlement, including selection no-match, ambiguity, rejection,
 and operation timeout, so package shape and completed evidence are not lost.
+
+## Shared version-settlement inspection
+
+For one exact or latest package demand, hosts consume one
+`InspectionEnvelope<PackageVersionSettlementOutcome>` from
+`PackageVersionSettlementInspection`, tracked by
+[#7176](https://github.com/richlander/dotnet-inspect/issues/7176).
+PackageHouse remains the normative settlement owner. This inspection adopts
+the existing [Inspection Envelope](inspection-envelope.md) and
+[Host-observable Content Kinds](host-observable-content-kinds.md) patterns
+without redefining source authorization or version selection.
+
+The question is which exact package version settles the demand, not which
+assets are applicable. The input uses the existing package coordinate:
+an omitted version requests fresh latest selection with explicit prerelease
+policy; a present version is an exact pin. Framework and RID, if supplied,
+remain request context, not asset-selection requirements. Exact settlement
+authorizes the coordinate without claiming package existence or listing state.
+
+The shared boundary preserves:
+
+- a `Settled` outcome containing the normalized request, exact selected
+  coordinate, requested prerelease policy, discovery freshness when discovery
+  occurred, and selected version/source listing evidence;
+- a `NotSettled` outcome retaining the native House terminal kind, reason,
+  operation-timeout fact, and credential-safe source failure kind, message,
+  and timeout kind;
+- required Share for that same operation; and
+- ordered cross-host diagnostics for source failures accompanying a valid
+  settlement, without turning typed non-success into a warning or empty result.
+
+Version-only settlement currently has no canonical Workspace Share projection.
+Its Share is explicitly `NonProjectable` at
+`package-version-settlement/share`; neither host substitutes an approximate
+package URL. Broader browser Workspace sharing is a separate operation and is
+not overwritten by this prerequisite's Share outcome.
+
+The returned baseline is detached and serialization-ready. It carries neither
+an acquisition candidate's authority nor live source resources. Typed source
+and version policy remain with their lower owners; the shared projection does
+not repeat selection. Caller cancellation produces no completed envelope.
+Verbose progress remains a caller-supplied log, not an inspection diagnostic.
+
+Hosts supply their configured House and a Package Source-owned operation
+lease. The inspection consumes that operation; hosts still own clients and
+the source root. A payload-free operation needs no Workspace.
+
+Production adoption has three steps within this slice: the shared boundary,
+CLI `Package@latest --version` queries, and Inspect Web exact/latest package
+opening.
+The CLI retains scalar/feed/listing presentation. Inspect Web retains the
+same baseline through its richer package-opening composition and transport,
+then continues existing payload acquisition and Workspace admission.
+Browser search-based latest settlement and the CLI-only bridge retire with
+these callers. Version inventories and dependency-range resolution do not
+move into this inspection.
+
+`System.Text.Json` is the real motivating package. The PR-fast
+`PackageVersionSettlementInspectionTests` gate the detached result,
+equivalent-plan envelope serialization, stable/preview and exact-pin
+boundaries, typed refusal and absence, diagnostics, and cancellation.
+CLI `SourceScopedRoutingTests` and `PackageVersionTests` preserve production
+output and neighboring paths; browser adoption owns its managed and
+TypeScript boundaries. `PackageQueryInspection` is analogous shared-envelope
+composition evidence, not another policy owner.
 
 ## Host-authorized plan and operation
 
@@ -740,6 +907,36 @@ Each unwrapped library retains:
 - correspondence to any paired compile/implementation asset; and
 - the content lease required to keep bytes readable.
 
+The compile-handoff adopter is implemented in the separately compiled
+`DotnetInspector.PackageHouse.Execution` project. It accepts one exact
+`PackageHouseSettlement.Acquired` and one compile handoff issued by that
+settlement. Reference identity binds the handoff to the settlement, and the
+Package Source-issued content generation binds both to the live payload. A
+handoff from another acquired settlement remains invalid even when both
+payloads contain byte-identical assemblies.
+
+The adopter materializes only:
+
+- the selector-issued API assembly;
+- its selector-corresponded implementation assembly, when distinct; and
+- the exact API-side `.xml` entry with the same directory and base name, when
+  present.
+
+It publishes those contents into one bounded Artifact generation, consumes
+Metadata-issued assembly projections, constructs the package source coordinate
+and Library correspondence, and transfers one Artifact content child per
+distinct Library content record into `LibraryContentOwner`. One exact `lib/`
+asset serving both assembly roles transfers one child with both roles. A
+missing compiled-XML entry is valid absence; a present over-budget entry is a
+typed terminal result.
+
+Completion transfers `LibraryContentOwner` and `ArtifactSetSession` as
+separate caller-owned authorities. The Library owner must retire before the
+Artifact session. Terminal receipts and per-content provenance retain no
+payload, owner, lease, stream, opener, or callback. PackageHouse continues to
+issue the resource-free handoff; the separately compiled adopter owns Artifact,
+Metadata, and Library composition.
+
 The House does not choose one assembly because its file name resembles the
 package ID unless the asset-selection owner explicitly defines that role.
 Shared Library inspection begins only after this handoff.
@@ -761,10 +958,13 @@ For package realization, Workspace orchestration:
 6. reports or preserves every non-success without reconstructing a neighboring
    package result.
 
-PackageHouse does not mutate Workspace. It returns an immutable realization
-with the retained lifetime needed for a Workspace transaction to admit it.
-Rejected admission disposes House-owned resources under the artifact owner
-contract; an existing Workspace remains unchanged.
+PackageHouse does not mutate Workspace. It returns an immutable result and
+resource-free Library handoff while its acquired settlement retains the
+separately caller-owned package payload. The PackageHouse execution adopter
+can turn one exact compile handoff into separately transferred Library and
+Artifact authorities for a later Workspace transaction. Rejected admission
+disposes adopter-created resources under the Artifact owner contract; an
+existing Workspace remains unchanged.
 
 `DotnetInspector.PackageQueries` owns the narrow House-to-Root adapter.
 `PackageHouseRootContributionAdapter` accepts the complete closed House
@@ -1040,6 +1240,29 @@ Each step after this design is separately reviewed and leaves a usable
 product. A direct path is retired only after its House replacement is live in
 every supported host that uses it.
 
+The compile-handoff Library materializer tracked by
+[#7324](https://github.com/richlander/dotnet-inspect/issues/7324) implements the
+PackageHouse adopter required by Library-ownership slice 4 and supplies the
+live-Library prerequisite for step 8. Workspace and host adoption remain
+separate work.
+
+[#7423](https://github.com/richlander/dotnet-inspect/issues/7423) adds a
+separate package-slice sequence:
+
+1. lock the package-local compile inventory and selected-projection contract
+   in this document;
+2. expose the complete owner-issued selection evidence through #7431;
+3. lock aggregate and explicit narrowing gestures in #7318;
+4. adopt the result in Package/Library CLI, API/Type/Member, Find,
+   Workspace/Navigation, and Inspect Web through #7430, #7429, #7433, #7432,
+   and #7428; and
+5. retire command-local package target, role, and representative-assembly
+   policy as each replacement lands.
+
+Package Dependency Query scope, size measurements, traversal targets, and call
+graphs remain later #7423 sequences. This slice does not authorize or specify
+them.
+
 ## Required gates
 
 | Claim | Required Release evidence |
@@ -1058,11 +1281,16 @@ every supported host that uses it.
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
+| Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
+| Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
+| Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
+| Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
 | Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |
 | Package shape | Zero, one, and many selected library outcomes preserve package-shaped inspection and typed asset status. |
+| Library materialization | `CompileHandoffMaterializesOwnedLibraryWithImplementationAndDocumentation` uses real `System.Text.Json` API, implementation, and compiled-XML package entries to produce one three-content Library backed by one Artifact generation. Focused neighboring gates bind the exact handoff and payload generation, reject byte-identical cross-settlement handoffs, transfer one content child for a `lib/` asset serving both assembly roles, preserve missing XML as valid absence, and keep missing assemblies, content and aggregate byte limits, malformed managed metadata, identity mismatch, cancellation, and retirement ordering visible. `MaterializationEvidenceContractsAreResourceFree` gates the detached evidence closure. |
 | Workspace handoff | Admission consumes one immutable House realization; rejection leaves the prior Workspace unchanged and disposes rejected resources correctly. |
 | Platform delegation | Package and platform receipts remain separately typed and associated by orchestration without a House-to-House call. |
 | Host equivalence | CLI and Browser/Wasm canaries over equivalent owner-issued inputs observe the same House settlement semantics. |
@@ -1097,6 +1325,29 @@ The Release gates for the desktop adoption are:
   release.
 
 ## Demo
+
+### Package-local selection remains plural
+
+```text
+Contoso.Tools@3.0.0 acquired generation C1
+  ref/net8.0/Contoso.Tools.dll
+  ref/net8.0/Contoso.Tools.Abstractions.dll
+  ref/net10.0/Contoso.Tools.dll
+  ref/net10.0/Contoso.Tools.Abstractions.dll
+
+PackageHouse compile realization
+  policy: HighestAvailable
+  requested framework: absent
+  available slices: net8.0, net10.0
+  selected framework: net10.0
+  selected assets:
+    Contoso.Tools.dll
+    Contoso.Tools.Abstractions.dll
+```
+
+The result keeps both available slices, selects one owner-ranked slice, and
+retains both selected Libraries. PackageHouse does not choose the package-
+named assembly as a representative.
 
 ### Evidence follows owner-issued correspondence
 
@@ -1183,6 +1434,8 @@ This design does not:
 - change NuGet framework compatibility or restore behavior;
 - define dependency graph traversal, version selection, pruning comparison, or
   asset-selection algorithms;
+- define Package Query dependency scope, size measurements, traversal-target
+  defaults, call-graph execution, aggregate Navigation, or host syntax;
 - make package search, package prefixes, or ecosystem registration House
   identities;
 - imply one assembly per package;

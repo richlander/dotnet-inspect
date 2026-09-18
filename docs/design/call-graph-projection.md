@@ -6,11 +6,16 @@ can render without re-deriving graph semantics (issues #3120, #3291, #3280).
 
 Related docs:
 
+- [Library-body root paths](library-body-root-paths.md) — bounded shortest
+  local witnesses from caller-supplied exact roots to destination MethodDefs
 - [Inspection graph document](inspection-graph-document.md) — the typed
   multi-subject envelope that composes call topology with package, integration,
   Finding, and other relationship evidence
 - [Call-graph characteristics](call-graph-characteristics.md) — the
   call-specific adapter from current nodes, edges, occurrences, and signals
+- [External-focused call topology](external-focused-call-topology.md) —
+  boundary-only and seeded shortest-connector views over an existing
+  projection
 - [Inspection-graph modes](inspection-graph-modes.md) — member, type, assembly,
   and package seeds plus peer-seed and induced-set requests
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
@@ -31,10 +36,12 @@ Markout Graph → tree | edge table | Mermaid
 
 `ILInspector.Analysis` stays presentation-free: it owns the graph evidence and
 the bounded traversal (`LibraryBodyIndex.BuildCallerTree` /
-`BuildCallTree`). `ILInspector.CallGraph` turns those `CallTreeNode` roots into a
-deterministic node/edge set. It knows nothing about Mermaid, Markdown, tables, or
-any other format, takes no dependency on Markout, the CLI, or inspected-assembly
-loading, and stays SRM-only, NativeAOT-friendly, and browser-Wasm compatible.
+`BuildCallTree`) plus exact local root-to-destination witnesses
+(`LibraryBodyRootPathAnalysis.FindShortestPaths`). `ILInspector.CallGraph`
+turns `CallTreeNode` roots into a deterministic node/edge set. It knows nothing
+about Mermaid, Markdown, tables, or any other format, takes no dependency on
+Markout, the CLI, or inspected-assembly loading, and stays SRM-only,
+NativeAOT-friendly, and browser-Wasm compatible.
 
 Each host owns its own rendering. `dotnet-inspect` lowers the projection to a
 Markout `Graph` in `CallGraphSectionAdapter`, which is where all call-graph

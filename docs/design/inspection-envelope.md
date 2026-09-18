@@ -290,6 +290,16 @@ sometimes conceal an enriched value as `object` or as a bare baseline.
 Producing an enriched result performs one inspection, not an ordinary
 inspection followed by a second run to obtain evidence.
 
+`EvidenceInspectionBuilder<TContent, TEvidence>` is the shared host-selection
+helper. Its
+`[Conditional("DEBUG")]` request method makes Release callers omit the capture
+request and its argument evaluation. The builder accepts operation state and
+ordinary and evidence-enabled static delegates, invokes exactly one, and cannot
+be reused for a second execution. Synchronous and asynchronous forms return the
+ordinary inspection plus an optional evidence envelope. When enriched, both
+tuple members reference the same `InspectionEnvelope<TContent>`; the tuple is
+host orchestration rather than a third service return form.
+
 The host resolves both capture intent and delivery intent before execution.
 Delivery may replace a host's primary output or accompany its ordinary Content
 presentation as a diagnostic attachment. That channel choice does not create a
@@ -427,8 +437,9 @@ Browser types. Adopters demonstrate their Debug host gestures and views
 against that product-owned construction; those demonstrations do not replace
 the Release correctness gates or verify the Release host-surface absence.
 These implementation properties are **unverified** until the adoption gates
-exist. This specification adds no executable type, flag, destination, or
-section migration and is not a general logging or tracing design.
+exist. The generic composition type and Debug host-selection helper are
+implemented; no command-specific capture request, destination, or section
+migration exists yet. This is not a general logging or tracing design.
 
 ## Same baseline, broader clients
 

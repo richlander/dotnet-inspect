@@ -44,7 +44,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Member Index",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1011,6 +1011,87 @@ public partial class CommandExecutionTests
         Assert.Contains("| Type Parameters | T |", output);
     }
 
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_TypeInfoSection_NonTabularValidEmptyFieldReportsNoData(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.TypeInfo,
+            "--fields",
+            "Type Parameters",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output.Trim());
+        Assert.Contains(
+            "Note: 1 field has no data: Type Parameters",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_FieldReplayDoesNotCreditProjectedAwayFieldTable(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info,Methods",
+            "--fields",
+            "Interfaces",
+            "--columns",
+            "Signature",
+            "--rows",
+            "1",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Methods", output);
+        Assert.DoesNotContain("Type Info", output);
+        Assert.Contains(
+            "Note: 1 field has no data: Interfaces",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    public async Task Type_NonTabularUnknownFieldWithoutSectionFails(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
+    }
+
     /// <summary>
     /// Bare <c>-S</c> on a single type renders the fixed overview: sections whose length does not
     /// depend on which type is being viewed. It used to render the Info set - the per-kind member
@@ -1523,7 +1604,7 @@ public partial class CommandExecutionTests
         // --columns is the same surface and was the case the first fix missed: it does not filter
         // document fields at all, so the title vanished while the projected table rendered fine.
         var (columnsExit, columnsOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "1", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "3", "--lines", "--tips", "q");
 
         Assert.Equal(0, columnsExit);
         Assert.Contains("# System.Text.Json", columnsOutput, StringComparison.Ordinal);
@@ -1788,16 +1869,27 @@ public partial class CommandExecutionTests
     [InlineData(new[] { "-S", "@Surface", "--columns", "Value" }, "| Value |")]
     // A document-level field, which survives whichever section is selected.
     [InlineData(new[] { "-S", "Classes", "--fields", "Types" }, "Types:")]
+    // A flattened table retains the selected section's identity even when its view heading is
+    // the generic table title.
+    [InlineData(new[] { "-S", "Classes", "--columns", "Type", "--tsv", "--rows", "1" }, "System.")]
+    [InlineData(new[] { "--columns", "Type,Members", "--table", "--rows", "1" }, "System.")]
     // Unmatched against the section, but the section's own table is not field-projected, so this
     // renders exactly as it did before and must keep exiting 0.
     [InlineData(new[] { "-S", "Classes", "--fields", "NoSuchField" }, "## Classes")]
     public async Task Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate(string[] args, string expected)
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             ["type", "--platform", "System.Text.Json", .. args, "--tips", "q"]);
 
         Assert.Equal(0, exit);
         Assert.Contains(expected, output, StringComparison.Ordinal);
+        if (!args.Contains("NoSuchField", StringComparer.Ordinal))
+        {
+            Assert.DoesNotContain(
+                "has no data",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>
@@ -2120,11 +2212,11 @@ public partial class CommandExecutionTests
     [InlineData("--columns")]
     public async Task Type_Listing_ApiInfo_ReportsUnmatchedProjectionsLikeTheRestOfTheView(string flag)
     {
-        // The first version of the fact-table routing wrote straight to the console and returned,
-        // skipping ProjectionDiagnostics.DiagnoseRendered -- so `--fields Value` produced NO output
-        // and exit 0. That is the same success-shaped-wrong-answer failure the routing exists to
-        // fix, reintroduced one layer down, and no assertion about correct projections could see
-        // it. The bar is parity with the per-kind sections beside it.
+        // The first version of the fact-table routing wrote straight to the console and returned
+        // without projection diagnostics, so `--fields Value` produced NO output and exit 0.
+        // That is the same success-shaped-wrong-answer failure the routing exists to fix,
+        // reintroduced one layer down, and no assertion about correct projections could see it.
+        // The bar is parity with the per-kind sections beside it.
         //
         // Parity is asserted as the INVARIANT rather than as equal exit codes, because the two
         // sections legitimately differ in outcome: an unmatched --fields empties the `API Info`
@@ -2294,6 +2386,47 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            "@All",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value '@All' not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactDiscoveryUsesSharedMemberCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(SectionCategoryNames.Audit, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Member, output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.MethodGroups, output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@All", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Hidden", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactComputedAllSelectorIsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
             "--platform",
             "System.Text.Json",
             "-S",
@@ -2523,30 +2656,30 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Methods | section (verbose) |", output);
-        Assert.Contains("| Source Files | section |", output);
+        Assert.Contains("| Methods | section |", output);
+        Assert.DoesNotContain("| Source Files | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCodeSections()
+    public async Task Type_SingleType_SourceDiscovery_IncludesSelectableCodeSections()
     {
         var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
-            Discover = []
+            Discover = [SectionCategoryNames.Source]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Properties | section |", output);
-        Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
+        Assert.DoesNotContain("| Properties | section |", output);
+        Assert.DoesNotContain("| Method Groups | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
 
@@ -2554,7 +2687,7 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+            "type", "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3305,7 +3438,7 @@ public partial class CommandExecutionTests
     public async Task Type_StaticClass_RendersStaticClassModifierOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Math", "--shape", "--tips", "q", "-n", "1");
+            "type", "System.Math", "--shape", "--tips", "q", "-n", "1", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using InertText;
@@ -12,142 +13,137 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The production envelope in which a package-query facet is available.</summary>
-public enum PackageQueryFacetTier
+/// <summary>The acquisition envelope required by one package-query term.</summary>
+public enum PackageQueryAcquisitionTier
 {
     Nuspec,
     PackageContent,
     SearchMetadata,
 }
 
-/// <summary>One product-owned package-query facet.</summary>
-/// <param name="Id">Stable opaque identity submitted by consumers without interpretation.</param>
-/// <param name="Label">User-facing label.</param>
-/// <param name="Summary">Short explanation of the predicate.</param>
-/// <param name="Weight">Producer-owned display order; this is not result ranking.</param>
-/// <param name="Tier">The production envelope in which the facet is available.</param>
-/// <param name="SelectionGroupId">
-/// Optional opaque identity shared by facets with product-owned compatibility
-/// and OR-combination semantics.
-/// </param>
-/// <param name="DisplayGroupId">
-/// Optional opaque identity shared by facets rendered as one grouped control.
-/// </param>
-/// <param name="DisplayGroupLabel">Accessible label for the grouped control.</param>
-public sealed record PackageQueryFacetDescriptor(
-    string Id,
-    string Label,
-    string Summary,
-    int Weight,
-    PackageQueryFacetTier Tier,
-    string? SelectionGroupId = null,
-    string? DisplayGroupId = null,
-    string? DisplayGroupLabel = null)
-{
-    /// <summary>
-    /// Whether this facet can be OR-combined with other combining facets in
-    /// its selection group.
-    /// </summary>
-    public bool CombinesWithinSelectionGroup { get; init; }
-}
-
-/// <summary>One product-owned parameterized Package Query term.</summary>
-public sealed record PackageQueryTermDescriptor(
-    string Key,
-    string Label,
-    string Summary,
-    int Weight,
-    PackageQueryFacetTier Tier,
-    ImmutableArray<string> Operators,
-    string ValueKind,
-    string ExampleValue);
-
-/// <summary>A bounded package-query request over one package-ID prefix.</summary>
+/// <summary>A bounded package-query request over one package input.</summary>
 public sealed record PackageQueryRequest(
-    string Prefix,
-    IReadOnlyCollection<string>? FacetIds = null,
+    string Input,
+    IReadOnlyCollection<PortableQueryTerm>? Terms = null,
     int MaximumCandidates = PackageQuery.DefaultMaximumCandidates,
     int? MaximumMatches = PackageQuery.DefaultMaximumMatches,
-    bool IncludePrerelease = false);
+    bool IncludePrerelease = false,
+    RowSelectionIntent<string>? RowSelection = null);
+
+public enum PackageQueryDependencyTargetKind
+{
+    All,
+    TargetFramework,
+}
+
+/// <summary>The dependency-group scope applied by one Package Query plan.</summary>
+public sealed record PackageQueryDependencyTarget
+{
+    private PackageQueryDependencyTarget(
+        PackageQueryDependencyTargetKind kind,
+        string? requestedTargetFramework)
+    {
+        Kind = kind;
+        RequestedTargetFramework = requestedTargetFramework;
+    }
+
+    public PackageQueryDependencyTargetKind Kind { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public static PackageQueryDependencyTarget All { get; } =
+        new(PackageQueryDependencyTargetKind.All, null);
+
+    internal static PackageQueryDependencyTarget ForTargetFramework(
+        string canonicalFramework) =>
+        new(
+            PackageQueryDependencyTargetKind.TargetFramework,
+            canonicalFramework);
+}
 
 /// <summary>Why a package-query request could not become an executable plan.</summary>
 public enum PackageQueryRequestFailureReason
 {
-    InvalidPrefix,
     InvalidCandidateLimit,
     InvalidMatchLimit,
-    TooManyFacets,
-    InvalidFacetId,
-    UnknownFacet,
-    DuplicateFacet,
-    IncompatibleFacets,
-    PackageContentCandidateLimitExceeded,
-    InvalidPackageInput,
     TooManyTerms,
-    InvalidTermKey,
+    InvalidPackageInput,
+    UnknownVocabulary,
     UnknownTerm,
     TermOperatorNotAdmitted,
     InvalidTermValue,
     DuplicateTerm,
+    IncompatibleTerms,
+    DependencyTargetRequiresDependencyPredicate,
+    RequiredPopulationMissing,
+    RequiredPrereleaseMissing,
+    RequiredCandidateBoundMissing,
+    UnknownBound,
+    StageNotAdmitted,
+    OrderNotSupported,
 }
 
 /// <summary>
-/// A typed, content-safe package-query planning failure. Returned facet IDs and
-/// term keys are always product-issued.
+/// A typed, content-safe package-query planning failure. Returned term keys are
+/// always product-issued.
 /// </summary>
 public sealed record PackageQueryRequestFailure
 {
     internal PackageQueryRequestFailure(
         PackageQueryRequestFailureReason reason,
-        IEnumerable<string>? facetIds = null,
         IEnumerable<string>? termKeys = null,
-        int? value = null)
+        int? value = null,
+        PortableQueryFailure? portableFailure = null)
     {
         Reason = reason;
-        FacetIds = facetIds is null ? [] : [.. facetIds];
         TermKeys = termKeys is null ? [] : [.. termKeys];
         Value = value;
+        PortableFailure = portableFailure;
     }
 
     public PackageQueryRequestFailureReason Reason { get; }
-    public ImmutableArray<string> FacetIds { get; }
     public ImmutableArray<string> TermKeys { get; }
     public int? Value { get; }
+    public PortableQueryFailure? PortableFailure { get; }
 
     public string Message => Reason switch
     {
-        PackageQueryRequestFailureReason.InvalidPrefix =>
-            "The package-query prefix is invalid.",
         PackageQueryRequestFailureReason.InvalidPackageInput =>
             "Enter a package ID or a literal package-ID prefix followed by one '*'.",
         PackageQueryRequestFailureReason.InvalidCandidateLimit =>
-            $"The package-query candidate limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
+            $"The package-query candidate limit must be between 1 and {PackageQuery.MaximumCandidates}; "
+            + $"package-content terms admit at most {PackageQuery.MaximumPackageContentCandidates} candidates.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
-            $"The package-query match limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
-        PackageQueryRequestFailureReason.TooManyFacets =>
-            "The package-query request selected more facets than the product offers.",
-        PackageQueryRequestFailureReason.InvalidFacetId =>
-            "A package-query facet ID is empty or invalid.",
-        PackageQueryRequestFailureReason.UnknownFacet =>
-            "One or more package-query facet IDs are unknown.",
-        PackageQueryRequestFailureReason.DuplicateFacet =>
-            "A package-query facet ID was selected more than once.",
-        PackageQueryRequestFailureReason.IncompatibleFacets =>
-            "The selected package-query facets cannot be combined.",
-        PackageQueryRequestFailureReason.PackageContentCandidateLimitExceeded =>
-            $"Package-content facets accept at most {PackageQuery.MaximumPackageContentCandidates} candidates.",
+            $"The package-query match limit must be between 1 and {PackageQuery.MaximumCandidates}.",
         PackageQueryRequestFailureReason.TooManyTerms =>
-            $"A package-query request accepts at most {PackageQuery.MaximumTerms} terms.",
-        PackageQueryRequestFailureReason.InvalidTermKey =>
-            "A package-query term key is empty or invalid.",
+            $"Package Query admits at most {PackageQuery.MaximumInspectionTerms} inspection terms "
+            + $"so its complete intent remains within {PortableQueryPayloadCodec.MaxTerms} portable terms.",
+        PackageQueryRequestFailureReason.UnknownVocabulary =>
+            "The Package Query vocabulary is not available in this build.",
         PackageQueryRequestFailureReason.UnknownTerm =>
-            "One or more package-query term keys are unknown.",
+            $"Package Query does not define term '{PortableFailure?.Offender}'.",
         PackageQueryRequestFailureReason.TermOperatorNotAdmitted =>
             "A package-query term uses an operator that its key does not admit.",
         PackageQueryRequestFailureReason.InvalidTermValue =>
             "A package-query term value is invalid.",
         PackageQueryRequestFailureReason.DuplicateTerm =>
             "Two package-query terms resolve to the same predicate.",
+        PackageQueryRequestFailureReason.IncompatibleTerms =>
+            "The selected package-query terms cannot be combined.",
+        PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
+            "dependency-target requires a depends or dependencies term.",
+        PackageQueryRequestFailureReason.RequiredPopulationMissing =>
+            "Package Query requires exactly one package or prefix population term.",
+        PackageQueryRequestFailureReason.RequiredPrereleaseMissing =>
+            "Package Query requires an explicit stable or include-prerelease term.",
+        PackageQueryRequestFailureReason.RequiredCandidateBoundMissing =>
+            "Package Query requires an explicit candidate bound.",
+        PackageQueryRequestFailureReason.UnknownBound =>
+            $"Package Query does not define bound '{PortableFailure?.Offender}'.",
+        PackageQueryRequestFailureReason.StageNotAdmitted =>
+            "Package Query supports Head, Tail, and Window selection, but not Top.",
+        PackageQueryRequestFailureReason.OrderNotSupported =>
+            "Package Query does not define an ordering namespace.",
         _ => "The package-query request is invalid.",
     };
 }
@@ -170,38 +166,60 @@ public abstract record PackageQueryPlanResult
 public sealed class PackageQueryPlan
 {
     internal PackageQueryPlan(
+        PortableQueryIntent intent,
         InertString prefix,
         InertString prefixEvidence,
-        ImmutableArray<PackageQueryFacetDefinition> definitions,
         ImmutableArray<BoundPackageQueryTerm> terms,
+        PackageQueryDependencyTarget dependencyTarget,
         int maximumCandidates,
         int? maximumMatches,
         bool includePrerelease,
-        SourceSelector? packageInput = null)
+        RowSelectionIntent<string> rowSelection,
+        SourceSelector packageInput)
     {
+        Intent = intent;
         Prefix = prefix;
         PrefixEvidence = prefixEvidence;
-        Definitions = definitions;
-        Facets = [.. definitions.Select(definition => definition.Descriptor)];
         BoundTerms = terms;
         Terms = [.. terms.Select(term => term.Term)];
+        DependencyTarget = dependencyTarget;
         MaximumCandidates = maximumCandidates;
         MaximumMatches = maximumMatches;
         IncludePrerelease = includePrerelease;
+        RowSelection = rowSelection;
         PackageInput = packageInput;
     }
 
+    public PortableQueryIntent Intent { get; }
     public InertString Prefix { get; }
-    public ImmutableArray<PackageQueryFacetDescriptor> Facets { get; }
     public ImmutableArray<PortableQueryTerm> Terms { get; }
+    public PackageQueryDependencyTarget DependencyTarget { get; }
     public int MaximumCandidates { get; }
     public int? MaximumMatches { get; }
     public bool IncludePrerelease { get; }
-    public SourceSelector? PackageInput { get; }
+    public RowSelectionIntent<string> RowSelection { get; }
+    public SourceSelector PackageInput { get; }
+    public bool RequiresPackageContent =>
+        BoundTerms.Any(term => term.Predicate.RequiresPackageContent);
+    internal bool RequiresSearchMetadata =>
+        BoundTerms.Any(term =>
+            term.Descriptor.Tier == PackageQueryAcquisitionTier.SearchMetadata);
+    public bool RequiresManifest =>
+        BoundTerms.Any(term =>
+            term.Descriptor.Tier is PackageQueryAcquisitionTier.Nuspec
+                or PackageQueryAcquisitionTier.PackageContent);
 
     internal InertString PrefixEvidence { get; }
-    internal ImmutableArray<PackageQueryFacetDefinition> Definitions { get; }
     internal ImmutableArray<BoundPackageQueryTerm> BoundTerms { get; }
+    internal bool HasDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
+                or PackageQueryPredicateKind.Depends);
+    internal bool HasExplicitDependencyTarget =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
+    internal bool HasDependencyTerms =>
+        HasDependencyPredicate || HasExplicitDependencyTarget;
 }
 
 /// <summary>Whether evidence describes the query input or an inspected package.</summary>
@@ -227,15 +245,15 @@ public sealed record PackageQueryEvidence(
     public string Value => Text.ToString();
 }
 
-/// <summary>One package that satisfied every selected package-query facet.</summary>
+/// <summary>One package that satisfied every selected package-query term.</summary>
 public sealed record PackageQueryMatch(
     PackageQueryPackage Package,
-    PackageQueryFacetTier Tier,
+    PackageQueryAcquisitionTier Tier,
     ImmutableArray<PackageQueryEvidence> Evidence)
 {
     public PackageQueryMatch(
         PackageProfileMatch Package,
-        PackageQueryFacetTier Tier,
+        PackageQueryAcquisitionTier Tier,
         ImmutableArray<PackageQueryEvidence> Evidence)
         : this(new PackageQueryPackage(Package), Tier, Evidence)
     {
@@ -295,7 +313,10 @@ public sealed record PackageQuerySummary(
 public sealed record PackageQueryDocument(
     ImmutableArray<PackageQueryMatch> Results,
     ImmutableArray<PackageQueryFailure> Failures,
-    PackageQuerySummary Summary);
+    PackageQuerySummary Summary)
+{
+    public bool HasPackages => !Results.IsEmpty;
+}
 
 /// <summary>A bounded checkpoint in package-query work.</summary>
 public sealed record PackageQueryProgress(
@@ -358,202 +379,267 @@ public interface IPackageQueryContentProvider
         CancellationToken cancellationToken);
 }
 
-internal sealed record PackageQueryFacetDefinition(
-    PackageQueryFacetDescriptor Descriptor,
-    Func<PackageQueryPackage, bool> MatchesManifest,
-    Func<PackageQueryPackage, PackageContentFacts?, PackageQueryFacetEvidence> Evidence,
-    Func<PackageContentFacts, bool>? MatchesPackageContent = null);
-
 internal sealed record BoundPackageQueryTerm(
     PackageQueryTermDescriptor Descriptor,
     PortableQueryTerm Term,
-    InertString Value);
+    PackageQueryPredicate Predicate);
 
-internal sealed record PackageQueryFacetEvidence(
+internal sealed record PackageQueryTermEvidence(
     InertString Text,
     PackageQueryEvidenceSummary? Summary = null);
+
+internal sealed record PackageQueryDependencySelection(
+    PackageQueryDependencyTarget Target,
+    ImmutableArray<DeclaredPackageDependencyGroup> Groups,
+    PackageDependencyGroupSelectionStatus? SelectionStatus,
+    DeclaredPackageDependencyGroup? SelectedGroup);
+
+internal sealed record PackageQueryDependencyMatch(
+    DeclaredPackageDependencyGroup Group,
+    DeclaredPackageDependency Dependency);
 
 internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion);
 
 /// <summary>
-/// Plans and executes product-owned manifest and package-content facets over a
+/// Plans and executes product-owned manifest and package-content terms over a
 /// bounded package profile without loading inspected assemblies.
 /// </summary>
 public static partial class PackageQuery
 {
+    private const int RequiredPortableTermCount = 2;
+
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
+    public const int MaximumCandidates = 1_000;
     public const int MaximumPackageContentCandidates = 20;
-    public const int MaximumFacetIdLength = 100;
-    public const int MaximumTerms = 24;
+    public const int MaximumInspectionTerms =
+        PortableQueryPayloadCodec.MaxTerms - RequiredPortableTermCount;
     public const int MaximumToolSettingsBytes = 64 * 1024;
     public const int MaximumEvidencePreviewItems = 3;
     public const int MaximumEvidencePreviewCharacters = 160;
 
     public const string PrefixEvidenceId = "package.query.scope.prefix";
     public const string ExactPackageEvidenceId = "package.query.scope.exact-package";
-    public const string VerifiedFacetId = "package.query.source-verified";
-    public const string ToolFacetId = "package.query.dotnet-tool";
-    public const string ToolV1FacetId = "package.query.dotnet-tool-v1";
-    public const string ToolV2FacetId = "package.query.dotnet-tool-v2";
-    public const string HasDependenciesFacetId = "package.query.has-dependencies";
-    public const string NoDependenciesFacetId = "package.query.no-dependencies";
-    public const string MillionDownloadsFacetId = "package.query.downloads-1m";
-    public const string EmbeddedReadmeFacetId = "package.query.embedded-readme";
-    public const string EmbeddedSkillFacetId = "package.query.embedded-skill";
-    public const string DependencySelectionGroupId = "package.query.dependencies";
-    public const string ToolSelectionGroupId = "package.query.dotnet-tool-format";
-    public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
+    public const string PackageTermKey = "package";
+    public const string PrefixTermKey = "prefix";
+    public const string PrereleaseTermKey = "prerelease";
+    public const string DependenciesTermKey = "dependencies";
+    public const string DependencyTargetTermKey = "dependency-target";
+    public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
+    public const string DownloadsTermKey = "downloads";
+    public const string ReadmeTermKey = "readme";
+    public const string ToolTermKey = "tool";
+    public const string ToolFormatTermKey = "tool-format";
+    public const string SkillTermKey = "skill";
+    public const string ToolReplacementGroupId =
+        "package.query.replacement.dotnet-tool";
+    public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
 
-    static readonly ImmutableArray<PackageQueryFacetDefinition> Definitions =
-    [
-        new(
-            new PackageQueryFacetDescriptor(
-                VerifiedFacetId,
-                "source verified",
-                "The package source reports a verified package identity.",
-                100,
-                PackageQueryFacetTier.Nuspec),
-            static match => match.Verified == true,
-            static (_, _) => Describe(
-                "The package source reports this package as verified.")),
-        new(
-            new PackageQueryFacetDescriptor(
-                ToolFacetId,
-                ".NET Tool",
-                "Downloads the package and inspects its .NET tool CLI format.",
-                200,
-                PackageQueryFacetTier.PackageContent,
-                ToolSelectionGroupId,
-                ToolDisplayGroupId,
-                ".NET tool format"),
-            static match => match.RequiredManifest.IsToolPackage,
-            static (_, content) => DescribeToolFormat(
-                (content
-                    ?? throw new InvalidOperationException(
-                        ".NET tool evidence requires package-content facts."))
-                    .ToolSettingsVersion),
-            static _ => true),
-        new(
-            new PackageQueryFacetDescriptor(
-                ToolV1FacetId,
-                "v1",
-                "Downloads the package and matches the portable .NET tool format.",
-                210,
-                PackageQueryFacetTier.PackageContent,
-                ToolSelectionGroupId,
-                ToolDisplayGroupId,
-                ".NET tool format")
-            {
-                CombinesWithinSelectionGroup = true,
-            },
-            static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => DescribeToolFormat("1"),
-            static content => content.ToolSettingsVersion == "1"),
-        new(
-            new PackageQueryFacetDescriptor(
-                ToolV2FacetId,
-                "v2",
-                "Downloads the package and matches the RID-specific .NET tool format.",
-                220,
-                PackageQueryFacetTier.PackageContent,
-                ToolSelectionGroupId,
-                ToolDisplayGroupId,
-                ".NET tool format")
-            {
-                CombinesWithinSelectionGroup = true,
-            },
-            static match => match.RequiredManifest.IsToolPackage,
-            static (_, _) => DescribeToolFormat("2"),
-            static content => content.ToolSettingsVersion == "2"),
-        new(
-            new PackageQueryFacetDescriptor(
-                HasDependenciesFacetId,
-                "has dependencies",
-                "The package manifest declares at least one dependency.",
-                300,
-                PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId),
-            static match => HasDependencies(match),
-            static (match, _) => DescribeDependencies(match)),
-        new(
-            new PackageQueryFacetDescriptor(
-                NoDependenciesFacetId,
-                "no dependencies",
-                "The package manifest declares no dependencies.",
-                400,
-                PackageQueryFacetTier.Nuspec,
-                DependencySelectionGroupId),
-            static match => !HasDependencies(match),
-            static (match, _) => DescribeDependencies(match)),
-        new(
-            new PackageQueryFacetDescriptor(
-                MillionDownloadsFacetId,
-                "1M+ downloads",
-                "The package source reports at least one million total downloads.",
-                500,
-                PackageQueryFacetTier.Nuspec),
-            static match => match.TotalDownloads >= 1_000_000,
-            static (match, _) => Describe(
-                $"The package source reports {match.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads.")),
-        new(
-            new PackageQueryFacetDescriptor(
-                EmbeddedReadmeFacetId,
-                "embedded README",
-                "The package manifest declares an embedded README file.",
-                600,
-                PackageQueryFacetTier.Nuspec),
-            static match => !string.IsNullOrWhiteSpace(
-                match.RequiredManifest.ReadmeFile),
-            static (_, _) => Describe(
-                "The package manifest declares an embedded README file.")),
-        new(
-            new PackageQueryFacetDescriptor(
-                EmbeddedSkillFacetId,
-                "embedded SKILL.md",
-                "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
-                700,
-                PackageQueryFacetTier.PackageContent),
-            static _ => true,
-            static (_, content) => DescribeItems(
-                content?.SkillDocuments
-                    ?? throw new InvalidOperationException(
-                        "Skill-document evidence requires its package-content inventory."),
-                "skill document",
-                "skill documents"),
-            static content => content.SkillDocuments is { Count: > 0 }),
-    ];
+    private static readonly ImmutableArray<string> EqualityOperator =
+        [PortableQueryModel.TextOf(PortableQueryOperator.Equal)];
 
-    static readonly IReadOnlyDictionary<string, PackageQueryFacetDefinition>
-        DefinitionsById = Definitions.ToDictionary(
-            definition => definition.Descriptor.Id,
-            StringComparer.Ordinal);
-
-    /// <summary>
-    /// The complete ordered facet vocabulary. The literal ID set is gated by
-    /// <c>FacetDescriptors_HaveStableOrderedIds</c>.
-    /// </summary>
-    public static ImmutableArray<PackageQueryFacetDescriptor> Facets { get; } =
-        [.. Definitions.Select(definition => definition.Descriptor)];
-
-    /// <summary>
-    /// The ordered parameterized term vocabulary. Browser adoption is staged
-    /// separately from the first CLI consumer.
-    /// </summary>
+    /// <summary>The complete ordered Package Query vocabulary.</summary>
     public static ImmutableArray<PackageQueryTermDescriptor> Terms { get; } =
     [
         new(
+            PackageTermKey,
+            "exact package",
+            "Selects one exact package ID.",
+            10,
+            PackageQueryAcquisitionTier.SearchMetadata,
+            EqualityOperator,
+            "NuGet package ID",
+            "Newtonsoft.Json",
+            PackageQueryTermRole.Population,
+            PackageQueryTermControlKind.Input)
+        {
+            SelectionGroupId = PackageQueryVocabulary.PopulationFamily,
+        },
+        new(
+            PrefixTermKey,
+            "package prefix",
+            "Selects package IDs beginning with one literal prefix.",
+            20,
+            PackageQueryAcquisitionTier.SearchMetadata,
+            EqualityOperator,
+            "NuGet package ID prefix",
+            "Microsoft.Extensions.",
+            PackageQueryTermRole.Population,
+            PackageQueryTermControlKind.Input)
+        {
+            SelectionGroupId = PackageQueryVocabulary.PopulationFamily,
+        },
+        new(
+            PrereleaseTermKey,
+            "package versions",
+            "Selects stable versions or includes prerelease versions.",
+            30,
+            PackageQueryAcquisitionTier.SearchMetadata,
+            EqualityOperator,
+            "closed value",
+            "include",
+            PackageQueryTermRole.Population,
+            PackageQueryTermControlKind.Choice)
+        {
+            SelectionGroupId = PackageQueryVocabulary.PrereleaseFamily,
+            Options =
+            [
+                new("stable", "Stable", "Select stable package versions."),
+                new(
+                    "include",
+                    "Include prerelease",
+                    "Include prerelease package versions."),
+            ],
+        },
+        new(
+            DependenciesTermKey,
+            "dependencies",
+            "Matches packages with no dependencies in the selected dependency scope.",
+            100,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "closed value",
+            "none",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Toggle)
+        {
+            Options =
+            [
+                new(
+                    "none",
+                    "no dependencies",
+                    "The selected dependency scope declares no dependencies."),
+            ],
+        },
+        new(
+            DependencyTargetTermKey,
+            "dependency target",
+            "Scopes dependency terms to all manifest groups or one TFM-selected group.",
+            150,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "all or NuGet target framework",
+            "net8.0",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input)
+        {
+            SelectionGroupId =
+                PackageQueryVocabulary.DependencyTargetFamily,
+        },
+        new(
             DependsTermKey,
             "depends on package",
-            "Matches a direct dependency declared in any package manifest group.",
-            350,
-            PackageQueryFacetTier.Nuspec,
-            [PortableQueryModel.TextOf(PortableQueryOperator.Equal)],
+            "Matches a direct dependency in the selected dependency scope.",
+            200,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
             "NuGet package ID",
-            "Microsoft.Extensions.DependencyInjection"),
+            "Microsoft.Extensions.DependencyInjection",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input),
+        new(
+            DownloadsTermKey,
+            "downloads",
+            "Matches a closed lifetime-download threshold reported by the package source.",
+            300,
+            PackageQueryAcquisitionTier.SearchMetadata,
+            EqualityOperator,
+            "closed value",
+            "100k",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Choice)
+        {
+            SelectionGroupId = PackageQueryVocabulary.DownloadsFamily,
+            Options =
+            [
+                new("10k", "10k+ downloads", "At least ten thousand downloads."),
+                new("100k", "100k+ downloads", "At least one hundred thousand downloads."),
+                new("1m", "1M+ downloads", "At least one million downloads."),
+            ],
+        },
+        new(
+            ReadmeTermKey,
+            "embedded README",
+            "Matches a package manifest that declares an embedded README.",
+            400,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "boolean",
+            "true",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Toggle)
+        {
+            Options =
+            [
+                new("true", "embedded README", "The manifest declares an embedded README."),
+            ],
+        },
+        new(
+            ToolTermKey,
+            ".NET Tool",
+            "Matches the .NET tool package type from the package manifest.",
+            500,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "boolean",
+            "true",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Toggle)
+        {
+            Options =
+            [
+                new("true", ".NET Tool", "The manifest declares a .NET tool package type."),
+            ],
+            ReplacementGroupId = ToolReplacementGroupId,
+            DisplayGroupId = ToolDisplayGroupId,
+            DisplayGroupLabel = ".NET tool",
+        },
+        new(
+            ToolFormatTermKey,
+            ".NET tool format",
+            "Downloads the package and matches its .NET tool CLI format.",
+            510,
+            PackageQueryAcquisitionTier.PackageContent,
+            EqualityOperator,
+            "closed value",
+            "v2",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Choice)
+        {
+            Options =
+            [
+                new("v1", "v1", "Portable .NET tool format."),
+                new("v2", "v2", "RID-specific .NET tool format."),
+            ],
+            SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
+            CombinesWithinSelectionGroup = true,
+            ReplacementGroupId = ToolReplacementGroupId,
+            DisplayGroupId = ToolDisplayGroupId,
+            DisplayGroupLabel = ".NET tool",
+        },
+        new(
+            SkillTermKey,
+            "embedded SKILL.md",
+            "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
+            600,
+            PackageQueryAcquisitionTier.PackageContent,
+            EqualityOperator,
+            "boolean",
+            "true",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Toggle)
+        {
+            Options =
+            [
+                new(
+                    "true",
+                    "embedded SKILL.md",
+                    "The package contains a skill document."),
+            ],
+        },
     ];
 
     static readonly IReadOnlyDictionary<string, PackageQueryTermDescriptor>
@@ -561,215 +647,256 @@ public static partial class PackageQuery
             descriptor => descriptor.Key,
             StringComparer.Ordinal);
 
-    /// <summary>
-    /// Validates and lowers a request without throwing for user-controlled
-    /// prefix, bound, or facet values.
-    /// </summary>
+    private static readonly PackageQueryVocabulary Vocabulary = new(
+    [
+        Key(PackageTermKey, BindPackage),
+        Key(PrefixTermKey, BindPrefix),
+        Key(PrereleaseTermKey, BindPrerelease),
+        Key(DependenciesTermKey, BindDependencies),
+        Key(DependencyTargetTermKey, BindDependencyTarget),
+        Key(DependsTermKey, BindDepends),
+        Key(DownloadsTermKey, BindDownloads),
+        Key(ReadmeTermKey, static (op, value) =>
+            BindBoolean(op, value, PackageQueryPredicateKind.Readme)),
+        Key(ToolTermKey, static (op, value) =>
+            BindBoolean(op, value, PackageQueryPredicateKind.Tool)),
+        Key(ToolFormatTermKey, BindToolFormat),
+        Key(SkillTermKey, static (op, value) =>
+            BindBoolean(op, value, PackageQueryPredicateKind.Skill)),
+    ]);
+
+    public static string VocabularyIdentity => Vocabulary.Identity;
+
+    internal static PackageQueryTermDescriptor Descriptor(string key) =>
+        TermsByKey[key];
+
+    /// <summary>Resolves one complete Portable Query intent.</summary>
+    public static PackageQueryPlanResult ResolveIntent(
+        PortableQueryIntent intent,
+        CancellationToken cancellationToken = default)
+    {
+        if (intent.Terms.Count > PortableQueryPayloadCodec.MaxTerms)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason.TooManyTerms,
+                value: intent.Terms.Count);
+        }
+
+        PortableQueryResolution<PackageQueryPlan> resolution =
+            PortableQueryResolver.Resolve(
+                Vocabulary.Identity,
+                Vocabulary,
+                intent,
+                cancellationToken);
+        if (!resolution.IsResolved)
+            return Rejected(resolution.Failure);
+
+        PackageQueryPlan plan = resolution.Plan;
+        return plan.HasExplicitDependencyTarget
+            && !plan.HasDependencyPredicate
+                ? Rejected(
+                    PackageQueryRequestFailureReason
+                        .DependencyTargetRequiresDependencyPredicate,
+                    [DependencyTargetTermKey])
+                : new PackageQueryPlanResult.Accepted(plan);
+    }
+
     public static PackageQueryPlanResult Plan(PackageQueryRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-
-        string prefix = request.Prefix.EndsWith('*')
-            ? request.Prefix[..^1]
-            : request.Prefix;
-        string prefixEvidence =
-            $"Package ID matches prefix \"{prefix}\".";
-        if (prefix.Contains('*')
-            || !PackageProfileQuery.IsValidPrefix(prefix)
-            || !InertString.IsPermitted(TextPolicy.Prose, prefix)
-            || !InertString.IsPermitted(TextPolicy.Prose, prefixEvidence))
-        {
-            return Rejected(PackageQueryRequestFailureReason.InvalidPrefix);
-        }
-
-        if (request.MaximumCandidates
-            is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.InvalidCandidateLimit,
-                value: request.MaximumCandidates);
-        }
-
-        return PlanCore(
-            Evidence(prefix),
-            Evidence(prefixEvidence),
-            request.FacetIds,
-            terms: null,
+        return PlanInput(
+            request.Input,
+            request.Terms,
             request.MaximumCandidates,
             request.MaximumMatches,
-            request.IncludePrerelease);
+            request.IncludePrerelease,
+            request.RowSelection);
     }
 
-    static PackageQueryPlanResult PlanCore(
-        InertString prefix,
-        InertString scopeEvidence,
-        IReadOnlyCollection<string>? facetIds,
-        IReadOnlyCollection<PortableQueryTerm>? terms,
-        int maximumCandidates,
-        int? maximumMatches,
-        bool includePrerelease,
-        SourceSelector? packageInput = null)
+    private static PackageQueryKeyDeclaration Key(
+        string key,
+        Func<PortableQueryOperator, string,
+            PortableQueryBinding<PackageQueryPredicate>> bind) =>
+        new(Descriptor(key), bind);
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindPackage(
+        PortableQueryOperator @operator,
+        string value) =>
+        @operator == PortableQueryOperator.Equal
+        && DotnetInspector.Packages.PackageExtractor.IsValidPackageId(value)
+        && InertString.IsPermitted(TextPolicy.Field, value)
+            ? Bound(
+                PackageQueryPredicateKind.Package,
+                value,
+                Normalize(value))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindPrefix(
+        PortableQueryOperator @operator,
+        string value) =>
+        @operator == PortableQueryOperator.Equal
+        && !value.Contains('*')
+        && PackageProfileQuery.IsValidPrefix(value)
+        && InertString.IsPermitted(TextPolicy.Field, value)
+            ? Bound(
+                PackageQueryPredicateKind.Prefix,
+                value,
+                Normalize(value))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindPrerelease(
+        PortableQueryOperator @operator,
+        string value)
     {
-        if (maximumMatches is int matchLimit
-            && matchLimit is <= 0 or > PackageProfileQuery.MaximumPackageLimit)
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        return value.ToLowerInvariant() switch
         {
-            return Rejected(
-                PackageQueryRequestFailureReason.InvalidMatchLimit,
-                value: matchLimit);
-        }
-
-        IReadOnlyCollection<string> requested =
-            facetIds ?? [];
-        if (requested.Count > Definitions.Length)
-        {
-            return Rejected(PackageQueryRequestFailureReason.TooManyFacets);
-        }
-
-        if (requested.Any(id =>
-            string.IsNullOrWhiteSpace(id)
-            || id.Length > MaximumFacetIdLength
-            || !InertString.IsPermitted(TextPolicy.Field, id)))
-        {
-            return Rejected(PackageQueryRequestFailureReason.InvalidFacetId);
-        }
-
-        ImmutableArray<string> requestedIds = [.. requested];
-        var selectedIds = requestedIds.ToHashSet(StringComparer.Ordinal);
-        if (selectedIds.Any(id => !DefinitionsById.ContainsKey(id)))
-        {
-            return Rejected(PackageQueryRequestFailureReason.UnknownFacet);
-        }
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        string[] duplicates =
-        [
-            .. requestedIds
-                .Where(id => !seen.Add(id))
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal),
-        ];
-        if (duplicates.Length > 0)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.DuplicateFacet,
-                duplicates);
-        }
-
-        ImmutableArray<PackageQueryFacetDefinition> selected =
-        [
-            .. Definitions.Where(definition =>
-                selectedIds.Contains(definition.Descriptor.Id)),
-        ];
-        IGrouping<string, PackageQueryFacetDefinition>? incompatible =
-            selected
-                .Where(definition =>
-                    definition.Descriptor.SelectionGroupId is not null)
-                .GroupBy(definition =>
-                    definition.Descriptor.SelectionGroupId!,
-                    StringComparer.Ordinal)
-                .FirstOrDefault(group =>
-                    group.Skip(1).Any()
-                    && group.Any(definition =>
-                        !definition.Descriptor
-                            .CombinesWithinSelectionGroup));
-        if (incompatible is not null)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.IncompatibleFacets,
-                incompatible.Select(definition =>
-                    definition.Descriptor.Id));
-        }
-        if (maximumCandidates > MaximumPackageContentCandidates
-            && selected.Any(definition =>
-                definition.Descriptor.Tier
-                    == PackageQueryFacetTier.PackageContent))
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason
-                    .PackageContentCandidateLimitExceeded,
-                value: maximumCandidates);
-        }
-
-        IReadOnlyCollection<PortableQueryTerm> requestedTerms = terms ?? [];
-        ImmutableArray<PortableQueryTerm> distinctTerms =
-        [
-            .. requestedTerms
-                .Distinct()
-                .OrderBy(term => term.Key, PortableQueryModel.ScalarOrder)
-                .ThenBy(
-                    term => PortableQueryModel.TextOf(term.Operator),
-                    PortableQueryModel.ScalarOrder)
-                .ThenBy(term => term.Value, PortableQueryModel.ScalarOrder),
-        ];
-        if (distinctTerms.Length > MaximumTerms)
-        {
-            return Rejected(PackageQueryRequestFailureReason.TooManyTerms);
-        }
-        if (distinctTerms.Any(term =>
-            string.IsNullOrWhiteSpace(term.Key)
-            || term.Key.Length > MaximumFacetIdLength
-            || !InertString.IsPermitted(TextPolicy.Field, term.Key)))
-        {
-            return Rejected(PackageQueryRequestFailureReason.InvalidTermKey);
-        }
-        if (distinctTerms.Any(term => !TermsByKey.ContainsKey(term.Key)))
-        {
-            return Rejected(PackageQueryRequestFailureReason.UnknownTerm);
-        }
-        if (distinctTerms.Any(term =>
-            !TermsByKey[term.Key].Operators.Contains(
-                PortableQueryModel.TextOf(term.Operator),
-                StringComparer.Ordinal)))
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.TermOperatorNotAdmitted);
-        }
-        if (distinctTerms.Any(term =>
-            string.IsNullOrWhiteSpace(term.Value)
-            || !InertString.IsPermitted(TextPolicy.Field, term.Value)
-            || term.Key == DependsTermKey
-                && !DotnetInspector.Packages.PackageExtractor
-                    .IsValidPackageId(term.Value)))
-        {
-            return Rejected(PackageQueryRequestFailureReason.InvalidTermValue);
-        }
-
-        string[] duplicateTermKeys =
-        [
-            .. distinctTerms
-                .Where(term => term.Key == DependsTermKey)
-                .GroupBy(term => term.Value, StringComparer.OrdinalIgnoreCase)
-                .Where(group => group.Skip(1).Any())
-                .Select(_ => DependsTermKey)
-                .Distinct(StringComparer.Ordinal),
-        ];
-        if (duplicateTermKeys.Length > 0)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.DuplicateTerm,
-                termKeys: duplicateTermKeys);
-        }
-
-        ImmutableArray<BoundPackageQueryTerm> boundTerms =
-        [
-            .. distinctTerms.Select(term =>
-                new BoundPackageQueryTerm(
-                    TermsByKey[term.Key],
-                    term,
-                    new InertString(TextPolicy.Field, term.Value))),
-        ];
-
-        return new PackageQueryPlanResult.Accepted(
-            new PackageQueryPlan(
-                prefix,
-                scopeEvidence,
-                selected,
-                boundTerms,
-                maximumCandidates,
-                maximumMatches,
-                includePrerelease,
-                packageInput));
+            "stable" => PortableQueryBinding<PackageQueryPredicate>.Bound(
+                "prerelease:stable",
+                new(PackageQueryPredicateKind.Prerelease, Flag: false)),
+            "include" => PortableQueryBinding<PackageQueryPredicate>.Bound(
+                "prerelease:include",
+                new(PackageQueryPredicateKind.Prerelease, Flag: true)),
+            _ => PortableQueryBinding<PackageQueryPredicate>.Rejected,
+        };
     }
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindDependencies(
+        PortableQueryOperator @operator,
+        string value) =>
+        @operator == PortableQueryOperator.Equal
+        && value.Equals("none", StringComparison.OrdinalIgnoreCase)
+            ? PortableQueryBinding<PackageQueryPredicate>.Bound(
+                "dependencies:none",
+                new(PackageQueryPredicateKind.NoDependencies))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindDepends(
+        PortableQueryOperator @operator,
+        string value) =>
+        @operator == PortableQueryOperator.Equal
+        && DotnetInspector.Packages.PackageExtractor.IsValidPackageId(value)
+        && InertString.IsPermitted(TextPolicy.Field, value)
+            ? Bound(
+                PackageQueryPredicateKind.Depends,
+                value,
+                Normalize(value))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate>
+        BindDependencyTarget(
+            PortableQueryOperator @operator,
+            string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        if (value.Equals(
+                DependencyTargetAllValue,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Bound(
+                PackageQueryPredicateKind.DependencyTarget,
+                DependencyTargetAllValue,
+                DependencyTargetAllValue);
+        }
+
+        if (value.Equals("any", StringComparison.OrdinalIgnoreCase))
+        {
+            return Bound(
+                PackageQueryPredicateKind.DependencyTarget,
+                "any",
+                "any");
+        }
+
+        return NuGetTargetFrameworkIdentity.TryNormalize(
+            value,
+            out string canonical)
+                ? Bound(
+                    PackageQueryPredicateKind.DependencyTarget,
+                    canonical,
+                    canonical)
+                : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+    }
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindDownloads(
+        PortableQueryOperator @operator,
+        string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        long threshold = value.ToLowerInvariant() switch
+        {
+            "10k" => 10_000,
+            "100k" => 100_000,
+            "1m" => 1_000_000,
+            _ => 0,
+        };
+        return threshold == 0
+            ? PortableQueryBinding<PackageQueryPredicate>.Rejected
+            : PortableQueryBinding<PackageQueryPredicate>.Bound(
+                $"downloads:{threshold.ToString(CultureInfo.InvariantCulture)}",
+                new(PackageQueryPredicateKind.Downloads, Number: threshold));
+    }
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindBoolean(
+        PortableQueryOperator @operator,
+        string value,
+        PackageQueryPredicateKind kind) =>
+        @operator == PortableQueryOperator.Equal
+        && value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            ? PortableQueryBinding<PackageQueryPredicate>.Bound(
+                $"{Terms.Single(term => term.Key == KeyOf(kind)).Key}:true",
+                new(kind, Flag: true))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate> BindToolFormat(
+        PortableQueryOperator @operator,
+        string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        return value.ToLowerInvariant() switch
+        {
+            "v1" => PortableQueryBinding<PackageQueryPredicate>.Bound(
+                $"{ToolFormatTermKey}:v1",
+                new(PackageQueryPredicateKind.ToolFormat, "1")),
+            "v2" => PortableQueryBinding<PackageQueryPredicate>.Bound(
+                $"{ToolFormatTermKey}:v2",
+                new(PackageQueryPredicateKind.ToolFormat, "2")),
+            _ => PortableQueryBinding<PackageQueryPredicate>.Rejected,
+        };
+    }
+
+    private static PortableQueryBinding<PackageQueryPredicate> Bound(
+        PackageQueryPredicateKind kind,
+        string value,
+        string identity) =>
+        PortableQueryBinding<PackageQueryPredicate>.Bound(
+            $"{KeyOf(kind)}:{identity}",
+            new(kind, value));
+
+    private static string KeyOf(PackageQueryPredicateKind kind) =>
+        kind switch
+        {
+            PackageQueryPredicateKind.Package => PackageTermKey,
+            PackageQueryPredicateKind.Prefix => PrefixTermKey,
+            PackageQueryPredicateKind.Prerelease => PrereleaseTermKey,
+            PackageQueryPredicateKind.NoDependencies => DependenciesTermKey,
+            PackageQueryPredicateKind.DependencyTarget =>
+                DependencyTargetTermKey,
+            PackageQueryPredicateKind.Depends => DependsTermKey,
+            PackageQueryPredicateKind.Downloads => DownloadsTermKey,
+            PackageQueryPredicateKind.Readme => ReadmeTermKey,
+            PackageQueryPredicateKind.Tool => ToolTermKey,
+            PackageQueryPredicateKind.ToolFormat => ToolFormatTermKey,
+            PackageQueryPredicateKind.Skill => SkillTermKey,
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query predicate kind."),
+        };
+
+    private static string Normalize(string value) =>
+        value.ToUpperInvariant();
 
     internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
@@ -837,13 +964,12 @@ public static partial class PackageQuery
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plan);
-        bool requiresPackageContent = plan.Definitions.Any(definition =>
-            definition.Descriptor.Tier
-                == PackageQueryFacetTier.PackageContent);
+        bool requiresPackageContent = plan.BoundTerms.Any(term =>
+            term.Predicate.RequiresPackageContent);
         if (requiresPackageContent && contentProvider is null)
         {
             throw new InvalidOperationException(
-                "Package-content facets require an explicit package-content provider.");
+                "Package-content terms require an explicit package-content provider.");
         }
 
         int candidates = 0;
@@ -946,7 +1072,7 @@ public static partial class PackageQuery
                         {
                             facts = await ReadPackageContentFactsAsync(
                                 content,
-                                plan.Definitions,
+                                plan.BoundTerms,
                                 cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex) when (
@@ -999,10 +1125,10 @@ public static partial class PackageQuery
                         new PackageQueryMatch(
                             match.Value,
                             requiresPackageContent
-                                ? PackageQueryFacetTier.PackageContent
+                                ? PackageQueryAcquisitionTier.PackageContent
                                 : match.Value.Manifest is not null
-                                    ? PackageQueryFacetTier.Nuspec
-                                    : PackageQueryFacetTier.SearchMetadata,
+                                    ? PackageQueryAcquisitionTier.Nuspec
+                                    : PackageQueryAcquisitionTier.SearchMetadata,
                             evidence.ToImmutable()));
                     cancellationToken.ThrowIfCancellationRequested();
                     if (plan.MaximumMatches is int maximumMatches
@@ -1070,26 +1196,33 @@ public static partial class PackageQuery
         out ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         evidence = ImmutableArray.CreateBuilder<PackageQueryEvidence>(
-            plan.Definitions.Length + plan.BoundTerms.Length + 1);
+            plan.BoundTerms.Length + 1);
         AddScopeEvidence(plan, evidence);
+        PackageQueryDependencySelection? dependencySelection =
+            plan.HasDependencyTerms
+                ? SelectDependencies(plan, match)
+                : null;
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
-        foreach (PackageQueryFacetDefinition definition in plan.Definitions)
+        foreach (BoundPackageQueryTerm term in plan.BoundTerms)
         {
-            string? groupId = definition.Descriptor.SelectionGroupId;
+            string? groupId = term.Descriptor.SelectionGroupId;
             if (groupId is not null && !handledGroups.Add(groupId))
                 continue;
 
-            PackageQueryFacetDefinition[] alternatives = groupId is null
-                ? [definition]
+            BoundPackageQueryTerm[] alternatives = groupId is null
+                ? [term]
                 :
                 [
-                    .. plan.Definitions.Where(candidate =>
+                    .. plan.BoundTerms.Where(candidate =>
                         candidate.Descriptor.SelectionGroupId == groupId),
                 ];
-            PackageQueryFacetDefinition[] matched =
+            BoundPackageQueryTerm[] matched =
             [
                 .. alternatives.Where(candidate =>
-                    candidate.MatchesManifest(match)),
+                    MatchesManifest(
+                        candidate,
+                        match,
+                        dependencySelection)),
             ];
             if (matched.Length == 0)
             {
@@ -1097,32 +1230,20 @@ public static partial class PackageQuery
                 return false;
             }
 
-            foreach (PackageQueryFacetDefinition candidate in matched)
+            foreach (BoundPackageQueryTerm candidate in matched)
             {
                 if (candidate.Descriptor.Tier
-                    != PackageQueryFacetTier.Nuspec)
+                    == PackageQueryAcquisitionTier.PackageContent)
                 {
                     continue;
                 }
-                AddFacetEvidence(candidate, match, null, evidence);
+                AddTermEvidence(
+                    candidate,
+                    match,
+                    content: null,
+                    dependencySelection,
+                    evidence);
             }
-        }
-
-        foreach (BoundPackageQueryTerm term in plan.BoundTerms)
-        {
-            if (!TryMatchTerm(term, match, out PackageQueryFacetEvidence termEvidence))
-            {
-                evidence.Clear();
-                return false;
-            }
-
-            evidence.Add(new PackageQueryEvidence(
-                term.Descriptor.Key,
-                termEvidence.Text)
-            {
-                Summary = termEvidence.Summary,
-                Term = term.Term,
-            });
         }
 
         return true;
@@ -1135,41 +1256,45 @@ public static partial class PackageQuery
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         var handledGroups = new HashSet<string>(StringComparer.Ordinal);
-        foreach (PackageQueryFacetDefinition definition in plan.Definitions)
+        foreach (BoundPackageQueryTerm term in plan.BoundTerms)
         {
-            if (definition.Descriptor.Tier
-                    != PackageQueryFacetTier.PackageContent)
+            if (term.Descriptor.Tier
+                    != PackageQueryAcquisitionTier.PackageContent)
             {
                 continue;
             }
 
-            string? groupId = definition.Descriptor.SelectionGroupId;
+            string? groupId = term.Descriptor.SelectionGroupId;
             if (groupId is not null && !handledGroups.Add(groupId))
                 continue;
 
-            PackageQueryFacetDefinition[] alternatives = groupId is null
-                ? [definition]
+            BoundPackageQueryTerm[] alternatives = groupId is null
+                ? [term]
                 :
                 [
-                    .. plan.Definitions.Where(candidate =>
+                    .. plan.BoundTerms.Where(candidate =>
                         candidate.Descriptor.Tier
-                            == PackageQueryFacetTier.PackageContent
+                            == PackageQueryAcquisitionTier.PackageContent
                         && candidate.Descriptor.SelectionGroupId == groupId),
                 ];
-            PackageQueryFacetDefinition[] matched =
+            BoundPackageQueryTerm[] matched =
             [
                 .. alternatives.Where(candidate =>
-                    candidate.MatchesPackageContent is not null
-                    && candidate.MatchesPackageContent(content)),
+                    MatchesPackageContent(candidate, content)),
             ];
             if (matched.Length == 0)
             {
                 return false;
             }
 
-            foreach (PackageQueryFacetDefinition candidate in matched)
+            foreach (BoundPackageQueryTerm candidate in matched)
             {
-                AddFacetEvidence(candidate, match, content, evidence);
+                AddTermEvidence(
+                    candidate,
+                    match,
+                    content,
+                    dependencySelection: null,
+                    evidence);
             }
         }
 
@@ -1178,16 +1303,15 @@ public static partial class PackageQuery
 
     static async ValueTask<PackageContentFacts> ReadPackageContentFactsAsync(
         IPackageContent content,
-        ImmutableArray<PackageQueryFacetDefinition> definitions,
+        ImmutableArray<BoundPackageQueryTerm> terms,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         string[] entries = [.. content.EnumerateEntries()];
-        bool needsSkills = definitions.Any(definition =>
-            definition.Descriptor.Id == EmbeddedSkillFacetId);
-        bool needsToolSettings = definitions.Any(definition =>
-            definition.Descriptor.Id
-                is ToolFacetId or ToolV1FacetId or ToolV2FacetId);
+        bool needsSkills = terms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.Skill);
+        bool needsToolSettings = terms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.ToolFormat);
         PackageQueryEvidenceSummary? skills = needsSkills
             ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
             : null;
@@ -1303,57 +1427,196 @@ public static partial class PackageQuery
             failure.Message,
             failure.ManifestFailureReason);
 
-    static bool HasDependencies(PackageQueryPackage match) =>
-        match.RequiredManifest.DependencyGroups.Any(group =>
-            !group.Dependencies.IsEmpty);
-
-    static bool TryMatchTerm(
+    static bool MatchesManifest(
         BoundPackageQueryTerm term,
         PackageQueryPackage match,
-        out PackageQueryFacetEvidence evidence)
+        PackageQueryDependencySelection? dependencySelection) =>
+        term.Predicate.Kind switch
+        {
+            PackageQueryPredicateKind.NoDependencies =>
+                HasNoDependencies(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection.")),
+            PackageQueryPredicateKind.DependencyTarget => true,
+            PackageQueryPredicateKind.Depends =>
+                MatchingDependencies(
+                    term,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
+            PackageQueryPredicateKind.Downloads =>
+                match.TotalDownloads >= term.Predicate.Number,
+            PackageQueryPredicateKind.Readme =>
+                !string.IsNullOrWhiteSpace(
+                    match.RequiredManifest.ReadmeFile),
+            PackageQueryPredicateKind.Tool =>
+                match.RequiredManifest.IsToolPackage,
+            PackageQueryPredicateKind.ToolFormat =>
+                match.RequiredManifest.IsToolPackage,
+            PackageQueryPredicateKind.Skill => true,
+            _ => throw new InvalidOperationException(
+                "A structural Package Query term reached manifest evaluation."),
+        };
+
+    static PackageQueryDependencySelection SelectDependencies(
+        PackageQueryPlan plan,
+        PackageQueryPackage match)
     {
-        if (term.Descriptor.Key != DependsTermKey)
+        PackageManifestFacts manifest = match.RequiredManifest;
+        if (plan.DependencyTarget.Kind
+            == PackageQueryDependencyTargetKind.All)
         {
-            throw new InvalidOperationException(
-                "Unknown bound Package Query term.");
+            return new PackageQueryDependencySelection(
+                plan.DependencyTarget,
+                manifest.DependencyGroups,
+                SelectionStatus: null,
+                SelectedGroup: null);
         }
 
-        DeclaredPackageDependency[] dependencies =
-        [
-            .. match.RequiredManifest.DependencyGroups
-                .SelectMany(group => group.Dependencies)
-                .Where(dependency => string.Equals(
-                    dependency.Id,
-                    term.Value.ToString(),
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        if (dependencies.Length == 0)
-        {
-            evidence = null!;
-            return false;
-        }
-
-        evidence = DescribeItems(
-            SummarizeItems(
-                dependencies.Select(dependency =>
-                    $"{dependency.Id} {dependency.VersionRange}"),
-                StringComparer.Ordinal),
-            "dependency declaration",
-            "dependency declarations");
-        return true;
+        PackageDependencyGroups selection =
+            PackageDependencyGroupsQuery.ProjectDependencyGroups(
+                manifest,
+                plan.DependencyTarget.RequestedTargetFramework,
+                allowCompatibleFallbackForRequestedTfm: true);
+        return new PackageQueryDependencySelection(
+            plan.DependencyTarget,
+            selection.Groups,
+            selection.SelectionStatus,
+            selection.SelectedGroup);
     }
 
-    static PackageQueryFacetEvidence DescribeDependencies(PackageQueryPackage match) =>
+    static bool HasNoDependencies(
+        PackageQueryDependencySelection selection) =>
+        selection.Target.Kind switch
+        {
+            PackageQueryDependencyTargetKind.All =>
+                selection.Groups.All(group =>
+                    group.Dependencies.IsEmpty),
+            PackageQueryDependencyTargetKind.TargetFramework =>
+                selection.SelectionStatus switch
+                {
+                    PackageDependencyGroupSelectionStatus.Selected =>
+                        selection.SelectedGroup!.Dependencies.IsEmpty,
+                    PackageDependencyGroupSelectionStatus.NoDependencyGroups =>
+                        true,
+                    PackageDependencyGroupSelectionStatus
+                        .NoMatchingTargetFramework =>
+                        false,
+                    _ => throw new InvalidOperationException(
+                        "Unknown dependency-group selection status."),
+                },
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query dependency target."),
+        };
+
+    static bool MatchesPackageContent(
+        BoundPackageQueryTerm term,
+        PackageContentFacts content) =>
+        term.Predicate.Kind switch
+        {
+            PackageQueryPredicateKind.ToolFormat =>
+                content.ToolSettingsVersion == term.Predicate.Text,
+            PackageQueryPredicateKind.Skill =>
+                content.SkillDocuments is { Count: > 0 },
+            _ => throw new InvalidOperationException(
+                "A non-content Package Query term reached content evaluation."),
+        };
+
+    static PackageQueryDependencyMatch[] MatchingDependencies(
+        BoundPackageQueryTerm term,
+        PackageQueryDependencySelection selection) =>
+        [
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies
+                    .Where(dependency => string.Equals(
+                        dependency.Id,
+                        term.Predicate.Text,
+                        StringComparison.OrdinalIgnoreCase))
+                    .Select(dependency =>
+                        new PackageQueryDependencyMatch(
+                            group,
+                            dependency))),
+        ];
+
+    static IEnumerable<DeclaredPackageDependencyGroup>
+        SelectedDependencyGroups(
+            PackageQueryDependencySelection selection) =>
+        selection.Target.Kind == PackageQueryDependencyTargetKind.All
+            ? selection.Groups
+            : selection.SelectedGroup is { } selected
+                ? [selected]
+                : [];
+
+    static PackageQueryTermEvidence DescribeDependencies(
+        PackageQueryDependencySelection selection) =>
         DescribeItems(
             SummarizeItems(
-                match.RequiredManifest.DependencyGroups
+                SelectedDependencyGroups(selection)
                     .SelectMany(group => group.Dependencies)
                     .Select(dependency => dependency.Id),
                 StringComparer.OrdinalIgnoreCase),
             "dependency",
             "dependencies");
 
-    static PackageQueryFacetEvidence DescribeToolFormat(
+    static PackageQueryTermEvidence DescribeDependencyTarget(
+        PackageQueryDependencySelection selection)
+    {
+        if (selection.Target.Kind == PackageQueryDependencyTargetKind.All)
+        {
+            return Describe(
+                "Dependency predicates include all package manifest groups.");
+        }
+
+        string requested =
+            selection.Target.RequestedTargetFramework
+            ?? throw new InvalidOperationException(
+                "A target-framework dependency scope requires its requested framework.");
+        InertString requestedText = new(TextPolicy.Field, requested);
+        return selection.SelectionStatus switch
+        {
+            PackageDependencyGroupSelectionStatus.Selected =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} selected manifest group {DependencyGroupText(selection.SelectedGroup!)}.")),
+            PackageDependencyGroupSelectionStatus.NoDependencyGroups =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} found no declared dependency groups.")),
+            PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework =>
+                new PackageQueryTermEvidence(
+                    InertString.Format(
+                        TextPolicy.Prose,
+                        $"Dependency target {requestedText} matched no declared dependency group.")),
+            _ => throw new InvalidOperationException(
+                "Unknown dependency-group selection status."),
+        };
+    }
+
+    static InertString DependencyGroupText(
+        DeclaredPackageDependencyGroup group) =>
+        new(
+            TextPolicy.Field,
+            string.IsNullOrWhiteSpace(group.TargetFramework)
+                ? "any"
+                : group.TargetFramework,
+            MaximumEvidencePreviewCharacters);
+
+    static string DescribeDependencyMatch(
+        PackageQueryDependencyMatch match)
+    {
+        string group = string.IsNullOrWhiteSpace(
+            match.Group.TargetFramework)
+                ? "any"
+                : match.Group.TargetFramework;
+        return $"{group}: {match.Dependency.Id} "
+            + match.Dependency.VersionRange;
+    }
+
+    static PackageQueryTermEvidence DescribeToolFormat(
         string? settingsVersion) =>
         settingsVersion switch
         {
@@ -1379,7 +1642,7 @@ public static partial class PackageQuery
             ]);
     }
 
-    static PackageQueryFacetEvidence DescribeItems(
+    static PackageQueryTermEvidence DescribeItems(
         PackageQueryEvidenceSummary summary,
         string singular,
         string plural)
@@ -1387,7 +1650,7 @@ public static partial class PackageQuery
         string heading = $"{summary.Count.ToString(CultureInfo.InvariantCulture)} "
             + Pluralize(summary.Count, singular, plural);
         if (summary.Preview.IsEmpty)
-            return new PackageQueryFacetEvidence(Evidence(heading + "."), summary);
+            return new PackageQueryTermEvidence(Evidence(heading + "."), summary);
 
         InertString preview = InertString.Join(", ", TextPolicy.Prose, [.. summary.Preview]);
         int remaining = summary.Count - summary.Preview.Length;
@@ -1395,42 +1658,102 @@ public static partial class PackageQuery
             ? InertString.Format(TextPolicy.Prose,
                 $"{heading}: {preview} (+{remaining.ToString(CultureInfo.InvariantCulture)} more).")
             : InertString.Format(TextPolicy.Prose, $"{heading}: {preview}.");
-        return new PackageQueryFacetEvidence(text, summary);
+        return new PackageQueryTermEvidence(text, summary);
     }
 
-    static PackageQueryFacetEvidence Describe(string text) => new(Evidence(text));
+    static PackageQueryTermEvidence Describe(string text) => new(Evidence(text));
 
-    static PackageQueryEvidence CreateFacetEvidence(
-        PackageQueryFacetDefinition definition,
+    static PackageQueryEvidence CreateTermEvidence(
+        BoundPackageQueryTerm term,
         PackageQueryPackage package,
-        PackageContentFacts? content)
+        PackageContentFacts? content,
+        PackageQueryDependencySelection? dependencySelection)
     {
-        PackageQueryFacetEvidence description = definition.Evidence(package, content);
-        return new PackageQueryEvidence(definition.Descriptor.Id, description.Text)
+        PackageQueryTermEvidence description = term.Predicate.Kind switch
         {
+            PackageQueryPredicateKind.NoDependencies =>
+                DescribeDependencies(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency evidence requires one dependency selection.")),
+            PackageQueryPredicateKind.DependencyTarget =>
+                DescribeDependencyTarget(
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency-target evidence requires one dependency selection.")),
+            PackageQueryPredicateKind.Depends =>
+                DescribeItems(
+                    SummarizeItems(
+                        MatchingDependencies(
+                            term,
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))
+                            .Select(DescribeDependencyMatch),
+                        StringComparer.Ordinal),
+                    "dependency declaration",
+                    "dependency declarations"),
+            PackageQueryPredicateKind.Downloads =>
+                Describe(
+                    $"The package source reports {package.TotalDownloads?.ToString("N0", CultureInfo.InvariantCulture)} total downloads."),
+            PackageQueryPredicateKind.Readme =>
+                Describe(
+                    "The package manifest declares an embedded README file."),
+            PackageQueryPredicateKind.Tool =>
+                Describe(
+                    "The package manifest declares the .NET tool package type."),
+            PackageQueryPredicateKind.ToolFormat =>
+                DescribeToolFormat(
+                    content?.ToolSettingsVersion
+                    ?? throw new InvalidOperationException(
+                        ".NET tool format evidence requires package-content facts.")),
+            PackageQueryPredicateKind.Skill =>
+                DescribeItems(
+                    content?.SkillDocuments
+                    ?? throw new InvalidOperationException(
+                        "Skill-document evidence requires package-content facts."),
+                    "skill document",
+                    "skill documents"),
+            _ => throw new InvalidOperationException(
+                "A structural Package Query term reached evidence production."),
+        };
+        return new PackageQueryEvidence(term.Descriptor.Key, description.Text)
+        {
+            Scope = term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependencyTarget
+                && dependencySelection!.Target.Kind
+                    == PackageQueryDependencyTargetKind.All
+                    ? PackageQueryEvidenceScope.Query
+                    : PackageQueryEvidenceScope.Package,
             Summary = description.Summary,
+            Term = term.Term,
         };
     }
 
-    static void AddFacetEvidence(
-        PackageQueryFacetDefinition definition,
+    static void AddTermEvidence(
+        BoundPackageQueryTerm term,
         PackageQueryPackage package,
         PackageContentFacts? content,
+        PackageQueryDependencySelection? dependencySelection,
         ImmutableArray<PackageQueryEvidence>.Builder evidence)
     {
         int insertionIndex = 1;
         while (insertionIndex < evidence.Count
-            && DefinitionsById.TryGetValue(
+            && TermsByKey.TryGetValue(
                 evidence[insertionIndex].Id,
-                out PackageQueryFacetDefinition? existing)
-            && existing.Descriptor.Weight < definition.Descriptor.Weight)
+                out PackageQueryTermDescriptor? existing)
+            && existing.Weight < term.Descriptor.Weight)
         {
             insertionIndex++;
         }
 
         evidence.Insert(
             insertionIndex,
-            CreateFacetEvidence(definition, package, content));
+            CreateTermEvidence(
+                term,
+                package,
+                content,
+                dependencySelection));
     }
 
     static string Pluralize(int count, string singular, string plural) =>
@@ -1485,12 +1808,66 @@ public static partial class PackageQuery
 
     static PackageQueryPlanResult.Rejected Rejected(
         PackageQueryRequestFailureReason reason,
-        IEnumerable<string>? facetIds = null,
         IEnumerable<string>? termKeys = null,
-        int? value = null) =>
+        int? value = null,
+        PortableQueryFailure? portableFailure = null) =>
         new(new PackageQueryRequestFailure(
             reason,
-            facetIds,
             termKeys,
-            value));
+            value,
+            portableFailure));
+
+    static PackageQueryPlanResult.Rejected Rejected(
+        PortableQueryFailure failure)
+    {
+        PackageQueryRequestFailureReason reason = failure.Reason switch
+        {
+            PortableQueryFailureReason.UnknownVocabulary =>
+                PackageQueryRequestFailureReason.UnknownVocabulary,
+            PortableQueryFailureReason.UnknownKey =>
+                PackageQueryRequestFailureReason.UnknownTerm,
+            PortableQueryFailureReason.OperatorNotAdmitted =>
+                PackageQueryRequestFailureReason.TermOperatorNotAdmitted,
+            PortableQueryFailureReason.ValueRejected =>
+                PackageQueryRequestFailureReason.InvalidTermValue,
+            PortableQueryFailureReason.DuplicateAfterBinding =>
+                PackageQueryRequestFailureReason.DuplicateTerm,
+            PortableQueryFailureReason.TermsIncompatible =>
+                PackageQueryRequestFailureReason.IncompatibleTerms,
+            PortableQueryFailureReason.RequiredTermFamilyMissing
+                when failure.Offender == PackageQueryVocabulary.PopulationFamily =>
+                PackageQueryRequestFailureReason.RequiredPopulationMissing,
+            PortableQueryFailureReason.RequiredTermFamilyMissing
+                when failure.Offender == PackageQueryVocabulary.PrereleaseFamily =>
+                PackageQueryRequestFailureReason.RequiredPrereleaseMissing,
+            PortableQueryFailureReason.UnknownDimension =>
+                PackageQueryRequestFailureReason.UnknownBound,
+            PortableQueryFailureReason.MaximumOutsideRange
+                when failure.Offender
+                    == PackageQueryVocabulary.CandidatesDimension =>
+                PackageQueryRequestFailureReason.InvalidCandidateLimit,
+            PortableQueryFailureReason.MaximumOutsideRange
+                when failure.Offender
+                    == PackageQueryVocabulary.MatchesDimension =>
+                PackageQueryRequestFailureReason.InvalidMatchLimit,
+            PortableQueryFailureReason.RequiredDimensionMissing =>
+                PackageQueryRequestFailureReason.RequiredCandidateBoundMissing,
+            PortableQueryFailureReason.StageNotAdmitted =>
+                PackageQueryRequestFailureReason.StageNotAdmitted,
+            PortableQueryFailureReason.UnknownOrderReference
+                or PortableQueryFailureReason.OrderReferenceNotOrderable
+                or PortableQueryFailureReason.OrderNotARanking
+                or PortableQueryFailureReason.RankingMissing =>
+                PackageQueryRequestFailureReason.OrderNotSupported,
+            _ => throw new InvalidOperationException(
+                "Unknown Portable Query resolution failure."),
+        };
+        return Rejected(
+            reason,
+            termKeys: failure.Location.Part == PortableQueryPart.Terms
+                && failure.Offender is not null
+                    ? [failure.Offender]
+                    : null,
+            portableFailure: failure);
+    }
 }

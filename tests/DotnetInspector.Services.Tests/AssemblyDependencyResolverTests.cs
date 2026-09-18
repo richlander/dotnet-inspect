@@ -48,9 +48,13 @@ public partial class AssemblyDependencyResolverTests
 
             var resolver = CreateManifestOnlyResolver(targetPath);
 
+            AssemblyResolutionResult result = resolver.ResolveAll();
             Assert.DoesNotContain(
-                resolver.ResolveAll(),
+                result.Items,
                 dependency => dependency.Path == Path.GetFullPath(outsidePath));
+            Assert.Equal(
+                AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+                Assert.Single(result.Diagnostics).Kind);
         }
         finally
         {
@@ -100,9 +104,13 @@ public partial class AssemblyDependencyResolverTests
 
             var resolver = CreateManifestOnlyResolver(targetPath);
 
+            AssemblyResolutionResult result = resolver.ResolveAll();
             Assert.DoesNotContain(
-                resolver.ResolveAll(),
+                result.Items,
                 dependency => dependency.Path == Path.GetFullPath(outsidePath));
+            Assert.Equal(
+                AssemblyDependencyDiscoveryFailureKind.InvalidDocument,
+                Assert.Single(result.Diagnostics).Kind);
         }
         finally
         {
@@ -455,7 +463,7 @@ public partial class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void Acquire_SnapshotBudgetExhaustionIsTyped()
+    public void Acquire_SnapshotBudgetExhaustionIsAResult()
     {
         string path = typeof(AssemblyDependencyResolverTests)
             .Assembly.Location;
@@ -469,13 +477,12 @@ public partial class AssemblyDependencyResolverTests
             path,
             AssemblyDependencyProvenance.SiblingAssembly);
 
-        var exception = Assert.Throws<
-            AssemblyDependencySnapshotBudgetExceededException>(
-                () => resolver.Acquire(dependency));
-
+        var unavailable = Assert.IsType<
+            AssemblyDependencyAcquisition.Unavailable>(
+                resolver.Acquire(dependency));
         Assert.Equal(
-            new FileInfo(path).Length - 1,
-            exception.MaxSnapshotImageBytes);
+            CandidateOpenFailureKind.ResourceBudget,
+            unavailable.Failure.Kind);
     }
 
     [Fact]

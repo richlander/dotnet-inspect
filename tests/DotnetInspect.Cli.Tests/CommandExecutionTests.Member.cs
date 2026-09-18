@@ -125,7 +125,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -145,7 +145,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -163,7 +163,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Member Index",
-            "-n", "80");
+            "-n", "80", "--lines");
         Assert.Equal(0, index.Exit);
         var stable = index.Output
             .Split('\n')
@@ -178,7 +178,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -194,7 +194,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -237,7 +237,7 @@ public partial class CommandExecutionTests
             "--library", TestAssemblyPath,
             "--all",
             "-S", "Decompiled Source",
-            "-n", "80");
+            "-n", "80", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -930,7 +930,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Methods | section (verbose) |", output);
+        Assert.Contains("| Methods | section |", output);
     }
 
     [Fact]
@@ -952,6 +952,341 @@ public partial class CommandExecutionTests
         int firstSectionIndex = rows.FindIndex(
             row => row.Kind.StartsWith("section", StringComparison.Ordinal));
         Assert.True(lastCategoryIndex >= 0 && firstSectionIndex > lastCategoryIndex);
+    }
+
+    [Fact]
+    public async Task Member_DiscoveryUsesAuthoredCategoriesWithoutComputedPoles()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith(SectionCategoryNames.Audit, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Calls, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Decompiler, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Member, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Performance, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.Source, output, StringComparison.Ordinal);
+        Assert.Contains(SectionCategoryNames.SourceLink, output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@All", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Default", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("@Hidden", output, StringComparison.Ordinal);
+        string[] rows = output.Split(
+            '\n',
+            StringSplitOptions.TrimEntries
+            | StringSplitOptions.RemoveEmptyEntries);
+        Assert.Contains(
+            rows,
+            row => row.StartsWith(
+                SectionNames.Signature,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            rows,
+            row => row.StartsWith(
+                SectionNames.CallGraph,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            rows,
+            row => row.StartsWith(
+                SectionNames.PerformanceTriage,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            rows,
+            row => row.StartsWith(
+                SectionNames.SourceDiff,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Member_CommandCatalogCategory_CombinesApplicableRoutes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "-D",
+            SectionCategoryNames.Calls,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        foreach (string section in new[]
+                 {
+                     SectionNames.CalledTypes,
+                     SectionNames.Calls,
+                     SectionNames.Callers,
+                     SectionNames.CallGraph,
+                 })
+        {
+            Assert.Contains(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries),
+                row => row.StartsWith(
+                    section,
+                    StringComparison.Ordinal));
+        }
+    }
+
+    [Theory]
+    [InlineData("@Member", "Methods")]
+    [InlineData("@Calls", "Called Types")]
+    public async Task Member_BroadCategoryDiscovery_UsesBroadRoute(
+        string category,
+        string expectedSection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            category,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(expectedSection, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_OverloadMemberCategoryDiscovery_UsesInventoryRoute()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "Serialize",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            SectionCategoryNames.Member,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(SectionNames.Methods, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "requires exactly one member name",
+            output,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_PerformanceCategory_DoesNotSelectExactOnlySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CostOverlayFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            $"{nameof(CostOverlayFixture.Caller)}:1",
+            "-S",
+            SectionCategoryNames.Performance,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Cost Facts", output);
+        Assert.DoesNotContain("## Implementation Profiles", output);
+        Assert.DoesNotContain("## Clone Candidates", output);
+    }
+
+    [Fact]
+    public async Task Member_BroadGlob_DoesNotSelectExactOnlySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "Clone",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "*",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Methods", output);
+        Assert.DoesNotContain("## Member Index", output);
+        Assert.DoesNotContain("## Signature", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+    }
+
+    [Theory]
+    [InlineData("Clone*", "Clone Candidates")]
+    [InlineData("Implementation*", "Implementation Profiles")]
+    public async Task Member_SingleMatchGlob_DoesNotSelectExactOnlySection(
+        string selector,
+        string exactOnlySection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            $"{selector},{SectionCategoryNames.Member}",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Methods", output);
+        Assert.DoesNotContain($"## {exactOnlySection}", output);
+    }
+
+    [Theory]
+    [InlineData("Member I*", "Member Index")]
+    [InlineData("Clone*", "Clone Candidates")]
+    public async Task Member_ResolvedType_ReappliesExactOnlyPolicy(
+        string selector,
+        string exactOnlySection)
+    {
+        var qualified = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            selector,
+            "--markdown",
+            "--tips",
+            "q");
+        var resolved = await RunAppAsync(
+            "member",
+            "String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            selector,
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(qualified.Exit, resolved.Exit);
+        Assert.Equal(qualified.Output, resolved.Output);
+        Assert.Equal(qualified.Error, resolved.Error);
+        Assert.DoesNotContain($"## {exactOnlySection}", resolved.Output);
+        Assert.DoesNotContain(
+            $"Section '{exactOnlySection}' requires",
+            resolved.Error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_DiscoveryGlob_DoesNotExposeExactOnlySection(
+        bool schema)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.String",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Clone*",
+        };
+        if (schema)
+            args.Add("--schema");
+        args.AddRange(["--table", "--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.NotEqual(0, exit);
+        Assert.DoesNotContain("Rank", output);
+        Assert.Contains("Section 'Clone*' not found", error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_DiscoveryExactName_RetainsExactOnlySection(
+        bool schema)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.String",
+            "Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.CloneCandidates,
+        };
+        if (schema)
+            args.Add("--schema");
+        args.AddRange(["--table", "--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Rank", output);
+    }
+
+    [Theory]
+    [InlineData("@Calls")]
+    [InlineData("@Source")]
+    [InlineData("@Audit")]
+    public async Task Member_OverloadDomainCategory_PreservesInventoryRoute(
+        string category)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded),
+            "-S",
+            category,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            "requires a single selected overload",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("@All")]
+    [InlineData("@Default")]
+    [InlineData("@Hidden")]
+    public async Task Member_ComputedCategoryPolesAreRejected(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Text.Json.JsonSerializer",
+            "Serialize:1",
+            "--platform",
+            "System.Text.Json",
+            "-S",
+            selector,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Select value '{selector}' not found.",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1062,6 +1397,29 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("cannot be combined with --json", error);
+    }
+
+    [Fact]
+    public async Task Member_TabularUnknownFieldDoesNotPublishRowsBeforeFailure()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--fields",
+            "NoSuchField",
+            "--tsv",
+            "--rows",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "No fields matched projection: NoSuchField",
+            error);
     }
 
     [Fact]
@@ -1230,7 +1588,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_DiscoverEffective_ListsEnabledDetailSections()
+    public async Task Member_SelectedOverload_SelectCustomAttributes_RendersCustomAttributes()
+    {
+        var options = new MemberOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
+            OverloadIndex = 1,
+            Select = ["Custom Attributes"]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Custom Attributes", output);
+        Assert.Contains("RequiresUnreferencedCode", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoverEffective_ListsMemberBaseSections()
     {
         var options = new MemberOptions
         {
@@ -1247,15 +1625,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Annotated Source | section |", output);
-        Assert.Contains("| Annotated Source Document | section |", output);
         Assert.Contains("| PDB Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        Assert.Contains("| Calls | section |", output);
-        Assert.Contains("| Callers | section |", output);
-        Assert.Contains("| Unsafe Operations | section |", output);
-        Assert.Contains("| Call Graph | section |", output);
-        Assert.Contains("| Facts | section |", output);
+        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.DoesNotContain("| Annotated Source | section |", output);
+        Assert.DoesNotContain("| Calls | section |", output);
+        Assert.DoesNotContain("| Unsafe Operations | section |", output);
+        Assert.DoesNotContain("| Facts | section |", output);
         Assert.DoesNotContain("IR (Stages)", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
@@ -1523,12 +1899,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CategoryWithCallerScope_AutoSelectsSingleOverload()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallGraphFixture.Inner), "-S", SectionCategoryNames.Member,
+            "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Callers", output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AmbiguousOverloadReportsSelectorHint()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
             nameof(MemberCallsFixture.Overloaded), "-S", "Callers", "--bin", testDirectory, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("section 'Callers' requires a single selected overload", error);
+        Assert.Contains("Overloaded~<digest>", error);
+        Assert.Contains("Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Fact]
+    public async Task Member_CategoryWithCallerScope_AmbiguousOverloadReportsSelectorHint()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallsFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(MemberCallsFixture.Overloaded), "-S", SectionCategoryNames.Member,
+            "--bin", testDirectory, "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -1600,7 +2007,7 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("@all")]
+    [InlineData("@Decompiler")]
     [InlineData("Annotated*")]
     [InlineData("Annotated Source D*")]
     public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
@@ -1830,12 +2237,12 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Facts", output);
         Assert.Contains(
-            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Conditionality | Census Receipt | Instance Key |",
+            "| Member | IL | Cs Line | Anchor | Category | Id | Detail | Evidence Subject | Evidence State | Evidence Locations | Conditionality | Census Receipt | Instance Key |",
             output);
         Assert.Contains("FactsTableFixture::BoxInt", output);
         Assert.Contains("`IL_", output);
         Assert.Matches(
-            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \| Always \| [0-9a-f-]{36} \| 1 \|",
+            @"\| offset \| Allocation \| alloc\.box \| `int; alloc=boxed System\.Int32; path=straight-line; path-confidence=dominates-return; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=once` \|  \|  \|  \| Always \| [0-9a-f-]{36} \| 1 \|",
             output);
     }
 
@@ -1851,16 +2258,19 @@ public partial class CommandExecutionTests
         string row = Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
         string[] columns = row.Split('\t');
-        Assert.Equal(10, columns.Length);
+        Assert.Equal(13, columns.Length);
         Assert.EndsWith("FactsTableFixture::BoxInt", columns[0]);
         Assert.StartsWith("IL_", columns[1]);
         Assert.Equal("offset", columns[3]);
         Assert.Equal("Allocation", columns[4]);
         Assert.Equal("alloc.box", columns[5]);
-        Assert.Equal("Always", columns[7]);
-        Assert.True(Guid.TryParse(columns[8], out Guid receipt));
+        Assert.Equal("", columns[7]);
+        Assert.Equal("", columns[8]);
+        Assert.Equal("", columns[9]);
+        Assert.Equal("Always", columns[10]);
+        Assert.True(Guid.TryParse(columns[11], out Guid receipt));
         Assert.NotEqual(Guid.Empty, receipt);
-        Assert.Equal("1", columns[9]);
+        Assert.Equal("1", columns[12]);
     }
 
     [Fact]
@@ -1951,17 +2361,6 @@ public partial class CommandExecutionTests
                 "MixedChanged",
             ])
             {
-                var (bodylessDiscoverExit, bodylessDiscoverOutput, bodylessDiscoverError) =
-                    await RunAppAsync(
-                        "member", "RuntimeAccessor.Target", "--library", dllPath,
-                        $"{memberName}:1", "-D", "--tips", "q");
-
-                Assert.Equal(0, bodylessDiscoverExit);
-                Assert.Empty(bodylessDiscoverError);
-                Assert.DoesNotContain(
-                    "| Finding Census |",
-                    bodylessDiscoverOutput);
-
                 var (bodylessExit, bodylessOutput, bodylessError) =
                     await RunAppAsync(
                         "member", "RuntimeAccessor.Target", "--library", dllPath,
@@ -1971,15 +2370,6 @@ public partial class CommandExecutionTests
                 Assert.Equal(1, bodylessExit);
                 Assert.Empty(bodylessOutput);
                 Assert.Contains("Finding Census", bodylessError);
-
-                var (bodyDiscoverExit, bodyDiscoverOutput, bodyDiscoverError) =
-                    await RunAppAsync(
-                        "member", "RuntimeAccessor.Target", "--library", dllPath,
-                        $"{memberName}:2", "-D", "--tips", "q");
-
-                Assert.Equal(0, bodyDiscoverExit);
-                Assert.Empty(bodyDiscoverError);
-                Assert.Contains("| Finding Census |", bodyDiscoverOutput);
 
                 var (bodyExit, bodyOutput, bodyError) = await RunAppAsync(
                     "member", "RuntimeAccessor.Target", "--library", dllPath,
@@ -2003,7 +2393,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_FindingCensusDiscovery_UsesResolvedIndexerAccessor()
+    public async Task Member_FindingCensus_UsesResolvedIndexerAccessor()
     {
         var result = await RunAppAsync(
             "member",
@@ -2011,13 +2401,20 @@ public partial class CommandExecutionTests
             "--library",
             FixtureCatalog.CloneSearchMembers.AssemblyPath(),
             "Item:2",
-            "-D",
+            "-S",
+            "Finding Census",
+            "--json",
             "--tips",
             "q");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
-        Assert.Contains("| Finding Census |", result.Output);
+        using JsonDocument envelope = JsonDocument.Parse(result.Output);
+        Assert.NotEqual(
+            Guid.Empty,
+            envelope.RootElement
+                .GetProperty("fact_census_receipt")
+                .GetGuid());
     }
 
     [Theory]
@@ -2065,17 +2462,9 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_ExtensionMethod_FindingCensusDiscoversAndRenders()
+    public async Task Member_ExtensionMethod_FindingCensusRenders()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-D", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Finding Census |", output);
-
-        (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
             "extension:AsMemory:1", "-S", "Finding Census",
             "--json", "--compact", "--tips", "q");
@@ -2156,11 +2545,11 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("--count")]
-    [InlineData("-n", "5")]
+    [InlineData("-n", "5", "--lines")]
     [InlineData("--rows", "1")]
     [InlineData("--fields", "Member")]
     [InlineData("--columns", "Member")]
-    public async Task Member_AllSelector_ProjectionDoesNotBecomeFindingCensusProjection(
+    public async Task Member_DecompilerCategoryProjectionDoesNotBecomeFindingCensusProjection(
         params string[] projection)
     {
         var (exit, _, error) = await RunAppAsync(
@@ -2168,7 +2557,7 @@ public partial class CommandExecutionTests
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "@All",
+            "-S", SectionCategoryNames.Decompiler,
             .. projection,
             "--tips", "q",
         ]);
@@ -2178,13 +2567,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AllSelector_OmitsFindingCensus()
+    public async Task Member_DecompilerCategory_OmitsFindingCensus()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "@All", "--tips", "q");
+            "-S", SectionCategoryNames.Decompiler, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2209,13 +2598,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AllDiscovery_OmitsFindingCensus()
+    public async Task Member_DecompilerDiscovery_OmitsFindingCensus()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-D", "@All", "--tips", "q");
+            "-D", SectionCategoryNames.Decompiler, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2224,9 +2613,8 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData()]
-    [InlineData("--count")]
     [InlineData("--json")]
-    public async Task Member_FindingCensusGlob_RequiresExactSelector(
+    public async Task Member_FindingCensusGlob_DoesNotSelectExactOnlySection(
         params string[] format)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2239,27 +2627,32 @@ public partial class CommandExecutionTests
             "--tips", "q",
         ]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "section 'Finding Census' requires an exact -S selector",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Finding Census", output);
     }
 
-    [Fact]
-    public async Task Member_AllPlusFindingCensusGlob_RequiresExactSelector()
+    [Theory]
+    [InlineData()]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_CategoryPlusFindingCensusGlob_RetainsCategorySections(
+        params string[] format)
     {
         var (exit, output, error) = await RunAppAsync(
+        [
             "member", typeof(FactsTableFixture).FullName!,
             "--library", TestAssemblyPath,
             $"{nameof(FactsTableFixture.BoxInt)}:1",
-            "-S", "@All,Finding*", "--json", "--compact", "--tips", "q");
+            "-S", $"{SectionCategoryNames.Member},Finding*",
+            .. format,
+            "--tips", "q",
+        ]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "section 'Finding Census' requires an exact -S selector",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.NotEmpty(output);
+        Assert.DoesNotContain("Finding Census", output);
     }
 
     [Fact]
@@ -2447,6 +2840,333 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_FactsTable_DistinguishesCallerFromCalleeEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--table",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Evidence Subject", output);
+        Assert.Contains("Evidence State", output);
+        Assert.Contains("Evidence Locations", output);
+        Assert.Contains(nameof(CostOverlayFixture.CallsStackalloc), output);
+        Assert.Contains(nameof(CostOverlayFixture.Stackalloc), output);
+        Assert.Contains("instruction", output);
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_RetainsInstructionEvidenceIdentity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        Assert.False(fact.TryGetProperty("remote_evidence", out _));
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal(
+            nameof(CostOverlayFixture.Stackalloc),
+            evidence.GetProperty("subject").GetProperty("name").GetString());
+        Assert.Equal(
+            "instruction",
+            evidence.GetProperty("state").GetString());
+        JsonElement location = Assert.Single(
+            evidence.GetProperty("locations").EnumerateArray());
+        Assert.Equal(
+            nameof(CostOverlayFixture.Stackalloc),
+            location.GetProperty("method").GetProperty("name").GetString());
+        Assert.NotEqual(
+            Guid.Empty,
+            location.GetProperty("method")
+                .GetProperty("module_version_id")
+                .GetGuid());
+        Assert.True(
+            location.GetProperty("method")
+                .GetProperty("metadata_token")
+                .GetInt32() > 0);
+        Assert.True(location.GetProperty("il_offset").GetInt32() >= 0);
+        Assert.True(fact.GetProperty("il_offset").GetInt32() >= 0);
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_RetainsMethodOnlyEvidenceWithoutOffset()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.Caller),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "cost.callee");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal("method", evidence.GetProperty("state").GetString());
+        JsonElement location = Assert.Single(
+            evidence.GetProperty("locations").EnumerateArray());
+        Assert.False(location.TryGetProperty("il_offset", out _));
+        Assert.Equal(
+            nameof(CostOverlayFixture.HotCallee),
+            location.GetProperty("method").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Member_FactsJson_ShowsUnavailableInstructionEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsPointerDeref),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement fact = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        JsonElement evidence = fact.GetProperty("callee_evidence");
+        Assert.Equal(
+            "instruction-unavailable",
+            evidence.GetProperty("state").GetString());
+        Assert.Equal(
+            nameof(CostOverlayFixture.PointerDeref),
+            evidence.GetProperty("subject").GetProperty("name").GetString());
+        Assert.Empty(evidence.GetProperty("locations").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("--columns")]
+    [InlineData("--fields")]
+    public async Task Member_FactsProjectedJson_UsesLoweredEvidenceRows(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            projection, "Id,Evidence Subject,Evidence State",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement row = Assert.Single(
+            document.RootElement.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("id").GetString()
+                    == "safety.callee");
+        Assert.Equal(
+            "DotnetInspect.Cli.Tests.CostOverlayFixture.Stackalloc(int)",
+            row.GetProperty("evidence_subject").GetString());
+        Assert.Equal(
+            "instruction",
+            row.GetProperty("evidence_state").GetString());
+        if (projection == "--columns")
+            Assert.Equal(3, row.EnumerateObject().Count());
+    }
+
+    [Theory]
+    [InlineData("-n", "1", "--head", 0)]
+    [InlineData("-n", "1", "--tail", -1)]
+    [InlineData("--rows", "2..2", null, 1)]
+    public async Task Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization(
+        string window,
+        string value,
+        string? direction,
+        int selectedIndex)
+    {
+        string[] common =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--tips", "q",
+        ];
+        var (allExit, allOutput, allError) =
+            await RunAppAsync(common);
+        string[] selection = direction is null
+            ? [window, value]
+            : [window, value, direction];
+        var (windowExit, windowOutput, windowError) =
+            await RunAppAsync([.. common, .. selection]);
+
+        Assert.Equal(0, allExit);
+        Assert.Empty(allError);
+        using JsonDocument allDocument =
+            JsonDocument.Parse(allOutput);
+        string[] allIds = allDocument.RootElement
+            .GetProperty("facts")
+            .EnumerateArray()
+            .Select(row => row.GetProperty("id").GetString()!)
+            .ToArray();
+        Assert.True(allIds.Length > 1);
+
+        Assert.True(windowExit == 0, windowError);
+        Assert.Empty(windowError);
+        using JsonDocument windowDocument =
+            JsonDocument.Parse(windowOutput);
+        JsonElement selected = Assert.Single(
+            windowDocument.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+        Assert.Equal(
+            selectedIndex < 0
+                ? allIds[^1]
+                : allIds[selectedIndex],
+            selected.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Member_FactsProjectedJson_RejectsUnavailableWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--rows", "999..999", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "requires fact row 999",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_FactsProjectedJson_DeduplicatesEquivalentSelectors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts,Facts", "--json",
+            "--columns", "Id", "-n", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Single(
+            document.RootElement
+                .GetProperty("facts")
+                .EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Member_FactsCount_DoesNotActivateProjectedJsonAdoption()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--count", "--rows", "999..999",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            "0",
+            output.Trim());
+    }
+
+    [Theory]
+    [InlineData("1..1", "--head", "1")]
+    [InlineData("1..1", "--tail", "1")]
+    [InlineData("999..999", "--head", "0")]
+    [InlineData("999..999", "--tail", "0")]
+    public async Task Member_FactsCount_LegacyRowsComposeWithInferredLines(
+        string rows,
+        string direction,
+        string expectedCount)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--count",
+            "--rows", rows, "-n", "1", direction, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expectedCount, output.Trim());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption(
+        bool schema)
+    {
+        string[] discovery = schema
+            ? ["-D", "--schema"]
+            : ["-D"];
+        string[] arguments =
+        [
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            .. discovery,
+            "-S", "Facts", "--json",
+            "--columns", "Name", "-n", "1", "--tips", "q",
+        ];
+        var (exit, output, error) = await RunAppAsync(arguments);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task Member_FactsJson_DirectionRequiresCount(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CostOverlayFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(CostOverlayFixture.CallsStackalloc),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            direction, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{direction} requires -n", error);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectCostOverlay_RendersExplicitCostFacts()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -2492,7 +3212,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.Caller), "--index", "1", "--all", "-D", "--table", "--tips", "q");
+            nameof(CostOverlayFixture.Caller), "--index", "1", "--all",
+            "-D", SectionCategoryNames.Performance, "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2546,7 +3267,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CostOverlayFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all", "-D", "--table", "--tips", "q");
+            nameof(CostOverlayFixture.CallsExceptionOnly), "--index", "1", "--all",
+            "-D", SectionCategoryNames.Audit, "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -2731,10 +3453,13 @@ public partial class CommandExecutionTests
     public async Task Member_OverloadInventory_TabularWindowsRetainRows(
         string format, string window, string value, int expectedRows)
     {
+        string[] lineSelection = window == "-n" ? ["--lines"] : [];
         var (exit, output, error) = await RunAppInDirectoryAsync(
             Environment.CurrentDirectory,
-            "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "-m", "Serialize", format, window, value, "--tips", "q");
+            [
+                "member", "JsonSerializer", "--platform", "System.Text.Json",
+                "-m", "Serialize", format, window, value, .. lineSelection, "--tips", "q",
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3014,7 +3739,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3023,7 +3748,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12");
+            "explicit:System.IConvertible.ToBoolean:1", "-S", "Decompiled Source", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3041,7 +3766,7 @@ public partial class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12");
+            "extension:AsMemory:1", "-S", "IL", "--tips", "q", "-n", "12", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

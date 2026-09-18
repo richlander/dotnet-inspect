@@ -22,6 +22,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
+  property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities
 - [Projected JSON output](projected-json.md) — typed versus lowered JSON, representability, and atomic failure
 - [Rendering model](rendering-model.md) — verbosity vs mode-switch flags
@@ -59,8 +61,8 @@ not a new rung in this ladder or an already available output option.
 
 ### Implementation status
 
-Baseline transport is adopted by positional `depends <type>` and ordinary
-Library API Diff with exactly one Library per endpoint.
+Baseline transport is adopted by positional `depends <type>`, ordinary
+Library API Diff with exactly one Library per endpoint, and Package Activity.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -99,14 +101,21 @@ JSON boundary, and rejects projected or unadopted Diff operations rather than
 silently ignoring the option. Rendered-line clipping is rejected for complete Content JSON.
 Share remains the service-issued `NonProjectable` at `comparison/endpoints`.
 
+Package Activity registers `ecosystem-change-report` at schema version `1`.
+Unprojected `--json` and `--envelope.content` share the owner-issued
+`EcosystemChangeReportDocument` serializer. Report scope, interval, security
+selection, and semantic result limit remain service inputs. Projection, Count,
+row selection, discovery, section selection, and competing output formats are
+rejected with `--envelope`. Typed incomplete or failed Documents remain
+visible before the command returns a nonzero exit.
+
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
 unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
-[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) separately
-owns command cutover. These two concrete Content registrations complete the
-baseline transport rollout in #6719, not those separate adoption efforts.
+[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) owns this
+command cutover.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -199,10 +208,14 @@ owner's contract.
 This does not bypass semantic selection. Subject, endpoints, operation mode,
 and selections bound by the content owner into the resolved operation plan
 still determine which envelope the service constructs.
-For example, the planned `package P@A..B --count --envelope` serializes the
-version-count operation's envelope; it does not count envelope members or
-force a different inspection. A row window already bound into a semantic
-plan is likewise not an instruction to slice serialized JSON.
+For example, `package P@A..B --count --envelope` serializes the package
+version-population operation's complete envelope. Available Content contains
+the population Document and its requested typed Count component; it does not
+count envelope members, replace the Document with a scalar, or force a second
+inspection. Ordinary `--count`, including `--count --json`, projects that same
+component to the existing scalar output. A row window already bound into a
+semantic Count plan selects the counted population cohort; it is not an
+instruction to slice serialized JSON.
 The transport's option rules must distinguish those semantic inputs from
 post-service output shaping; this section does not invent another selector
 grammar or a complete flag-conflict matrix.
@@ -287,18 +300,23 @@ specific to its result kind; an unrelated result kind need not advance.
 This is schema identification, not a version-negotiation option or a promise
 to retain obsolete serializers.
 
-The registered adopter identity is `type-dependencies` for
-`TypeDependencySectionResult`. The second adopted identity is
-`library-api-diff` for `LibraryApiDiffOutcome`. An Outcome's Available,
-Rejected, or other case does not change `result_kind`; its own discriminator
-remains inside `content`. Another operation with a different content contract,
-such as Discover or semantic Count, needs its own registration. Neither the
-command token nor the generic CLR name is a wire discriminator.
-Asset-mode dependency inspection reserves the distinct identity
-`asset-dependencies` at schema version `1` for
-`DependencyInspectionContent`; its enriched form binds
+The registered adopter identities are:
+
+| `result_kind` | Content contract |
+| --- | --- |
+| `type-dependencies` | `TypeDependencySectionResult` |
+| `library-api-diff` | `LibraryApiDiffOutcome` |
+| `asset-dependencies` | `DependencyInspectionContent` |
+| `ecosystem-change-report` | `EcosystemChangeReportDocument` |
+
+The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
 [adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
+An Outcome's Available, Rejected, or other case does not change `result_kind`;
+its own discriminator remains inside `content`. Another operation with a
+different content contract, such as Discover or semantic Count, needs its own
+registration. Neither the command token nor the generic CLR name is a wire
+discriminator.
 
 Envelope and diagnostic member names use lower snake case. Share keeps its
 owner-issued `kind` discriminator and values, including `available` and
@@ -616,11 +634,11 @@ exist to be selected. The family has two currencies: the IL coordinate, and the
 heap coordinate `--heap` carries (see
 [metadata-table-projection.md](metadata-table-projection.md)).
 
-The family is counted in currencies, not flags, because one currency can have
-more than one spelling. The IL coordinate has two: `--il-offset` takes a single
-coordinate, and `--il-offsets` takes a file of them for batch reporting. They
-are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
-carry the same currency, so they are one member of this family rather than two.
+The family is counted in currencies, not syntax elements, because one currency
+can have more than one spelling. `library coordinate` accepts either one exact
+IL coordinate or `--file` for batch reporting; the transitional `--il-offset`
+and `--il-offsets` parent options carry the same currency. Exact and file modes
+are mutually exclusive, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -677,6 +695,53 @@ Formatters decide presentation, not content:
 - Tree, Mermaid, and table writers render their own narrow shapes (a call graph
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
+
+### Member Finding callee evidence
+
+The explicit member `Facts` section keeps one row per Research Finding. Its
+`Member`, `IL`, `Cs Line`, and `Anchor` fields describe where the Finding is
+presented in the selected member. For `semantics.callee`, `safety.callee`, and
+`cost.callee`, three additional fields describe the callee evidence without
+moving that caller-side relationship anchor:
+
+- `Evidence Subject` names the producer-owned callee subject.
+- `Evidence State` is `instruction`, `method`, or
+  `instruction-unavailable`.
+- `Evidence Locations` renders each physical method identity with its optional
+  IL offset. Method-level evidence has no invented offset, and unavailable
+  instruction evidence says so instead of borrowing the caller coordinate.
+
+These fields are the lowered table vocabulary used by Markdown, table, TSV,
+JSONL, and projected JSON. They are display text, not the typed interchange
+contract.
+
+Exact singleton `member ... -S Facts --json` selects the complete typed Facts
+document. Each Finding retains its caller anchor and optional `callee_evidence`.
+Callee evidence contains the producer-owned subject plus ordered physical
+locations. A physical method is identified by assembly, module version id,
+MethodDef token, declaring type, name, parameter types, return type, generic
+arity, and static shape; each location adds a nullable numeric IL offset.
+`instruction-unavailable` has an empty location array, while `method` has one
+location with a null offset. Structured output never substitutes the caller
+offset for either state.
+
+The typed document is complete rather than a rendered row window. Combining
+its exact unprojected JSON selection with another section, `--rows`, `-n`,
+`--head`, or `--tail` is rejected. A caller that wants lowered or windowed rows
+uses table, TSV, JSONL, or an explicit field/column projection. In projected
+JSON, `-n` with `--head` or `--tail` is a semantic Facts-row window applied
+before serialization; it never clips the rendered JSON text.
+
+Release CLI gates cover:
+
+- caller relationship IL remaining distinct from callee instruction evidence;
+- method-level `cost.callee` evidence retaining a null callee offset;
+- `safety.callee` retaining an explicit unavailable state when the producer has
+  no supported instruction coordinate;
+- exact Facts JSON retaining the typed subject and physical method identities;
+  and
+- explicit Facts field and column projections using the lowered row
+  vocabulary, including valid first- and last-item JSON windows.
 
 ### Reverse type-declaration locator projection
 
@@ -828,12 +893,20 @@ owned by the `extensions` adoption tracked in
 retired only when a compatible Markout typed-JSON lowering is available.
 
 The current `CountProjectionFormatter` establishes cardinality by intercepting
-structured Markout rows without writing them. Under the target
+structured Markout rows without writing them. The product contract is that
+section selection and row windows determine cardinality before count
+formatting. Its Release gates are
+`OutputFormatterTests.CountProjection_CapturesTableRowsBySection`,
+`OutputFormatterTests.CountProjection_AppliesRowWindowBeforeReduction`,
+`OutputFormatterTests.CountProjection_DoesNotCountNonTableContent`, and
+`OutputFormatterTests.CountProjection_SectionRowsRenderThroughEveryCompatibleFormat`.
+No separate source-shape gate constrains which formatter implementation may
+satisfy that contract. Under the target
 [section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
 formatters instead consume typed L2 Row-outcomes, Count, or failure results and
-do not establish cardinality. Rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose the same declared
-logical rows to L2 that their renderers consume.
+do not establish cardinality. Producers outside Markout, such as metadata
+tables, expose the same declared logical rows to L2 that their renderers
+consume.
 
 ### Approved `vocabulary --json` compatibility boundary
 
@@ -1174,11 +1247,12 @@ resolved by discarding one.
 
 ### Lens modes project their own payload
 
-A few flags select a *lens* rather than a section of the normal document:
+A few requests select a *lens* rather than a section of the normal document:
 `package --versions`, `--layout`, `--tfms`, and `--content`, along with
-`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
-payload it computes itself and returns before the section pipeline, so the
-section-selection vocabulary does not describe what the caller is looking at.
+`library coordinate --file`, transitional `library --il-offsets`, and the
+`-D`/`--discover` listing. Each renders a payload it computes itself and
+returns before the section pipeline, so the section-selection vocabulary does
+not describe what the caller is looking at.
 
 The lens payload is still a payload, so the two-outcome rule above applies
 unchanged. Because the lens owns the shape, its answers are fixed:
@@ -1548,10 +1622,11 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` / `--il-offsets` / `--heap` are coordinate carriers: they supply
-  an input that has no other expression and gate the sections it makes
-  meaningful. They do not narrow a shape, and a flag qualifies for this family
-  only if its input is a new currency. The first two spell the same currency, so
+- `library coordinate`, plus transitional `--il-offset` / `--il-offsets` /
+  `--heap`, supplies coordinate input that has no other expression and gates
+  the sections it makes meaningful. Coordinate input does not narrow a shape,
+  and syntax qualifies for this family only if its input is a new currency.
+  Exact and file IL coordinates spell the same currency, so
   they are one member; `--heap` is the second.
 
 New flags should fit one of those buckets rather than blending concepts.

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Tests for package subcommand --version, --latest-version, and --versions behavior.
+/// Tests for package subcommand --version and --versions behavior.
 /// Mirrors RouterVersionTests to validate parity between router and package paths.
 /// </summary>
 [Collection("Console")]
@@ -53,10 +53,10 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task LatestVersion_AlwaysQueriesNuGet()
+    public async Task AtLatestVersion_AlwaysQueriesNuGet()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine", "--latest-version" };
+        var args = new[] { "package", "System.CommandLine@latest", "--version" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
@@ -64,6 +64,35 @@ public class PackageVersionTests
         Assert.Equal(0, exit);
         var version = output.Trim();
         Assert.Matches(@"^\d+\.\d+\.\d+", version);
+    }
+
+    [Theory]
+    [InlineData("--latest-version")]
+    [InlineData("--latest-version=true")]
+    [InlineData("--latest-version:false")]
+    public async Task LatestVersionOption_ReturnsReplacementGuidanceBeforeAcquisition(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("'--latest-version' is no longer valid", error);
+        Assert.Contains("Package@latest --version", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageHelp_DoesNotAdvertiseLatestVersionOption()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("--latest-version", output);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -553,9 +582,7 @@ public class PackageVersionTests
 
     [Theory]
     [InlineData("--versions", "--version")]
-    [InlineData("--versions", "--latest-version")]
     [InlineData("--versions-with-feed", "--version")]
-    [InlineData("--versions-with-feed", "--latest-version")]
     [InlineData("--versions", "--versions-with-feed")]
     public async Task Versions_ConflictingSelectorsRejectBeforeAcquisition(
         string pluralSelector,
@@ -573,6 +600,36 @@ public class PackageVersionTests
         Assert.Empty(output);
         Assert.Contains(
             "cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--version", null)]
+    [InlineData("--version", "1.0.0")]
+    public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition(
+        string exactSelector,
+        string? exactValue)
+    {
+        string[] exactArgs = exactValue is null
+            ? [exactSelector]
+            : [exactSelector, exactValue];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "package",
+                "ThisQueryMustNotReachTheNetwork@1.0.0..2.0.0",
+                "--count",
+                .. exactArgs,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "range --count cannot be combined",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -651,6 +708,143 @@ public class PackageVersionTests
         Assert.Equal(
             ["8.0.0", "8.0.1", "8.0.2", "8.0.3", "8.0.4", "8.0.5"],
             output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task Versions_WithRange_EnvelopePreservesTheCompletePopulation()
+    {
+        var result = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--envelope");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using JsonDocument json = JsonDocument.Parse(result.Output);
+        JsonElement root = json.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "package-version-population",
+            root.GetProperty("result_kind").GetString());
+        JsonElement content = root.GetProperty("content");
+        Assert.Equal("available", content.GetProperty("kind").GetString());
+        JsonElement document = content.GetProperty("document");
+        Assert.Equal(
+            "system.text.json",
+            document.GetProperty("request").GetProperty("packageId").GetString());
+        Assert.Equal(
+            ["8.0.0", "8.0.1", "8.0.2", "8.0.3", "8.0.4", "8.0.5"],
+            document.GetProperty("versions").EnumerateArray()
+                .Select(row => row.GetProperty("version").GetString()));
+        Assert.Equal(
+            ["#1", "#2", "#3", "#4", "#5", "#6"],
+            document.GetProperty("versions").EnumerateArray()
+                .Select(row => row.GetProperty("selector").GetString()));
+        Assert.Equal(JsonValueKind.Null, content.GetProperty("count").ValueKind);
+        Assert.Equal(
+            "nonProjectable",
+            root.GetProperty("share").GetProperty("kind").GetString());
+        Assert.Empty(root.GetProperty("diagnostics").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Versions_WithRange_CountSupportsScalarJsonAndCompleteEnvelope()
+    {
+        var scalar = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--count");
+        var scalarJson = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "--json");
+        var envelope = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "--envelope");
+        var selectedScalar = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "-n",
+            "1");
+        var selectedEnvelope = await RunAppAsync(
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--count",
+            "-n",
+            "1",
+            "--envelope");
+
+        Assert.Equal((0, "6", ""), (
+            scalar.Exit,
+            scalar.Output.Trim(),
+            scalar.Error));
+        Assert.Equal((0, "6", ""), (
+            scalarJson.Exit,
+            scalarJson.Output.Trim(),
+            scalarJson.Error));
+        Assert.Equal(0, envelope.Exit);
+        Assert.Empty(envelope.Error);
+        using JsonDocument json = JsonDocument.Parse(envelope.Output);
+        JsonElement content = json.RootElement.GetProperty("content");
+        Assert.Equal(6, content.GetProperty("document")
+            .GetProperty("versions").GetArrayLength());
+        JsonElement count = content.GetProperty("count");
+        Assert.Equal("completed", count.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Versions",
+            count.GetProperty("result").GetProperty("cohort").GetString());
+        Assert.Equal(
+            6,
+            count.GetProperty("result").GetProperty("value").GetInt32());
+        Assert.Equal((0, "1", ""), (
+            selectedScalar.Exit,
+            selectedScalar.Output.Trim(),
+            selectedScalar.Error));
+        Assert.Equal(0, selectedEnvelope.Exit);
+        Assert.Empty(selectedEnvelope.Error);
+        using JsonDocument selectedJson =
+            JsonDocument.Parse(selectedEnvelope.Output);
+        JsonElement selectedContent =
+            selectedJson.RootElement.GetProperty("content");
+        Assert.Equal(
+            6,
+            selectedContent.GetProperty("document")
+                .GetProperty("versions").GetArrayLength());
+        Assert.Equal(
+            1,
+            selectedContent.GetProperty("count")
+                .GetProperty("result")
+                .GetProperty("value").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--table")]
+    [InlineData("--rows")]
+    public async Task RangeEnvelope_RejectsIncompatibleShapeBeforeExecution(
+        string incompatible)
+    {
+        string[] value = incompatible == "--rows" ? ["1..2"] : [];
+        string[] args =
+        [
+            "package",
+            "System.Text.Json@8.0.0..8.0.5",
+            "--versions",
+            "--envelope",
+            incompatible,
+            .. value,
+        ];
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("--envelope cannot be combined", result.Error);
     }
 
     [Fact]

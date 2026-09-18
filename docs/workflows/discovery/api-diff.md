@@ -87,7 +87,7 @@ What new APIs were added in System.Text.Json 10.0.0?
 ```
 
 ```bash
-dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --additive -v:q -n 15
+dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 --additive -v:q -n 15 --lines
 ```
 
 ```expect
@@ -174,7 +174,7 @@ identity and identify the producer in the `Mechanism` column:
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   -S "Implementation Diff" \
-  -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30
+  -t DiffFixtureSample.DiffSample -m RegressesAllocInLoop -n 30 --lines
 ```
 
 ```expect
@@ -264,9 +264,8 @@ One-sided methods therefore render added or removed native pairs rather than
 disappearing from an intersection-only body diff.
 
 This focused endpoint-confirmation lens must be selected by itself. It does not
-compose with the comparison sections or `-S @All`; select `Changes`,
-`Analysis Diff`, and `Implementation Diff` explicitly when composing those
-views.
+compose with comparison sections. Select `-S @Diff` to compose `Changes`,
+`Analysis Diff`, and `Implementation Diff`.
 
 ## 8. Name-only output
 
@@ -349,7 +348,7 @@ grep -oE '[0-9]+ breaking'
 ### 11a. NuGet 8 to 10
 
 ```bash
-dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15
+dotnet-inspect diff --platform System.Text.Json@8.0.0..10.0.0 -v:q -n 15 --lines
 ```
 
 ```expect
@@ -364,7 +363,7 @@ What changed in the platform System.Text.Json assembly between .NET 8 and the .N
 ```
 
 ```bash
-dotnet-inspect diff --platform System.Text.Json@8.0.0..11.0.0 -v:q -n 15
+dotnet-inspect diff --platform System.Text.Json@8.0.0..11.0.0 -v:q -n 15 --lines
 ```
 
 ```expect

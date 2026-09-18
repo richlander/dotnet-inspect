@@ -2665,11 +2665,15 @@ public sealed partial class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([assembly.Participant]);
 
         if (typeQuery)
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => AssemblyContextSourceQuery.InspectTypeAsync(
+                    group,
                     subject,
                     assembly.Participant,
                     assembly.TypeRequest(
@@ -2685,6 +2689,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => AssemblyContextSourceQuery.InspectMemberAsync(
+                    group,
                     subject,
                     assembly.Participant,
                     assembly.MemberRequest(
@@ -2919,7 +2924,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
-        Assert.Single(host.SourceRequests);
+        Assert.Empty(host.SourceRequests);
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
@@ -2985,7 +2990,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
-        Assert.Single(host.SourceRequests);
+        Assert.Empty(host.SourceRequests);
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 

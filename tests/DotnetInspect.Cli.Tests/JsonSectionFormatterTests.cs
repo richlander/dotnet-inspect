@@ -106,6 +106,29 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void ExplicitSectionOrder_OrdersBufferedJsonSections()
+    {
+        var options = new MarkoutWriterOptions
+        {
+            SectionOrder = ["Alpha", "Beta"],
+        };
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(options);
+        formatter.FormatHeading(TextWriter.Null, 2, "Beta", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["second"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Alpha", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["first"], false);
+
+        using JsonDocument document = JsonDocument.Parse(formatter.Finish());
+
+        Assert.Equal(
+            ["alpha", "beta"],
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name));
+    }
+
+    [Fact]
     public void MixedContentInOneSection_FailsRatherThanDroppingIt()
     {
         // A section serializes as exactly one JSON value, so a section that receives two kinds of

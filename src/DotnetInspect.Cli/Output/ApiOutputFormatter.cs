@@ -3,6 +3,7 @@ using ILInspector.CSharp;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
+using ILInspector.Research;
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
@@ -268,13 +269,9 @@ public static class ApiOutputFormatter
 
     internal static bool ShouldRenderMemberDetailContext(ApiOptions options) =>
         options is MemberOptions { OverloadIndex: not null }
-        && options.IncludeSections is { Count: > 0 }
+        && !options.SelectDefault
         && !SelectResolver.IsActiveAllSelector(
             options.Select,
-            options.IncludeSections,
-            options is MemberOptions { MemberSectionsPreResolved: true })
-        && !SelectResolver.IsActiveInfoSelector(
-            options.SelectDefault,
             options.IncludeSections,
             options is MemberOptions { MemberSectionsPreResolved: true })
         && !options.Count
@@ -1695,17 +1692,24 @@ public static class ApiOutputFormatter
                 // before rendering. Either route addresses the same stable edge rows exactly once.
                 IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
                     loweringNeedsSelectedGraph ? selectedRows : null;
-                memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
-                    projection,
-                    FormatCallee,
-                    analysisInspection.CallGraphFields,
-                    analysisInspection.HasCallGraphFieldProjection,
-                    renderedRows,
-                    analysisInspection.IncludesCallGraphOpportunities
-                        ? BuildCallGraphOpportunityAnnotations(
-                            projection,
-                            analysisInspection.CallGraphBodyIndexes)
-                        : null);
+                CallGraphSectionOutput graphOutput =
+                    CallGraphSectionAdapter.ToGraph(
+                        projection,
+                        FormatCallee,
+                        analysisInspection.CallGraphFields,
+                        analysisInspection.HasCallGraphFieldProjection,
+                        renderedRows,
+                        selectedRows,
+                        includeFocusInEvidence: loweringNeedsSelectedGraph,
+                        opportunityAnnotations:
+                            analysisInspection.IncludesCallGraphOpportunities
+                                ? BuildCallGraphOpportunityAnnotations(
+                                    projection,
+                                    analysisInspection.CallGraphBodyIndexes)
+                                : null);
+                memberCode.CallGraph = graphOutput.Graph;
+                memberCode.CallGraphRenderedFieldEvidence =
+                    graphOutput.RenderedFieldEvidence;
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
@@ -1877,18 +1881,12 @@ public static class ApiOutputFormatter
             if (request.Facts && code.Facts is { } facts)
             {
                 var rows = facts
-                    .Select(fact => new FactRow(
-                        fact.Member,
-                        fact.ILOffset is { } offset ? MarkoutInline.Code($"IL_{offset:X4}") : null,
-                        fact.CSharpLine?.ToString(),
-                        fact.Anchor,
-                        fact.Category,
-                        fact.Id,
-                        fact.Detail is { } detail ? MarkoutInline.Code(detail) : null,
-                        fact.Conditionality,
-                        fact.CensusReceipt?.ToString(),
-                        fact.InstanceKey?.Value))
+                    .Select(ToFactRow)
                     .ToList();
+                memberCode.FactsDocument = MemberFactsDocument.Create(
+                    facts.FirstOrDefault()?.Member
+                        ?? $"{type.FullName}::{member.Name}",
+                    facts);
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.Facts))
                 {
                     memberCode.FactRows = rows;
@@ -1899,6 +1897,59 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    static FactRow ToFactRow(
+        ILInspector.Research.ResearchViews.FactRow fact)
+        => new(
+            fact.Member,
+            fact.ILOffset is { } offset
+                ? MarkoutInline.Code($"IL_{offset:X4}")
+                : null,
+            fact.CSharpLine?.ToString(),
+            fact.Anchor,
+            fact.Category,
+            fact.Id,
+            fact.Detail is { } detail
+                ? MarkoutInline.Code(detail)
+                : null,
+            fact.Evidence is { } evidence
+                ? MarkoutInline.Code(FormatMethod(evidence.Subject))
+                : null,
+            fact.Evidence is { } stateEvidence
+                ? MemberFactCalleeEvidenceDocument.StateName(
+                    stateEvidence.State)
+                : null,
+            fact.Evidence is { } locationEvidence
+                ? MarkoutInline.Code(
+                    FormatFindingEvidenceLocations(locationEvidence))
+                : null,
+            fact.Conditionality,
+            fact.CensusReceipt?.ToString(),
+            fact.InstanceKey?.Value);
+
+    static string FormatFindingEvidenceLocations(
+        ResearchFindingEvidence evidence)
+    {
+        if (evidence.State
+            == ResearchFindingEvidenceState.InstructionUnavailable)
+        {
+            return "instruction location unavailable";
+        }
+
+        return string.Join(
+            "; ",
+            evidence.Locations.Select(static location =>
+            {
+                Analysis.MethodIdentity method = location.Method;
+                string identity =
+                    $"{FormatMethod(method)} "
+                    + $"[{method.ModuleVersionId:D}:"
+                    + $"0x{method.MetadataToken:X8}]";
+                return location.ILOffset is { } offset
+                    ? $"{identity} IL_{offset:X4}"
+                    : identity;
+            }));
     }
 
     private static ApiMember? SelectBodyMethod(

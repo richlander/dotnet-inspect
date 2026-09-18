@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;
@@ -8,9 +9,11 @@ public static class InspectionDefinitionSchema
 {
     public const int Version1 = 1;
     public const int Version2 = 2;
+    public const int Version3 = 3;
+    public const int Version4 = 4;
 
     internal static bool IsSupported(int value) =>
-        value is Version1 or Version2;
+        value is Version1 or Version2 or Version3 or Version4;
 }
 
 /// <summary>
@@ -97,15 +100,40 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         IReadOnlyList<WorkspaceContextDefinition> contexts,
         string? title = null,
         string? description = null,
-        IReadOnlyList<CatalogGroupDefinition>? groups = null)
+        IReadOnlyList<CatalogGroupDefinition>? groups = null,
+        IReadOnlyList<WorkspaceRegistration>? registrations = null)
         : base(schemaVersion, id)
     {
         ArgumentNullException.ThrowIfNull(contexts);
 
         // Freeze first, then validate the retained snapshot (emptiness and uniqueness).
         var frozenContexts = DefinitionCollections.Freeze(contexts);
-        if (frozenContexts.Count == 0)
-            throw new ArgumentException("A workspace definition requires at least one context.", nameof(contexts));
+        var frozenRegistrations = DefinitionCollections.Freeze(registrations);
+        if (schemaVersion is not (
+                InspectionDefinitionSchema.Version3
+                or InspectionDefinitionSchema.Version4)
+            && frozenRegistrations.Count != 0)
+        {
+            throw new ArgumentException(
+                "Workspace registrations require schema version 3 or 4.",
+                nameof(registrations));
+        }
+        if (schemaVersion is InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
+        {
+            if (frozenContexts.Count == 0 && frozenRegistrations.Count == 0)
+            {
+                throw new ArgumentException(
+                    $"A schema-version-{schemaVersion} workspace definition requires at least one context or registration.",
+                    nameof(contexts));
+            }
+        }
+        else if (frozenContexts.Count == 0)
+        {
+            throw new ArgumentException(
+                "A workspace definition requires at least one context.",
+                nameof(contexts));
+        }
 
         var contextNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var context in frozenContexts)
@@ -118,10 +146,21 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
             }
         }
 
+        ImmutableArray<WorkspaceRegistration> registrationArray =
+            [.. frozenRegistrations];
+        if (WorkspacePlan.ValidateRegistrations(registrationArray)
+            is { } registrationRejection)
+        {
+            throw new ArgumentException(
+                $"The workspace registration set is invalid ({registrationRejection}).",
+                nameof(registrations));
+        }
+
         Title = title;
         Description = description;
         Contexts = frozenContexts;
         Groups = DefinitionCollections.Freeze(groups);
+        Registrations = frozenRegistrations;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Workspace;
@@ -137,6 +176,11 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
     /// Bundle authors should prefer a catalog record.
     /// </summary>
     public IReadOnlyList<CatalogGroupDefinition> Groups { get; }
+
+    /// <summary>
+    /// Ordered resource-free registrations. Present only in schema versions 3 and 4.
+    /// </summary>
+    public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
 }
 
 /// <summary>One binding-consistent context inside a workspace definition.</summary>
@@ -456,28 +500,30 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
                 nameof(context));
         }
 
-        if (schemaVersion == InspectionDefinitionSchema.Version2)
+        if (schemaVersion is InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
         {
             if (hasWorkspace)
             {
                 if (query is not null)
                 {
                     throw new ArgumentException(
-                        "A coordinate-backed schema-version-2 scenario carries queries through committed view states.",
+                        "A committed coordinate-backed scenario carries queries through committed view states.",
                         nameof(query));
                 }
 
                 if (view is null || navigation is null)
                 {
                     throw new ArgumentException(
-                        "A workspace-backed schema-version-2 scenario requires both view and navigation.",
+                        "A committed workspace-backed scenario requires both view and navigation.",
                         nameof(view));
                 }
             }
             else if (view is not null || navigation is not null)
             {
                 throw new ArgumentException(
-                    "A workspace-free schema-version-2 scenario cannot reference view or navigation.",
+                    "A committed workspace-free scenario cannot reference view or navigation.",
                     nameof(view));
             }
         }
@@ -512,8 +558,8 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2 navigation: ordered tabs and a required nullable focus.
-/// Null focus selects the committed Workspace row.
+/// Schema-version-2-through-4 navigation: ordered tabs and a required nullable
+/// focus. Null focus selects the committed Workspace row.
 /// </summary>
 public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
 {
@@ -524,20 +570,23 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
         string? focus)
         : base(schemaVersion, id)
     {
-        if (schemaVersion != InspectionDefinitionSchema.Version2)
+        if (schemaVersion is not (InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedNavigationDefinition requires schema version 2.");
+                "CommittedNavigationDefinition requires schema version 2, 3, or 4.");
         }
 
         ArgumentNullException.ThrowIfNull(tabs);
         Tabs = DefinitionCollections.Freeze(tabs);
-        if (Tabs.Count == 0)
+        if (schemaVersion == InspectionDefinitionSchema.Version2
+            && Tabs.Count == 0)
         {
             throw new ArgumentException(
-                "A committed navigation record requires at least one tab.",
+                "A schema-version-2 committed navigation record requires at least one tab.",
                 nameof(tabs));
         }
 
@@ -567,7 +616,7 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
                 is not DefinitionMemberCoordinate.PackageCoordinate)
             {
                 throw new ArgumentException(
-                    "Schema-version-2 focus must identify a direct Package-coordinate tab.",
+                    "Committed focus must identify a direct Package-coordinate tab.",
                     nameof(focus));
             }
         }
@@ -582,8 +631,8 @@ public sealed record CommittedNavigationDefinition : InspectionDefinitionRecord
 }
 
 /// <summary>
-/// Schema-version-2 committed view state: one Workspace row plus one row for
-/// every navigation tab in exact navigation order.
+/// Schema-version-2-through-4 committed view state: one Workspace row plus one row
+/// for every navigation tab in exact navigation order.
 /// </summary>
 public sealed record CommittedViewDefinition : InspectionDefinitionRecord
 {
@@ -593,16 +642,28 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
         IReadOnlyList<CommittedViewStateDefinition> states)
         : base(schemaVersion, id)
     {
-        if (schemaVersion != InspectionDefinitionSchema.Version2)
+        if (schemaVersion is not (InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(schemaVersion),
                 schemaVersion,
-                "CommittedViewDefinition requires schema version 2.");
+                "CommittedViewDefinition requires schema version 2, 3, or 4.");
         }
 
         ArgumentNullException.ThrowIfNull(states);
         States = DefinitionCollections.Freeze(states);
+        if (schemaVersion != InspectionDefinitionSchema.Version4
+            && States.Any(state => state.Subject is
+                PortableSubjectRequest.Library
+                or PortableSubjectRequest.Type
+                or PortableSubjectRequest.Member))
+        {
+            throw new ArgumentException(
+                $"Schema version {schemaVersion} does not support active Library, Type, or Member subjects.",
+                nameof(states));
+        }
         if (States.Count == 0)
         {
             throw new ArgumentException(
@@ -641,7 +702,7 @@ public sealed record CommittedViewDefinition : InspectionDefinitionRecord
     public IReadOnlyList<CommittedViewStateDefinition> States { get; }
 }
 
-/// <summary>One query-free schema-version-2 committed state.</summary>
+/// <summary>One query-free schema-version-2-through-4 committed state.</summary>
 public sealed record CommittedViewStateDefinition
 {
     public CommittedViewStateDefinition(
@@ -694,6 +755,39 @@ public sealed record CommittedViewStateDefinition
         {
             throw new ArgumentException(
                 "A Package subject requires its retained Package context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Library
+            && context is not (
+                PortableRetainedSubjectContext.AllLibraries
+                or PortableRetainedSubjectContext.Library
+                or PortableRetainedSubjectContext.Type
+                or PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedType
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Library subject requires retained all-Libraries, Library, Type, or Member context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Type
+            && context is not (
+                PortableRetainedSubjectContext.Type
+                or PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedType
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Type subject requires retained Type or Member context.",
+                nameof(context));
+        }
+        if (subject is PortableSubjectRequest.Member
+            && context is not (
+                PortableRetainedSubjectContext.Member
+                or PortableRetainedSubjectContext.EscapedMember))
+        {
+            throw new ArgumentException(
+                "A Member subject requires retained Member context.",
                 nameof(context));
         }
 
@@ -759,7 +853,9 @@ public sealed record CommittedViewStateDefinition
     }
 }
 
-/// <summary>A closed portable active-subject request for schema version 2.</summary>
+/// <summary>
+/// A closed portable active-subject request for committed schema versions.
+/// </summary>
 public abstract record PortableSubjectRequest
 {
     private protected PortableSubjectRequest()
@@ -779,12 +875,33 @@ public abstract record PortableSubjectRequest
         public override PortableSubjectRequestKind Kind =>
             PortableSubjectRequestKind.Package;
     }
+
+    public sealed record Library : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Library;
+    }
+
+    public sealed record Type : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Type;
+    }
+
+    public sealed record Member : PortableSubjectRequest
+    {
+        public override PortableSubjectRequestKind Kind =>
+            PortableSubjectRequestKind.Member;
+    }
 }
 
 public enum PortableSubjectRequestKind
 {
     Workspace,
     Package,
+    Library,
+    Type,
+    Member,
 }
 
 /// <summary>

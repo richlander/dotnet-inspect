@@ -8,6 +8,7 @@ using System.Reflection.PortableExecutable;
 using System.Text;
 using System.Text.Json;
 
+using CSharpText;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -204,6 +205,89 @@ static class FidelityCheck
             fidelityUnavailableExamples, recompileFailExamples, contextFailExamples, zeroSignal);
         phaseTimings?.Report();
         return 0;
+    }
+
+    internal static IReadOnlyList<CompileBackTarget> SelectReturnToSenderTargets(
+        IReadOnlyList<string> assemblies,
+        int cap,
+        string? typeFilter = null)
+    {
+        if (cap <= 0)
+            return [];
+
+        var selected = new List<CompileBackTarget>(Math.Min(cap, 4096));
+        using var metadata = CorpusMetadata.Create(assemblies);
+        foreach (var assemblyPath in assemblies)
+        {
+            int remaining = cap - selected.Count;
+            if (remaining <= 0)
+                break;
+
+            using var source = MetadataSource.Open(assemblyPath, context: metadata);
+            RegisterSourceContext(source, metadata);
+            var reader = source.Reader;
+            var targetApiIndex = CreateTargetApiIndex(source.Pe);
+            foreach (var candidate in IrImporter.GetStableSampleCandidates(
+                         source,
+                         remaining,
+                         candidate => IsStandaloneReturnToSenderCandidate(
+                                 reader,
+                                 candidate,
+                                 typeFilter,
+                                 targetApiIndex)
+                             && MetadataMemberSignatureShape.Create(
+                                 reader,
+                                 candidate.MethodHandle).Shape is not null,
+                         candidate => "generic-arity:"
+                             + reader.GetMethodDefinition(candidate.MethodHandle)
+                                 .GetGenericParameters().Count.ToString(
+                                     CultureInfo.InvariantCulture)))
+            {
+                var signatureShape = MetadataMemberSignatureShape.Create(
+                    reader,
+                    candidate.MethodHandle);
+                if (signatureShape.Shape is not { } shape)
+                {
+                    throw new InvalidOperationException(
+                        "A selected standalone RTS target lost its canonical signature.");
+                }
+                selected.Add(new CompileBackTarget(
+                    assemblyPath,
+                    candidate.TypeName,
+                    candidate.MethodName,
+                    candidate.Overload,
+                    MemberSignatureShapeCodec.Encode(shape),
+                    MetadataMethodAddress.Create(reader, candidate.MethodHandle)));
+            }
+        }
+
+        return selected;
+    }
+
+    static bool IsStandaloneReturnToSenderCandidate(
+        MetadataReader reader,
+        IrImporter.StableSampleCandidate candidate,
+        string? typeFilter,
+        IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> targetApiIndex)
+    {
+        var typeDef = reader.GetTypeDefinition(candidate.TypeDefHandle);
+        if (!typeDef.GetDeclaringType().IsNil
+            || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct)
+            || (typeFilter is not null
+                && !candidate.TypeName.Contains(typeFilter, StringComparison.Ordinal))
+            || IsGeneratedType(reader, typeDef, candidate.TypeName))
+        {
+            return false;
+        }
+
+        var method = reader.GetMethodDefinition(candidate.MethodHandle);
+        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            candidate.MethodHandle);
+        return !IsGeneratedMethod(reader, method, candidate.MethodName)
+            && targetApiIndex.TryGetValue(token, out var entry)
+            && CSharpMemberArtifactEligibility.IsRepresentable(
+                entry.Type,
+                entry.Member);
     }
 
     public static async Task<int> RunMethodDelta(
@@ -4182,46 +4266,56 @@ static class FidelityCheck
     static Dictionary<int, (ApiType Type, ApiMember Member)> TargetApiIndex(PEReader pe)
         => TargetApiIndexCache.GetValue(pe, static p =>
         {
-            var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
             try
             {
-                // includeAll: the harness evaluates non-public methods too, so
-                // index the whole surface — otherwise internal/private targets
-                // silently miss the migration and retain the legacy signature
-                // emitter this change replaces (#3062 review).
-                foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
-                    foreach (var member in type.Members)
-                    {
-                        if (member.MetadataToken is { } token)
-                        {
-                            if (member.Kind == "extension-method")
-                                index.TryAdd(token, (type, member));
-                            else
-                                index[token] = (type, member);
-                        }
-                        if (member.Kind == "property"
-                            && !member.Name.Contains('.', StringComparison.Ordinal))
-                        {
-                            if (member.GetterToken is { } getterToken)
-                                index.TryAdd(getterToken, (type, member));
-                            if (member.SetterToken is { } setterToken)
-                                index.TryAdd(setterToken, (type, member));
-                        }
-                        if (member.Kind == "event")
-                        {
-                            if (member.AdderToken is { } adderToken)
-                                index.TryAdd(adderToken, (type, member));
-                            if (member.RemoverToken is { } removerToken)
-                                index.TryAdd(removerToken, (type, member));
-                        }
-                    }
+                return CreateTargetApiIndex(p);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // Honest degradation: targets fall back to the harness signature path.
+                return [];
             }
-            return index;
         });
+
+    static Dictionary<int, (ApiType Type, ApiMember Member)> CreateTargetApiIndex(
+        PEReader pe)
+    {
+        var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
+        // includeAll: the harness evaluates non-public methods too, so
+        // index the whole surface — otherwise internal/private targets
+        // silently miss the migration and retain the legacy signature
+        // emitter this change replaces (#3062 review).
+        foreach (var type in ApiSurfaceExtractor.Extract(pe, includeAll: true).Types)
+        {
+            foreach (var member in type.Members)
+            {
+                if (member.MetadataToken is { } token)
+                {
+                    if (member.Kind == "extension-method")
+                        index.TryAdd(token, (type, member));
+                    else
+                        index[token] = (type, member);
+                }
+                if (member.Kind == "property"
+                    && !member.Name.Contains('.', StringComparison.Ordinal))
+                {
+                    if (member.GetterToken is { } getterToken)
+                        index.TryAdd(getterToken, (type, member));
+                    if (member.SetterToken is { } setterToken)
+                        index.TryAdd(setterToken, (type, member));
+                }
+                if (member.Kind == "event")
+                {
+                    if (member.AdderToken is { } adderToken)
+                        index.TryAdd(adderToken, (type, member));
+                    if (member.RemoverToken is { } removerToken)
+                        index.TryAdd(removerToken, (type, member));
+                }
+            }
+        }
+
+        return index;
+    }
 
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
@@ -5245,7 +5339,14 @@ static class FidelityCheck
             CorpusAssemblyPaths = corpusAssemblies,
             ExcludeTargetAssembly = true,
         });
-        foreach (var dependency in resolver.ResolveAll())
+        AssemblyResolutionResult resolution = resolver.ResolveAll();
+        if (!resolution.Diagnostics.IsEmpty)
+        {
+            throw new InvalidOperationException(
+                "Compiler reference discovery failed in "
+                + $"{resolution.Diagnostics.Length} enabled tier(s).");
+        }
+        foreach (var dependency in resolution.Items)
             Add(dependency.Path, dependency.Provenance);
 
         return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));

@@ -1318,11 +1318,19 @@ public class MemberCodeView
     [MarkoutIgnore]
     public int? CallGraphRowCount { get; set; }
 
+    [MarkoutIgnore]
+    internal CallGraphRenderedFieldEvidence CallGraphRenderedFieldEvidence { get; set; } =
+        CallGraphRenderedFieldEvidence.Empty;
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 
     [MarkoutSection(Name = "Facts", EmptyText = "No hidden facts found in this method body.")]
     public List<FactRow>? FactRows { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal MemberFactsDocument? FactsDocument { get; set; }
 
     [MarkoutSection(Name = SectionNames.AllocationFacts, EmptyText = "No allocation facts found in this method body.")]
     [MarkoutIgnoreColumnWhen(nameof(AllocationFactMemberIsEmpty), nameof(AllocationFactRow.Member))]
@@ -1596,6 +1604,12 @@ public record FactRow(
     string Category,
     string Id,
     [property: MarkoutSkipNull] string? Detail,
+    [property: MarkoutPropertyName("Evidence Subject"), MarkoutSkipNull]
+    string? EvidenceSubject,
+    [property: MarkoutPropertyName("Evidence State"), MarkoutSkipNull]
+    string? EvidenceState,
+    [property: MarkoutPropertyName("Evidence Locations"), MarkoutSkipNull]
+    string? EvidenceLocations,
     string Conditionality,
     [property: MarkoutPropertyName("Census Receipt"), MarkoutSkipNull]
     string? CensusReceipt,

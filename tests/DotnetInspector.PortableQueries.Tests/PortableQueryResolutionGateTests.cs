@@ -26,9 +26,9 @@ public sealed class PortableQueryResolutionGateTests
         (PortableQueryIntent intent, PortableQueryFailureReason expected)[] cases =
         [
             (Intent(terms: [Term("nope", "v")]), PortableQueryFailureReason.UnknownKey),
-            (Intent(terms: [Term(TestVocabulary.ToolKey, "v1", PortableQueryOperator.AtLeast)]),
+            (Intent(terms: [Term(TestVocabulary.ToolFormatKey, "v1", PortableQueryOperator.AtLeast)]),
                 PortableQueryFailureReason.OperatorNotAdmitted),
-            (Intent(terms: [Term(TestVocabulary.ToolKey, "v3")]),
+            (Intent(terms: [Term(TestVocabulary.ToolFormatKey, "v3")]),
                 PortableQueryFailureReason.ValueRejected),
             (Intent(), PortableQueryFailureReason.RequiredTermFamilyMissing),
             (Intent(bounds: [new PortableQueryBound("nope", 1)]),
@@ -116,7 +116,7 @@ public sealed class PortableQueryResolutionGateTests
             PortableQueryFailureReason.OperatorNotAdmitted,
             Resolve(
                 vocabulary,
-                Intent(terms: [Term(TestVocabulary.ToolKey, "v3", PortableQueryOperator.AtLeast)]))
+                Intent(terms: [Term(TestVocabulary.ToolFormatKey, "v3", PortableQueryOperator.AtLeast)]))
                 .Failure.Reason);
 
         // A missing required family follows present terms and outranks every
@@ -552,8 +552,8 @@ public sealed class PortableQueryResolutionGateTests
             vocabulary,
             Intent(terms:
             [
-                Term(TestVocabulary.ToolKey, "v1"),
-                Term(TestVocabulary.ToolKey, "v2"),
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+                Term(TestVocabulary.ToolFormatKey, "v2"),
             ])).IsResolved);
 
         // Exclusivity is checked before duplication, so a later term that is
@@ -567,6 +567,15 @@ public sealed class PortableQueryResolutionGateTests
                 Term(TestVocabulary.DependenciesKey, "any"),
             ])).Failure;
         Assert.Equal(PortableQueryFailureReason.TermsIncompatible, both.Reason);
+
+        TestPlan duplicate = Resolve(
+            collapsing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.DependenciesKey, "none"),
+                Term(TestVocabulary.DependenciesKey, "none"),
+            ])).Plan;
+        Assert.Single(duplicate.Resolved.Terms);
 
         // A collapsed duplicate still bound, so its family membership stands.
         // The alias sorts before the family key, so it binds first and the
@@ -583,6 +592,81 @@ public sealed class PortableQueryResolutionGateTests
             ])).Failure;
         Assert.Equal(PortableQueryFailureReason.TermsIncompatible, behindAlias.Reason);
         Assert.Equal(TestVocabulary.DependenciesKey, behindAlias.Offender);
+    }
+
+    /// <summary>
+    /// <c>BoundTermCompatibilityIsVocabularyOwned</c> — an owner can refuse a
+    /// pair that overlaps a combining family without changing that family's
+    /// valid OR-union, and a collapsed occurrence still participates.
+    /// </summary>
+    [Fact]
+    public void BoundTermCompatibilityIsVocabularyOwned()
+    {
+        var vocabulary = new TestVocabulary();
+
+        // The format family still combines.
+        Assert.True(Resolve(
+            vocabulary,
+            Intent(terms:
+            [
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+                Term(TestVocabulary.ToolFormatKey, "v2"),
+            ])).IsResolved);
+
+        // Broad tool presence and one specific format are incompatible. The
+        // semantic order, not construction order, fixes the later offender.
+        foreach (PortableQueryTerm[] built in new[]
+        {
+            new[]
+            {
+                Term(TestVocabulary.ToolKey, "true"),
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+            },
+            new[]
+            {
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+                Term(TestVocabulary.ToolKey, "true"),
+            },
+        })
+        {
+            PortableQueryFailure incompatible =
+                Resolve(vocabulary, Intent(terms: built)).Failure;
+            Assert.Equal(PortableQueryFailureReason.TermsIncompatible, incompatible.Reason);
+            Assert.Equal(TestVocabulary.ToolFormatKey, incompatible.Offender);
+            Assert.Equal(1, incompatible.Location.Index);
+        }
+
+        // The later format term is also a duplicate of the alias, but
+        // incompatibility precedes duplicate handling and cannot collapse.
+        var collapsing = new TestVocabulary { CollapsesDuplicates = true };
+        PortableQueryFailure incompatibleDuplicate = Resolve(
+            collapsing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.ToolAliasKey, "v1"),
+                Term(TestVocabulary.ToolKey, "true"),
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+            ])).Failure;
+        Assert.Equal(
+            PortableQueryFailureReason.TermsIncompatible,
+            incompatibleDuplicate.Reason);
+        Assert.Equal(TestVocabulary.ToolFormatKey, incompatibleDuplicate.Offender);
+
+        // The actual format term collapses behind an earlier same-family alias,
+        // but its declaration still participates in compatibility with a later
+        // term.
+        PortableQueryFailure behindCollapse = Resolve(
+            collapsing,
+            Intent(terms:
+            [
+                Term(TestVocabulary.ToolFormatAliasKey, "v1"),
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+                Term(TestVocabulary.ToolFormatConsumerKey, "true"),
+            ])).Failure;
+        Assert.Equal(PortableQueryFailureReason.TermsIncompatible, behindCollapse.Reason);
+        Assert.Equal(TestVocabulary.ToolFormatConsumerKey, behindCollapse.Offender);
+        Assert.Equal(2, behindCollapse.Location.Index);
+        Assert.Equal(0, collapsing.PlansCreated);
     }
 
     /// <summary>
@@ -608,12 +692,12 @@ public sealed class PortableQueryResolutionGateTests
             Intent(terms:
             [
                 Term(TestVocabulary.ToolAliasKey, "v1"),
-                Term(TestVocabulary.ToolKey, "v1"),
-                Term(TestVocabulary.ToolKey, "v2"),
+                Term(TestVocabulary.ToolFormatKey, "v1"),
+                Term(TestVocabulary.ToolFormatKey, "v2"),
             ])).Plan;
 
         Assert.Equal(
-            ["alias-tool=v1", "tool=v1", "tool=v2"],
+            ["alias-tool=v1", "tool-format=v1", "tool-format=v2"],
             plan.Resolved.Terms
                 .Select(term => $"{term.Term.Key}={term.Term.Value}")
                 .Order()
@@ -648,14 +732,14 @@ public sealed class PortableQueryResolutionGateTests
         PortableQueryIntent crossContext = Intent(terms:
         [
             Term(TestVocabulary.ToolAliasKey, "v1"),
-            Term(TestVocabulary.ToolKey, "v1"),
+            Term(TestVocabulary.ToolFormatKey, "v1"),
         ]);
         PortableQueryFailure crossContextFailure =
             Resolve(refusing, crossContext).Failure;
         Assert.Equal(
             PortableQueryFailureReason.DuplicateAfterBinding,
             crossContextFailure.Reason);
-        Assert.Equal(TestVocabulary.ToolKey, crossContextFailure.Offender);
+        Assert.Equal(TestVocabulary.ToolFormatKey, crossContextFailure.Offender);
 
         string payload = PortableQueryPayloadCodec.Encode(
             crossContext,
@@ -777,8 +861,8 @@ public sealed class PortableQueryResolutionGateTests
         }
 
         Reach(withRanking, Intent(terms: [Term("gone", "x")]));
-        Reach(withRanking, Intent(terms: [Term(TestVocabulary.ToolKey, "v1", PortableQueryOperator.AtMost)]));
-        Reach(withRanking, Intent(terms: [Term(TestVocabulary.ToolKey, "v9")]));
+        Reach(withRanking, Intent(terms: [Term(TestVocabulary.ToolFormatKey, "v1", PortableQueryOperator.AtMost)]));
+        Reach(withRanking, Intent(terms: [Term(TestVocabulary.ToolFormatKey, "v9")]));
         Reach(withRanking, Intent(terms:
         [
             Term(TestVocabulary.DependsKey, "Serilog"),

@@ -28,9 +28,15 @@ This contract does not own CLI source selection, assembly descriptor
 construction, Analysis index construction policy, PDB acquisition, or
 multi-assembly coordinate joins.
 
-`library --il-offsets <file>` is a prototype for explaining sparse runtime
-coordinates. It assumes another tool has already collected MethodDef token + IL
-offset pairs and normalizes them into a simple text file:
+The target CLI places exact and sparse IL-coordinate requests under
+`library coordinate`, as specified by
+[Coordinate child command](coordinate-child-command.md). Current
+`library --il-offset` and `library --il-offsets` remain executable until that
+cutover.
+
+The sparse file mode is a prototype for explaining runtime coordinates. It
+assumes another tool has already collected MethodDef token + IL offset pairs
+and normalizes them into a simple text file:
 
 ```text
 # label coordinate
@@ -43,7 +49,7 @@ The command resolves each coordinate against one assembly and prints a compact
 summary:
 
 ```bash
-dotnet-inspect library My.dll --il-offsets coords.txt
+dotnet-inspect library coordinate --file coords.txt --library My.dll
 ```
 
 ```text
@@ -53,6 +59,39 @@ Coordinate      Label            Member      IL Offset  Meaning         Evidence
 0x06000042+0x2F profiler-sample  My.Type.M1  IL_002F    return address  call at IL_002A to M2
 0x06000051+0x10 debugger-frame   My.Type.M2  IL_0010    allocation      array int[]
 ```
+
+### Population bound
+
+One sparse file accepts at most **1,024 significant records**. Each non-empty,
+non-comment line consumes one record from that budget before coordinate
+parsing, so malformed records and valid coordinates share the same bound.
+Blank lines and lines whose first non-whitespace character is `#` do not
+consume it.
+
+The parser must detect a 1,025th significant record before opening the selected
+Library or resolving any coordinate. It returns the typed
+`CoordinatePopulationLimitExceeded` request failure with the 1,024-record
+limit and observed line number. It produces no coordinate rows and never
+silently truncates the file. Per-line malformed-input rows and partial useful
+output apply only to files admitted within the population bound.
+
+The adopting query owns this limit because it controls the number of
+coordinate-resolution operations. A Release gate supplies 1,024 mixed valid
+and malformed records, and a second gate supplies one additional significant
+record and proves pre-acquisition rejection. This is an operation-work bound,
+not a claim that local files are hostile or immutable.
+
+### Record ordering
+
+The target operation emits one row per significant record in source-file order,
+whether that record contains a valid coordinate or a malformed-input failure.
+Row selection applies to that ordered result.
+
+This intentionally corrects the current `library --il-offsets` implementation,
+which accumulates malformed and valid records separately and emits every
+malformed row first. The cutover does not claim legacy row-order parity for
+mixed files. A Release fixture interleaves valid and malformed records and
+asserts the full result plus `-n 1 --head` and `-n 1 --tail`.
 
 ## Prototype producer workflows
 
@@ -64,8 +103,8 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 1. Use a debugger, SOS, or dump inspection tool to collect stack frames that
    include a method identity and IL offset.
 2. Normalize frames to `0x06000000+0x0` coordinates in a text file.
-3. Run `library --il-offsets` to explain return addresses, callsites, exception
-   regions, and semantic context rows.
+3. Run `library coordinate --file` to explain return addresses, callsites,
+   exception regions, and semantic context rows.
 4. Malformed lines are kept as `error` rows so partially-clean artifacts can
    still produce a useful summary.
 
@@ -73,7 +112,7 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 
 1. Use a profiler or EventPipe trace tool to identify hot methods and offsets.
 2. Symbolize native/IP data to method token + IL offset when needed.
-3. Run `library --il-offsets` with labels such as `hot-sample` or
+3. Run `library coordinate --file` with labels such as `hot-sample` or
    `alloc-sample` to summarize what each sparse coordinate represents.
 
 ### Analyzer / CI artifact workflow
@@ -81,8 +120,8 @@ likely the collection and normalization step, not the `dotnet-inspect` query.
 1. A static analyzer or test harness emits method tokens and IL offsets for
    suspicious points.
 2. The agent turns the artifact into the coordinate file format.
-3. `library --il-offsets` produces the shared explanation table used in PR or
-   issue triage.
+3. `library coordinate --file` produces the shared explanation table used in
+   PR or issue triage.
 
 ## Deferrals
 

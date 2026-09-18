@@ -162,17 +162,17 @@ public class CacheCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--head", "| Field | Value |")]
-    [InlineData("--tail", "Run 'dotnet-inspect cache clear' to clear the cache.")]
-    public async Task Cli_LineLimitSelectsRenderedCacheLines(
-        string direction,
+    [InlineData("--lines", "| Field | Value |")]
+    [InlineData("--tail-lines", "Run 'dotnet-inspect cache clear' to clear the cache.")]
+    public async Task Cli_ExplicitLineLimitSelectsRenderedCacheLines(
+        string lineSelection,
         string expectedLine)
     {
         var categoryPath = Path.Combine(_cacheBasePath, "versions");
         Directory.CreateDirectory(categoryPath);
         File.WriteAllText(Path.Combine(categoryPath, "versions.json"), "{}");
 
-        string[] args = ["cache", "-n", "1", direction];
+        string[] args = ["cache", "-n", "1", lineSelection];
         var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
         var (result, output, error) = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
@@ -185,6 +185,116 @@ public class CacheCommandTests : IDisposable
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries
                     | StringSplitOptions.TrimEntries));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cli_BareLimitSelectsRenderedFallback(
+        bool tail)
+    {
+        string[] args = tail
+            ? ["cache", "-n", "1", "--tail"]
+            : ["cache", "-n", "1"];
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
+        var inferred = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+        string[] explicitArgs = tail
+            ? ["cache", "-n", "1", "--tail-lines"]
+            : ["cache", "-n", "1", "--lines"];
+        var explicitParseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(explicitArgs);
+        var explicitResult = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                explicitParseResult,
+                explicitArgs));
+
+        Assert.Equal(0, inferred.ExitCode);
+        Assert.Empty(inferred.Error);
+        Assert.Equal(explicitResult, inferred);
+        Assert.Single(
+            inferred.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Fact]
+    public async Task Cli_BareShorthandSelectsRenderedFallback()
+    {
+        string[] inferredArgs = ["cache", "-1"];
+        var inferredRoot = CommandLineBuilder.CreateRootCommand();
+        inferredArgs =
+            CommandLineBuilder.PreprocessArgs(
+                inferredArgs,
+                inferredRoot);
+        var inferredParseResult =
+            inferredRoot.Parse(inferredArgs);
+        var inferred = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                inferredParseResult,
+                inferredArgs));
+        string[] explicitArgs = ["cache", "-n1", "--lines"];
+        var explicitParseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(explicitArgs);
+        var explicitResult = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                explicitParseResult,
+                explicitArgs));
+
+        Assert.Equal(0, inferred.ExitCode);
+        Assert.Empty(inferred.Error);
+        Assert.Equal(explicitResult, inferred);
+    }
+
+    [Fact]
+    public void CacheClear_AcceptsExplicitTailLineSelectionGrammar()
+    {
+        var parseResult = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "cache",
+            "clear",
+            "-n",
+            "1",
+            "--lines",
+            "--tail",
+            "--session",
+            "row-selection-test",
+        ]);
+
+        Assert.Empty(parseResult.Errors);
+    }
+
+    [Fact]
+    public async Task Cli_EnvironmentJsonRejectsInferredLineSelection()
+    {
+        string? original =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            string[] args = ["cache", "-n", "1"];
+            var parseResult =
+                CommandLineBuilder.CreateRootCommand().Parse(args);
+            var (result, output, error) = await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+            Assert.Equal(1, result);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Rendered-line selection cannot be combined with JSON output",
+                error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                original);
+        }
     }
 
     [Theory]

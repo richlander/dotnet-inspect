@@ -20,12 +20,16 @@ internal sealed class CliRowSelectionCommandAdoption
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
         Func<ParseResult, bool> isActive,
-        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering)
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering,
+        CliRowSelectionDefaultUnit defaultUnit,
+        CliRowSelectionCommandAdoption? fallback)
     {
         Bindings = bindings;
         Capabilities = capabilities;
         IsActive = isActive;
         ValidateLowering = validateLowering;
+        DefaultUnit = defaultUnit;
+        Fallback = fallback;
     }
 
     public CliRowSelectionOptionBindings Bindings { get; }
@@ -35,6 +39,10 @@ internal sealed class CliRowSelectionCommandAdoption
     public Func<ParseResult, bool> IsActive { get; }
 
     public Func<ParseResult, CliRowSelectionLowering<string>, string?>? ValidateLowering { get; }
+
+    public CliRowSelectionDefaultUnit DefaultUnit { get; }
+
+    public CliRowSelectionCommandAdoption? Fallback { get; }
 }
 
 internal sealed record CliRowSelectionPreparation
@@ -77,6 +85,8 @@ internal sealed record CliRowSelectionPreparation
 
     public bool IsAdopted { get; init; }
 
+    public bool HasRequest { get; init; }
+
     public bool IsActive => Lowering is not null || Error is not null;
 
     public static CliRowSelectionPreparation Inactive(ParseResult parseResult) =>
@@ -117,22 +127,62 @@ internal static class CliRowSelectionCommandRegistry
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
         Func<ParseResult, bool> isActive,
-        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null)
+        Func<ParseResult, CliRowSelectionLowering<string>, string?>? validateLowering = null,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(bindings);
         ArgumentNullException.ThrowIfNull(isActive);
+        Adoptions.TryGetValue(
+            command,
+            out CliRowSelectionCommandAdoption? fallback);
+        Adoptions.Remove(command);
         Adoptions.Add(
             command,
-            new(bindings, capabilities, isActive, validateLowering));
+            new(
+                bindings,
+                capabilities,
+                isActive,
+                validateLowering,
+                defaultUnit,
+                fallback));
     }
 
     public static bool OwnsShortLimit(
         ParseResult parseResult,
         IReadOnlyList<string> arguments)
     {
-        if (TryGetActiveAdoption(parseResult, out _))
+        bool hasExplicitLineUnit =
+            arguments.Any(
+                static argument =>
+                    argument is "--lines" or "--tail-lines"
+                    || argument.StartsWith(
+                        "--lines=",
+                        StringComparison.Ordinal)
+                    || argument.StartsWith(
+                        "--tail-lines=",
+                        StringComparison.Ordinal));
+        if (Adoptions.TryGetValue(
+                parseResult.CommandResult.Command,
+                out CliRowSelectionCommandAdoption? adoption)
+            && adoption.IsActive(parseResult)
+            && (adoption.Capabilities
+                    != CliRowSelectionCapabilities.Lines
+                || adoption.DefaultUnit
+                    == CliRowSelectionDefaultUnit.RenderedLines
+                || parseResult.GetResult(adoption.Bindings.Limit)
+                    is { Implicit: false }
+                || hasExplicitLineUnit))
+        {
             return true;
+        }
+
+        if (hasExplicitLineUnit
+            && TryGetActiveAdoption(parseResult, out _))
+        {
+            return true;
+        }
 
         return parseResult.CommandResult.Command.Name == "router"
             && arguments.Any(
@@ -151,7 +201,12 @@ internal static class CliRowSelectionCommandRegistry
                 parseResult,
                 out CliRowSelectionCommandAdoption? adoption))
         {
-            return CliRowSelectionPreparation.Inactive(parseResult);
+            return CliRowSelectionPreparation.Inactive(parseResult) with
+            {
+                IsAdopted = Adoptions.TryGetValue(
+                    parseResult.CommandResult.Command,
+                    out _)
+            };
         }
 
         string[] effectiveArguments =
@@ -164,7 +219,8 @@ internal static class CliRowSelectionCommandRegistry
                 rootCommand,
                 effectiveArguments,
                 adoption!.Bindings,
-                adoption.Capabilities);
+                adoption.Capabilities,
+                adoption.DefaultUnit);
 
         if (!adoption.IsActive(result.ParseResult))
         {
@@ -182,6 +238,8 @@ internal static class CliRowSelectionCommandRegistry
             Arguments = result.Arguments,
             ArgumentPositions = result.ArgumentPositions,
             IsAdopted = true,
+            HasRequest = result.Occurrences.Count > 0
+                || result.ArgumentFailures.Count > 0,
             PresenceOptions =
             [
                 adoption.Bindings.Head,
@@ -260,7 +318,10 @@ internal static class CliRowSelectionCommandRegistry
                 parseResult,
                 out CliRowSelectionLowering<string>? lowering))
         {
-            semanticIntent = lowering.SemanticIntent;
+            semanticIntent =
+                lowering.SemanticIntent.Operations.Count > 0
+                    ? lowering.SemanticIntent
+                    : null;
             error = null;
             return true;
         }
@@ -290,10 +351,15 @@ internal static class CliRowSelectionCommandRegistry
     {
         if (Adoptions.TryGetValue(
                 parseResult.CommandResult.Command,
-                out adoption)
-            && adoption.IsActive(parseResult))
+                out adoption))
         {
-            return true;
+            while (adoption is not null)
+            {
+                if (adoption.IsActive(parseResult))
+                    return true;
+
+                adoption = adoption.Fallback;
+            }
         }
 
         adoption = null;

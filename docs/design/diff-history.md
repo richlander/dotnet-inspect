@@ -2,12 +2,19 @@
 
 ## Status, owner, and claim
 
-Status: **proposed; not implemented**. This specification is tracked by
+Status: **partially implemented**. This specification is tracked by
 [#6987](https://github.com/richlander/dotnet-inspect/issues/6987), with the
 subject-specific Count revision in
 [#7229](https://github.com/richlander/dotnet-inspect/issues/7229), under
 [Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213)
 and [multi-part document adoption #6980](https://github.com/richlander/dotnet-inspect/issues/6980).
+The first shared terminal slice is tracked by
+[#7472](https://github.com/richlander/dotnet-inspect/issues/7472): it accepts an
+already-settled package population and exact full or sparse evaluation
+selection, evaluates Count-free whole-Type `api.member` censuses, and returns
+the typed resource-free Document through `InspectionEnvelope<DiffHistoryOutcome>`.
+Population discovery, Count, exact-Member Analysis, serializer/output
+lowering, and host adoption remain later slices.
 
 The **Diff History inspection** owner defines temporal inspection and the
 related metadata-only version-population reduction:
@@ -40,6 +47,15 @@ The 2026-09-16 decision in #7229 makes Type/Member History Count answer
 [Subject-specific History Count](#subject-specific-history-count) owns that
 cohort and its evidence requirements. Package version-population counts and
 future Package History version-row counts remain distinct.
+
+The subsequent decision in
+[#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
+exact-Member Analysis source receipt consumed by bounded cell-pair execution.
+The first population Version in caller-directed order is the mandatory source.
+One selector resolution captures its exact declaration coordinate and kind;
+every checkpoint is then evaluated directly from that same detached receipt.
+History never scans later Versions for a replacement seed or chains
+declaration identity through an intervening checkpoint.
 
 The subsequent user-approved revision makes `--at` target selection, not an
 operation-enabling switch. It supersedes the earlier requirement for an
@@ -155,6 +171,12 @@ dotnet-inspect package Markout@0.33.0..0.35.2 --count
 # Count changed destination versions for one selected API Member
 dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
   --package System.Text.Json@9.0.0..10.0.0 --history --count
+
+# Sparse Member Analysis includes the mandatory first-Version source
+dotnet-inspect member diff System.Text.Json.JsonSerializer Deserialize:1 \
+  --package System.Text.Json@9.0.0..10.0.0 \
+  --history --finding analysis.allocation \
+  --at first --at 9.0.5 --at last
 ```
 
 These are target invocations, not currently supported syntax.
@@ -230,6 +252,16 @@ failures remain visible and cannot silently shorten the request into
 successful full coverage. Version discovery without payload evaluation belongs
 to Package version listing or population Count, not a dormant History mode.
 
+An exact-Member Analysis History has one additional target-selection rule: the
+selected evaluations must include the first population Version in
+caller-directed order. That Version is the mandatory source where the Member
+selector is resolved. Default full evaluation, `--at all`, and an explicit
+`--at first` satisfy the rule. A restricted selection that omits the first
+Version is rejected before payload evaluation; History never acquires an
+unselected source implicitly. Exact checkpoints that infer their own bounds
+already select the minimum bound, which is the first Version in their required
+ascending order.
+
 `#N`, `first`, `last`, `endpoints`, and `midpoint` address this resolved
 population, not a portable identity. Replay retains the population bounds and the existing
 source/TFM/visibility context, and uses exact versions for checkpoint targets;
@@ -288,6 +320,74 @@ replacement grammar. Type/Member selectors follow their subject grammar after
 become exact History focus selectors.
 Source authorization, `--tfm`, `--preview`, and `--all` retain their meanings.
 
+### Exact-Member Analysis seed and checkpoint correspondence
+
+The `analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`
+producers require one exact Member. For those producers, the first population
+Version in caller-directed order is the designated source. Resolve the Member
+selector exactly once in that selected source cell and issue one typed,
+resource-free source receipt. The receipt atomically identifies the exact
+prepared source cell and exact selected declaration, including its declaration
+kind and one stable `FindingSubject`. It is the only seed currency accepted by
+later evaluations.
+
+The receipt is detached identity and association evidence, not package opening
+authority or a live structural subject. Its Finding-subject key is stable
+across the History population and does not depend on a Workspace, metadata
+token, display ordinal, or destination Version. Receipt construction, exact
+binding to a later bounded execution, and validation of that association are
+separate owner contracts; consumers may not reconstruct or reinterpret the
+receipt from display text.
+
+If source selection is absent, ambiguous, refused, or failed, History has no
+Analysis seed. Preserve that native source-selection non-success and do not
+evaluate destination Analysis. A later Version that happens to contain the
+same display name or ordinal is not a replacement source. The user must choose
+a range whose first Version supplies the intended Member.
+
+Caller cancellation is not a source-selection status or declaration edge. It
+terminates History after required cleanup and propagates with the caller token;
+the operation publishes no `DiffHistoryOutcome`. A separately owner-typed
+timeout, acquisition failure, or other operational non-success retains that
+owner's native outcome and is not relabeled as caller cancellation.
+
+The source Version contributes the baseline evaluation for the issued receipt
+but no same-Version declaration edge. Every other selected checkpoint is
+evaluated directly from that same receipt. The bounded evaluation owner returns
+one resource-free result containing:
+
+- the evaluated Version and producer;
+- the selected producer's `FindingInspection<T>`;
+- owner-issued detached declaration-relationship evidence that distinguishes
+  exact, complete destination absence, ambiguity, refusal, and failure; and
+- enough provenance and failure evidence to interpret the evaluation after all
+  live resources close.
+
+The relation evidence is not a live `ApiCoordinateCorrespondenceResult` and
+retains no Workspace-local subject or package observation. Queries owns that
+detached evidence under
+[#7337](https://github.com/richlander/dotnet-inspect/issues/7337); #7248 owns
+bounded baseline/checkpoint execution, receipt binding, matched Analysis,
+Finding projection, and cleanup. This owner consumes those results and does not
+restate either component's construction, lifetime, absence classification, or
+failure algorithm.
+
+A non-exact relationship does not stop later independent checkpoints, and a
+later direct exact relationship may establish that the seeded declaration is
+present again. It does not bridge through or derive identity from the
+intervening gap. Ambiguity, refusal, or failure remains non-success rather than
+subject absence. Caller cancellation remains terminal. Unevaluated Versions
+remain population-minus-evaluations and do not receive a fabricated
+`FindingInspection<T>`.
+
+Checkpoint-to-checkpoint declaration chaining is not admitted. In particular,
+History does not make a later destination the source for the next edge, replay
+the source display ordinal in each Version, infer identity from adjacent array
+positions, or infer continuity from Finding keys. The bounded consumer in
+[Package version-cell pair Analysis](package-version-cell-pair-analysis.md)
+receives this owner-issued source receipt and returns the detached evaluation
+contract above. It does not choose or reinterpret the seed.
+
 History-only inputs require `--history`; in particular, `--at` must not
 silently change endpoint Diff or Count into correlation. History rejects
 pairwise classifiers and body-comparison controls such as `--breaking`, `--additive`,
@@ -303,8 +403,12 @@ carries one settled, resource-free `DiffHistoryDocument` and the optional
 requested Count result defined below. The Document preserves:
 
 - the resolved version population and requested evaluation selection;
+- the optional exact-Member Analysis detached source receipt and
+  source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
   producer, and native Finding inspection;
+- owner-issued resource-free declaration-relationship evidence for each
+  exact-Member checkpoint, with no baseline self-edge;
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
@@ -367,6 +471,14 @@ exact version of an onset or certify the intervening history.
 Fewer than two evaluated addresses yields no transition evidence, not an
 unchanged History.
 
+For exact-Member Analysis, source-to-checkpoint declaration edges establish
+which evaluations observe the seeded Member; consecutive transitions compare
+the resulting native Finding observations. A Finding transition is not a
+declaration correspondence edge and cannot manufacture one. When one
+checkpoint has no exact source edge, preserve that gap in the transition
+evidence. A later checkpoint may still have its own direct exact edge from the
+seed, without claiming that the missing checkpoint carried identity forward.
+
 Equal first and last endpoints do not imply an unchanged History. Evaluated
 intermediate changes remain present, including an addition followed by removal.
 Failed and inapplicable evaluations remain distinct from absent subjects or
@@ -397,6 +509,9 @@ immediate predecessor in the selected population's caller-directed order,
 including reversed ranges. The first population version is the baseline and
 does not contribute a changed-version row. Result-row selection cannot replace
 that predecessor with the previous displayed row or rebase the population.
+For exact-Member Analysis, each compared observation also retains its direct
+relationship to the designated source; predecessor order never becomes
+declaration identity.
 
 A destination contributes one row when the selected native comparison
 establishes at least one change. Multiple changed Findings, members, attributes,
@@ -627,6 +742,34 @@ The implementation slices must supply Release gates for:
 - mode-aware section and row selection without extra payload evaluation;
 - plain endpoint Diff without interior version discovery, and default full
   History evaluation equivalent to explicit `--at all`;
+- exact-Member Analysis requiring the first population Version in every
+  evaluated selection, including rejection before payload work when restricted
+  `--at` omits it;
+- baseline Member selection exactly once, with absent, ambiguous, refused,
+  and failed source outcomes preventing destination Analysis rather than
+  selecting a later same-named or same-ordinal seed;
+- one resource-free receipt atomically identifying the selected source cell,
+  declaration, kind, and stable Finding subject, with no dependence on
+  Workspace identity, metadata token, display ordinal, or destination Version;
+- one detached baseline evaluation for the receipt, with no same-Version
+  declaration edge, and the same receipt supplied unchanged to every later
+  selected checkpoint;
+- caller cancellation returned from a bounded consumer terminating History
+  after required cleanup, propagating the caller token, and publishing no
+  History outcome;
+- resource-free exact, complete-absence, ambiguous, refused, and failed
+  declaration-relationship evidence supplied by the owning consumers, with
+  each completed evaluation retaining its native Finding inspection;
+- direct source-to-checkpoint relationships, including a later exact result
+  after an intervening gap without checkpoint chaining, transitive identity,
+  selector replay, or replacement-seed search;
+- an exact → absent → exact three-checkpoint history producing comparable
+  removal and reappearance transitions and correct Changed Versions/Count,
+  while ambiguous, refused, or failed evidence makes affected Count evidence
+  insufficient rather than omitting the evaluated checkpoint or inventing
+  absence;
+- consecutive Finding transitions consuming those direct-edge-qualified
+  observations without manufacturing declaration correspondence;
 - endpoint-only, endpoint-plus-checkpoint, and endpoint-plus-midpoint sampling,
   deduplication, and population order independent of selector order;
 - midpoint selection for odd/even and reversed populations, including
@@ -664,5 +807,6 @@ The implementation slices must supply Release gates for:
 
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are
-classified under the test-cost policy. No new concurrent protocol is specified:
-the existing Workspace and Browser lifetime owners retain their models.
+classified under the test-cost policy. No new concurrent protocol or retained
+Workspace lifecycle is specified; existing component and Browser lifetime
+owners retain their models.

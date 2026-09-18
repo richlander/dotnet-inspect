@@ -482,9 +482,16 @@ public static class IrImporter
 
     /// <summary>
     /// Evaluates a deterministic hash-ranked sample of method bodies from the
-    /// assembly. Returns candidates that can be built in parallel.
+    /// assembly. An optional predicate filters metadata candidates before
+    /// ranking, and an optional identity suffix distinguishes candidates for a
+    /// caller-specific population without changing other stable samples.
+    /// Returns candidates that can be built in parallel.
     /// </summary>
-    public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(MetadataSource source, int sampleSize)
+    public static IEnumerable<StableSampleCandidate> GetStableSampleCandidates(
+        MetadataSource source,
+        int sampleSize,
+        Func<StableSampleCandidate, bool>? predicate = null,
+        Func<StableSampleCandidate, string?>? stableIdentitySuffix = null)
     {
         var reader = source.Reader;
         var candidates = new List<MethodCandidate>();
@@ -503,7 +510,20 @@ public static class IrImporter
 
                 if (method.RelativeVirtualAddress == 0)
                     continue;
+                var stableCandidate = new StableSampleCandidate(
+                    typeName,
+                    memberName,
+                    overloadIndex,
+                    typeDefHandle,
+                    methodHandle);
+                if (predicate is not null && !predicate(stableCandidate))
+                    continue;
                 string key = StableSampleKey(reader, typeDef, method, typeName, memberName);
+                if (stableIdentitySuffix?.Invoke(stableCandidate)
+                    is { Length: > 0 } suffix)
+                {
+                    key += "|" + suffix;
+                }
                 candidates.Add(new MethodCandidate(
                     typeDefHandle,
                     methodHandle,
@@ -719,6 +739,7 @@ public static class IrImporter
             ExceptionClauseImports = method.Body.ExceptionClauseImports,
             LocalNames = method.Body.LocalNames,
             LocalDeclaredInNestedScope = method.Body.LocalDeclaredInNestedScope,
+            LocalDeclarations = method.Body.LocalDeclarations,
             MemorySafetyMode = source.MemorySafetyMode,
             SkipLocalsInit = method.Body.SkipLocalsInit,
             CompilerGenerated = method.CompilerGenerated,
@@ -748,9 +769,13 @@ public static class IrImporter
             var block = new Block(leader);
             container.Add(block);
             if (!BuildBlock(source, method, function, block, span, leader, NextLeader(leaders, leader, span.Length), callerScope, state, trace))
+            {
+                ScopedLocalImport.Apply(function, method.Body);
                 return function;  // honest stop already recorded
+            }
         }
 
+        ScopedLocalImport.Apply(function, method.Body);
         ResolveTypeInfo(source, function);
         RecordUnsupportedTypeDiagnostics(function);
         if (IrInvariants.Enabled)

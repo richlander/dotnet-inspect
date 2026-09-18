@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -97,7 +98,7 @@ public static class WorkspaceSharePacketTransposer
         if (canonical.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
         {
             throw new ArgumentException(
-                "Use ToCommittedDefinitions for workspace share format 2.",
+                "Use ToCommittedDefinitions for workspace share format 2, 3, or 4.",
                 nameof(packet));
         }
 
@@ -194,23 +195,32 @@ public static class WorkspaceSharePacketTransposer
         WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
             WorkspaceSharePacketCodec.Encode(packet),
             cancellationToken);
-        if (canonical.FormatVersion != WorkspaceSharePacketCodec.CurrentFormatVersion)
+        if (canonical.FormatVersion is not (
+            WorkspaceSharePacketCodec.Format2Version
+            or WorkspaceSharePacketCodec.CurrentFormatVersion
+            or WorkspaceSharePacketCodec.Format4Version))
         {
             throw new ArgumentException(
-                "Workspace share packet must use format 2.",
+                "Workspace share packet must use format 2, 3, or 4.",
                 nameof(packet));
         }
 
+        int schemaVersion = canonical.FormatVersion;
         WorkspaceContextDefinition[] contexts =
             ToWorkspaceContexts(canonical);
         NavigationTabDefinition[] navigationTabs =
             ToNavigationTabs(canonical);
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             WorkspaceId,
-            contexts);
+            contexts,
+            registrations:
+                schemaVersion is InspectionDefinitionSchema.Version3
+                    or InspectionDefinitionSchema.Version4
+                    ? canonical.Registrations
+                    : null);
         var navigation = new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             NavigationId,
             navigationTabs,
             canonical.FocusedTabIndex is int focused
@@ -230,14 +240,16 @@ public static class WorkspaceSharePacketTransposer
         }
 
         var view = new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             ViewId,
             states);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionSchema.Version2,
+            schemaVersion,
             ScenarioId,
             workspace: WorkspaceId,
-            context: $"g{canonical.SelectedContextIndex}",
+            context: canonical.SelectedContextIndex is int selected
+                ? $"g{selected}"
+                : null,
             view: ViewId,
             navigation: NavigationId);
 
@@ -246,8 +258,9 @@ public static class WorkspaceSharePacketTransposer
         registry.Add(navigation);
         registry.Add(view);
         registry.Add(scenario);
-        return AssertVersion2(
-            registry.PrepareScenario(ScenarioId));
+        return AssertCommitted(
+            registry.PreparePacketScenario(ScenarioId),
+            schemaVersion);
     }
 
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(
@@ -321,12 +334,20 @@ public static class WorkspaceSharePacketTransposer
         return tabs;
     }
 
-    private static CommittedScenarioDefinitionSet AssertVersion2(
-        InspectionDefinitionScenarioPreparationResult result) =>
-        result switch
+    private static CommittedScenarioDefinitionSet AssertCommitted(
+        InspectionDefinitionScenarioPreparationResult result,
+        int schemaVersion) =>
+        (result, schemaVersion) switch
         {
-            InspectionDefinitionScenarioPreparationResult.Version2 version2 =>
+            (InspectionDefinitionScenarioPreparationResult.Version2 version2,
+                InspectionDefinitionSchema.Version2) =>
                 version2.Definitions,
+            (InspectionDefinitionScenarioPreparationResult.Version3 version3,
+                InspectionDefinitionSchema.Version3) =>
+                version3.Definitions,
+            (InspectionDefinitionScenarioPreparationResult.Version4 version4,
+                InspectionDefinitionSchema.Version4) =>
+                version4.Definitions,
             _ => throw new UnreachableException(),
         };
 
@@ -755,11 +776,23 @@ public static class WorkspaceSharePacketTransposer
         CommittedNavigationDefinition? navigation = definitions.Navigation;
         CommittedViewDefinition? view = definitions.View;
         ScenarioDefinition scenario = definitions.Scenario;
+        int schemaVersion = scenario.SchemaVersion;
+        string format = schemaVersion.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
         if (workspace is null || navigation is null || view is null)
         {
             return InvalidDefinition(
                 "scenario",
-                "Workspace share format 2 requires workspace, navigation, and view records.");
+                $"Workspace share format {format} requires workspace, navigation, and view records.");
+        }
+
+        if (schemaVersion is InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4)
+        {
+            WorkspaceSharePacketProjectionResult? registrationFailure =
+                ValidateProjectableRegistrations(workspace, format);
+            if (registrationFailure is not null)
+                return registrationFailure;
         }
 
         WorkspaceSharePacketProjectionResult? failure =
@@ -769,32 +802,37 @@ public static class WorkspaceSharePacketTransposer
         if (failure is not null)
             return failure;
 
-        WorkspaceSharePacketProjectionResult topology =
-            ProjectCommittedTopology(
-                workspace,
-                navigation,
-                scenario,
-                cancellationToken);
-        if (!topology.Succeeded)
-            return topology;
+        WorkspaceSharePacket? basis = null;
+        if (workspace.Contexts.Count != 0)
+        {
+            WorkspaceSharePacketProjectionResult topology =
+                ProjectCommittedTopology(
+                    workspace,
+                    navigation,
+                    scenario,
+                    cancellationToken);
+            if (!topology.Succeeded)
+                return topology;
+            basis = topology.Packet ?? throw new UnreachableException();
+        }
 
         if (workspace.Title is not null || workspace.Description is not null)
         {
             return NonProjectable(
                 "workspace",
-                "Packet format 2 cannot preserve workspace presentation text.");
+                $"Packet format {format} cannot preserve workspace presentation text.");
         }
         if (workspace.Groups.Count != 0 || definitions.Catalogs.Count != 0)
         {
             return NonProjectable(
                 "workspace.groups",
-                "Packet format 2 cannot preserve authored group declarations.");
+                $"Packet format {format} cannot preserve authored group declarations.");
         }
         if (scenario.Title is not null || scenario.Description is not null)
         {
             return NonProjectable(
                 "scenario",
-                "Packet format 2 cannot preserve scenario presentation text.");
+                $"Packet format {format} cannot preserve scenario presentation text.");
         }
 
         foreach ((CommittedViewStateDefinition state, int index) in
@@ -804,12 +842,10 @@ public static class WorkspaceSharePacketTransposer
             {
                 return NonProjectable(
                     $"view.states[{index}]",
-                    "Query-bearing format-2 projection requires #6971.");
+                    $"Query-bearing format-{format} projection requires #6971.");
             }
         }
 
-        WorkspaceSharePacket basis = topology.Packet
-            ?? throw new UnreachableException();
         int? focusedTabIndex = null;
         if (navigation.Focus is not null)
         {
@@ -841,12 +877,33 @@ public static class WorkspaceSharePacketTransposer
                 state.Facet);
         }
 
-        var packet = new WorkspaceSharePacket(
-            [.. basis.Tabs],
-            [.. basis.Contexts],
-            focusedTabIndex,
-            basis.SelectedContextIndex,
-            packetStates);
+        WorkspaceSharePacket packet = schemaVersion switch
+        {
+            InspectionDefinitionSchema.Version4 =>
+                WorkspaceSharePacket.CreateV4(
+                    basis is null ? [] : [.. basis.Tabs],
+                    basis is null ? [] : [.. basis.Contexts],
+                    [.. workspace.Registrations],
+                    focusedTabIndex,
+                    basis?.SelectedContextIndex,
+                    packetStates),
+            InspectionDefinitionSchema.Version3 =>
+                new WorkspaceSharePacket(
+                    basis is null ? [] : [.. basis.Tabs],
+                    basis is null ? [] : [.. basis.Contexts],
+                    [.. workspace.Registrations],
+                    focusedTabIndex,
+                    basis?.SelectedContextIndex,
+                    packetStates),
+            _ =>
+                new WorkspaceSharePacket(
+                    [.. basis!.Tabs],
+                    [.. basis.Contexts],
+                    focusedTabIndex,
+                    basis.SelectedContextIndex
+                        ?? throw new UnreachableException(),
+                    packetStates),
+        };
         try
         {
             WorkspaceSharePacket canonical = WorkspaceSharePacketCodec.Decode(
@@ -870,15 +927,28 @@ public static class WorkspaceSharePacketTransposer
             CommittedScenarioDefinitionSet definitions,
             CancellationToken cancellationToken)
     {
+        int schemaVersion = definitions.Scenario.SchemaVersion;
+        if (schemaVersion is not (
+            InspectionDefinitionSchema.Version2
+            or InspectionDefinitionSchema.Version3
+            or InspectionDefinitionSchema.Version4))
+        {
+            return InvalidDefinition(
+                "scenario.schemaVersion",
+                "Workspace share committed packets require "
+                    + "schema-version-2, schema-version-3, or schema-version-4 records.");
+        }
+
         foreach (InspectionDefinitionRecord record in definitions.Records)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (record.SchemaVersion != InspectionDefinitionSchema.Version2)
+            if (record.SchemaVersion != schemaVersion)
             {
                 return InvalidDefinition(
                     record.Kind.ToString().ToLowerInvariant()
                         + ".schemaVersion",
-                    "Workspace share format 2 requires schema-version-2 records.");
+                    $"Workspace share format {schemaVersion} requires "
+                        + $"schema-version-{schemaVersion} records.");
             }
 
             try
@@ -932,18 +1002,91 @@ public static class WorkspaceSharePacketTransposer
             definitions.Workspace,
             definitions.Navigation,
             view,
-            definitions.Catalogs);
+            definitions.Catalogs,
+            definitions.NavigationTargetMatchMode);
         var registry = new InspectionDefinitionRegistry();
         try
         {
             foreach (InspectionDefinitionRecord record in
                 queryFreeDefinitions.Records)
                 registry.Add(record);
-            _ = registry.PrepareScenario(definitions.Scenario.Id);
+            _ = definitions.NavigationTargetMatchMode
+                is NavigationTargetMatchMode.Exact
+                    ? registry.PreparePacketScenario(definitions.Scenario.Id)
+                    : registry.PrepareScenario(definitions.Scenario.Id);
         }
         catch (InspectionDefinitionException ex)
         {
             return InvalidDefinition("scenario", ex.Message);
+        }
+
+        return null;
+    }
+
+    private static WorkspaceSharePacketProjectionResult?
+        ValidateProjectableRegistrations(
+            WorkspaceDefinition workspace,
+            string format)
+    {
+        if (workspace.Registrations.Count
+            > WorkspaceSharePacketCodec.MaxRegistrations)
+        {
+            return NonProjectable(
+                "workspace.registrations",
+                $"Packet format {format} supports at most "
+                    + $"{WorkspaceSharePacketCodec.MaxRegistrations} registrations.");
+        }
+
+        for (int index = 0; index < workspace.Registrations.Count; index++)
+        {
+            string path = $"workspace.registrations[{index}]";
+            switch (workspace.Registrations[index])
+            {
+                case WorkspaceRegistration.ExactLibrary exact:
+                    if (exact.Coordinate is not (
+                        ExactLibrarySourceCoordinate.Package
+                        or ExactLibrarySourceCoordinate.Platform))
+                    {
+                        return NonProjectable(
+                            path + ".coordinate",
+                            $"Packet format {format} preserves only Package- or Platform-origin exact Libraries.");
+                    }
+                    break;
+                case WorkspaceRegistration.PackagePrefix:
+                    break;
+                case WorkspaceRegistration.Ecosystem ecosystem:
+                    if (ecosystem.Declaration.IntegrationScanner is not null)
+                    {
+                        return NonProjectable(
+                            path + ".integrationScanner",
+                            $"Packet format {format} cannot preserve an Ecosystem integration scanner.");
+                    }
+
+                    for (int populationIndex = 0;
+                        populationIndex
+                            < ecosystem.Declaration.Populations.Length;
+                        populationIndex++)
+                    {
+                        WorkspaceEcosystemPopulationDeclaration population =
+                            ecosystem.Declaration.Populations[populationIndex];
+                        if (population
+                                is WorkspaceEcosystemPopulationDeclaration
+                                    .ExactLibrary library
+                            && library.Coordinate is not (
+                                ExactLibrarySourceCoordinate.Package
+                                or ExactLibrarySourceCoordinate.Platform))
+                        {
+                            return NonProjectable(
+                                path + $".populations[{populationIndex}]",
+                                $"Packet format {format} preserves only Package- or Platform-origin exact Libraries.");
+                        }
+                    }
+                    break;
+                default:
+                    return NonProjectable(
+                        path,
+                        $"Packet format {format} cannot preserve this registration kind.");
+            }
         }
 
         return null;
@@ -969,7 +1112,7 @@ public static class WorkspaceSharePacketTransposer
             {
                 return InvalidDefinition(
                     "navigation.focus",
-                    "Workspace share format 2 focus must name one direct Package tab.");
+                    "Committed Workspace share focus must name one direct Package tab.");
             }
         }
 

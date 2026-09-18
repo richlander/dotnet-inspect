@@ -38,7 +38,7 @@ public sealed class ApiCoordinateMatchQueryResult
     public CoordinatePackageObservation? Before { get; internal init; }
     public CoordinatePackageObservation? After { get; internal init; }
     public ApiCoordinateSourceSelectionResult? SourceSelection { get; internal init; }
-    public ApiCoordinateCorrespondenceResult? Correspondence { get; internal init; }
+    public ApiCoordinateCorrespondenceEvidence? Correspondence { get; internal init; }
 }
 
 /// <summary>
@@ -148,16 +148,14 @@ public static class ApiCoordinateMatchQuery
                     workspace, type, before, after, cancellationToken).ConfigureAwait(false),
             StructuralSubjectIdentity.MemberSubject member =>
                 await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
-                    workspace, member, DeclarationKind(selected.MemberKind),
+                    workspace, member,
+                    ApiDeclarationKindClassifier.FromMemberTarget(selected.MemberKind),
                     before, after, cancellationToken).ConfigureAwait(false),
             _ => throw new InvalidOperationException("Source selection did not produce an API subject."),
         };
         return new(request, ApiCoordinateMatchQueryStage.Correspondence)
         {
-            Before = before,
-            After = after,
-            SourceSelection = selected,
-            Correspondence = correspondence,
+            Correspondence = correspondence.Detach(),
         };
 
         ApiCoordinateMatchQueryResult AcquisitionFailed(
@@ -179,14 +177,4 @@ public static class ApiCoordinateMatchQuery
             };
     }
 
-    static ApiDeclarationKind DeclarationKind(MemberTargetKind? kind) => kind switch
-    {
-        MemberTargetKind.Field => ApiDeclarationKind.Field,
-        MemberTargetKind.Property => ApiDeclarationKind.Property,
-        MemberTargetKind.Event => ApiDeclarationKind.Event,
-        MemberTargetKind.Constructor or MemberTargetKind.Finalizer or MemberTargetKind.Method
-            or MemberTargetKind.Operator or MemberTargetKind.ExplicitInterfaceImplementation
-            or MemberTargetKind.ExtensionMethod => ApiDeclarationKind.Method,
-        _ => throw new InvalidOperationException("The selected Member has no supported declaration kind."),
-    };
 }

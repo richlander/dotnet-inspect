@@ -432,13 +432,22 @@ public partial class CommandExecutionTests
             Namespace = "N",
             Name = "C",
             Kind = "class",
-            Members = [new ApiMember { Name = "M", Kind = "method" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                },
+            ],
         };
         var options = new MemberOptions
         {
             JsonOutput = true,
             Verbosity = Verbosity.Detailed,
             MemberSourceTooComplex = true,
+            OverloadIndex = 1,
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -705,7 +714,6 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("@Source", false)]
-    [InlineData("@All", false)]
     [InlineData("*", false)]
     [InlineData("PDB Source", true)]
     [InlineData("Source Diff", true)]
@@ -1606,6 +1614,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AutoSelectedOverload_PreservesCategorySelectorProvenance()
+    {
+        Type target = typeof(NuGet.Versioning.NuGetVersion);
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            target.FullName!,
+            "Parse",
+            "--library",
+            target.Assembly.Location,
+            "-S",
+            $"{SectionNames.Signature},{SectionCategoryNames.Source}",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(
+            "Source diff unavailable",
+            error,
+            StringComparison.Ordinal);
+        using JsonDocument json = JsonDocument.Parse(output);
+        Assert.Equal(
+            target.FullName,
+            $"{json.RootElement.GetProperty("namespace").GetString()}."
+                + json.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_PrintJson_RetainsTypedPdbSourceUrl()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1725,6 +1761,50 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal("2", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCoordinateFile_CountMatchesLegacy()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var legacy = await RunAppAsync(
+                "library",
+                TestAssemblyPath,
+                "--il-offsets",
+                path,
+                "--count",
+                "--tips",
+                "q");
+            var child = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                path,
+                "--library",
+                TestAssemblyPath,
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(legacy.Exit, child.Exit);
+            Assert.Equal(legacy.Output, child.Output);
+            Assert.Equal(legacy.Error, child.Error);
         }
         finally
         {

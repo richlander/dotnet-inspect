@@ -23,30 +23,41 @@ section pipeline.
 The query-free schema-version-2 records, strict JSON, and most same-version
 composition and schema-dispatch substrate are implemented by
 [#7075](https://github.com/richlander/dotnet-inspect/pull/7075).
-[#7047](https://github.com/richlander/dotnet-inspect/issues/7047) remains open
-to require the view/navigation pair and explicit leading Workspace subject and
-to remove the pre-construction version-1 compatibility handoff.
+[#7047](https://github.com/richlander/dotnet-inspect/issues/7047) requires the
+view/navigation pair and explicit leading Workspace subject without a
+pre-construction version-1 compatibility handoff.
 Runtime subject/context selector resolution against one fresh Workspace,
 including inactive direct-Package state, is mostly implemented by
 [#7094](https://github.com/richlander/dotnet-inspect/pull/7094).
 [#7154](https://github.com/richlander/dotnet-inspect/pull/7154) materializes
 omitted direct-Package context as exact Package-only Navigation context. The
-host-neutral portable query intent and canonical payload codec are implemented by
-[#7093](https://github.com/richlander/dotnet-inspect/pull/7093); vocabulary
-resolution, Definitions query adoption, complete view binding, and the
-restoration coordinator defined here are not yet implemented.
+host-neutral portable query intent and canonical payload codec are implemented
+by [#7093](https://github.com/richlander/dotnet-inspect/pull/7093), and Package
+Query vocabulary resolution is implemented by
+[#7359](https://github.com/richlander/dotnet-inspect/pull/7359). Definitions
+query adoption, query-bearing packet projection, and complete view binding
+remain follow-up work.
 The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
 dormant non-Package inventory while leaving query-bearing packets visibly
-unsupported until #6971. Issue
+unsupported until #6971. Schema-version-3 registration records, packet format
+3, registration-only complete restoration, and the shared managed Browser
+boundary are implemented under
+[#7385](https://github.com/richlander/dotnet-inspect/issues/7385). Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
-complete-restoration implementation that consumes #7047's typed
-schema-version dispatch and validation boundary; its first retained production
-consumer is Inspect Web activation
+host-neutral complete-restoration coordinator that consumes #7047's typed
+schema-version dispatch and validation boundary, rejects earlier versions
+before construction, and prepares one exact unpublished Workspace. Its first
+retained production consumer is Inspect Web activation
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028). CLI replay
 of the same portable records and packets is
 [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+The definition-first role of the `workspace` command, portable
+Workspace-to-Workspace transformations, and noun-command packet consumption are
+specified by
+[Definition-first Workspace interchange](#definition-first-workspace-interchange)
+under [#7379](https://github.com/richlander/dotnet-inspect/issues/7379).
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -93,8 +104,9 @@ wasm site rebuild is sequenced behind it.
 ## Ownership and boundaries
 
 **Workspace Definitions** is the sole owner of the portable committed-view
-shape, definition and packet version boundaries, legacy lowering, projection
-classification, and complete-restoration coordination defined here. Its
+shape, definition and packet version boundaries, restoration-version
+admission, projection classification, and complete-restoration coordination
+defined here. Its
 immediate inputs are an owner-authorized activation demand, product-issued
 acquisition coordinates, structural subject selectors, View Facet Registry
 IDs, query presets expressed as a portable vocabulary ID plus canonical intent
@@ -107,9 +119,9 @@ Adjacent owners remain independent:
 - [CLI Workspace Sharing](cli-workspace-sharing.md) owns the public
   `--share` gesture, its use of an inspection command's already-resolved
   semantic state, terminal packet/URL output, refusal behavior, and
-  command-by-command adoption. It consumes this owner's scenario records and
-  typed packet-projection outcome rather than defining another Workspace or
-  packet grammar.
+  command-by-command adoption. It consumes this owner's definition-first
+  `workspace` role, records, and typed packet-projection outcomes rather than
+  defining another Workspace or packet grammar.
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
   descriptors, applicability, and availability, and owns its private execution
   bindings.
@@ -161,17 +173,27 @@ Navigation effect authority remain separate owner-issued currencies.
    `AssemblyContextGroup`.
 5. **The URL share packet is a terse projection of one scenario
    composition**, produced and consumed through the product transposition
-   layer. CLI inspection commands may request that projection through the
-   separately owned [`--share` contract](cli-workspace-sharing.md); Inspect Web
-   consumes it for restoration. The visible query is a human-readable courtesy
-   label; the peer definition records are always canonical.
+   layer. The `workspace` command authors or transforms the portable Workspace
+   definition under
+   [Definition-first Workspace interchange](#definition-first-workspace-interchange).
+   CLI inspection commands consume that Workspace context, retain their own
+   subject/query grammar, and may request a derived scenario projection through
+   the separately owned [`--share` contract](cli-workspace-sharing.md).
+   Inspect Web consumes the packet for restoration. The visible query is a
+   human-readable courtesy label; the peer definition records are always
+   canonical.
 6. **Complete committed views begin at definition schema version 2 and packet
    format 2.** Version 1 remains an immutable source contract. Version 2 uses
    one explicit Workspace state, one ordered state per open coordinate, one
    canonical View Facet Registry ID field, and no browser lens, member-section,
    label, or CLI alias. Only direct Package coordinates carry structural state
    in this version; other coordinate kinds remain undecorated dormant entries.
-7. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
+7. **Portable Workspace registrations begin at definition schema version 3 and
+   packet format 3.** Versions 1 and 2 remain immutable source contracts.
+   Version 3 adds one ordered registration vector beside contexts, permits zero
+   contexts when that vector is nonempty or in the closed query-only composition,
+   and projects the same complete state into the packet.
+8. **Restoration lowers first, then prepares one fresh host-owned Workspace.**
    Resource-free phases produce one immutable `WorkspacePlan` and complete
    restoration recipe. The consuming host supplies the fresh Workspace
    construction authority for that exact plan; ordinary owner APIs populate
@@ -181,6 +203,530 @@ Navigation effect authority remain separate owner-issued currencies.
    current authority. Retention, candidate cutover, and predecessor drainage
    remain host and realization-coordinator concerns.
 
+## Definition-first Workspace interchange
+
+The durable Workspace is a portable definition. The `workspace` command
+authors or transforms that definition and exposes its canonical packet or URL
+when projectable, with a visible typed refusal otherwise. A live Workspace is
+temporary execution authority that may be used only to derive owner-issued
+facts represented in the resulting portable definition.
+
+This is the normative owner and exact claim for #7379. Supporting designs have
+separate roles:
+
+- [Inspection Plan Projections](inspection-plan-projections.md) supplies the
+  resolved inspection basis that a noun command may compose into a scenario.
+- [CLI Workspace Sharing](cli-workspace-sharing.md) supplies the common
+  noun-command `--share` gesture and visible refusal contract.
+- [Workspace top-level inventory](workspace-top-level-inventory.md) supplies
+  one typed observation over an admitted live Workspace.
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  supplies realization, authority, publication, drainage, and disposal.
+
+The conventional analogy is an MSBuild project definition versus its evaluated
+in-process model: the durable declaration can be exchanged and evaluated
+again, while evaluation state and acquired resources remain local. Browser URL
+state supplies a second analogy for composing durable Workspace and view intent
+without serializing rendered results. These analogies support the separation;
+they do not transfer another system's schema or lifecycle.
+
+The CLI resource-free authoring path is implemented under #7427. Direct
+Package and registration inputs produce one schema-version-3 definition and
+canonical format-3 packet or URL; canonical packet and exact Inspect Web URL
+input re-emits the same durable value without realization. The default
+inventory and optional Package Navigation paths remain realization-backed
+transitional behavior when durable output is not requested.
+
+### Definition, plan, and realization
+
+The three Workspace forms sit at different altitudes:
+
+```text
+portable Workspace definition
+    durable authoring, interchange, and restoration intent
+             |
+             v
+WorkspacePlan plus owner-specific preparation
+    resource-free invocation intent derived for one host operation
+             |
+             v
+live Workspace realization
+    process-local acquired content, revisions, authority, and lifetime
+```
+
+The portable definition is the user-visible Workspace value. A canonical
+packet is its bounded interchange projection, optionally composed with
+portable query, view, and Navigation state into a scenario. `WorkspacePlan` is
+an invocation currency derived from that definition; it is not a substitute
+portable representation. A live Workspace realizes the plan for one process
+and never becomes packet payload.
+
+Direct CLI inputs first construct one complete portable definition. Package
+membership, Exact Library registrations, Package Prefix registrations, and
+Ecosystem registrations cannot remain split between a projectable definition
+and host-only construction arguments. This owner may then:
+
+1. project that definition directly to a packet;
+2. lower it to a plan and restoration or transformation recipe; or
+3. return a typed non-projectable result when the current packet version cannot
+   preserve the complete definition.
+
+Successful direct authoring does not use
+`NoRetainedDefinitionProjection` as its target state. That reason remains valid
+for an independently obtained live Workspace whose host truly retained no
+portable basis.
+
+### The `workspace` command
+
+The `workspace` command transforms portable Workspace state:
+
+```text
+direct definition inputs | packet | URL
+                   |
+                   v
+      validated portable definition
+                   |
+       +-----------+-----------+
+       |                       |
+       v                       v
+resource-free transform   authorized realization
+       |                       |
+       |             owner-issued portable facts
+       +-----------+-----------+
+                   |
+                   v
+        derived portable definition
+                   |
+                   v
+  definition | packet or URL | typed refusal
+```
+
+A transformation may normalize, compose, filter, or enrich a definition. The
+durable result is the derived definition, not the temporary realization or an
+inventory of runtime objects. Its canonical packet or URL is the ordinary
+bounded interchange projection; a valid definition outside that projection is
+reported through the typed non-projectable outcome. A host may also render a
+summary or typed inventory, but that observation does not replace the portable
+output.
+
+Exact CLI option spelling, stdout/stderr placement, and whether definition,
+packet, or URL is the default scalar belong to CLI adoption. The semantic
+command must nevertheless make its durable result available without requiring
+the user to hand-author packet JSON.
+
+The command does not own Library, Type, Member, or other noun inspection
+queries. Users do not restate those subjects through a second Workspace
+grammar.
+
+### Schema-version-3 registration-bearing Workspaces
+
+Schema version 3 adds required `registrations` to a `workspace` record beside
+required `contexts`. Both are ordered arrays. Outside the query-only
+composition, either may be empty but not both:
+
+```json
+{
+  "schemaVersion": 3,
+  "kind": "workspace",
+  "id": "serializer-discovery",
+  "contexts": [],
+  "registrations": [
+    {
+      "kind": "packagePrefix",
+      "prefix": "Microsoft.Extensions."
+    }
+  ]
+}
+```
+
+Every context retains its existing invariant: it has at least one group
+subscription or inline member. Schema versions 1 and 2 retain their existing
+requirement for at least one context and reject the unknown `registrations`
+property. Outside the query-only composition, schema version 3 instead requires
+at least one context or one registration. It never manufactures an empty
+synthetic context to carry registration state.
+
+`registrations` is the ordered closed portable counterpart of
+`WorkspacePlan.Registrations`:
+
+```text
+registration
+  = ExactLibrary(ExactLibrarySourceCoordinate)
+  | PackagePrefix(PackagePrefixDeclaration)
+  | Ecosystem(WorkspaceEcosystemRegistrationDeclaration)
+```
+
+Each arm retains its source owner's canonical portable value. The enclosing
+record uses `kind` values `exactLibrary`, `packagePrefix`, and `ecosystem`;
+arm-specific payloads are `coordinate`, `prefix`, and `declaration`
+respectively. Unknown arms and properties are typed load failures. Duplicate
+Exact Library coordinates, Package Prefix declarations, or Ecosystem
+registration IDs are typed definition failures matching
+`WorkspacePlan.ValidateRegistrations`; overlap among different arms remains
+valid.
+
+An Exact Library `coordinate` is one closed object. Package origin uses
+property order `kind`, `id`, `version`, `library`; Platform origin uses `kind`,
+`family`, `library`. `library` is the existing long-form
+`PortableLibraryIdentity` object:
+
+```json
+{
+  "kind": "exactLibrary",
+  "coordinate": {
+    "kind": "package",
+    "id": "system.text.json",
+    "version": "10.0.0",
+    "library": {
+      "name": "System.Text.Json",
+      "version": "10.0.0.0",
+      "culture": null,
+      "publicKeyToken": "cc7b13ffcd2ddd51"
+    }
+  }
+}
+```
+
+A Platform coordinate replaces `id` and `version` with `family`, whose exact
+value is `DotNetRuntime` or `AspNetCore`. Project- and Local-origin exact
+Library registrations are valid in-process values but have no reopenable
+portable source coordinate, so the definition codec rejects them as
+non-projectable rather than recording assembly identity alone.
+
+An Ecosystem `declaration` uses property order `id`, `namespaceRoots`,
+`corePackages`, `populations`. Namespace roots and canonical unversioned
+Package IDs remain in owner-issued order. Population objects use `kind`
+`exactLibrary`, `platform`, or `packagePrefix`; their payload is respectively
+the same `coordinate` object above, one `family`, or one `prefix`.
+
+```json
+{
+  "kind": "ecosystem",
+  "declaration": {
+    "id": "ecosystem.platform",
+    "namespaceRoots": ["System"],
+    "corePackages": [],
+    "populations": [
+      {
+        "kind": "platform",
+        "family": "DotNetRuntime"
+      }
+    ]
+  }
+}
+```
+
+The registration object property order is `kind`, then its one payload.
+Definition JSON remains the readable authoring form; packet format 3 below
+defines the corresponding compact tuples.
+
+An Ecosystem declaration's optional
+`EcosystemIntegrationScannerBinding` is executable in-process capability, not
+portable data. A scanner-free declaration can use the schema-version-3
+Ecosystem arm directly. A scanner-bearing declaration is `NonProjectable`
+until the Integration owner supplies a stable portable scanner vocabulary and
+resolution contract in a separately scoped design; Workspace Definitions does
+not serialize a delegate, silently remove the scanner, or rediscover it from
+display text.
+
+Lowering a valid registration-only definition produces one `WorkspacePlan`
+with the exact ordered registrations and zero contexts. Plan invocation creates
+one empty-membership live Workspace with that complete inert registration
+revision. No Package, Library, prefix, or Ecosystem population is acquired
+merely because it is present in the definition.
+
+### Realization-backed portable transformation
+
+Definition-first does not mean realization-free. `workspace` may acquire and
+realize content when a transformation requires facts unavailable in the
+resource-free definition, provided all of the following hold:
+
+1. The transformation names the owner-issued portable fact it will add,
+   remove, or replace.
+2. Realization uses the exact input definition and ordinary source,
+   authorization, target, and lifetime owners.
+3. The derived fact has a canonical representation in the output definition.
+4. The output contains no acquired bytes, live readers, result rows,
+   diagnostics, authorization, credentials, occurrence identities,
+   correspondence receipts, or host-lifetime state.
+5. Failure to obtain a complete portable result is visible and emits no
+   unchanged or partially enriched success packet.
+
+The transformation result retains an exact association among the input
+definition, the owner-issued evidence used during realization, and the derived
+definition. That association is process-local construction proof; only the
+derived portable facts cross the packet boundary.
+
+[Portable Package-coordinate replacement](portable-coordinate-replacement.md)
+specializes this boundary under #7466: it consumes a correlated Navigation
+replacement outcome to derive the selected coordinate's portable state without
+changing unrelated intent. Its active-descendant schema prerequisite and
+CLI/Browser adoption remain explicit follow-ups.
+
+“Make Package dependencies explicit/top-level” is the motivating
+realization-backed transformation. Here **top-level** means an explicit direct
+member of an existing Workspace context, not a global member outside contexts:
+
+1. Select an ordered set of direct Package member occurrences. Each selection
+   is the exact pair of context identity and member position; the same Package
+   declaration in two contexts is two selections. If the user supplies no
+   narrower selection, document order selects every direct Package member by
+   context order and then member order. Group-expanded Packages are not
+   silently promoted to roots in this first operation.
+2. Resolve each selected member's effective framework and RID through ordinary
+   context/member target inheritance, then realize that exact root under
+   ordinary source authorization.
+3. Ask the dependency owner for that root and effective target's ordered exact
+   `PackageSourceCoordinate` values. The dependency owner retains
+   direct-versus-transitive selection, Package dependency semantics, and the
+   order within that one result.
+4. Append each returned coordinate to the selected root's same context as a
+   direct Package member. The emitted member retains exact Package ID and
+   version and inherits that context's target; the transformation does not
+   create a global member slot or move a dependency to another context.
+5. Preserve context order and every existing subscription/member position.
+   Within each context, process selected roots in document order and their
+   owner-issued dependencies in result order. Append only the first occurrence
+   whose effective `(PackageSourceCoordinate, framework, RID)` is not already
+   present in that context or earlier in the append sequence.
+6. Treat contexts independently. The same Package dependency reached from two
+   contexts remains one explicit member in each, including when their effective
+   targets differ. No cross-context deduplication or target merging occurs.
+7. Emit one derived definition and packet only after every selected root has a
+   complete dependency result and the complete derived definition validates.
+
+The packet carries Package coordinates and targets, not nuspec XML, graph
+nodes, edges, traversal diagnostics, acquired archives, or cached resolution.
+Dependency selection, direct-versus-transitive policy, per-root result order,
+and discovery failure remain with the dependency operation that supplies the
+portable coordinates. This owner governs selected-root/context association,
+canonical insertion into the derived definition, context-local duplicate
+handling, and the all-or-nothing portable outcome.
+
+The pathological fixed vector uses
+`Microsoft.Extensions.Hosting@10.0.0` as a direct member in two contexts with
+different effective targets. One dependency is already explicit in the first
+context, and one owner-issued dependency is shared by both results. The gate
+requires no duplicate append in the first context, one append in the second,
+distinct declarations across contexts, unchanged preexisting order, and exact
+first-seen order for every newly appended member. A failure for either root
+emits no derived definition.
+
+### Noun-command consumption and derived scenarios
+
+An inspection command consumes a Workspace packet or URL as aggregate location
+context while retaining its own subject and query grammar. Conceptually:
+
+```console
+packet=$(dotnet-inspect workspace ... --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+```
+
+The exact packet-input option spelling belongs to command adoption. The Type
+name remains the `type` command's subject; Library and Member selection
+similarly remain with their noun commands. Supplying a Workspace packet does
+not make those commands multi-subject or move their query grammar into
+`workspace`.
+
+Appending noun-command Share may produce a **derived scenario packet**:
+
+```console
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet" \
+  --share packet
+```
+
+That packet preserves the input Workspace definition and adds only the
+projectable owner-issued subject, context, facet, query, or Navigation state
+resolved by the noun command. Bounded acquisition may establish an exact
+portable identity, but inspected content and query results do not enter the
+packet. If the command's semantic selection cannot be represented faithfully,
+the existing CLI Workspace Sharing refusal contract applies.
+
+### Packet completeness
+
+A packet emitted by `workspace` must represent the complete supported portable
+definition, not only the subset needed by the current Browser tab model. The
+packet family therefore requires representation for:
+
+- direct Package and named-group context members;
+- Exact Library registrations;
+- Package Prefix registrations;
+- Ecosystem registrations; and
+- the context, target, focus, view, query, and Navigation state separately
+  owned by existing scenario composition.
+
+This requirement does not mutate packet formats 1 and 2.
+[Packet format 3](#packet-format-3) pins the registration vector, arm
+encodings, nullable selected context, complete schema-version-3 peer
+composition, and canonical property order. Until that codec exists,
+schema-version-3 input is `UnsupportedVersion`, and direct definitions using an
+unrepresentable arm fail Share visibly rather than dropping it.
+
+### Relationship to typed inventory
+
+`WorkspaceTopLevelInventoryOperation` remains the shared typed answer for
+observing one admitted realization. It is useful to Inspect Web, diagnostics,
+transformation previews, and verification that a realized definition produced
+the expected Package occurrences and inert registrations.
+
+It is not the durable Workspace itself. The target CLI does not:
+
+- treat a transient inventory document as the authored Workspace;
+- make direct definition input non-projectable merely because inventory
+  required realization;
+- use `workspace --active-package` as the long-term route to Library, Type, or
+  Member inspection; or
+- serialize inventory rows as a packet.
+
+Existing CLI inventory and `--active-package` behavior are transitional. They
+may be retired only after the definition-first command and equivalent
+packet-context noun-command paths exist.
+
+### CLI mockup
+
+The target mockup uses real Package and registration intent. Final option
+spelling and output streams belong to CLI adoption.
+
+Author a portable Workspace:
+
+```console
+$ dotnet-inspect workspace \
+    --package System.Text.Json@10.0.0 \
+    --tfm net10.0 \
+    --register-library \
+      System.Text.Json@10.0.0/System.Text.Json@10.0.0.0 \
+    --register-package-prefix Microsoft.Extensions. \
+    --register-ecosystem platform \
+    --share packet
+ey...
+```
+
+Enrich it by making Package dependencies explicit:
+
+```console
+$ dotnet-inspect workspace \
+    --packet ey... \
+    --make-package-dependencies-explicit \
+    --share packet
+ey...derived...
+```
+
+Inspect a Type within that aggregate context and share the derived scenario:
+
+```console
+$ dotnet-inspect type System.Text.Json.JsonSerializer \
+    --workspace ey...derived... \
+    --share url
+https://dotnet-inspect.net/?w=ey...scenario...
+```
+
+The neighboring Exact Library and Package Prefix registration-only case also
+emits a packet; it does not need Package acquisition merely to survive process
+exit. A scanner-bearing Ecosystem remains visibly non-projectable under the
+separate owner boundary above.
+
+### Adoption and evidence
+
+Implementation proceeds in focused slices:
+
+1. **Contract correction.** Lock this owner and align CLI Workspace Sharing,
+   command cardinality, and typed inventory boundaries.
+2. **Complete packet projection.** Implement schema version 3 and packet format
+   3 for Package membership and every portable registration arm, with canonical
+   managed-codec round trips, Browser JS-export/TypeScript transport
+   conformance, registration-only restoration, and visible unsupported-version
+   behavior. Implemented under
+   [#7385](https://github.com/richlander/dotnet-inspect/issues/7385). A
+   scanner-bearing Ecosystem requires the separately owned portable scanner
+   contract before it becomes projectable.
+3. **Definition-first `workspace`.** Build direct inputs into one portable
+   definition, support packet/URL input, and emit packet/URL output without
+   realization when no transformation needs it. Implemented under
+   [#7427](https://github.com/richlander/dotnet-inspect/issues/7427).
+4. **Portable enrichment.** Add one real realization-backed transformation,
+   “make Package dependencies explicit/top-level,” using a nuget.org package
+   with deterministic direct dependencies and proving context-preserving
+   placement, context-local duplicate handling, all-or-nothing completion, and
+   that no graph result enters the packet.
+5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
+   `type`, then `library` and `member`, one command at a time.
+6. **Transitional retirement.** Remove `workspace --active-package` and any
+   duplicate noun-inspection path only after the corresponding packet-context
+   noun command is available.
+7. **Inspect Web completion.** Restore and present complete definition packets,
+   including registrations and derived scenarios, through the same Definitions
+   owner.
+
+Query-bearing sharing follows a separate five-step path under
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971):
+
+1. **Portable intent and payload.** Define and implement the host-neutral
+   semantic model, canonical codec, and identity pair. Complete.
+2. **First production vocabulary.** Adopt `package-query/v1` in Package Query
+   and lower both CLI and Browser requests through it. Complete.
+3. **Definitions contract.** Define the common schema-version-2/3 query record,
+   state-bound packet projection, and the format-3 query-only composition. This
+   design slice.
+4. **Definitions implementation.** Implement record parsing, public query
+   descriptors, composition binding, format-3 query-table
+   encoding/transposition, and the fixed-vector gates below through one
+   host-neutral Definitions API.
+5. **Production-host adoption.** Have the CLI emit and replay the query-only
+   packet without acquisition during packet generation, and have Inspect Web
+   emit and restore the same packet in `/query` share links. Both hosts then
+   execute through their existing Package Query pipeline; no query result or
+   host-specific presentation enters Definitions.
+
+This extends the existing Definitions and Package Query paths rather than
+introducing an alternative architecture, so no retirement plan applies.
+Rendering is also outside this contract: the packet carries canonical request
+data, while each host's existing Package Query presentation continues to own
+its typed result rendering.
+
+Required evidence includes:
+
+- exact canonical round trips for Package, Exact Library, Package Prefix, and
+  scanner-free Ecosystem-only definitions;
+- registration-only lowering to one plan with zero contexts and exact ordered
+  registrations, plus query-only admission and rejection of an otherwise empty
+  Workspace composition;
+- visible non-projectability for a scanner-bearing Ecosystem until its owner
+  supplies a portable scanner vocabulary;
+- direct-input and packet-input semantic equivalence;
+- no-acquisition packet authoring for resource-free definitions;
+- realization-backed dependency promotion with deterministic context and
+  member placement, including differently targeted contexts and context-local
+  duplicates;
+- visible all-or-nothing failure when enrichment is incomplete or
+  non-projectable;
+- noun-command input preserving the exact Workspace definition while adding
+  only its own projectable scenario state;
+- Browser/Wasm restoration of each newly projectable arm; and
+- migration gates proving transitional `workspace` noun behavior is removed
+  only after equivalent noun-command adoption.
+
+These are finite definition, projection, and transformation contracts. They
+introduce no new concurrent lifecycle or replacement currency, so no new TLA+
+model is required. Existing realization and restoration models continue to
+govern any temporary live Workspace.
+
+### Non-claims
+
+This design does not:
+
+- serialize CLI argv, command names, rendered output, inspection results,
+  acquired artifacts, credentials, or live Workspace state;
+- define dependency traversal or Package resolution policy;
+- make a packet source authorization;
+- give `workspace` a second Library, Type, Member, or query language;
+- require realization for resource-free authoring or prohibit it for portable
+  enrichment;
+- make every noun-command operation immediately projectable; or
+- preserve transitional CLI behavior solely for compatibility.
+
 ## The definition schema
 
 Group catalogs, workspace definitions, query presets, view presets, navigation
@@ -188,17 +734,18 @@ presets, and scenarios are separate records. A **group catalog** defines named
 assembly groups: the product ships the catalog of well-known groups (the
 `:Platform` family), and a bundle may ship a catalog of curated custom groups
 that several workspace definitions reuse. A **workspace definition** describes
-only one workspace and its contexts; it subscribes to groups by reference and
-defines none (with the one self-containment exception noted under `groups`
-below). A **scenario** composes optional references to a workspace, query
-preset, view preset, and navigation preset. Record kinds are declared, never
-inferred from shape: every record carries a required `kind` discriminator.
+only one Workspace and its ordered contexts and registrations; it subscribes
+to groups by reference and defines none (with the one self-containment
+exception noted under `groups` below). A **scenario** composes optional
+references to a workspace, query preset, view preset, and navigation preset.
+Record kinds are declared, never inferred from shape: every record carries a
+required `kind` discriminator.
 
-The vocabulary is deliberate: **catalogs define groups; workspaces declare
-contexts; a context subscribes to groups.** A context is a binding-consistent
-set of assemblies in scope, and holding a single library (Markout, say) is
-perfectly ordinary — which is why the schema says `contexts`, not
-`contextGroups`, even though each context lowers to one runtime
+The vocabulary is deliberate: **catalogs define groups; Workspaces declare
+contexts and registrations; a context subscribes to groups.** A context is a
+binding-consistent set of assemblies in scope, and holding a single library
+(Markout, say) is perfectly ordinary — which is why the schema says `contexts`,
+not `contextGroups`, even though each context lowers to one runtime
 `AssemblyContextGroup` and the bundle contract's prose calls these
 "context-group definitions". The runtime type keeps its name; the schema
 drops "group" so the word means exactly one thing here: a named entry in a
@@ -338,9 +885,9 @@ Field semantics:
   whose `schemaVersion` they do not understand. There is no unversioned
   form.
 - `kind` — required record discriminator: `catalog`, `workspace`, `query`,
-  `view`, `navigation`, or `scenario`. (The member-coordinate `kind` under
-  [Member coordinates](#member-coordinates) is a distinct field one nesting
-  level down; the two never share a slot.)
+  `view`, `navigation`, or `scenario`. (Member-coordinate and registration
+  `kind` fields are distinct nested discriminators; they never share the record
+  slot.)
 - Record and nested-object shapes are closed. Unknown properties are typed load
   failures at every level rather than ignored extension data; otherwise a typo
   such as `versoin` would silently turn an intended pin into a floating
@@ -361,14 +908,25 @@ Field semantics:
   `rid` target constraints, `subscribe` — a group expression (see the
   grammar below) — and `members`, additional inline coordinates overlaid on
   the subscription. A context must have at least one of `subscribe` and
-  `members`; a workspace must have at least one context.
+  `members`. Schema versions 1 and 2 require at least one context. Schema
+  version 3 permits an empty context array when `registrations` is nonempty or
+  when the record participates in the query-only peer composition below.
+- `registrations` — required on schema-version-3 Workspace records and unknown
+  on earlier versions. It is the ordered closed Exact Library, Package Prefix,
+  or Ecosystem union defined by
+  [Schema-version-3 registration-bearing Workspaces](#schema-version-3-registration-bearing-workspaces).
+  A version-3 Workspace with neither context nor registration is valid only in
+  the query-only peer composition below.
 - `query` records — named query presets. Schema version 1 carries only an
-  optional product query ID. Version 2 additionally carries the canonical
-  payload for one `PortableQueryIntent`; the `queryId` supplies the intent's
-  vocabulary identity beside that payload. This note pins the record and
-  reference slots; Portable Query Payload owns the one payload shape and codec,
-  while the vocabulary owner defines binding and execution and must itself sit
-  at or below the dependency boundary.
+  optional product query ID. Versions 2 and 3 use the common closed envelope
+  `schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
+  `payload` is one closed JSON object parsed and canonically rewritten by
+  `PortableQueryPayloadCodec`. Workspace Definitions preserves the resulting
+  exact `(queryId, canonical payload)` identity; the named vocabulary owns
+  semantic binding and execution. An unknown `queryId` remains syntactically
+  valid and reaches typed vocabulary resolution rather than becoming an
+  unknown record shape. Schema-version-1 records neither accept nor synthesize
+  `payload`.
 - schema-version-1 `view` records — named view presets whose shape this note
   pins (`lens`, `type`, `memberAnchor` or `memberSignature`, definition-only
   `memberKey`, `section`, and library scope — each field individually optional;
@@ -383,7 +941,8 @@ Field semantics:
   `MetadataTypeDefinitionName.ToMetadataFullName()` projection, members use an
   anchor, signature, or definition-only group key, and Library values are
   assembly filename stems. Browser-issued Type and Library keys belong only to
-  packet v1. The legacy lowerer below owns both sources' conversion.
+  packet v1. Complete restoration does not consume these selectors; existing
+  version-1 consumers retain their independently owned behavior.
 - `navigation` records — named ordered tab sets plus one active tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
   acquisition coordinate or a group subscription. A group source also carries
@@ -477,6 +1036,13 @@ Universe, Integration, host rendering, navigation, acquisition, or execution
 claim.
 
 ### Complete committed views
+
+[Portable active descendant views](portable-active-descendant-views.md) defines
+the schema-version-4/packet-format-4 extension under #7475. It adds
+explicit active Library, Type and Member requests without reinterpreting the
+version-2/3 subject tags specified here. Its managed records, codec,
+transposition, resolution and complete restoration are implemented; that
+focused document names the Release gates and remaining CLI/Browser adoption.
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
@@ -585,15 +1151,16 @@ Each state has these fields:
   both recommended. Presence records an exact-request basis even when the same
   facet would currently be recommended.
 - `queries` is an optional array of peer query-record IDs in ascending ordinal
-  order. It is valid only with a present exact `facet`; recommendation cannot
-  carry query state for a facet that may change. Query records carry every
-  result-affecting filter and every owner-issued body or source-target
-  refinement as a vocabulary ID plus canonical `PortableQueryIntent` payload.
-  The shared payload codec owns its closed structure and bytes; the named
-  vocabulary owns exact binding and selector validation. Workspace Definitions
-  does not reinterpret either. The query-free schema-version-2 record slice
-  still rejects every nonempty query list until #6971 supplies vocabulary
-  resolution and Definitions adoption.
+  order. Ordinary state-bound queries require a present exact `facet`;
+  recommendation cannot carry query state for a facet that may change. Query
+  records carry every result-affecting filter and every owner-issued body or
+  source-target refinement as a vocabulary ID plus canonical
+  `PortableQueryIntent` payload. The shared payload codec owns its closed
+  structure and bytes; the named vocabulary owns exact binding and selector
+  validation. Workspace Definitions does not reinterpret either. Schema
+  version 3 adds the one exception defined below: the leading null-navigation
+  row may carry one coordinate-free primary query without a facet in a
+  query-only composition.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
   Library subject and does not select one. It is valid only on a direct
@@ -617,10 +1184,104 @@ values expressible by `PortableQueryIntent`. Otherwise the state is
 key.
 
 The leading Workspace row cannot carry retained Package context and cannot
-request a Package subject. A non-Package navigation row is undecorated: it
-carries only its `navigation` field, with no subject, context, facet, query, or
-Library scope. These rows preserve ordered inventory without inventing a
-structural grammar or Package ancestry for a source that does not have one.
+request a Package subject. Except for the schema-version-3 query-only
+composition below, it follows the same facet-bound query rule as every other
+state. A non-Package navigation row is undecorated: it carries only its
+`navigation` field, with no subject, context, facet, query, or Library scope.
+These rows preserve ordered inventory without inventing a structural grammar
+or Package ancestry for a source that does not have one.
+
+#### Coordinate-free primary query attachment
+
+A Package Query request names a source population, not an already-realized
+Package occurrence. Attaching it to a coordinate would therefore invent
+Package ancestry, while attaching it to a Workspace facet would falsely claim
+that the query refines that facet. Schema version 3 instead admits one
+**query-only composition** whose leading null-navigation row is an attachment
+point, not a structural input to the query:
+
+```json
+[
+  {
+    "schemaVersion": 3,
+    "kind": "workspace",
+    "id": "package-discovery",
+    "contexts": [],
+    "registrations": []
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "query",
+    "id": "extensions-with-di",
+    "queryId": "package-query/v1",
+    "payload": {
+      "t": [
+        ["depends", "eq", "Microsoft.Extensions.DependencyInjection"],
+        ["prefix", "eq", "Microsoft.Extensions."],
+        ["prerelease", "eq", "stable"]
+      ],
+      "b": [["candidates", 200]]
+    }
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "navigation",
+    "id": "navigation",
+    "tabs": [],
+    "focus": null
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "view",
+    "id": "view",
+    "states": [
+      {
+        "navigation": null,
+        "subject": {"kind": "workspace"},
+        "queries": ["extensions-with-di"]
+      }
+    ]
+  },
+  {
+    "schemaVersion": 3,
+    "kind": "scenario",
+    "id": "scenario",
+    "workspace": "package-discovery",
+    "view": "view",
+    "navigation": "navigation"
+  }
+]
+```
+
+Here **coordinate-free** means that canonical query identity is the resolver's
+only persisted input; **primary** means that the query owner supplies the
+result surface instead of refining a structural subject's facet.
+
+The composition is valid only when all of these conditions hold:
+
+- the Workspace has no contexts and no registrations;
+- navigation has no tabs and null focus;
+- the view has only its required leading row;
+- that row requests Workspace, omits context, facet, and Library scope, and
+  references exactly one query record;
+- the referenced vocabulary descriptor declares a coordinate-free primary
+  query and no structural-subject, facet, selected-context, or Library input;
+  and
+- the scenario omits `context` and its legacy singular `query` field.
+
+The leading Workspace subject remains the restorable structural root; it is not
+passed to the query resolver. The query owner supplies the page or command
+purpose and re-runs the restored request. No package result or completion state
+is persisted. A coordinate-free query cannot be mixed with contexts,
+registrations, state-bound queries, facets, or retained selectors in this
+version. Those combinations need their own owner-defined composition rather
+than inheriting meaning from the attachment location.
+
+Schema version 2 retains its nonempty-context invariant and therefore cannot
+represent this query-only scenario. Its `q` table remains usable for ordinary
+state-bound queries once implemented. Version 3 is required here because it
+can represent the empty Workspace peer composition without manufacturing a
+coordinate or registration.
 
 #### Portable subject and context selectors
 
@@ -786,10 +1447,11 @@ their Registry evidence; the coordinator does not choose another facet.
 When `facet` is absent, Navigation owns recommendation and its complete
 evidence.
 
-Every query reference resolves one version-2 query record. Its public
-vocabulary descriptor declares the exact structural inputs and facet IDs it
-accepts, whether it consumes state-level Library scope, and how canonical
-intent binds to typed execution. Malformed portable payload, unknown
+Every query reference resolves one query record matching the containing
+composition's schema version. Its public vocabulary descriptor declares the
+exact structural inputs and facet IDs it accepts, whether it consumes
+state-level Library scope, and how canonical intent binds to typed execution.
+Malformed portable payload, unknown
 vocabulary, duplicate query purposes, missing required selectors, a query
 incompatible with the exact subject or facet, and `libraries` consumed by no
 referenced query all fail closed through their owning typed results.
@@ -831,27 +1493,38 @@ workspace use the same version. Version-1 and version-2 records never compose
 directly in one scenario, because that would let a legacy view token enter a
 canonical-ID composition.
 
-Strict version-1 decode first preserves one unresolved legacy plan. A
-workspace-free scenario remains on its existing source- or query-owner
-execution path and does not enter complete Workspace restoration. A
-workspace-backed direct-Package scenario lowers to version 2 only when its
-recognized view requests Package-only recommendation, Package Overview, or
-Package Dependencies. That lowerer forms one explicit Workspace state, one
-direct Package structural state per Package tab, and one undecorated dormant
-row per non-Package tab, then enters ordinary version-2 composition validation.
-Recognized Library, Type, Member, and aggregate-Library active requests fail
-with `LegacyLoweringFailed` before realization because those kinds are retained
-context, not active subjects, in version 2.
+Schema version 3 preserves that same-version rule. Its group-catalog, query,
+navigation, view, and scenario records use the schema-version-2 fields with
+`schemaVersion` equal to `3`. The Workspace record adds required ordered
+`registrations`. Both `contexts` and `registrations` may be empty only in the
+query-only peer composition above; every other version-3 composition requires
+at least one of them.
 
-A workspace-backed version-1 graph with no navigation, or focused on a group,
-Platform, embedded, project, directory, or local source, also fails lowering,
-as does every definition-v1 view carrying `library` or `libraries`. None
-acquires Registry semantics in place or claims to be a complete version-2
-composition. Workspace Definitions never fabricates Package
-ancestry, promotes retained context into an active subject, or creates a
-missing coordinate to force the conversion. Version-1 support therefore
-preserves only inputs with exact Package-rooted lowering; descendant,
-non-Package, Library-scoped, and no-navigation inputs fail visibly.
+Version 3 adds two empty-context peer compositions:
+
+- A **registration-only** composition has at least one registration,
+  navigation `tabs: []` and `focus: null`, exactly one leading Workspace state,
+  and no selected context. That state may carry only ordinary
+  Workspace-compatible facet-bound queries.
+- A **query-only** composition has no context or registration and satisfies
+  every coordinate-free attachment condition above.
+
+Neither composition requires a group catalog unless another referenced record
+uses one.
+
+When the Workspace has contexts, all navigation, view, selected-context, query,
+and catalog validation retains version 2's semantics. A version-3 scenario
+references only version-3 peers, including any version-3 catalog entries.
+Transposition never emits a mixed version-2/version-3 graph.
+
+Version-1 preparation preserves one unchanged source-identified plan for its
+existing consumers. A workspace-free scenario remains on its existing source-
+or query-owner execution path and does not enter complete Workspace
+restoration. Every workspace-backed version-1 graph is outside the complete-
+restoration contract and returns `UnsupportedVersion` before construction.
+Workspace Definitions never fabricates Package ancestry, promotes retained
+context into an active subject, or converts consumer vocabulary into Registry
+identity.
 
 ### The dependency boundary
 
@@ -886,11 +1559,11 @@ question governs. Navigation tab ids are similarly bundle-author-owned but
 record-local: they carry no product semantics and only let `focus` address one
 tab in the same navigation preset. Query preset ids and payloads comply by the
 constraint stated above: their owner must sit at or below the boundary.
-Schema-version-1 `lens` and `section` values are the remaining legacy hole:
+Schema-version-1 `lens` and `section` values are a legacy vocabulary:
 their token spaces are L3-owned. Schema version 2 closes that hole by carrying
-only View Facet Registry IDs and query-owner payloads. The explicit version-1
-lowerer below contains the legacy vocabulary; ordinary version-2 validation
-never does.
+only View Facet Registry IDs and query-owner payloads. Complete restoration
+accepts only that version-2 vocabulary; ordinary version-2 validation never
+interprets the version-1 tokens.
 
 ### Scenario activation
 
@@ -1002,8 +1675,8 @@ section outside that allow list
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
-schema version 2 and the explicit legacy table below settle versioned migration
-and complete view composition. `ecosystem.platform` is application grouping,
+schema version 2 settles complete view composition. `ecosystem.platform` is
+application grouping,
 not workspace-coordinate inference. The three System.Text.Json demos now
 declare exact, assembly-scoped Runtime Platform coordinates after exact prune
 evidence and the Platform catalog independently establish package subsumption
@@ -1021,9 +1694,10 @@ own lease over the same cumulative per-target Platform workspace.
 A schema-version-2 home demo persists only `ViewState.Facet` and version-2
 query records. The resolved facet and query owners reach their ordinary
 product pipeline; `ProductDemoSections`, `View.Section`, display labels, and
-CLI `-S` spellings do not enter the version-2 record. The two existing display
-names are accepted only by the schema-version-1 lowerer and must round-trip to
-their exact canonical facet IDs before Registry resolution.
+CLI `-S` spellings do not enter the version-2 record. Existing
+schema-version-1 demos remain on their established product-demo execution path;
+complete restoration does not translate their display names into Registry
+identities.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
@@ -1118,8 +1792,9 @@ workspace only after selection and any graph rendering succeed. Failure or
 supersession publishes no partial replacement. These frontend boundaries are
 gated by `product-home-demos.test.ts`,
 `saved-workspace-navigation.test.ts`, the home-demo source contract in
-`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
-production-composition cases in `library-hierarchy.spec.ts`.
+`composition-root-workspace-navigation.test.ts`, and the package/Platform
+Methods and Call Graph production-composition cases in
+`library-hierarchy.spec.ts`.
 
 The System.Text.Json and Microsoft.Extensions migrations are gated by two
 independent exact facts: `PlatformPrunePolicy` reports that each former package
@@ -1624,145 +2299,218 @@ invalid subject, retained context, facet, query, or cross-record relationship
 is `InvalidDefinitionSet`. Neither outcome flattens, drops, or defaults a
 field.
 
-#### Legacy lowering
+#### Packet format 3
 
-Definition schema version 1 and packet format 1 remain supported contracts,
-but they never acquire Registry semantics in place. Preparation first produces
-an unchanged source-identified `Version1ScenarioDefinitionSet`; it does not
-lower workspace members or navigation sources. Complete restoration has
-one Definitions-owned path: a workspace-backed version-1 request either lowers
-to an exact version-2 runtime recipe or returns `LegacyLoweringFailed` before
-construction. There is no compatibility result, adapter, executor handoff, or
-success-shaped fallback.
+Format 3 is the registration-bearing extension of format 2. It adds required
+top-level `r`, permits `x` to be `null`, and otherwise preserves format 2's
+coordinate, context, query, and view semantics. This registration-only packet
+is a complete canonical fixed vector:
 
-A workspace-free scenario never enters complete Workspace restoration.
-Version 1 stays on its existing source- or query-owner execution path; version
-2 binds and validates its optional scenario-level query directly. Neither path
-constructs a Workspace or requires a navigation focus.
+```json
+{
+  "f": 3,
+  "t": [],
+  "g": [],
+  "r": [
+    ["p", "Microsoft.Extensions."]
+  ],
+  "a": null,
+  "x": null,
+  "v": [
+    {
+      "t": null,
+      "u": {
+        "k": "workspace"
+      }
+    }
+  ]
+}
+```
 
-The version dispatch matrix is closed:
+The coordinate-free Package Query above has this canonical packet:
 
-| Input | Parse and lowering path |
-| --- | --- |
-| Packet with exact `f:1` | Strict format-1 decode, then the closed direct-Package disposition table |
-| Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
-| Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
-| Workspace-free definition scenario graph containing only version-1 records | Strict version-1 bind and existing workspace-free execution; no Workspace restoration |
-| Workspace-backed definition graph containing only version-1 records | Strict version-1 bind, then the closed direct-Package disposition table |
-| Workspace-free definition scenario graph containing only version-2 records | Strict version-2 bind and direct workspace-free query validation; no Workspace restoration |
-| Workspace-backed definition graph containing only version-2 records | Strict version-2 bind requiring both view and navigation, then direct validation |
-| Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
+```json
+{
+  "f": 3,
+  "t": [],
+  "g": [],
+  "r": [],
+  "a": null,
+  "x": null,
+  "q": [
+    [
+      "package-query/v1",
+      {
+        "t": [
+          ["depends", "eq", "Microsoft.Extensions.DependencyInjection"],
+          ["prefix", "eq", "Microsoft.Extensions."],
+          ["prerelease", "eq", "stable"]
+        ],
+        "b": [["candidates", 200]]
+      }
+    ]
+  ],
+  "v": [
+    {
+      "t": null,
+      "u": {"k": "workspace"},
+      "q": [0]
+    }
+  ]
+}
+```
 
-Dispatch reads only the required top-level discriminator through the bounded
-hardened parser. It never tries one format after another format fails and never
-uses `v` shape, field presence, a record `kind`, or a legacy token to guess a
-version.
+The top-level property order is `f`, `t`, `g`, `r`, `a`, `x`, optional `q`,
+then `v`. `f` is the exact integer `3`. `r` is required even when empty. `t`,
+`g`, `a`, `q`, and `v` otherwise retain format 2's spelling, ordering, and
+semantics.
 
-For a direct Package-focused plan, dispatch uses this closed, scope-aware
-table. For packet input the two slots are `v; c`; for definition input they are
-`lens; section`. A vertical bar separates alternatives within one slot:
+`x` is `null` exactly when `g` is empty. When `g` is nonempty, `x` is one exact
+context index under format 2's rules. `t`, `g`, and `r` may all be empty only
+when the leading view row references exactly one coordinate-free primary query
+and satisfies the query-only composition above. A registration-only packet has
+at least one `r` entry, `a: null`, `x: null`, and exactly one leading Workspace
+view row; any query there follows ordinary Workspace-compatible facet-bound
+rules. A query-only packet has `r: []`, `a: null`, `x: null`, one referenced
+query tuple, and the exact leading-row shape in the fixed vector. When `t` is
+nonempty, `v` again has that leading row followed by one row per
+coordinate-table entry. Transposition maps `x: null` to an omitted
+version-3 scenario `context`, `t: []` to version-3 navigation `tabs: []`, and
+`a: null` to its `focus: null`. Reverse projection never invents a selected
+context, coordinate, registration, facet, or retained selector.
 
-| Version-1 source and structural evidence | Exact `lens; section` slots | Version-2 disposition |
-| --- | --- | --- |
-| no Type or Member and no query state | absent; absent | Package-only recommendation state |
-| Package-only recommendation state with a referenced query or packet `l` | absent; absent | `LegacyLoweringFailed` |
-| package-capable coordinate with no Type or Member | `overview`; absent | Package, `package.overview` |
-| package-capable coordinate with no Type or Member | `dependencies`; absent | Package, `package.dependencies` |
-| one exact selected Library | `library:overview` \| `library:compare` \| `library:references` \| `library:integrations` \| `library:analysis` \| `library:metadata`; absent | `LegacyLoweringFailed` |
-| exact Type and no Member | absent \| `api` \| `metadata` \| `source`; absent | `LegacyLoweringFailed` |
-| exact Type and no Member, definition only | absent \| `api`; `Methods` | `LegacyLoweringFailed` |
-| package-capable coordinate with no Type or Member | `integrations` \| `opportunities` \| `analysis` \| `metadata`; absent | `LegacyLoweringFailed` |
-| exact Member | absent \| `api`; absent \| `overview` \| `call-graph` \| `facts` \| `source` \| `annotated` | `LegacyLoweringFailed` |
-| exact Member, definition only | absent \| `api`; `Call Graph` | `LegacyLoweringFailed` |
+`r` is the ordered registration table. Entries are not sorted or deduplicated:
+canonical order is the Workspace definition's authored order, and duplicate
+identity is invalid. Each entry is one closed tuple:
 
-The lowercase values name exact Browser tokens; `Methods` and `Call Graph`
-name exact version-1 `ProductDemoSections` values. They are source-format
-mappings, not Registry aliases. A section without its required structural
-selector, a Package or Library row with a section, a Member row with
-`metadata` or `source` lens, and every other pair absent from the table fail
-with `LegacyLoweringFailed`. So do case variation, whitespace, labels,
-qualified Browser hash spellings such as `pkg:dependencies`, and CLI aliases.
+```text
+Exact Library  ["l", exact-library-coordinate]
+Package Prefix ["p", prefix]
+Ecosystem      ["e", id, namespace-roots, core-packages, populations]
+```
 
-Version 1 does not require the exact structured Metadata identities that
-version 2 requires. Strict decode therefore preserves every selector and its
-source kind in an unresolved version-1 plan rather than pretending it already
-contains a version-2 subject. A recognized Library, Type, Member, or
-aggregate-Library request returns `LegacyLoweringFailed`; the lowerer does not
-acquire Libraries or Types merely to decide that the requested active subject
-is outside the closed version-2 union. Definition-v1 `library` and `libraries`
-remain context-scoped assembly-filename-stem selectors and fail for the same
-reason.
+`exact-library-coordinate` has one of these forms:
 
-A packet-v1 `l` value also represents unresolved legacy query state because
-format 1 cannot reference a query record. If a Package-subject packet uses `l`,
-the lowerer requires one public query-owner Library-scope migration registered
-for that source format and facet. The migration returns an owner-issued
-version-2 query ID and canonical payload whose public descriptor accepts the
-exact Package subject and facet and declares that it consumes state-level
-multi-Library scope. The lowerer creates or reuses that query record and
-attaches it to state `a` before ordinary version-2 validation. No migration,
-several matching migrations, owner rejection, or a returned descriptor that
-does not consume the resolved scope is `LegacyLoweringFailed`. The lowerer does
-not infer a query from Registry's private execution binding. A packet with `l`
-but no exact lowerable Package facet returns `LegacyLoweringFailed` before
-migration, just like a referenced query record in recommendation state.
+```text
+Package  ["p", package-id, exact-version, portable-library-identity]
+Platform ["t", platform-family, portable-library-identity]
+```
 
-A referenced version-1 query record is also an unresolved legacy plan. For a
-direct Package-focused scenario, its output attaches only to the state for
-`a`. If the recognized view supplies no exact lowerable Package facet, dispatch
-returns `LegacyLoweringFailed` before query migration; a migration never
-chooses a facet for recommendation-only state.
-Otherwise the record must carry a non-null exact `queryId`, and that query owner
-must statically register a version-1 migration that returns one canonical
-version-2 payload for the legacy preset. The resulting Package-backed query
-must be compatible with the exact lowered facet; migration never chooses or
-changes a facet. An absent `queryId`, missing owner migration, owner rejection,
-or incompatible exact facet returns `LegacyLoweringFailed`. A workspace-free,
-no-navigation, or non-Package-focused v1 graph retains the query in its
-existing execution plan instead of partially migrating it. Workspace
-Definitions never drops the preset or manufactures `{}`.
+`portable-library-identity` is format 2's exact four-slot
+`[name,version,culture,publicKeyToken]` tuple. `package-id` and
+`exact-version` use format 1's normalized Package scalar grammar.
+`platform-family` is exactly `DotNetRuntime` or `AspNetCore`, matching the
+owner-issued `PlatformFamily` names. Project- and Local-origin exact Library
+registrations have no reopenable portable source coordinate and are
+`NonProjectable`; format 3 does not encode them as assembly identities alone.
 
-Format 1 carries view state only for `a`. For a Package-lowerable plan,
-the lowerer creates an absent-subject recommendation state for every other
-direct Package coordinate, an undecorated dormant row for every non-Package
-coordinate, and the required explicit Workspace state; it does not pretend
-version 1 preserved those views. The version-1 focused Package tab remains
-focused, because version 1 cannot express a Workspace selection with no active
-occurrence. A direct Package-focused version-1 composition with no view fields
-likewise becomes recommendation state.
+The Ecosystem tuple contains the exact
+`WorkspaceEcosystemRegistrationDeclaration` in owner order:
 
-A workspace-backed format-1 plan with absent or non-Package focus is not
-lowered. Neither is a plan whose recognized view requires Library, Type,
-Member, or aggregate-Library as its active subject, nor a definition-v1 plan
-carrying `library` or `libraries`, nor a plan with v1 query state but no exact
-lowerable Package facet. Each returns `LegacyLoweringFailed` before
-construction. Captured descendant or non-Package active state from an existing
-version-1 session is `NonProjectable`; no format-2 writer emits either
-active-subject kind.
-Filters, body targets, source targets, and overload ordinals have no version-1
-field and are never inferred from courtesy routes or host state.
+- `id` is the canonical `ecosystem.*` lower registration identity;
+- `namespace-roots` is its ordered string array;
+- `core-packages` is its ordered array of canonical unversioned Package IDs;
+  and
+- `populations` is its ordered array of closed population tuples.
 
-The lowerer retains the exact decoded version-1 packet as the requested packet
-basis. If the fresh Workspace realizes the same semantic state, that original
-canonical format-1 packet remains the installed location basis. Any owner
-reconciliation, later user change, or newly captured direct Package state
-projects as format 2. A changed non-Package active state is `NonProjectable`.
-No version-2 writer emits a version-1 token, and no version-1 writer accepts a
-Registry ID.
+Population tuples are:
+
+```text
+Exact Library  ["l", exact-library-coordinate]
+Platform       ["t", platform-family]
+Package Prefix ["p", prefix]
+```
+
+An Ecosystem tuple carries no scanner slot. A declaration with non-null
+`EcosystemIntegrationScannerBinding` is `NonProjectable` before packet writing
+until the Integration owner supplies the separately scoped portable vocabulary
+defined above. The encoder refuses before writing; it never omits the binding
+and then emits the remaining fields as an apparently complete Ecosystem.
+
+All registration strings retain their owner-issued canonical spelling and the
+packet scalar escaping rules. The Ecosystem's three internal arrays preserve
+declaration order. Unknown tuple tags, wrong arity, null where a scalar or array
+is required, duplicate registration identity, duplicate owner-forbidden
+Ecosystem content, unsupported exact-Library source arms, and noncanonical
+Package, prefix, family, Library, or Ecosystem identity are invalid packet
+shape.
+
+Format 3 retains format 2's 32 KiB encoded text, 24 KiB decoded UTF-8 JSON,
+nesting-depth 24, 2048 JSON-value, 12-coordinate, 24-context, view-state, and
+query-state limits. It adds at most 24 top-level registration entries. Nested
+Ecosystem content remains bounded by the outer byte, depth, and JSON-value
+limits and by its owner's declaration validation. A valid definition outside
+those packet limits is `NonProjectable`.
+
+Packet-to-record transposition creates one complete schema-version-3
+workspace, navigation, view, scenario, and needed query and catalog records.
+The peer records use their schema-version-2 shapes with version `3`, as defined
+under [Schema-version composition](#schema-version-composition). The Workspace
+record receives the exact `r` vector and an empty context array when `g` is
+empty. Record-to-packet projection validates the complete version-3 composition
+before writing the fixed property order and exact tuples above.
+
+`WorkspaceSharePacketCodec` and `WorkspaceSharePacketTransposer` in
+`DotnetInspector.Queries.Definitions` are the single product implementation of
+packet syntax, canonical writing, parsing, validation, and record
+transposition. Format 3 extends those managed types; it does not add a
+TypeScript packet parser, writer, or transposer.
+
+The managed codec gates use the canonical JSON above plus fixed vectors for
+Package- and Platform-origin Exact Libraries, a scanner-free Ecosystem
+containing all three population arms, mixed contexts and registrations,
+`x: null` registration-only state, the query-only Package Query vector,
+non-null `x` with contexts, all malformed tuple cases, scanner-bearing
+non-projectability, and every outer limit. Each accepted vector must satisfy
+byte-identical packet -> records -> packet output through that one
+implementation.
+
+Inspect Web invokes the same managed codec and transposer through the
+`CatalogExports` JS-export adapter in
+`inspect-web/DotnetInspect.Web.Interop.Catalog/WorkspaceShareExports.cs`.
+Generated TypeScript bindings and TypeScript tests gate Browser transport and
+state integration across that adapter; TypeScript never interprets or emits
+the compact `f`, `t`, `g`, `r`, `a`, `x`, `q`, or `v` packet grammar itself.
+The managed and Browser/TypeScript gates share the fixed-vector corpus to prove
+one implementation behaves identically through both hosts, not to certify two
+codec implementations.
+
+#### Version admission
+
+The current implementation accepts exact schema-version-2/packet-format-2 and
+schema-version-3/packet-format-3 pairs through separate typed restoration
+branches. It never combines a version-2 record with a version-3 peer or accepts
+a packet/record version mismatch.
+
+A schema-version-1 definition composition or canonical format-1 packet returns
+`UnsupportedVersion` before any Workspace, Root, Scope, reader, session, lease,
+acquisition, Registry resolution, query execution, or Navigation operation
+exists. Complete restoration does not lower, migrate, adapt, or partially
+interpret an unsupported representation.
+
+This boundary does not delete independent version-1 consumers. Registry
+preparation and the shared packet codec may continue to expose version-1 APIs
+for already-established owners, but the complete-restoration coordinator never
+routes accepted input to those paths. An absent, unknown, or non-integer packet
+format remains the packet codec's typed `UnsupportedFormat` failure; mixed
+definition versions remain `InvalidDefinitionSet`.
+
+Workspace-free scenarios remain outside complete Workspace restoration and
+continue through their source or query owner. Current-format workspace-backed
+definitions require one complete same-version composition: version 2 uses its
+existing view/navigation pair and leading Workspace state; version 3 uses those
+same peer shapes at version 3 plus the Workspace registration vector.
 
 ### Complete restoration
 
 Complete restoration first classifies one workspace-backed definition or
-packet. Version-2 and Package-subject-lowerable version-1 inputs continue to
-resource-free construction input and prepare an independent host-owned
-Workspace. Each such Workspace is constructed solely from its own definition;
-no other Workspace or Workspace definition participates. A workspace-backed
-version-1 input with absent or non-Package focus, a recognized Library, Type,
-Member, or aggregate-Library active request, or a definition-v1 view carrying
-`library` or `libraries`, or a referenced query without an exact lowerable
-Package facet, returns `LegacyLoweringFailed` before construction.
-Workspace-free scenarios remain outside this operation and execute through
-their source or query owner.
+packet. The current implementation continues exact
+schema-version-2/packet-format-2 and schema-version-3/packet-format-3 input
+through separate branches. Each such Workspace is constructed solely from its
+own definition; no other Workspace or Workspace definition participates.
+Unsupported versions return
+`UnsupportedVersion` before construction. Workspace-free scenarios remain
+outside this operation and execute through their source or query owner.
 
 This operation applies to workspace-backed saved definitions, share packets,
 Browser history, workspace-backed product demos, Spotlight package selections
@@ -1794,19 +2542,20 @@ One restoration attempt proceeds in this order:
    realization-coordinator attempt identity is issued later when a host begins
    candidate construction. A newer restoration or explicit host intent
    supersedes every remaining phase of the older attempt.
-2. Perform bounded format dispatch and strict decode. Format 2 produces one
-   closed version-2 composition plan. Format 1 produces one unresolved legacy
-   plan and retains its exact canonical packet basis. A workspace-backed
-   version-1 plan with absent or non-Package focus, a recognized Library, Type,
-   Member, or aggregate-Library active request, or any definition-v1 view carrying
-   `library` or `libraries`, or v1 query state without an exact lowerable
-   Package facet, returns `LegacyLoweringFailed` now, before any Workspace,
-   Root, Scope, reader, session, lease, acquisition, Registry resolution, or
+2. Perform bounded format dispatch and strict decode. Canonical packet format
+   2 produces one closed schema-version-2 composition plan; format 3 produces
+   one closed schema-version-3 composition plan after its adoption slice lands.
+   Packet format 1, schema version 1, or any unsupported or mismatched version
+   returns `UnsupportedVersion` before any Workspace, Root, Scope, reader,
+   session, lease, acquisition, Registry resolution, query execution, or
    Navigation operation exists.
-3. Resolve syntax, Registry IDs, query migrations, Platform/package pruning,
+3. Resolve syntax, Registry IDs, Platform/package pruning,
    and complete context, Root, and registration construction intent into one
-   immutable `WorkspacePlan` and restoration recipe. Preserve selectors or
-   identities that require acquired metadata as exact unresolved recipe input.
+   immutable `WorkspacePlan` and restoration recipe. Packet tuples match their
+   exact nullable framework/RID target; a null packet slot does not inherit a
+   neighboring context target. Authored definitions retain their existing
+   omitted-target inheritance. Preserve selectors or identities that require
+   acquired metadata as exact unresolved recipe input.
    Missing, ambiguous, rejected, or invalid resource-free input fails under the
    same attempt token. This phase creates no Workspace, Root, Scope, reader,
    session, or lease.
@@ -1816,8 +2565,8 @@ One restoration attempt proceeds in this order:
    `WorkspaceRealizationConstructionLease`; the CLI supplies its sole
    invocation Workspace lifetime. Populate complete explicit membership and
    registrations through ordinary Artifact and Scope operations. Resolve and
-   validate metadata-dependent legacy selectors and coordinate-backed
-   identities against that exact acquired realization. Every Workspace, Root
+   validate metadata-dependent selectors and coordinate-backed identities
+   against that exact acquired realization. Every Workspace, Root
    occurrence, Scope revision, and Navigation identity is issued for that
    Workspace.
 5. Establish the requested retained context, active subject, and lens through
@@ -1826,15 +2575,24 @@ One restoration attempt proceeds in this order:
    that its owner keeps explicit or capability-gated. Membership, subject
    focus, and traversal-derived realization remain separate.
 6. Project the complete Workspace. A packet-sourced exact result retains its
-   canonical packet. Other projectable Workspaces emit canonical format 2.
-   A valid definition beyond packet grammar or bounds is `NonProjectable` but
-   remains installable; malformed Workspace state or writer failure is
+   canonical packet. Other projectable schema-version-2 Workspaces emit
+   canonical format 2; schema-version-3 Workspaces emit canonical format 3.
+   A valid definition beyond its packet grammar or bounds is `NonProjectable`
+   but remains installable; malformed Workspace state or writer failure is
    `ProjectionFailed`.
 7. Return one immutable `CompleteWorkspaceActivation` containing the exact
    prepared Workspace identity, complete snapshot, request basis, projection
-   classification, and owner evidence. The host still owns the live
-   construction authority and may activate only while the exact intent and
-   effect authority remain current.
+   classification, and owner evidence. The construction continuation releases
+   borrowed Workspace access before completing its lifetime owner's
+   construction barrier, then returns one opaque host-specific unpublished
+   activation handle paired with that exact Definitions result. The handle is a
+   ready realization candidate for Inspect Web and the invocation-owned
+   Workspace lifetime for CLI. It is never the Browser construction lease or
+   borrowed Workspace reference. Returning `Activated` is the handoff
+   linearization point: the host has accepted lifetime authority while the
+   intent is current, and a later superseding intent is handled by that host's
+   ordinary candidate or active-realization lifecycle rather than by
+   Definitions discarding an already transferred handle.
 8. The consuming host publishes the prepared Workspace according to its own
    realization lifecycle. Inspect Web uses the candidate and atomic-cutover
    contract owned by
@@ -1844,9 +2602,15 @@ One restoration attempt proceeds in this order:
    when the invocation ends. History, URL, focus, and announcement remain
    host-owned effects of the same authorized result.
 9. On decode, resolution, construction, Navigation, query, projection,
-   cancellation, expiry, or supersession failure, close the unpublished
-   Workspace and return the exact failure. A host must not replace its active
-   realization from a failed or late result.
+   cancellation, expiry, or supersession failure, the construction continuation
+   releases borrowed access and asks its existing lifetime owner to close or
+   settle the unpublished Workspace before returning the exact failure.
+   Definitions owns this non-install cleanup obligation; the host adapter
+   discharges it through the ordinary realization lifecycle rather than
+   directly closing a coordinator-owned Workspace. Cleanup never waits on a
+   construction barrier while still holding its lease, and it is not abandoned
+   merely because the request cancellation token is already signaled. A host
+   must not replace its active realization from a failed or late result.
 
 A restoration transaction that continues past source classification prepares
 exactly one unpublished Workspace. It is not selectable, addressable through
@@ -1856,6 +2620,31 @@ current, but provisional presentation has no active Workspace authority. A
 newer attempt supersedes the older result and the owning realization lifecycle
 closes or drains its resources. Host-level concurrent transaction and
 aggregate realization bounds belong to the consuming host.
+
+The construction boundary is one generic trusted-host continuation, not a new
+Workspace lifetime owner:
+
+```text
+CompleteRestorationHost<TActivation>.ConstructAsync(
+  IntentToken,
+  WorkspacePlan,
+  Prepare(InspectionWorkspace, Revocation) ->
+    Prepared(CompleteWorkspaceActivation) | Failed | Superseded)
+->
+  Activated(TActivation, exact CompleteWorkspaceActivation) |
+  Failed(cleanup evidence) |
+  Superseded(cleanup evidence)
+```
+
+The host implementation must associate the plan, fresh Workspace, callback
+result, and `TActivation` without rebinding any of them. It observes both the
+original host intent and its existing construction authority before beginning,
+before invoking the callback, and before returning success. Browser
+candidate identity does not replace host intent identity: a newer intent can
+supersede an attempt before a replacement candidate starts. The adapter
+releases borrowed construction access before awaiting candidate completion or
+retirement. Definitions tests use a host-neutral fake of this contract; the
+Browser and CLI adapters remain with their respective lifetime owners.
 
 Inspect Web may retain a bounded list of resource-free definitions for
 presentation. Selecting a retained definition performs fresh restoration and
@@ -1874,7 +2663,7 @@ coordination obligation is therefore the Definitions-owned transaction in
 uncommitted Scope fragment or a multi-owner commit over the active Workspace.
 
 Failure remains source-identifying throughout the pipeline:
-`InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
+`InvalidPacket`, `UnsupportedVersion`,
 `InvalidDefinitionSet`, `WorkspaceConstructionFailed(owner,evidence)`,
 `NavigationFailed(evidence)`, `ProjectionFailed`, cancellation, expiry, and
 supersession are distinct outcomes. None becomes an empty successful
@@ -1882,10 +2671,11 @@ Workspace. A complete Navigation snapshot may retain owner-issued unavailable
 or failed view evidence and still be installable; `NavigationFailed` means no
 complete snapshot was produced.
 
-The owner-issued result is a closed union:
+The owner-issued result is a closed union parameterized by the consuming
+host's unpublished activation handle:
 
 ```text
-CompleteRestorationResult
+CompleteRestorationResult<TActivation>
   Activated
     IntentToken          opaque exact owner-issued token
     RequestBasis         PacketInput | DefinitionInput
@@ -1896,6 +2686,7 @@ CompleteRestorationResult
     NavigationDisposition
                          opaque current result and effect authority
     OwnerEvidence        ordered complete evidence
+    Activation           TActivation; host-owned unpublished lifetime
   Failed
     IntentToken
     RequestBasis
@@ -1908,18 +2699,20 @@ definition request; it never invents packet bytes for a definition. Owner
 evidence follows deterministic plan order, not asynchronous completion order.
 `Activated` is the only arm carrying a new Workspace.
 `Failed` and `Superseded` produce no Workspace value and grant no host
-publication authority. Unsupported version-1 workspace-backed input is a
-source-identifying `LegacyLoweringFailed` failure, not a separate execution
+publication authority. Unsupported earlier-version input is a
+source-identifying `UnsupportedVersion` failure, not a separate execution
 route.
 
-The existing
+The focused
+[Workspace Definitions complete-restoration
+model](models/workspace-definitions-complete-restoration/README.md) checks exact
+request/plan/Workspace association, pre-construction rejection, ordered
+evidence, current-intent activation, and one-shot host-mediated cleanup. The
+older
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla)
 models the retired in-place participant protocol and is not evidence for this
-fresh-Workspace contract. Definition-owned integration gates must show that
-each successful result contains the exact independently prepared Workspace
-once and that every failed or superseded attempt releases its unpublished
-Workspace. Browser retention, fresh reselection, and incumbent preservation are
-modeled separately by
+fresh-Workspace contract. Browser retention, fresh reselection, and incumbent
+preservation are modeled separately by
 [Inspect Web Retained Workspace
 Realization](models/inspect-web-retained-workspace-realization/README.md).
 
@@ -2151,33 +2944,14 @@ Implementation must add, at minimum:
   null-Workspace rejection of `l` and Library-scope-requiring queries,
   undecorated dormant group rows, every outer and per-query bound, and
   cancellation before each query bind;
-- a legacy-dispatch and lowering gate derived from the closed disposition
-  table, with one positive case for every row and close negatives for case
-  variation, whitespace, Browser hash spellings, CLI aliases, contradictory
-  lens/section pairs, wrong structural evidence, and unknown tokens. It must
-  include current Browser-produced Member Overview packets with absent
-  `section`, Type and Member records that omit Library identity, aggregate-
-  Library facets, and definition-only `memberKey`. Package-only
-  recommendation, Package Overview, and Package Dependencies are the only
-  lowering dispositions. For those dispositions, no legacy token is submitted
-  to the Registry, final composition validation follows exact Registry and
-  query-vocabulary resolution, the explicit Workspace state is added, inactive
-  direct Package coordinates become recommendation states, inactive
-  non-Package coordinates become undecorated dormant rows, and exact format-1
-  packet restoration retains its byte basis. Any Package-subject packet
-  Library scope must invoke exactly one public facet-specific query-owner
-  migration whose descriptor consumes that scope.
-  Workspace-backed v1 plans with absent or non-Package focus, recognized
-  Library, Type, Member, or aggregate-Library active requests, plus every
-  definition-v1 plan
-  carrying `library` or `libraries` and every query-bearing plan without an
-  exact lowerable Package facet, must return
-  `LegacyLoweringFailed` before construction and never enter
-  Registry/Navigation v2 composition. Captured descendant or non-Package active
-  state is `NonProjectable`, while a later direct-Package state may project as
-  format 2.
-  Workspace-free v1 scenarios must remain on their source/query execution path
-  without entering complete Workspace restoration;
+- a restoration-version admission gate proving canonical packet format 2 and
+  complete schema-version-2 compositions can prepare one exact
+  `WorkspacePlan`, while canonical format-1 packets and every
+  schema-version-1 workspace-backed composition return `UnsupportedVersion`
+  before construction. Unknown packet formats must retain the codec's typed
+  `UnsupportedFormat` evidence, mixed definition versions must remain
+  `InvalidDefinitionSet`, and workspace-free scenarios must remain on their
+  existing source/query execution path;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, Workspace with and without retained occurrence
@@ -2205,8 +2979,11 @@ Implementation must add, at minimum:
   Library scope while a direct Package-coordinate Workspace state resolves it
   only within that occurrence. It must round-trip a Workspace-compatible query
   attached to the leading null state through both long-form records and packet
-  format 2, while continuing to reject Package-query attachment without a
-  Package coordinate;
+  format 2. It must also round-trip the query-only format-3 fixed vector, prove
+  that its leading Workspace subject is not supplied as query input, and reject
+  the same coordinate-free Package Query under format 2 or when mixed with
+  context, registration, facet, retained selector, Library scope, or another
+  query;
 - a navigation gate proving ordered tabs and nullable record-local focus
   round-trip, `null` selects the Workspace state with no occurrence context,
   non-null version-2 focus accepts only a direct Package coordinate, every
@@ -2222,7 +2999,7 @@ Implementation must add, at minimum:
 - a view-facet registry gate proving version 2 submits only `ViewState.Facet`
   as an exact opaque Registry ID, never parses its prefix, and distinguishes
   unknown, inapplicable, unavailable, and failed outcomes. Version-1
-  `lens`/`section` values must reach only the legacy lowerer. A
+  `lens`/`section` values never enter complete restoration. A
   `PortableLibraryIdentity` is not a facet: it resolves against the owning
   direct Package coordinate's acquired assemblies, with missing or ambiguous
   identity a typed outcome there. The null Workspace state has no such domain
@@ -2230,16 +3007,16 @@ Implementation must add, at minimum:
 - a complete-restoration conformance gate with controllable Workspace
   construction, Navigation, query, projection, and host installation. It must
   cover inert packet/definition input with absent, stale, revoked, and
-  incompatible activation authority; exact workspace-backed absent/non-Package
-  v1, descendant-active-subject v1, and every Library-scoped definition-v1
-  classification to `LegacyLoweringFailed` before construction; workspace-free exclusion;
+  incompatible activation authority; canonical format-1 packet and
+  schema-version-1 workspace-backed definition classification to
+  `UnsupportedVersion` before construction; workspace-free exclusion;
   stale decode success and failure after a newer intent; Root or Navigation
   failure after partial new-Workspace construction;
   projectable and validly non-projectable installation; projection failure;
   supersession before installation; late completion; and initial failure with
   no active Workspace.
   Unauthorized input must reserve, acquire, and publish nothing.
-  `LegacyLoweringFailed` must reserve, acquire, and construct nothing. Every
+  `UnsupportedVersion` must reserve, acquire, and construct nothing. Every
   other non-install outcome must close the unpublished Workspace, return no
   Workspace value, and carry the source-identifying failure evidence. Successful
   installation must return the exact prepared Workspace once, preserve the
@@ -2327,7 +3104,8 @@ Definition records and product demos (this slice):
   leading Workspace row, ordered per-tab state, Workspace/Package subject
   requests, and independent retained Package/Library/Type/Member context.
   Non-Package rows remain undecorated, nonempty query references fail until
-  #6971, and packet-format-1 projection returns `NonProjectable`;
+  #6971, and canonical packet-format-2 projection preserves the complete
+  query-free composition;
 - `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
   its exact `WorkspaceScopeSnapshot`, and one
   `NavigationPackageEvaluation` per direct-Package row. It resolves portable
@@ -2385,7 +3163,7 @@ Definition records and product demos (this slice):
   `PrepareScenario_RetainsBaseAndOverlayCatalogs`,
   `Parse_RejectsUnknownAndDuplicateNestedVersion2Properties`,
   `Parse_RequiresNullableFocusAndCanonicalPortableIdentity`,
-  `Version2ProjectionToPacketFormat1_IsNonProjectable`,
+  `Version2ProjectionToPacketFormat2_RoundTripsCanonicalRecords`,
   `Version1PacketProjectionRejectsMixedSchemaVersions`, and
   `PrepareScenario_FocusedNonPackageVersion1KeepsVersion1Path`
   gate the implemented query-free composition and no-compatibility boundaries while
@@ -2417,8 +3195,9 @@ Definition records and product demos (this slice):
   their product scenario ids. `BrowserProductHomeDemosTests` gates host-plan
   lowering and unsupported bindings; `BrowserEngineBoundaryTests` gates
   nonempty Methods projection and anchored Call Graph execution;
-- `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
-  base64url packet into an immutable product-owned semantic model. It rejects
+- `WorkspaceSharePacketCodec` decodes and canonically re-emits bounded format-1
+  and format-2 base64url packets into immutable product-owned semantic models.
+  It rejects
   legacy prototype packets, malformed or non-canonical encoding and JSON,
   invalid coordinate and context topology, and partial state through typed
   outcomes. Its fixed .NET vectors cover composed package/platform contexts,
@@ -2498,7 +3277,8 @@ Definition records and product demos (this slice):
   pins, selection, section, and ascending-ordinal multi-library scope. It
   normalizes equivalent framework and exact-version spellings, preserves
   explicit null targets beside qualified copies, distinguishes malformed
-  definition sets from valid state outside v1, validates the whole portable
+  definition sets from valid state outside the packet grammar, validates the
+  whole portable
   definition set before making that distinction, uses target-aware hash indexes
   so over-capacity validation remains near-linear, and returns a typed
   projection outcome rather than flattening either. A valid navigation subset
@@ -2571,9 +3351,24 @@ Definition records and product demos (this slice):
   Package-root navigation and explicit Share use the ordinary Browser route,
   without stale packet state, until Browser Definitions consumption binds the
   landed product facet IDs; and
+- `CompleteRestoration` admits one workspace-backed schema-version-2
+  composition or canonical packet-format-2 request under an exact host intent,
+  prepares one immutable `WorkspacePlan`, constructs and resolves one fresh
+  unpublished Workspace through a trusted host continuation, and returns
+  activation, failure, or supersession with ordered owner evidence and
+  host-mediated cleanup. Schema-version-1 definitions and format-1 packets
+  return `UnsupportedVersion` before construction. Definition-origin
+  Workspaces project to format 2 when representable; packet-origin Workspaces
+  retain the exact canonical format-2 packet. `CompleteRestorationPreparationTests`
+  and `CompleteRestorationExecutionTests` gate version admission, exact
+  construction association, selector resolution, activation, projection,
+  supersession, and cleanup. The focused
+  `workspace-definitions-complete-restoration` TLA+ model checks exact
+  request/plan/Workspace association, pre-construction rejection, evidence
+  order, current-intent activation, and one-shot cleanup; and
 - **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, query-bearing packet projection, legacy lowering, per-coordinate
-  view/query binding, complete-restoration coordinator, CLI use of the
+  Registry, query-bearing packet projection, per-coordinate view/query
+  binding, Inspect Web adoption of complete restoration, CLI use of the
   codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or

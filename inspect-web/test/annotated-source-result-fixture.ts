@@ -2,6 +2,9 @@ import type {
   BrowserCallGraphTarget,
   BrowserAnnotatedSourceViewerCatalog,
 } from "../src/facades/inspect-web-source.d.ts";
+import type {
+  AnnotatedSourceDocument,
+} from "../src/document-model.ts";
 
 export const sampleInvocationTarget = {
   id: "n1",
@@ -22,6 +25,52 @@ export const sampleInvocationTarget = {
   platformPack: null,
   surfaceAssemblyId: "compile:ref/net11.0/Example.dll",
 } as const satisfies BrowserCallGraphTarget;
+
+const calleeText = "Span<int> values = stackalloc int[1];";
+const stackallocText = "stackalloc int[1]";
+
+export const sampleCalleeDocument = {
+  text: calleeText,
+  nodes: [{
+    id: 0,
+    kind: "StackAllocationExpression",
+    medium: "CSharp",
+    spans: [{
+      start: calleeText.indexOf(stackallocText),
+      length: stackallocText.length,
+    }],
+    provenance: {
+      il_offsets: [2],
+    },
+  }],
+  regions: [],
+  facts: [],
+  targets: [],
+} as const satisfies AnnotatedSourceDocument;
+
+export const sampleCalleeEvidence = {
+  factId: 0,
+  instanceKey: 41,
+  member: "Example.Targets.Target(int)",
+  target: {
+    ...sampleInvocationTarget,
+    kind: "method",
+  },
+  state: "Instruction",
+  aggregateInputs: [],
+  coordinates: [{
+    ilOffset: 2,
+    kind: "Localloc",
+  }],
+  documentId: 0,
+  nodeIds: [0],
+  unavailableReason: null,
+} as const;
+
+export const sampleCalleeEvidenceDocuments = [{
+  id: 0,
+  document: sampleCalleeDocument,
+}] as const;
 
 export const sampleViewerCatalog = {
   defaultFindingIds: [0, 1],

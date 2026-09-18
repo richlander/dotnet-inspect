@@ -654,8 +654,11 @@ public sealed class PackageHouse
                     await sourceOperation.DiscoverVersionsAsync(
                         request.Range.PackageId,
                         authorization,
-                        PackageVersionDiscoveryContract
-                            .CompleteVersionEnumeration,
+                        request.IncludeUnlisted
+                            ? PackageVersionDiscoveryContract
+                                .CompleteVersionEnumerationIncludingUnlisted
+                            : PackageVersionDiscoveryContract
+                                .CompleteVersionEnumeration,
                         _log)
                     .ConfigureAwait(false);
                 List<PackageHouseFailure> failures =
@@ -968,6 +971,9 @@ public sealed class PackageHouse
                     PackageCompileAssetSelector.Evaluate(
                         content,
                         acquisition.Candidate.Coordinate.PackageId,
+                        request.TargetContext?.RequestedFramework is null
+                            ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                            : PackageCompileAssetSelectionPolicy.ExplicitTarget,
                         request.TargetContext?.RequestedFramework,
                         request.TargetContext?.RuntimeIdentifier)),
             PackageHouseAssetSelectionKind.Runtime =>

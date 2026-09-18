@@ -263,6 +263,25 @@ public class ExtensionsCommandTests
             document.RootElement[0].GetProperty("method").GetString());
     }
 
+    [Fact]
+    public async Task CommandLine_NumericTypeFilterIsOrdinaryFilterInput()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "extensions",
+            "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--json",
+            "-t",
+            "1");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Empty(document.RootElement.EnumerateArray());
+    }
+
     [Theory]
     [InlineData("-n1")]
     [InlineData("-1")]

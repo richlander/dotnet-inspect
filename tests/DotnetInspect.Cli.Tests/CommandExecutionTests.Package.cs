@@ -22,6 +22,50 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task PackageDocumentDestinations_HonorExplicitLineSelection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.LineDestination",
+            "README.md",
+            "readme");
+        string outputPath = Path.Combine(tempDir, "package-info.md");
+        try
+        {
+            string[] arguments =
+            [
+                "package",
+                packagePath,
+                "-S",
+                "Package Info",
+                "--lines",
+                "-n",
+                "1",
+                "--tips",
+                "q",
+            ];
+            var stdout = await RunAppInDirectoryAsync(tempDir, arguments);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments, "--out", outputPath]);
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Equal(stdout.Output, File.ReadAllText(outputPath));
+            Assert.Single(
+                stdout.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_ConcatenatedValuesPreserveImplicitFileRouting()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -65,7 +109,8 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package files",
                 "--paths",
-                "-o-1",
+                "-o=-1",
+                "--lines",
                 "-1",
                 "--tips",
                 "q",
@@ -284,7 +329,7 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Newtonsoft.Json@13.0.4", "--version", null)]
-    [InlineData("Newtonsoft.Json", "--latest-version", null)]
+    [InlineData("Newtonsoft.Json@latest", "--version", null)]
     [InlineData("Newtonsoft.Json", "--versions-with-feed", "1")]
     public async Task Versions_Count_ValidatesTheRenderedBranchColumns(
         string package,
@@ -313,8 +358,8 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package",
-            "Newtonsoft.Json",
-            "--latest-version",
+            "Newtonsoft.Json@latest",
+            "--version",
             "--include-unlisted",
             "--count",
             "--columns",
@@ -397,14 +442,19 @@ public partial class CommandExecutionTests
         {
             var actual = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+            var wildcard = await RunAppAsync(
+                "package", packagePath, "--columns", "Fie*", "--tsv", "--tips", "q");
             var expected = await RunAppAsync(
                 "package", packagePath, "--columns", "Field,Value", "--table", "--tips", "q");
 
             Assert.Equal(0, actual.Exit);
+            Assert.Equal(0, wildcard.Exit);
             Assert.Equal(0, expected.Exit);
             Assert.Empty(actual.Error);
+            Assert.Empty(wildcard.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
+            Assert.StartsWith("field\n", wildcard.Output);
         }
         finally
         {
@@ -423,10 +473,20 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--fields", "Authors", "--tips", "q");
+            var mixed = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package Info",
+                "--fields", "Version",
+                "--columns", "Value",
+                "--tsv",
+                "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains("| Authors | tests |", output);
+            Assert.Equal(0, mixed.Exit);
+            Assert.Empty(mixed.Error);
+            Assert.Contains("1.0.0", mixed.Output);
         }
         finally
         {
@@ -861,8 +921,8 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "2" },
-                         ["-n", "2", "--tail"],
+                         new[] { "-n", "2", "--lines" },
+                         ["-n", "2", "--tail-lines"],
                      })
             {
                 var baseline = await RunAppInDirectoryAsync(

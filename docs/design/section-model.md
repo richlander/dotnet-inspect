@@ -54,6 +54,10 @@ probe budget. Rendering may spend a larger content budget.
 Categories are authored, typed grouping declarations. They are not computed
 from section names.
 
+On a target-aware command, a category is a lens over the current route's
+catalog; selecting it does not change target granularity. A direct section
+selector may choose a narrower route when that section requires one.
+
 Most selectable sections belong to at least one authored category. A section
 may belong to more than one category when it is genuine evidence in multiple
 domains. A deliberately standalone section may remain uncategorized when no
@@ -61,6 +65,11 @@ category is a coherent promise for it; it remains reachable by exact name,
 explicit wildcard, and structural schema discovery. It may also be promoted in
 target-aware discovery by a bounded presence probe without joining an automatic
 rendering scope.
+
+A section explicitly declared exact-name-only is a stronger exception:
+category and wildcard expansion remove it, while direct exact selection retains
+it. Sections implied by non-selector command options may narrow the target but
+do not make category- or wildcard-expanded sections exact.
 
 Two category roles exist.
 
@@ -97,6 +106,11 @@ type-forwarder inventories, and `Inspection Failures`. Exact-type inspection
 uses the shared type/member-list catalog and is curated with the `member`
 command.
 
+The `member` command and exact-type inspection use `@Member` as their sole
+base category. Its membership follows the resolved view: member-kind summaries
+for a type, the matching inventory for a member name, and signature plus local
+implementation evidence for one selected overload.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -121,6 +135,11 @@ At package scope, `@Dependencies` groups direct and runtime-specific package
 dependencies, while `@Audit` cross-lists package signals, artifact-text concern
 locations, signing, vulnerabilities, and SourceLink integrity evidence.
 `@SourceLink` remains a separate provenance domain.
+
+At type/member scope, `@Audit`, `@Calls`, `@Decompiler`, `@Performance`,
+`@Source`, and `@SourceLink` are explicit lenses. The same category names span
+the broad type view, overload inventory, and exact-member detail view, while
+each resolved catalog exposes only the sections it can render.
 
 ### Category doors
 
@@ -564,6 +583,112 @@ The package command's current authored ownership is:
 `@Package` and `@Files` are base categories. The remaining categories are
 domains.
 
+## Member category map
+
+The member command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Member` | Route-specific ordinary evidence: type/member-kind summaries, overload inventory, or selected-overload signature and local implementation |
+| `@Audit` | `Unsafe Members`, `Unsafe Operations`, `Safety Facts`, `Semantics Overlay` |
+| `@Calls` | `Called Types`, `Calls`, `Callers`, `Call Graph` |
+| `@Decompiler` | `Decompiled Source`, `Annotated Source`, `Annotated Source Document`, `Fidelity Causes`, `Applied Taste`, `Cost Overlay`, `Semantics Overlay`, `Facts`, `Exception Regions`, `IL` |
+| `@Performance` | `Allocation Facts`, `Cost Facts`, `Cost Overlay`, `Body Shapes`, `Body Shape Summary`, `Top Leverage`, `Performance Triage` |
+| `@Source` | `Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL` |
+| `@SourceLink` | `Source Files`, `Source Locations` |
+
+`@Member` is the base category; the remaining categories are domains.
+`Member Index` and `Finding Census` remain exact-name sections: their focused
+selector and indivisible-document contracts are not coherent promises for a
+broader category. `Clone Candidates` also remains exact-name-only because its
+cross-member comparison does not compose with partial category selection.
+`Implementation Profiles` remains exact-name-only because its unbounded
+whole-assembly acquisition must not be implied by category selection. On an
+overload inventory, `Signature` and `Custom Attributes` remain exact-name
+sections because both require one selected overload.
+
+## Diff category map
+
+The diff command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Diff` | `Changes`, `Analysis Diff`, `Implementation Diff` |
+
+`@Diff` is the base category and groups the three comparison sections that may
+compose in one document. `Finding Transitions` remains exact-name-only because
+it requires a focused type or type-qualified member and does not compose with
+comparison sections.
+
+## Project category map
+
+The project command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Project` | `Skills`, `Package README file` |
+
+`@Project` is the base category and composes the package-authored documents
+available from a restored project's direct dependencies. `Skills` remains the
+bare-`-S` high-value section. `Package README file` is explicit and unbounded;
+selecting `@Project` is the gesture that requests both document inventories.
+
+## Vocabulary category map
+
+The vocabulary command's current authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Vocabulary` | `Vocabulary Sections`, `Accessibility`, `C# Style Tiers`, `C# Style Choices`, `C# Body Kinds` |
+| `@API` | `Accessibility` |
+| `@Decompiler` | `C# Body Kinds`, `C# Style Choices`, `C# Style Tiers` |
+
+`@Vocabulary` is the base category and composes the complete product-owned
+vocabulary document. `@API` and `@Decompiler` are domain doors over the
+vocabularies consumed by those query families. Bare output and bare `-S`
+retain the self-describing `Vocabulary Sections` index.
+
+## Ecosystem category map
+
+The ecosystem command compiles one authored catalog after its optional focus
+operand chooses the available section set:
+
+| Route | `@Ecosystem` members |
+| --- | --- |
+| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos`, `Pruning` |
+
+`@Ecosystem` is the base category and always means every section available on
+the already-selected route. Exact `Integrations` describes product-configured
+bindings rather than observations from a library. Ecosystem does not publish a
+single-member `@Integrations` category. Focus remains the only operation that
+changes the available section set.
+
+Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
+section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
+set in alphabetical order. Select `Integrations` directly for configured
+bindings.
+
+## Graph libraries category map
+
+The `graph libraries` command's authored ownership is:
+
+| Category | Members |
+| --- | --- |
+| `@Libraries` | `Call Sites`, `Consumer Use Sites`, `Direct Use Clusters`, `Provider API Types` |
+
+`@Libraries` is the base category and composes the four pair-wide projections
+in alphabetical section order. Ordinary output remains the exact `Call Sites`
+view. Bare `-S` remains the `Consumer Use Sites` and `Provider API Types`
+summary pair.
+
+`Public Root Paths` remains uncategorized and exact-name-only because it
+requires one positive `Cluster` coordinate before acquisition. Wildcard and
+category selection do not opt into it. The pairwise call-use, direct-use
+cluster, and cluster root-path designs continue to own the section semantics;
+this document owns only their command catalog composition.
+
 ## Registration invariants
 
 The section pipeline and derived catalog gates enforce these invariants:
@@ -574,9 +699,23 @@ The section pipeline and derived catalog gates enforce these invariants:
 4. Every selectable package section has authored category ownership. Every
    selectable library section is categorized except the explicitly pinned
    standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
-   Gates:
+   Every selectable member section is categorized except the explicitly pinned
+   `Member Index`, `Finding Census`, `Clone Candidates`, and `Implementation
+   Profiles` sections and overload-inventory `Signature` and `Custom Attributes`
+   sections. Every diff comparison section belongs to `@Diff`; `Finding
+   Transitions` is its only standalone section. Every project section belongs
+   to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
+   and decompiler vocabularies cross-listed in their domain categories. Every
+   ecosystem route places all its available sections, including exact
+   `Integrations`, in `@Ecosystem`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
-   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
+   `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
+   `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
+   `DiffPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
+   `ProjectPipeline_UsesAuthoredCategoryWithoutComputedPoles` and
+   `VocabularyPipeline_UsesAuthoredCategoriesWithoutComputedPoles` and
+   `EcosystemPipelines_UseRouteSpecificAuthoredCategories` and
+   `LibraryCallUsePipeline_UsesAuthoredCategoryWithoutComputedPoles`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every query binding resolves, and a descriptor cannot understate effective
@@ -591,9 +730,10 @@ sets so stale and missing entries both fail.
 
 ## Migration
 
-The library model is the reference implementation. Package uses the same
-size/cost axes, base-category scope, authored category model, and curated
-discovery. Type, member, project, and API commands should migrate incrementally.
+The library model is the reference implementation. Package, type listing,
+member inspection, diff, project, vocabulary, ecosystem, and `graph libraries`
+use the same size/cost axes, base-category scope, authored category model, and
+curated discovery. Remaining commands should migrate incrementally.
 
 During migration:
 

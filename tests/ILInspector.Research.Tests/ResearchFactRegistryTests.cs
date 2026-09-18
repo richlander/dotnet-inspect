@@ -918,6 +918,41 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void CostFactRetainsMethodOnlyCalleeEvidence()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsAllocInLoopCallee),
+            nameof(ResearchFixture.AllocInLoopCallee));
+
+        IAnnotation fact = Assert.Single(
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(
+                    ResearchFixture.CallsAllocInLoopCallee)),
+            fact => fact.Descriptor.Id == "cost.callee");
+        var typed =
+            Assert.IsType<Annotation<CallSiteCostEvidence>>(fact);
+
+        Assert.Equal(
+            nameof(ResearchFixture.AllocInLoopCallee),
+            typed.Payload.Callee.Name);
+        Assert.True(typed.Payload.EvidenceLocation.IsMethodOnly);
+        Assert.Equal(
+            typed.Payload.Callee,
+            typed.Payload.EvidenceLocation.Method);
+        CallSiteCostEvidenceInput input =
+            Assert.Single(typed.Payload.AggregateInputs);
+        Assert.Equal(
+            CallSiteCostEvidenceInputKind.AllocationInLoop,
+            input.Kind);
+        Assert.Null(input.Value);
+        Assert.Equal(call.ILOffset, typed.SourceOffset);
+    }
+
+    [Fact]
     public void CostOverlay_DoesNotAnnotateLowSignalCallee()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
@@ -1036,6 +1071,226 @@ public class ResearchFactRegistryTests
         Assert.Contains("safety.callee", overlay);
         Assert.Contains("unsafe", overlay);
         Assert.Contains("stackalloc", overlay);
+    }
+
+    [Fact]
+    public void SafetyFactRetainsPhysicalCalleeEvidenceLocations()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsStackallocCallee),
+            nameof(ResearchFixture.StackallocCallee));
+
+        IAnnotation fact = Assert.Single(
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsStackallocCallee)),
+            fact => fact.Descriptor.Id == "safety.callee");
+        var typed =
+            Assert.IsType<Annotation<CallSiteSafetyEvidence>>(fact);
+
+        Assert.Equal(
+            nameof(ResearchFixture.StackallocCallee),
+            typed.Payload.Callee.Name);
+        Assert.NotEmpty(typed.Payload.Coordinates);
+        Assert.All(
+            typed.Payload.Coordinates,
+            coordinate =>
+            {
+                Assert.False(coordinate.Location.IsMethodOnly);
+                Assert.Equal(
+                    typed.Payload.Callee,
+                    coordinate.Location.Method);
+                Assert.True(coordinate.Location.ILOffset >= 0);
+            });
+        Assert.Equal(call.ILOffset, typed.SourceOffset);
+        Assert.DoesNotContain(
+            typed.Payload.Coordinates,
+            coordinate =>
+                coordinate.Location.ILOffset
+                    == typed.SourceOffset
+                && coordinate.Location.Method.Name
+                    == nameof(
+                        ResearchFixture
+                            .CallsStackallocCallee));
+    }
+
+    [Fact]
+    public void SemanticsFactRetainsPhysicalCalleeEvidenceLocations()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsExceptionOnlyCallee),
+            nameof(ResearchFixture.ExceptionOnlyCallee));
+
+        IAnnotation fact = Assert.Single(
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(
+                    ResearchFixture.CallsExceptionOnlyCallee)),
+            fact => fact.Descriptor.Id == "semantics.callee");
+        var typed =
+            Assert.IsType<Annotation<CallSiteSemanticsEvidence>>(fact);
+
+        Assert.Equal(call.ILOffset, typed.SourceOffset);
+        Assert.Equal(
+            nameof(ResearchFixture.ExceptionOnlyCallee),
+            typed.Payload.Callee.Name);
+        Assert.NotEmpty(typed.Payload.Coordinates);
+        Assert.All(
+            typed.Payload.Coordinates,
+            coordinate =>
+            {
+                Assert.False(coordinate.Location.IsMethodOnly);
+                Assert.Equal(
+                    typed.Payload.Callee,
+                    coordinate.Location.Method);
+                Assert.Equal(
+                    CallSiteEvidenceKind.ExceptionConstruction,
+                    coordinate.Kind);
+            });
+    }
+
+    [Fact]
+    public void SafetyFactWithoutLineLevelCoordinateRemainsVisible()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsPointerDerefCallee),
+            nameof(ResearchFixture.PointerDerefCallee));
+
+        IAnnotation fact = Assert.Single(
+            ResearchViews.CollectFacts(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(
+                    ResearchFixture.CallsPointerDerefCallee)),
+            fact => fact.Descriptor.Id == "safety.callee");
+        var typed =
+            Assert.IsType<Annotation<CallSiteSafetyEvidence>>(fact);
+
+        Assert.Equal(call.ILOffset, typed.SourceOffset);
+        Assert.Equal(
+            nameof(ResearchFixture.PointerDerefCallee),
+            typed.Payload.Callee.Name);
+        Assert.Empty(typed.Payload.Coordinates);
+        Assert.Equal("unsafe", typed.Detail);
+    }
+
+    [Fact]
+    public void FactRowsProjectInstructionEvidenceWithoutMovingCallerAnchor()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+        DirectCall call = CallSite(
+            nameof(ResearchFixture.CallsStackallocCallee),
+            nameof(ResearchFixture.StackallocCallee));
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsStackallocCallee)),
+            candidate => candidate.Id == "safety.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(call.ILOffset, row.ILOffset);
+        Assert.Equal(
+            nameof(ResearchFixture.StackallocCallee),
+            evidence.Subject.Name);
+        Assert.Equal(
+            ResearchFindingEvidenceState.Instruction,
+            evidence.State);
+        Assert.NotEmpty(evidence.Locations);
+        Assert.All(
+            evidence.Locations,
+            location =>
+            {
+                Assert.Equal(evidence.Subject, location.Method);
+                Assert.NotNull(location.ILOffset);
+            });
+    }
+
+    [Fact]
+    public void FactRowsProjectMethodOnlyAggregateEvidence()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsAllocInLoopCallee)),
+            candidate => candidate.Id == "cost.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(
+            ResearchFindingEvidenceState.Method,
+            evidence.State);
+        ResearchEvidenceLocation location =
+            Assert.Single(evidence.Locations);
+        Assert.Equal(evidence.Subject, location.Method);
+        Assert.Null(location.ILOffset);
+        CallSiteCostEvidenceInput input =
+            Assert.Single(evidence.AggregateInputs);
+        Assert.Equal(
+            CallSiteCostEvidenceInputKind.AllocationInLoop,
+            input.Kind);
+        Assert.Null(input.Value);
+    }
+
+    [Fact]
+    public void FactRowsProjectUnavailableInstructionEvidenceExplicitly()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ResearchFixture).Assembly.Location);
+
+        ResearchViews.FactRow row = Assert.Single(
+            ResearchViews.CollectFactRows(
+                source,
+                typeof(ResearchFixture).FullName!,
+                nameof(ResearchFixture.CallsPointerDerefCallee)),
+            candidate => candidate.Id == "safety.callee");
+        ResearchFindingEvidence evidence =
+            Assert.IsType<ResearchFindingEvidence>(row.Evidence);
+
+        Assert.Equal(
+            nameof(ResearchFixture.PointerDerefCallee),
+            evidence.Subject.Name);
+        Assert.Equal(
+            ResearchFindingEvidenceState.InstructionUnavailable,
+            evidence.State);
+        Assert.Empty(evidence.Locations);
+    }
+
+    static DirectCall CallSite(
+        string callerName,
+        string calleeName)
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            typeof(ResearchFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.Allocations);
+        MethodIdentity caller = Assert.Single(
+            index.DeclaredMethods,
+            method =>
+                method.DeclaringType.Name
+                    == nameof(ResearchFixture)
+                && method.Name == callerName);
+        return Assert.Single(
+            index.DirectCalls,
+            call =>
+                call.Caller.MetadataToken
+                    == caller.MetadataToken
+                && call.Callee.Name == calleeName);
     }
 
     static DecompilerResult RenderAnnotatedSource(
@@ -1212,6 +1467,12 @@ public static class ResearchFixture
         values[0] = value;
         return values[0];
     }
+
+    public static unsafe int CallsPointerDerefCallee(int* value)
+        => PointerDerefCallee(value);
+
+    public static unsafe int PointerDerefCallee(int* value)
+        => *value;
 
     public static int SharedLeverageCallee(int value) => value + 1;
 

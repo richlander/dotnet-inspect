@@ -7,16 +7,25 @@ Focused L3 design proposal for
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677).
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
-boundary for semantic row selection and rendered-line selection. The package
-`--versions` and `--versions-with-feed` lenses adopt the Head/Tail, Window, and
-Lines subset. The finite `demo list` catalog and the equivalent bare `demo`
-listing adopt the same subset. `vocabulary` value rendering adopts Head/Tail
-and Window without rendered-line selection; its `-D` structural discovery
-retains the existing discovery-row window contract. `timeline` applies
-Head/Tail and Window independently to its Evaluations and Transitions row sets
-after sparse or dense package-cell evaluation; `--at` remains separate
-traversal authorization. Other command surfaces retain their existing
-contracts.
+boundary for semantic row selection and rendered-line selection. Every output
+command that exposes `-n` has one effective item sequence. An active semantic
+row adoption supplies that sequence. Otherwise, the command's rendered lines
+are the sequence. `-n N` takes the first *N* items from that effective sequence;
+`--tail` takes the last *N*. `--lines` and `--tail-lines` explicitly select the
+rendered-line sequence even when semantic rows are available. Legacy `--rows`
+contracts remain command-owned until their semantic adoption.
+
+The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
+catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
+`vocabulary` value rendering, `timeline`, `package query`, package activity,
+and projected member Facts JSON have semantic `-n` adoption. Their supported
+Window and direction capabilities remain command-specific. These adopters also
+accept explicit rendered-line selection where their output format permits it.
+Unselected modes of a partially adopted command use the rendered-line fallback.
+Commands without an active semantic row adoption, including text documents and
+structured commands whose item rows have not yet been adopted, lower bare `-n`
+to rendered-line selection. Explicit `--lines` remains accepted as redundant
+unit selection.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -36,8 +45,11 @@ finite product-demo catalog for explicit `demo list` and equivalent bare
 Package Query, and literal Package Query modes, including shared semantic
 selection and Count evidence. #6643 adopts product-vocabulary value rows across
 selected sections. #6650 adopts timeline Evaluation and Transition rows while
-preserving its explicit package-cell acquisition plan. Remaining command
-adoptions and shared universal guidance remain unimplemented.
+preserving its explicit package-cell acquisition plan. The broad #4677 line
+unit rollout defines rendered lines as the fallback item sequence, adds shared
+`--lines`/`--tail-lines`, and retires numeric `-t` as a row-count spelling on
+`implements` and `extensions`. Semantic adoption for the remaining command row
+sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -82,6 +94,32 @@ This design does not own:
 - payload projection, printing, export, or destination publication;
 - where or how rendered-line selection is applied to a report or payload; or
 - Markout rendering.
+
+## Effective item sequence
+
+`-n` is an item limiter, conceptually operating over an `IEnumerable<T>`:
+
+1. If the active command or selected lens declares semantic item rows, those
+   rows are the effective sequence.
+2. Otherwise, each rendered output line is one item in the fallback sequence.
+3. `--lines` selects the rendered-line sequence explicitly, overriding an
+   available semantic sequence.
+
+The fallback is determined from the typed command or lens declaration before
+execution. L3 does not inspect rendered text, infer rows from table-shaped
+output, or change the unit according to which downstream renderer happens to
+handle the result. A table-like command without semantic adoption therefore
+uses rendered lines until it declares and supplies semantic rows.
+
+`-n N --tail` selects the last *N* items from the same effective sequence.
+`-n N --lines`, `-n N --tail-lines`, and their equivalent supported modifier
+compositions continue to select rendered lines explicitly. Bare `-N` is only a
+compact spelling of `-n N`; it follows the same effective-unit rule.
+
+Inferred and explicit line selection have the same downstream contract. Both
+must pass line-output validation before command work, reject complete JSON
+documents that cannot remain valid after clipping, and preserve exact-output
+and destination-publication protections.
 
 L3 may reject a combination because its command has not adopted the required
 adjacent capability. It may not invent that capability or define the adjacent
@@ -194,11 +232,13 @@ first-versus-last direction:
 - [`tail -n N`](https://www.gnu.org/software/coreutils/manual/html_node/tail-invocation.html)
   keeps the last *N* lines.
 
-`dotnet-inspect` deliberately changes the default unit from rendered lines to
-the active command's declared semantic rows. Rendering is not the semantic
-source of truth, and commands already return useful items such as packages,
-types, dependencies, and graph edges. Explicit `--lines` retains the Unix text
-operation when presentation lines are the intended unit.
+`dotnet-inspect` binds the default unit to the active command's declared items.
+Rendering is not normally the semantic source of truth, because commands
+return useful items such as packages, types, dependencies, and graph edges.
+When no semantic item sequence is declared, rendered lines are the only
+available item sequence and therefore the default. Explicit `--lines` retains
+the Unix text operation as a unit override on semantic line-capable surfaces
+and as redundant clarity on fallback surfaces.
 
 Kusto's
 [`top N by Expression`](https://learn.microsoft.com/en-us/kusto/query/top-operator)
@@ -389,14 +429,15 @@ require platform or package resolution.
 Before an implicit router performs observable resolution, it uses a pure
 route-independent envelope over candidate command declarations:
 
-- `-n N` has the same default meaning for every adopting command: select the
-  first *N* declared semantic items; rendered lines require explicit `--lines`;
+- `-n N` selects the first *N* items from each candidate's effective item
+  sequence: declared semantic rows when active, otherwise rendered lines;
 - the required-value arity union protects a following negative token whenever
   any candidate route must consume it as that option's value;
 - an invocation with no row-selection request follows ordinary routing;
-- when candidate declarations assign different meanings, support, or required
-  adjacent capabilities to a requested gesture or modifier, the invocation
-  fails without routing and requires an explicit command;
+- when candidate declarations assign different effective units, meanings,
+  support, or required adjacent capabilities to a requested gesture or
+  modifier, the invocation fails without routing and requires an explicit
+  command;
 - when every candidate uniformly lacks the requested gesture or required
   adjacent capability, the invocation fails with common capability rejection
   without routing; and
@@ -521,11 +562,12 @@ failure and hide that failure.
 
 ## Command-by-command adoption
 
-Adoption is explicit on the active leaf command or on an explicit zero-arity
-lens selector whose row set is determined at L3. A command or lens does not
-become adopted because it happens to use a shared option object, renders a
-table, or shares an execution helper with an adopted surface. Unselected modes
-of a lens-adopting command retain their existing contract.
+Item adoption is explicit on the active leaf command or on an explicit
+zero-arity lens selector whose row set is determined at L3. A command or lens
+does not gain a semantic row set because it happens to use a shared option
+object, renders a table, or shares an execution helper with an adopted surface.
+Unselected modes of a partially adopted command use the shared rendered-line
+fallback.
 
 One adoption PR defines:
 
@@ -537,10 +579,11 @@ One adoption PR defines:
 - the same selected logical rows across every supported format; and
 - outcome-level gates for the command's pathological and neighboring cases.
 
-A command that does not declare this contract makes no claim about this
-grammar. Shared/root guidance must not call `-n` universal until all commands
-named by #4677 have adopted it. An adopted command uses `-n` only for semantic
-rows; its rendered-line operation is available only through `--lines`.
+A command without an active semantic-row declaration lowers `-n` to the
+host-owned rendered-line operation. A semantic adopter uses `--lines` or
+`--tail-lines` to switch explicitly from semantic items to rendered lines.
+The shared fallback is a typed declaration default, not an inference from
+rendered output.
 
 One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
@@ -564,9 +607,10 @@ define behavior for any other row-selection spelling.
 
 Each adoption removes other overlapping row-selection spellings from that
 command. Its help, README examples, workflows, and shipped skills change in
-the same PR. Help states that `-n` selects semantic rows, `--lines` selects
-rendered lines, and an explicit `--order-by` belongs to `--top` when both are
-present.
+the same PR. Help states that `-n` selects semantic rows when the active command
+declares them and otherwise selects rendered lines; `--lines` explicitly
+selects rendered lines; and an explicit `--order-by` belongs to `--top` when
+both are present.
 
 Guidance names only behavior available on its declared command. Shared guidance
 does not anticipate adoption.
@@ -581,7 +625,8 @@ flag receives the host's common zero-arity error.
 
 The finite `demo list` catalog and equivalent bare `demo` listing declare one
 semantic row per `EcosystemDemoDescriptor` in existing product order. They
-adopt Head/Tail, Window, and Lines; scenario execution remains non-adopted.
+adopt Head/Tail, Window, and Lines; scenario execution adopts only explicit
+rendered-line selection.
 
 ```console
 $ dotnet-inspect demo list -n 1 --json
@@ -619,10 +664,11 @@ internal
 private
 ```
 
-The command does not expose Lines, Top, or `--order-by`. Predicate and ranking
-adoption waits for the shared row-query owner rather than adding a
-vocabulary-local implementation. Structural `-D` output remains outside this
-adoption and keeps the existing discovery projection behavior.
+The command exposes explicit rendered-line selection but does not expose Top
+or `--order-by`. Complete JSON rejects line selection before command work.
+Predicate and ranking adoption waits for the shared row-query owner rather than
+adding a vocabulary-local implementation. Structural `-D` output remains
+outside this adoption and keeps the existing discovery projection behavior.
 
 ## Timeline adoption
 
@@ -648,9 +694,10 @@ the complete vector. Semantic row selection never reduces those acquired
 cells. Markdown, table, TSV, JSONL, typed JSON, and Count consume the same
 selected rows.
 
-The command does not expose Lines, Top, `--order-by`, or predicates. Those
-capabilities require their owning rendering or row-query adoption rather than
-a timeline-local implementation.
+The command exposes explicit rendered-line selection but does not expose Top,
+`--order-by`, or predicates. Complete JSON rejects line selection before
+package acquisition. The remaining capabilities require their owning
+row-query adoption rather than a timeline-local implementation.
 
 ## Required gates
 
@@ -716,13 +763,13 @@ The demo-list adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON or Markout projection; every format observes the same selected demo identities; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution remains non-adopted. |
+| `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON or Markout projection; every format observes the same selected demo identities; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution accepts only explicit rendered-line selection. |
 
 The vocabulary adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Structural discovery retains its existing projection path. |
+| `VocabularyCommandTests` | Explicit `vocabulary` value rendering applies semantic Head/Tail and ordered Window stages to stable catalog rows before count or format lowering; bare `-N` and explicit `-n` select the same identities, multiple selected sections remain independent named sequences, and one strict Window failure emits no partial document. Explicit Lines clips rendered TSV, while complete JSON rejects line selection. Structural discovery retains its existing projection path. |
 
 The timeline adoption is enforced by:
 
@@ -730,6 +777,20 @@ The timeline adoption is enforced by:
 | --- | --- |
 | `TimelineCommandTests` | Evaluations and Transitions apply semantic Head/Tail and ordered Window stages independently before Markdown, table, TSV, JSONL, typed JSON, or Count lowering; one strict Window failure emits no partial document. |
 | `ConfiguredPayloadAcquisitionTests.TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition` | Bare `-N`, Tail, and Window compose over final Evaluation rows while explicit dense `--at all` still acquires every selected package cell. |
+| `ConfiguredPayloadAcquisitionTests.TimelineRange_ExplicitLinesClipRenderedOutput` and `TimelineRange_LinesRejectDocumentJsonBeforeAcquisition` | Explicit Lines clips rendered TSV without reducing authorized package-cell acquisition, while complete JSON rejects line selection before package acquisition. |
+
+The broad explicit-line rollout is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CacheCommandTests` | A command without semantic rows infers rendered lines for bare `-n`, supports inferred Head/Tail and explicit `--lines`/`--tail-lines`, and rejects inferred or explicit line selection with complete JSON before command work. |
+| `SkillCommandTests` | `skill`, `skill list`, and focused skill-document commands infer rendered lines for bare `-n`, preserve explicit `--lines`, apply `--tail` to lines, retain fixed Markdown output independent of the environment-selected format, and accurately teach legacy `--rows` composition. |
+| `ImplementsCommandTests` and `ExtensionsCommandTests` | Existing semantic Head/Tail and Window selection remains intact, explicit line clipping is available, and numeric `-t` is ordinary type-filter input rather than a hidden row count or a compatibility diagnostic. |
+| `PackageChangesCommandTests` | Package activity retains semantic `-n`, does not reuse that count when line selection is explicit, and rejects JSON line clipping before acquisition. |
+| `CommandExecutionTests.Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, `Member_FactsProjectedJson_RejectsUnavailableWindow`, `Member_FactsProjectedJson_DeduplicatesEquivalentSelectors`, `Member_FactsCount_DoesNotActivateProjectedJsonAdoption`, `Member_FactsCount_LegacyRowsComposeWithInferredLines`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | Projected member Facts JSON applies semantic Head, Tail, and strict Window selection before serialization, equivalent selector spellings retain the same active adoption, terminal Count preserves legacy row/line composition, and effective or structural discovery remains outside that projection-specific declaration. |
+| `CommandExecutionTests.LibraryCoordinateCommand_InferredLinesComposeWithRows` | Inferred rendered-line selection composes with a command-owned legacy row window exactly as explicit `--lines` does, including Head and Tail direction. |
+| `CliRowSelectionRouterIntegrationTests` | Uniform fallback candidates lower commandless `-n` as rendered-line selection, while candidates with different effective units require an explicit command before target acquisition. |
+| `PayloadLensContainmentTests` | Explicit line clipping preserves end-of-options ownership; row-shaped payload text after `--` is not interpreted as row selection. |
 
 The remaining implementation must satisfy:
 

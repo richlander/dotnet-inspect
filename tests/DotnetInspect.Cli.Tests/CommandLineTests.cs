@@ -4,6 +4,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -627,6 +628,36 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void LibraryCoordinateCommand_UsesFocusFirstGrammar()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "coordinate",
+                "0x06000001+0x5",
+                "--library",
+                "MyLib.dll",
+            ]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("coordinate", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void LibraryCoordinateCommand_RejectsPositionalLibrarySource()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "library",
+                "coordinate",
+                "0x06000001+0x5",
+                "MyLib.dll",
+            ]);
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
     public void LibraryCommand_WithLocalPath_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["library", "MyLib.dll"]);
@@ -1156,6 +1187,67 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(["find", "Foo", option]);
 
         Assert.Equal(["find", "Foo", option[..^1], ""], result);
+    }
+
+    [Theory]
+    [InlineData("--type=")]
+    [InlineData("-t:")]
+    [InlineData("--package=")]
+    [InlineData("--extract-resources:")]
+    public void PreprocessArgs_ExpandsInlineEmptyLibraryParentValueBeforeCoordinate(
+        string option)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [
+                "library",
+                option,
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ]);
+
+        Assert.Equal(
+            [
+                "library",
+                option[..^1],
+                "",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_FindsCoordinateAfterParentOptionValueNamedCoordinate()
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [
+                "library",
+                "--type",
+                "coordinate",
+                "--package=",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ]);
+
+        Assert.Equal(
+            [
+                "library",
+                "--type",
+                "coordinate",
+                "--package",
+                "",
+                "coordinate",
+                "0x06000001+0x0",
+                "--platform",
+                "System.Text.Json",
+            ],
+            result);
     }
 
     [Theory]
@@ -1879,7 +1971,7 @@ public class CommandLineTests
         Assert.DoesNotContain("Tips:", error);
     }
 
-    // ── router --version / --latest-version / --versions parsing ─────
+    // ── router --version / --versions parsing ────────────────────────
 
     [Fact]
     public void Router_VersionFlag_ParsesCorrectly()
@@ -1891,12 +1983,36 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void Router_LatestVersionFlag_ParsesCorrectly()
+    public async Task Router_LatestVersionFlag_ReturnsReplacementGuidance()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(
-            CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--latest-version"]));
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["System.Text.Json", "--latest-version"]);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
 
-        Assert.Empty(result.Errors);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("'--latest-version' is no longer valid", error);
+        Assert.Contains("Package@latest --version", error);
+    }
+
+    [Fact]
+    public async Task Router_LatestVersionTextAsOutputValue_RetainsMemberRoute()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["Missing.Type.Run", "--out", "--latest-version", "--help"]);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(
+                root.Parse(args),
+                args));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Inspect type members", output);
+        Assert.DoesNotContain("Inspect a NuGet package", output);
+        Assert.DoesNotContain("no longer valid", error);
     }
 
     [Fact]

@@ -112,7 +112,7 @@ public sealed partial class AssemblyDependencyResolver :
         string,
         Lazy<SnapshotImageResolution>> _snapshotImages =
             new(StringComparer.Ordinal);
-    IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
+    AssemblyResolutionResult? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
     readonly ConcurrentDictionary<
         AssemblyBindingRequestKey,
@@ -154,12 +154,24 @@ public sealed partial class AssemblyDependencyResolver :
                     LazyThreadSafetyMode.ExecutionAndPublication)).Value);
     }
 
-    public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
+    public AssemblyResolutionResult ResolveAll()
     {
         if (_resolved is not null)
             return _resolved;
 
-        _resolved = CollectDependencies(deduplicate: true);
+        var diagnostics =
+            ImmutableArray.CreateBuilder<AssemblyDependencyDiscoveryFailure>();
+        ImmutableArray<ResolvedAssemblyDependency> items =
+            [.. CollectDependencies(deduplicate: true)];
+        CollectDependencies(
+            deduplicate: false,
+            capture: static _ => { },
+            discoveryFailure: diagnostics.Add,
+            cancellationToken: CancellationToken.None);
+        _resolved = new AssemblyResolutionResult(
+            Version,
+            items,
+            diagnostics.ToImmutable());
         return _resolved;
     }
 
@@ -167,23 +179,23 @@ public sealed partial class AssemblyDependencyResolver :
     /// Acquires the structured descriptor for an entry returned by
     /// <see cref="ResolveAll"/>.
     /// </summary>
-    public ResolvedAssemblyReference? Acquire(
+    public AssemblyDependencyAcquisition Acquire(
         ResolvedAssemblyDependency dependency)
     {
         ArgumentNullException.ThrowIfNull(dependency);
-        return Descriptor(
+        return DescriptorResult(
             dependency.Path,
-            ResolutionProvenance(dependency));
+            ResolutionProvenance(dependency)).Acquisition;
     }
 
     /// <summary>
     /// Acquires the target assembly in this resolver's acquisition generation.
     /// The target remains excluded from <see cref="ResolveAll"/> when requested.
     /// </summary>
-    public ResolvedAssemblyReference? AcquireTargetAssembly() =>
-        Descriptor(
+    public AssemblyDependencyAcquisition AcquireTargetAssembly() =>
+        DescriptorResult(
             Path.GetFullPath(_options.TargetAssemblyPath),
-            AssemblyResolutionProvenance.Local("target assembly"));
+            AssemblyResolutionProvenance.Local("target assembly")).Acquisition;
 
     IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(
         bool deduplicate,
@@ -191,7 +203,7 @@ public sealed partial class AssemblyDependencyResolver :
         Action<AssemblyDependencyDiscoveryFailure>? discoveryFailure = null,
         CancellationToken cancellationToken = default)
     {
-        bool strict = capture is not null;
+        bool strict = discoveryFailure is not null;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolved = new List<ResolvedAssemblyDependency>();
         string targetPath = Path.GetFullPath(_options.TargetAssemblyPath);
@@ -822,22 +834,6 @@ public sealed partial class AssemblyDependencyResolver :
             _ => AssemblyResolutionProvenance.Local(
                 dependency.Provenance.ToString()),
         };
-
-    ResolvedAssemblyReference? Descriptor(
-        string path,
-        AssemblyResolutionProvenance provenance)
-    {
-        AssemblyDescriptorResolution result =
-            DescriptorResult(path, provenance);
-        if (result.FailureKind
-            is CandidateOpenFailureKind.ResourceBudget)
-        {
-            throw new AssemblyDependencySnapshotBudgetExceededException(
-                _options.MaxSnapshotImageBytes);
-        }
-
-        return result.Assembly;
-    }
 
     AssemblyDescriptorResolution DescriptorResult(
         string path,

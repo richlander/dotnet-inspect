@@ -352,7 +352,12 @@ public static class NavigationTransitions
         string session = projection.Freeze().Session;
         (NavigationConsumerSnapshot consumer, Dictionary<string, NavigationActionTarget> actions) =
             projection.Build(snapshot, session);
-        var state = new NavigationState(new(snapshot, consumer, projection.Freeze(), actions.ToImmutableDictionary()));
+        var state = new NavigationState(new(
+            snapshot,
+            consumer,
+            new(NavigationScopeSnapshotKind.Current),
+            projection.Freeze(),
+            actions.ToImmutableDictionary()));
         NavigationTransition transition = CurrentResult(
             state, state.Data, new(session, state.Data.Intent, NavigationOperationKind.Initialize),
             NavigationEvaluation.SnapshotOutcome(snapshot),
@@ -367,10 +372,64 @@ public static class NavigationTransitions
     public static bool CanCommit(NavigationState current, NavigationTransition transition) =>
         ReferenceEquals(current, transition.Previous);
 
+    /// <summary>
+    /// Accepts one exact Scope-issued association before submission and installs
+    /// a barrier against later explicit Navigation admission.
+    /// </summary>
+    public static NavigationTransition AcceptScopeOperation(
+        NavigationState state,
+        WorkspaceScopeOperationAssociation association)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(association);
+        if (state.Data.ProtectedScope is not null)
+        {
+            return Refused(
+                state,
+                NavigationAdmissionRefusalKind.ProtectedScopeOperation,
+                "A Scope operation is already protected by this Navigation state.");
+        }
+        if (!ReferenceEquals(association.Workspace, state.Workspace))
+        {
+            return Refused(
+                state,
+                NavigationAdmissionRefusalKind.ForeignWorkspace,
+                "The Scope association belongs to another Workspace.");
+        }
+
+        NavigationStateData next = BeginExplicit(state.Data) with
+        {
+            MaintenanceAttempt = null,
+        };
+        var projection = new NavigationConsumerProjection(next.Projection);
+        var identity = new NavigationRequest(
+            state.Id,
+            projection.Token(),
+            NavigationOperationKind.Scope);
+        var work = new NavigationScopeEvaluationRequest(
+            identity,
+            projection.Token(),
+            next.Intent,
+            association,
+            next.Installed);
+        next = next with
+        {
+            Projection = projection.Freeze(),
+            ProtectedScope = work,
+        };
+        return new(
+            state,
+            next,
+            request: identity,
+            scopeWork: work);
+    }
+
     public static NavigationTransition Begin(NavigationState state, NavigationAction action)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(action);
+        if (AdmissionRefusal(state) is { } refusal)
+            return Refused(state, refusal);
         NavigationRejectionKind? rejection = ValidateAction(state, action, out NavigationActionTarget? target);
         NavigationStateData next = BeginExplicit(state.Data);
         var identity = new NavigationRequest(state.Id, action.Id, action.Kind);
@@ -401,6 +460,8 @@ public static class NavigationTransitions
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(request);
+        if (AdmissionRefusal(state) is { } refusal)
+            return Refused(state, refusal);
         NavigationStateData next = BeginExplicit(state.Data);
         var projection = new NavigationConsumerProjection(next.Projection);
         string id = projection.Token();
@@ -439,6 +500,17 @@ public static class NavigationTransitions
             string message,
             NavigationRejectionKind? rejection = null) =>
             new(kind, Rejection: rejection, Message: message);
+
+        if (AdmissionRefusal(state) is { } refusal)
+        {
+            return new(
+                state,
+                state.Data,
+                actionPublication: NonSuccess(
+                    NavigationActionPublicationKind.Refused,
+                    refusal.Message),
+                admissionRefusal: refusal);
+        }
 
         if (state.Publication != publication
             || state.Data.Explicit is not null)
@@ -570,11 +642,32 @@ public static class NavigationTransitions
     {
         ArgumentNullException.ThrowIfNull(state);
         NavigationStateData next = state.Data;
-        if (next.Explicit is not null || next.Effect is not null || next.MaintenanceAttempt is not null)
+        if (next.ProtectedScope is not null
+            || next.Explicit is not null
+            || next.Effect is not null
+            || next.MaintenanceAttempt is not null)
             return new(state, next);
         if (!next.Maintenance.IsEmpty)
         {
             NavigationRequest request = next.Maintenance[0];
+            if (next.Scope.Kind == NavigationScopeSnapshotKind.Historical)
+            {
+                return CurrentResult(
+                    state,
+                    next with
+                    {
+                        Maintenance =
+                            next.Maintenance.RemoveAt(0),
+                    },
+                    request,
+                    new(
+                        NavigationOutcomeKind.Unavailable,
+                        FailureSource:
+                            NavigationFailureSource.Prerequisite,
+                        Message:
+                            "Workspace Scope membership is historical and "
+                            + "requires a new protected Scope operation."));
+            }
             var projection = new NavigationConsumerProjection(next.Projection);
             string attempt = projection.Token();
             next = next with { Projection = projection.Freeze() };
@@ -597,6 +690,17 @@ public static class NavigationTransitions
         ViewFacetRegistry registry) =>
         NavigationEvaluation.Evaluate(request, preparation, registry);
 
+    public static NavigationScopeEvaluationResult EvaluateScopeOperation(
+        NavigationScopeEvaluationRequest request,
+        WorkspaceScopeOperationResult settlement,
+        NavigationScopePreparation preparation,
+        ViewFacetRegistry registry) =>
+        NavigationScopeEvaluation.Evaluate(
+            request,
+            settlement,
+            preparation,
+            registry);
+
     public static NavigationTransition Complete(
         NavigationState state,
         NavigationEvaluationRequest request,
@@ -612,6 +716,14 @@ public static class NavigationTransitions
             return new(state, next, rejection: NavigationCompletionRejection.ForeignSession);
         if (!ReferenceEquals(request, evaluation.Request))
             return new(state, next, rejection: NavigationCompletionRejection.WrongTicket);
+        if (next.ProtectedScope is not null)
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.StaleAttempt);
+        }
         bool maintenance = request.Operation == NavigationOperationKind.Maintenance;
         if (!maintenance && request.Intent != next.Intent)
         {
@@ -657,6 +769,132 @@ public static class NavigationTransitions
             outcome with { Request = request.ConsumerRequest }, evaluation.Resolution, evaluation.Descendant);
     }
 
+    public static NavigationTransition CompleteScopeOperation(
+        NavigationState state,
+        NavigationScopeEvaluationRequest request,
+        NavigationScopeEvaluationResult evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        NavigationStateData next = state.Data;
+        if (request.Workspace != state.Workspace)
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.ForeignWorkspace);
+        }
+        if (request.Identity.Session != state.Id)
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.ForeignSession);
+        }
+        if (!ReferenceEquals(request, evaluation.Request))
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.WrongScopeAttempt);
+        }
+        if (!ReferenceEquals(
+                request.Association,
+                evaluation.Settlement.Association))
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.WrongScopeAssociation);
+        }
+        if (!ReferenceEquals(request, next.ProtectedScope))
+        {
+            return new(
+                state,
+                next,
+                rejection:
+                    NavigationCompletionRejection.StaleAttempt);
+        }
+
+        bool semanticChange =
+            !NavigationWorkspaceSnapshotEquality.Equals(
+                next.Installed,
+                evaluation.Snapshot)
+            || next.Scope != evaluation.Scope;
+        var projection = new NavigationConsumerProjection(next.Projection);
+        (NavigationConsumerSnapshot consumer,
+            Dictionary<string, NavigationActionTarget> actions) =
+            projection.Build(
+                evaluation.Snapshot,
+                state.Id,
+                evaluation.Scope,
+                actionsEnabled:
+                    evaluation.Scope.Kind
+                        == NavigationScopeSnapshotKind.Current);
+        NavigationConsumerOutcome outcome = evaluation.Outcome;
+        if (evaluation.IncompleteInventory is { } incomplete)
+        {
+            outcome = outcome with
+            {
+                Diagnostics =
+                [
+                    .. incomplete.Evidence.Select(
+                        projection.Diagnostic),
+                ],
+            };
+        }
+        next = next with
+        {
+            Installed = evaluation.Snapshot,
+            Consumer = consumer,
+            Scope = evaluation.Scope,
+            Projection = projection.Freeze(),
+            Actions = actions.ToImmutableDictionary(),
+            ActionsNeedRenewal = false,
+            ProtectedScope = null,
+            NextRevision = semanticChange
+                ? checked(next.NextRevision + 1)
+                : next.NextRevision,
+        };
+        return CurrentResult(
+            state,
+            next,
+            request.Identity,
+            outcome,
+            evaluation.Resolution,
+            scopeResult: evaluation.Settlement,
+            coordinateRetention: evaluation.CoordinateRetention);
+    }
+
+    public static NavigationScopeCancellationObservation
+        ObserveScopeCancellation(
+            NavigationScopeEvaluationRequest request,
+            WorkspaceScopeCancellationResult cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(cancellation);
+        if (cancellation
+                is WorkspaceScopeCancellationResult.Settled settled
+            && ReferenceEquals(
+                request.Association,
+                settled.Settlement.Association))
+        {
+            return new(
+                NavigationScopeCancellationObservationKind
+                    .CorrelatedSettlement,
+                cancellation,
+                settled.Settlement);
+        }
+        return new(
+            NavigationScopeCancellationObservationKind.NoSettlement,
+            cancellation);
+    }
+
     /// <summary>
     /// Settles one host-cancelled or unexpectedly faulted request without hiding
     /// the host failure. An admitted explicit prerequisite abort instead completes
@@ -686,7 +924,9 @@ public static class NavigationTransitions
     }
 
     public static bool ValidateAuthority(NavigationState state, NavigationEffectAuthority? authority) =>
-        authority is not null && state.Data.Effect == authority && state.Data.Explicit is null
+        authority is not null && state.Data.Effect == authority
+        && state.Data.Explicit is null
+        && state.Data.ProtectedScope is null
         && authority.Session == state.Id && authority.Revision == state.Data.Revision
         && authority.Intent == state.Data.Intent;
 
@@ -723,7 +963,9 @@ public static class NavigationTransitions
     static NavigationTransition CurrentResult(
         NavigationState previous, NavigationStateData next, NavigationRequest request,
         NavigationConsumerOutcome outcome, NavigationLensActivationResult? resolution = null,
-        DescendantSubjectLensRequest? descendant = null)
+        DescendantSubjectLensRequest? descendant = null,
+        WorkspaceScopeOperationResult? scopeResult = null,
+        NavigationCoordinateRetentionResult? coordinateRetention = null)
     {
         var projection = new NavigationConsumerProjection(next.Projection);
         if (next.ActionsNeedRenewal)
@@ -737,8 +979,39 @@ public static class NavigationTransitions
         var consumerResult = new NavigationConsumerResult(
             request.Operation, request.Id, next.Consumer, outcome, Disposition(next), authority);
         return new(previous, next, request, result: new(consumerResult,
-            resolution is null ? null : new(request.Id, request.Operation, authority, resolution, descendant)));
+            resolution is null ? null : new(request.Id, request.Operation, authority, resolution, descendant),
+            scopeResult,
+            coordinateRetention));
     }
+
+    static NavigationAdmissionRefusal? AdmissionRefusal(
+        NavigationState state) =>
+        state.Data.ProtectedScope is not null
+            ? new(
+                NavigationAdmissionRefusalKind.ProtectedScopeOperation,
+                "A protected Scope operation must settle before another "
+                    + "explicit Navigation command can be admitted.")
+            : state.Data.Scope.Kind
+                == NavigationScopeSnapshotKind.Historical
+                ? new(
+                    NavigationAdmissionRefusalKind.HistoricalScope,
+                    "Navigation cannot admit an explicit command from "
+                        + "historical Scope evidence.")
+                : null;
+
+    static NavigationTransition Refused(
+        NavigationState state,
+        NavigationAdmissionRefusalKind kind,
+        string message) =>
+        Refused(state, new(kind, message));
+
+    static NavigationTransition Refused(
+        NavigationState state,
+        NavigationAdmissionRefusal refusal) =>
+        new(
+            state,
+            state.Data,
+            admissionRefusal: refusal);
 
     static NavigationRejectionKind? ValidateAction(
         NavigationState state, NavigationAction action, out NavigationActionTarget? target)

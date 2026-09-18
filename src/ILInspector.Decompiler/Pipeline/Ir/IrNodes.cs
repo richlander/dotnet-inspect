@@ -559,6 +559,13 @@ public sealed class IrFunction : IrNode
                 nested = nested.Add(false);
             LocalDeclaredInNestedScope = nested.Add(false);
         }
+        if (!LocalDeclarationBindings.IsDefaultOrEmpty)
+        {
+            var bindings = LocalDeclarationBindings;
+            while (bindings.Length < index)
+                bindings = bindings.Add(null);
+            LocalDeclarationBindings = bindings.Add(null);
+        }
         return index;
     }
 
@@ -594,7 +601,9 @@ public sealed class IrFunction : IrNode
         ImmutableArray<TypeRef> locals,
         ImmutableArray<string?> names,
         IReadOnlySet<int>? eliminatedSlots = null,
-        ImmutableArray<string?> synthesizedNames = default)
+        ImmutableArray<string?> synthesizedNames = default,
+        ImmutableArray<bool> declaredInNestedScope = default,
+        ImmutableArray<PdbLocalDeclaration?> declarationBindings = default)
     {
         Locals = locals;
         var aligned = names;
@@ -607,10 +616,24 @@ public sealed class IrFunction : IrNode
         while (alignedSynthesized.Length < locals.Length)
             alignedSynthesized = alignedSynthesized.Add(null);
         SynthesizedLocalNames = alignedSynthesized;
-        // The new numbering no longer names the same locals, so any scope evidence
-        // gathered for the old slots would be misattributed. Drop it: the printer then
-        // degrades to the byte-stable method-scope shape rather than guessing.
-        LocalDeclaredInNestedScope = [];
+        var alignedNestedScopes = declaredInNestedScope.IsDefaultOrEmpty
+            ? ImmutableArray<bool>.Empty
+            : declaredInNestedScope;
+        if (!alignedNestedScopes.IsEmpty)
+        {
+            while (alignedNestedScopes.Length < locals.Length)
+                alignedNestedScopes = alignedNestedScopes.Add(false);
+        }
+        LocalDeclaredInNestedScope = alignedNestedScopes;
+        var alignedBindings = declarationBindings.IsDefaultOrEmpty
+            ? ImmutableArray<PdbLocalDeclaration?>.Empty
+            : declarationBindings;
+        if (!alignedBindings.IsEmpty)
+        {
+            while (alignedBindings.Length < locals.Length)
+                alignedBindings = alignedBindings.Add(null);
+        }
+        LocalDeclarationBindings = alignedBindings;
         _eliminatedLocalSlots = eliminatedSlots switch
         {
             null => ImmutableHashSet<int>.Empty,
@@ -730,12 +753,22 @@ public sealed class IrFunction : IrNode
     };
 
     /// <summary>
-    /// Source names for the entries in <see cref="Locals"/>, by slot index,
-    /// recovered from the PDB at import. Empty when no PDB was available;
+    /// Source names for the entries in <see cref="Locals"/>, by logical local index,
+    /// recovered from the PDB at import. A reused physical slot may have several
+    /// independently proven logical locals. Empty when no PDB was available;
     /// individual entries are null when a slot has no usable source name. The
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>Original physical-slot evidence, never renumbered or deduplicated.</summary>
+    public ImmutableArray<PdbLocalDeclaration> LocalDeclarations { get; set; } = [];
+
+    /// <summary>Exact PDB row bound to each logical local; empty without symbols.</summary>
+    public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; set; } = [];
+
+    /// <summary>Available identity that raw import could not safely bind.</summary>
+    public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; set; } = [];
 
     /// <summary>
     /// Preferred names for locals introduced by reconstruction rather than
@@ -3593,6 +3626,9 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; init; } = [];
+    public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
+    public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
@@ -3736,6 +3772,9 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; init; } = [];
+    public ImmutableArray<PdbLocalDeclaration?> LocalDeclarationBindings { get; init; } = [];
+    public ImmutableArray<DecompilerFidelityCause> LocalNameImportCauses { get; init; } = [];
     /// <summary>
     /// Enclosing binders that the final raised body references after
     /// capture substitution. Explicit non-parameter capture evidence is combined
@@ -4956,6 +4995,59 @@ public sealed class StoreIndirect : IrNode
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
     public override string Describe() => $"StoreIndirect {Type?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
+}
+
+/// <summary>
+/// An unchecked integer pointer-element update. Evaluate pointer and index once,
+/// read the selected location, evaluate Value, then write the result to that location.
+/// </summary>
+public sealed class PointerElementCompoundAssignment : IrNode
+{
+    public PointerElementCompoundAssignment(
+        TypeRef elementType, BinaryKind operation, IrExpression pointer, IrExpression index, IrExpression value)
+    {
+        ElementType = elementType;
+        Operation = operation;
+        AddChild(pointer);
+        AddChild(index);
+        AddChild(value);
+    }
+
+    public TypeRef ElementType { get; }
+    public BinaryKind Operation { get; }
+    public IrExpression Pointer => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public IrExpression Value => (IrExpression)Children[2];
+    public override IEnumerable<TypeRef> DirectTypes => [ElementType];
+
+    public override string Describe() => $"PointerElementCompoundAssignment {ElementType.ToDisplayString()} {Operation}";
+}
+
+public enum PointerUpdateKind { Add, Subtract, Increment, Decrement }
+
+/// <summary>A decided pointer-place read, element displacement, and write, in that evaluation order.</summary>
+public sealed class PointerCompoundAssignment : IrNode
+{
+    public PointerCompoundAssignment(
+        TypeRef pointerType, PointerUpdateKind kind, bool isChecked,
+        IrExpression target, IrExpression index, MethodRef? setter = null)
+    {
+        PointerType = pointerType;
+        Kind = kind;
+        IsChecked = isChecked;
+        Setter = setter;
+        AddChild(target);
+        AddChild(index);
+    }
+
+    public TypeRef PointerType { get; }
+    public PointerUpdateKind Kind { get; }
+    public bool IsChecked { get; }
+    public MethodRef? Setter { get; }
+    public IrExpression Target => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => [PointerType];
+    public override string Describe() => $"PointerCompoundAssignment {Kind}{(IsChecked ? " checked" : "")}";
 }
 
 /// <summary>initobj: default-initialize the storage at an address.</summary>

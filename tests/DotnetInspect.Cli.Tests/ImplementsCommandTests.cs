@@ -151,7 +151,7 @@ public sealed class ImplementsCommandTests
     }
 
     [Fact]
-    public async Task CommandLine_TypeLimitPreservesDiscoveryOrderWithoutSemanticSelection()
+    public async Task CommandLine_NumericTypeFilterIsOrdinaryFilterInput()
     {
         string assembly = typeof(ImplementsCommandTests).Assembly.Location;
         var result = await ExecuteCommandLineAsync(
@@ -166,9 +166,45 @@ public sealed class ImplementsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
+        Assert.Empty(ReadJsonTypes(result.Output));
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitLineSelectionClipsRenderedOutput()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            typeof(IWorkspaceImplementationMarker).FullName!,
+            "--library",
+            typeof(ImplementsCommandTests).Assembly.Location,
+            "--all",
+            "-n",
+            "2",
+            "--lines");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
         Assert.Equal(
-            [typeof(LegacyRenderedZ).FullName!],
-            ReadJsonTypes(result.Output));
+            2,
+            result.Output.ReplaceLineEndings("\n").Count(c => c == '\n'));
+    }
+
+    [Fact]
+    public async Task CommandLine_ExplicitLineSelectionRejectsJson()
+    {
+        var result = await ExecuteCommandLineAsync(
+            "implements",
+            nameof(IDisposable),
+            "--json",
+            "-n",
+            "1",
+            "--lines");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            result.Error);
     }
 
     [Fact]

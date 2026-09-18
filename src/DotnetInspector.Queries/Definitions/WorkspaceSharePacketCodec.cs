@@ -4,8 +4,12 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using UntrustedDocuments;
 using DotnetInspector.Packages;
+using DotnetInspector.Platforms;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using NuGetFetch;
+using UntrustedDocuments;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -28,7 +32,12 @@ internal readonly record struct GroupExpressionPin(
 public static class WorkspaceSharePacketCodec
 {
     public const int LegacyFormatVersion = 1;
-    public const int CurrentFormatVersion = 2;
+    public const int Format2Version = 2;
+
+    /// <summary>The default producer format; explicit format-4 creation does not change it.</summary>
+    public const int CurrentFormatVersion = 3;
+
+    public const int Format4Version = 4;
     public const int MaxFormat1EncodedLength = 16 * 1024;
     public const int MaxFormat1DecodedUtf8Length = 12 * 1024;
     public const int MaxFormat1JsonDepth = 16;
@@ -39,6 +48,7 @@ public static class WorkspaceSharePacketCodec
     public const int MaxJsonValues = 2048;
     public const int MaxTabs = 12;
     public const int MaxContexts = 24;
+    public const int MaxRegistrations = 24;
 
     private static readonly UTF8Encoding s_utf8Strict = new(
         encoderShouldEmitUTF8Identifier: false,
@@ -338,12 +348,16 @@ public static class WorkspaceSharePacketCodec
             throw InvalidShape(
                 "Workspace share state requires integer format field 'f'.");
         }
-        if (version is not (LegacyFormatVersion or CurrentFormatVersion))
+        if (version is not (LegacyFormatVersion
+            or Format2Version
+            or CurrentFormatVersion
+            or Format4Version))
         {
             throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {version}; expected "
-                    + $"{LegacyFormatVersion} or {CurrentFormatVersion}.");
+                    + $"{LegacyFormatVersion}, {Format2Version}, "
+                    + $"{CurrentFormatVersion}, or {Format4Version}.");
         }
 
         return version;
@@ -355,7 +369,11 @@ public static class WorkspaceSharePacketCodec
         formatVersion switch
         {
             LegacyFormatVersion => BindFormat1(root),
-            CurrentFormatVersion => BindFormat2(root),
+            Format2Version => BindFormat2(root),
+            CurrentFormatVersion => BindFormat3Or4(
+                root,
+                CurrentFormatVersion),
+            Format4Version => BindFormat3Or4(root, Format4Version),
             _ => throw new UnreachableException(),
         };
 
@@ -442,7 +460,8 @@ public static class WorkspaceSharePacketCodec
             contexts.Length);
         WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
             Required(root, "v"),
-            tabs);
+            tabs,
+            Format2Version);
 
         return new WorkspaceSharePacket(
             tabs,
@@ -450,6 +469,76 @@ public static class WorkspaceSharePacketCodec
             focusedTab,
             selectedContext,
             viewStates);
+    }
+
+    private static WorkspaceSharePacket BindFormat3Or4(
+        JsonElement root,
+        int formatVersion)
+    {
+        ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
+        if (root.TryGetProperty("q", out _))
+        {
+            throw Failure(
+                WorkspaceSharePacketFailureKind.UnsupportedFormat,
+                $"Query-bearing workspace share format {formatVersion} requires #6971.");
+        }
+
+        WorkspaceShareTab[] tabs = ReadTabs(
+            Required(root, "t"),
+            allowEmpty: true);
+        WorkspaceShareContext[] contexts = ReadContexts(
+            Required(root, "g"),
+            tabs,
+            allowEmpty: true);
+        WorkspaceRegistration[] registrations = ReadRegistrations(
+            Required(root, "r"));
+        if (contexts.Length == 0 && registrations.Length == 0)
+        {
+            throw InvalidShape(
+                $"Workspace share format {formatVersion} requires at least one context or registration.");
+        }
+
+        int? focusedTab = ReadNullableIndex(
+            Required(root, "a"),
+            "a",
+            tabs.Length);
+        if (focusedTab is int focused
+            && tabs[focused].SourceKind != WorkspaceShareSourceKind.Package)
+        {
+            throw InvalidShape(
+                $"Workspace share format-{formatVersion} focus must name a direct Package tuple.");
+        }
+
+        int? selectedContext = ReadNullableIndex(
+            Required(root, "x"),
+            "x",
+            contexts.Length);
+        if ((contexts.Length == 0) != (selectedContext is null))
+        {
+            throw InvalidShape(
+                $"Workspace share format-{formatVersion} selected context must be null exactly when contexts are empty.");
+        }
+
+        WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
+            Required(root, "v"),
+            tabs,
+            formatVersion);
+
+        return formatVersion == Format4Version
+            ? WorkspaceSharePacket.CreateV4(
+                tabs,
+                contexts,
+                registrations,
+                focusedTab,
+                selectedContext,
+                viewStates)
+            : new WorkspaceSharePacket(
+                tabs,
+                contexts,
+                registrations,
+                focusedTab,
+                selectedContext,
+                viewStates);
     }
 
     private static void ValidateProperties(
@@ -476,16 +565,20 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static WorkspaceShareTab[] ReadTabs(JsonElement element)
+    private static WorkspaceShareTab[] ReadTabs(
+        JsonElement element,
+        bool allowEmpty = false)
     {
         if (element.ValueKind != JsonValueKind.Array)
             throw InvalidShape("Workspace share field 't' must be an array.");
 
         int count = element.GetArrayLength();
-        if (count is < 1 or > MaxTabs)
+        if ((!allowEmpty && count == 0) || count > MaxTabs)
         {
             throw InvalidShape(
-                $"Workspace share field 't' requires between 1 and {MaxTabs} entries.");
+                allowEmpty
+                    ? $"Workspace share field 't' permits at most {MaxTabs} entries."
+                    : $"Workspace share field 't' requires between 1 and {MaxTabs} entries.");
         }
 
         var tabs = new WorkspaceShareTab[count];
@@ -572,16 +665,19 @@ public static class WorkspaceSharePacketCodec
 
     private static WorkspaceShareContext[] ReadContexts(
         JsonElement element,
-        WorkspaceShareTab[] tabs)
+        WorkspaceShareTab[] tabs,
+        bool allowEmpty = false)
     {
         if (element.ValueKind != JsonValueKind.Array)
             throw InvalidShape("Workspace share field 'g' must be an array.");
 
         int count = element.GetArrayLength();
-        if (count is < 1 or > MaxContexts)
+        if ((!allowEmpty && count == 0) || count > MaxContexts)
         {
             throw InvalidShape(
-                $"Workspace share field 'g' requires between 1 and {MaxContexts} entries.");
+                allowEmpty
+                    ? $"Workspace share field 'g' permits at most {MaxContexts} entries."
+                    : $"Workspace share field 'g' requires between 1 and {MaxContexts} entries.");
         }
 
         var contexts = new WorkspaceShareContext[count];
@@ -655,6 +751,253 @@ public static class WorkspaceSharePacketCodec
         return contexts;
     }
 
+    private static WorkspaceRegistration[] ReadRegistrations(
+        JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+            throw InvalidShape("Workspace share field 'r' must be an array.");
+        if (element.GetArrayLength() > MaxRegistrations)
+        {
+            throw InvalidShape(
+                $"Workspace share field 'r' permits at most {MaxRegistrations} entries.");
+        }
+
+        var registrations =
+            new WorkspaceRegistration[element.GetArrayLength()];
+        int index = 0;
+        foreach (JsonElement tuple in element.EnumerateArray())
+        {
+            if (tuple.ValueKind != JsonValueKind.Array
+                || tuple.GetArrayLength() < 2)
+            {
+                throw InvalidShape(
+                    "Every workspace share registration must be one closed tuple.");
+            }
+
+            JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
+            values.MoveNext();
+            string kind = RequiredString(
+                values.Current,
+                "registration kind");
+            try
+            {
+                registrations[index++] = kind switch
+                {
+                    "l" when tuple.GetArrayLength() == 2 =>
+                        new WorkspaceRegistration.ExactLibrary(
+                            ReadExactLibraryCoordinate(Next(ref values))),
+                    "p" when tuple.GetArrayLength() == 2 =>
+                        new WorkspaceRegistration.PackagePrefix(
+                            new PackagePrefixDeclaration(
+                                RequiredString(
+                                    Next(ref values),
+                                    "registration package prefix"))),
+                    "e" when tuple.GetArrayLength() == 5 =>
+                        new WorkspaceRegistration.Ecosystem(
+                            ReadEcosystemDeclaration(ref values)),
+                    _ => throw InvalidShape(
+                        "Workspace share registration tuple has an unknown kind or wrong arity."),
+                };
+            }
+            catch (ArgumentException ex)
+            {
+                throw InvalidShape(
+                    "Workspace share registration is invalid.",
+                    ex);
+            }
+        }
+
+        if (WorkspacePlan.ValidateRegistrations([.. registrations])
+            is { } rejection)
+        {
+            throw InvalidShape(
+                $"Workspace share registrations are invalid ({rejection}).");
+        }
+
+        return registrations;
+    }
+
+    private static WorkspaceEcosystemRegistrationDeclaration
+        ReadEcosystemDeclaration(ref JsonElement.ArrayEnumerator values)
+    {
+        string id = RequiredString(
+            Next(ref values),
+            "Ecosystem registration id");
+        string[] namespaceRoots = ReadStringArray(
+            Next(ref values),
+            "Ecosystem namespace roots");
+        string[] corePackageIds = ReadStringArray(
+            Next(ref values),
+            "Ecosystem core packages");
+        JsonElement populationsElement = Next(ref values);
+        if (populationsElement.ValueKind != JsonValueKind.Array)
+        {
+            throw InvalidShape(
+                "Workspace share Ecosystem populations must be an array.");
+        }
+
+        var populations =
+            new WorkspaceEcosystemPopulationDeclaration[
+                populationsElement.GetArrayLength()];
+        int index = 0;
+        foreach (JsonElement population in populationsElement.EnumerateArray())
+        {
+            populations[index++] = ReadEcosystemPopulation(population);
+        }
+
+        return new WorkspaceEcosystemRegistrationDeclaration(
+            WorkspaceEcosystemRegistrationId.Create(id),
+            namespaceRoots,
+            corePackageIds.Select(package => new PackageCoordinate(package)),
+            populations);
+    }
+
+    private static WorkspaceEcosystemPopulationDeclaration
+        ReadEcosystemPopulation(JsonElement tuple)
+    {
+        if (tuple.ValueKind != JsonValueKind.Array
+            || tuple.GetArrayLength() != 2)
+        {
+            throw InvalidShape(
+                "Workspace share Ecosystem population must contain exactly two values.");
+        }
+
+        JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
+        values.MoveNext();
+        string kind = RequiredString(
+            values.Current,
+            "Ecosystem population kind");
+        JsonElement payload = Next(ref values);
+        try
+        {
+            return kind switch
+            {
+                "l" =>
+                    new WorkspaceEcosystemPopulationDeclaration.ExactLibrary(
+                        ReadExactLibraryCoordinate(payload)),
+                "t" =>
+                    new WorkspaceEcosystemPopulationDeclaration.Platform(
+                        new PlatformLibraryPopulationDeclaration(
+                            ReadPlatformFamily(payload))),
+                "p" =>
+                    new WorkspaceEcosystemPopulationDeclaration.PackagePrefix(
+                        new PackagePrefixDeclaration(
+                            RequiredString(
+                                payload,
+                                "Ecosystem package prefix"))),
+                _ => throw InvalidShape(
+                    "Workspace share Ecosystem population has an unknown kind."),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace share Ecosystem population is invalid.",
+                ex);
+        }
+    }
+
+    private static ExactLibrarySourceCoordinate ReadExactLibraryCoordinate(
+        JsonElement tuple)
+    {
+        if (tuple.ValueKind != JsonValueKind.Array)
+        {
+            throw InvalidShape(
+                "Workspace share exact Library coordinate must be an array.");
+        }
+
+        JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
+        if (!values.MoveNext())
+        {
+            throw InvalidShape(
+                "Workspace share exact Library coordinate requires a kind.");
+        }
+        string kind = RequiredString(
+            values.Current,
+            "exact Library coordinate kind");
+        try
+        {
+            return kind switch
+            {
+                "p" when tuple.GetArrayLength() == 4 =>
+                    new ExactLibrarySourceCoordinate.Package(
+                        PackageSourceCoordinate.Create(
+                            RequiredString(
+                                Next(ref values),
+                                "exact Library package id"),
+                            RequiredString(
+                                Next(ref values),
+                                "exact Library package version")),
+                        ReadManagedLibraryIdentity(Next(ref values))),
+                "t" when tuple.GetArrayLength() == 3 =>
+                    new ExactLibrarySourceCoordinate.Platform(
+                        new PlatformLibraryPopulationDeclaration(
+                            ReadPlatformFamily(Next(ref values))),
+                        ReadManagedLibraryIdentity(Next(ref values))),
+                _ => throw InvalidShape(
+                    "Workspace share exact Library coordinate has an unknown kind or wrong arity."),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace share exact Library coordinate is invalid.",
+                ex);
+        }
+    }
+
+    private static ManagedMetadataIdentity.Assembly ReadManagedLibraryIdentity(
+        JsonElement element)
+    {
+        PortableLibraryIdentity library = ReadPortableLibraryIdentity(element);
+        return new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                library.Name,
+                Version.Parse(library.Version),
+                library.Culture,
+                library.PublicKeyToken));
+    }
+
+    private static PlatformFamily ReadPlatformFamily(JsonElement element)
+    {
+        string value = RequiredString(element, "Platform family");
+        if (!Enum.TryParse(
+                value,
+                ignoreCase: false,
+                out PlatformFamily family)
+            || !Enum.IsDefined(family))
+        {
+            throw InvalidShape(
+                "Workspace share Platform family must be 'DotNetRuntime' or 'AspNetCore'.");
+        }
+
+        return family;
+    }
+
+    private static string[] ReadStringArray(
+        JsonElement element,
+        string owner)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw InvalidShape(
+                $"Workspace share {owner} must be an array.");
+        }
+
+        var values = new string[element.GetArrayLength()];
+        int index = 0;
+        foreach (JsonElement value in element.EnumerateArray())
+            values[index++] = RequiredString(value, owner);
+        return values;
+    }
+
+    private static JsonElement Next(ref JsonElement.ArrayEnumerator values)
+    {
+        if (!values.MoveNext())
+            throw new UnreachableException();
+        return values.Current;
+    }
+
     private static string[] ReadLibraries(JsonElement root)
     {
         if (!root.TryGetProperty("l", out JsonElement element))
@@ -684,13 +1027,14 @@ public static class WorkspaceSharePacketCodec
 
     private static WorkspaceShareViewState[] ReadFormat2ViewStates(
         JsonElement element,
-        WorkspaceShareTab[] tabs)
+        WorkspaceShareTab[] tabs,
+        int formatVersion)
     {
         if (element.ValueKind != JsonValueKind.Array
             || element.GetArrayLength() != tabs.Length + 1)
         {
             throw InvalidShape(
-                "Workspace share format-2 field 'v' requires one leading "
+                $"Workspace share format-{formatVersion} field 'v' requires one leading "
                     + "Workspace row followed by one row for every tuple.");
         }
 
@@ -699,7 +1043,10 @@ public static class WorkspaceSharePacketCodec
         foreach (JsonElement state in element.EnumerateArray())
         {
             if (state.ValueKind != JsonValueKind.Object)
-                throw InvalidShape("Every format-2 view row must be an object.");
+            {
+                throw InvalidShape(
+                    $"Every format-{formatVersion} view row must be an object.");
+            }
 
             ValidateProperties(state, "t", "r", "u", "f", "q", "l");
             if (state.TryGetProperty("q", out _)
@@ -707,7 +1054,7 @@ public static class WorkspaceSharePacketCodec
             {
                 throw Failure(
                     WorkspaceSharePacketFailureKind.UnsupportedFormat,
-                    "Query-bearing workspace share format 2 requires #6971.");
+                    $"Query-bearing workspace share format {formatVersion} requires #6971.");
             }
 
             int? tabIndex = ReadNullableIndex(
@@ -718,7 +1065,7 @@ public static class WorkspaceSharePacketCodec
             if (tabIndex != expected)
             {
                 throw InvalidShape(
-                    "Workspace share format-2 view rows must begin with the "
+                    $"Workspace share format-{formatVersion} view rows must begin with the "
                         + "null Workspace row and then follow tuple order.");
             }
 
@@ -728,7 +1075,7 @@ public static class WorkspaceSharePacketCodec
                     : null;
             PortableSubjectRequest? subject =
                 state.TryGetProperty("u", out JsonElement requestedSubject)
-                    ? ReadSubject(requestedSubject)
+                    ? ReadSubject(requestedSubject, formatVersion)
                     : null;
             string? facet = OptionalString(state, "f");
 
@@ -737,19 +1084,22 @@ public static class WorkspaceSharePacketCodec
                 && (subject is not null || context is not null || facet is not null))
             {
                 throw InvalidShape(
-                    "A format-2 group tuple view row must remain undecorated.");
+                    $"A format-{formatVersion} group tuple view row must remain "
+                        + "undecorated.");
             }
 
             if (stateIndex == 0
                 && subject is not PortableSubjectRequest.Workspace)
             {
                 throw InvalidShape(
-                    "The leading format-2 view row must request the Workspace subject.");
+                    $"The leading format-{formatVersion} view row must request "
+                        + "the Workspace subject.");
             }
             if (stateIndex == 0 && context is not null)
             {
                 throw InvalidShape(
-                    "The leading format-2 Workspace row cannot retain Package context.");
+                    $"The leading format-{formatVersion} Workspace row cannot "
+                        + "retain Package context.");
             }
 
             try
@@ -763,7 +1113,7 @@ public static class WorkspaceSharePacketCodec
             catch (ArgumentException ex)
             {
                 throw InvalidShape(
-                    "Workspace share format-2 view state is invalid.",
+                    $"Workspace share format-{formatVersion} view state is invalid.",
                     ex);
             }
 
@@ -777,7 +1127,9 @@ public static class WorkspaceSharePacketCodec
         return states;
     }
 
-    private static PortableSubjectRequest ReadSubject(JsonElement element)
+    private static PortableSubjectRequest ReadSubject(
+        JsonElement element,
+        int formatVersion)
     {
         if (element.ValueKind != JsonValueKind.Object)
             throw InvalidShape("Workspace share subject must be an object.");
@@ -786,8 +1138,14 @@ public static class WorkspaceSharePacketCodec
         {
             "workspace" => new PortableSubjectRequest.Workspace(),
             "package" => new PortableSubjectRequest.Package(),
+            "library" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Library(),
+            "type" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Type(),
+            "member" when formatVersion == Format4Version =>
+                new PortableSubjectRequest.Member(),
             _ => throw InvalidShape(
-                "Workspace share subject kind must be 'workspace' or 'package'."),
+                $"Workspace share subject kind is not supported by format {formatVersion}."),
         };
     }
 
@@ -894,6 +1252,11 @@ public static class WorkspaceSharePacketCodec
 
     private static int ReadIndex(JsonElement element, string field, int count)
     {
+        if (count == 0)
+        {
+            throw InvalidShape(
+                $"Workspace share {field} index must be null because its table is empty.");
+        }
         if (element.ValueKind != JsonValueKind.Number
             || !element.TryGetInt32(out int value)
             || value < 0
@@ -1072,7 +1435,13 @@ public static class WorkspaceSharePacketCodec
         packet.FormatVersion switch
         {
             LegacyFormatVersion => WriteFormat1CanonicalJson(packet),
-            CurrentFormatVersion => WriteFormat2CanonicalJson(packet),
+            Format2Version => WriteFormat2CanonicalJson(packet),
+            CurrentFormatVersion => WriteFormat3Or4CanonicalJson(
+                packet,
+                CurrentFormatVersion),
+            Format4Version => WriteFormat3Or4CanonicalJson(
+                packet,
+                Format4Version),
             _ => throw Failure(
                 WorkspaceSharePacketFailureKind.UnsupportedFormat,
                 $"Unsupported workspace share format {packet.FormatVersion}."),
@@ -1118,7 +1487,10 @@ public static class WorkspaceSharePacketCodec
         writer.WriteAscii("],\"a\":"u8);
         writer.WriteInteger(packet.ActiveTabIndex);
         writer.WriteAscii(",\"x\":"u8);
-        writer.WriteInteger(packet.SelectedContextIndex);
+        writer.WriteInteger(
+            packet.SelectedContextIndex
+                ?? throw InvalidShape(
+                    "Workspace share format 1 requires a selected context."));
         writer.WriteOptionalProperty("v"u8, packet.Lens);
         writer.WriteOptionalProperty("y"u8, packet.Type);
         writer.WriteOptionalProperty("m"u8, packet.MemberAnchor);
@@ -1161,17 +1533,242 @@ public static class WorkspaceSharePacketCodec
         else
             writer.WriteAscii("null"u8);
         writer.WriteAscii(",\"x\":"u8);
-        writer.WriteInteger(packet.SelectedContextIndex);
+        writer.WriteInteger(
+            packet.SelectedContextIndex
+                ?? throw InvalidShape(
+                    "Workspace share format 2 requires a selected context."));
         writer.WriteAscii(",\"v\":["u8);
         for (int index = 0; index < packet.ViewStates.Count; index++)
         {
             if (index > 0)
                 writer.WriteByte((byte)',');
-            WriteFormat2ViewState(writer, packet.ViewStates[index]);
+            WriteCommittedViewState(
+                writer,
+                packet.ViewStates[index],
+                Format2Version);
         }
 
         writer.WriteAscii("]}"u8);
         return writer.ToArray();
+    }
+
+    private static byte[] WriteFormat3Or4CanonicalJson(
+        WorkspaceSharePacket packet,
+        int formatVersion)
+    {
+        if (packet.ViewStates.Count != packet.Tabs.Count + 1)
+        {
+            throw InvalidShape(
+                $"Workspace share format {formatVersion} requires one leading Workspace view "
+                    + "row and one row for every tuple.");
+        }
+        if (packet.Contexts.Count == 0 && packet.Registrations.Count == 0)
+        {
+            throw InvalidShape(
+                $"Workspace share format {formatVersion} requires at least one context or registration.");
+        }
+        if ((packet.Contexts.Count == 0)
+            != (packet.SelectedContextIndex is null))
+        {
+            throw InvalidShape(
+                $"Workspace share format {formatVersion} selected context must be null exactly when contexts are empty.");
+        }
+        if (packet.Registrations.Count > MaxRegistrations)
+        {
+            throw InvalidShape(
+                $"Workspace share format {formatVersion} permits at most {MaxRegistrations} registrations.");
+        }
+
+        var writer = new CanonicalWriter();
+        writer.WriteAscii("{\"f\":"u8);
+        writer.WriteInteger(formatVersion);
+        writer.WriteAscii(",\"t\":["u8);
+        WriteTabs(writer, packet.Tabs);
+        writer.WriteAscii("],\"g\":["u8);
+        WriteContexts(writer, packet.Contexts);
+        writer.WriteAscii("],\"r\":["u8);
+        for (int index = 0; index < packet.Registrations.Count; index++)
+        {
+            if (index > 0)
+                writer.WriteByte((byte)',');
+            WriteRegistration(writer, packet.Registrations[index]);
+        }
+        writer.WriteAscii("],\"a\":"u8);
+        if (packet.FocusedTabIndex is int focused)
+            writer.WriteInteger(focused);
+        else
+            writer.WriteAscii("null"u8);
+        writer.WriteAscii(",\"x\":"u8);
+        if (packet.SelectedContextIndex is int selected)
+            writer.WriteInteger(selected);
+        else
+            writer.WriteAscii("null"u8);
+        writer.WriteAscii(",\"v\":["u8);
+        for (int index = 0; index < packet.ViewStates.Count; index++)
+        {
+            if (index > 0)
+                writer.WriteByte((byte)',');
+            WriteCommittedViewState(
+                writer,
+                packet.ViewStates[index],
+                formatVersion);
+        }
+
+        writer.WriteAscii("]}"u8);
+        return writer.ToArray();
+    }
+
+    private static void WriteRegistration(
+        CanonicalWriter writer,
+        WorkspaceRegistration registration)
+    {
+        switch (registration)
+        {
+            case WorkspaceRegistration.ExactLibrary exact:
+                writer.WriteAscii("[\"l\","u8);
+                WriteExactLibraryCoordinate(writer, exact.Coordinate);
+                writer.WriteByte((byte)']');
+                break;
+            case WorkspaceRegistration.PackagePrefix prefix:
+                writer.WriteAscii("[\"p\","u8);
+                writer.WriteString(prefix.Prefix.Prefix);
+                writer.WriteByte((byte)']');
+                break;
+            case WorkspaceRegistration.Ecosystem ecosystem:
+                WorkspaceEcosystemRegistrationDeclaration declaration =
+                    ecosystem.Declaration;
+                if (declaration.IntegrationScanner is not null)
+                {
+                    throw InvalidShape(
+                        "Workspace share committed formats cannot preserve an Ecosystem integration scanner.");
+                }
+
+                writer.WriteAscii("[\"e\","u8);
+                writer.WriteString(declaration.Id.Value);
+                writer.WriteByte((byte)',');
+                WriteStrings(writer, declaration.NamespaceRoots);
+                writer.WriteByte((byte)',');
+                WriteStrings(
+                    writer,
+                    declaration.CorePackages.Select(
+                        package => package.PackageId));
+                writer.WriteAscii(",["u8);
+                for (int index = 0;
+                    index < declaration.Populations.Length;
+                    index++)
+                {
+                    if (index > 0)
+                        writer.WriteByte((byte)',');
+                    WriteEcosystemPopulation(
+                        writer,
+                        declaration.Populations[index]);
+                }
+                writer.WriteAscii("]]"u8);
+                break;
+            default:
+                throw InvalidShape(
+                    "Workspace share committed packet contains an unknown registration kind.");
+        }
+    }
+
+    private static void WriteEcosystemPopulation(
+        CanonicalWriter writer,
+        WorkspaceEcosystemPopulationDeclaration population)
+    {
+        switch (population)
+        {
+            case WorkspaceEcosystemPopulationDeclaration.ExactLibrary exact:
+                writer.WriteAscii("[\"l\","u8);
+                WriteExactLibraryCoordinate(writer, exact.Coordinate);
+                writer.WriteByte((byte)']');
+                break;
+            case WorkspaceEcosystemPopulationDeclaration.Platform platform:
+                writer.WriteAscii("[\"t\","u8);
+                writer.WriteString(platform.Population.Family.ToString());
+                writer.WriteByte((byte)']');
+                break;
+            case WorkspaceEcosystemPopulationDeclaration.PackagePrefix prefix:
+                writer.WriteAscii("[\"p\","u8);
+                writer.WriteString(prefix.Prefix.Prefix);
+                writer.WriteByte((byte)']');
+                break;
+            default:
+                throw InvalidShape(
+                    "Workspace share committed packet contains an unknown Ecosystem population kind.");
+        }
+    }
+
+    private static void WriteExactLibraryCoordinate(
+        CanonicalWriter writer,
+        ExactLibrarySourceCoordinate coordinate)
+    {
+        switch (coordinate)
+        {
+            case ExactLibrarySourceCoordinate.Package package:
+                writer.WriteAscii("[\"p\","u8);
+                writer.WriteString(package.PackageCoordinate.PackageId);
+                writer.WriteByte((byte)',');
+                writer.WriteString(package.PackageCoordinate.Version);
+                writer.WriteByte((byte)',');
+                WritePortableLibraryIdentityTuple(
+                    writer,
+                    ToPortableLibraryIdentity(
+                        coordinate.LibraryIdentity));
+                writer.WriteByte((byte)']');
+                break;
+            case ExactLibrarySourceCoordinate.Platform platform:
+                writer.WriteAscii("[\"t\","u8);
+                writer.WriteString(platform.Population.Family.ToString());
+                writer.WriteByte((byte)',');
+                WritePortableLibraryIdentityTuple(
+                    writer,
+                    ToPortableLibraryIdentity(
+                        coordinate.LibraryIdentity));
+                writer.WriteByte((byte)']');
+                break;
+            default:
+                throw InvalidShape(
+                    "Workspace share exact Library registration has no portable source coordinate.");
+        }
+    }
+
+    private static PortableLibraryIdentity ToPortableLibraryIdentity(
+        ManagedMetadataIdentity.Assembly library)
+    {
+        AssemblyReferenceIdentity identity = library.Identity;
+        Version version = identity.Version
+            ?? throw InvalidShape(
+                "Workspace share exact Library registration requires an assembly version.");
+        try
+        {
+            return new PortableLibraryIdentity(
+                identity.Name,
+                version.ToString(4),
+                identity.Culture,
+                identity.PublicKeyToken);
+        }
+        catch (ArgumentException ex)
+        {
+            throw InvalidShape(
+                "Workspace share exact Library identity is not portable.",
+                ex);
+        }
+    }
+
+    private static void WriteStrings(
+        CanonicalWriter writer,
+        IEnumerable<string> values)
+    {
+        writer.WriteByte((byte)'[');
+        bool first = true;
+        foreach (string value in values)
+        {
+            if (!first)
+                writer.WriteByte((byte)',');
+            writer.WriteString(value);
+            first = false;
+        }
+        writer.WriteByte((byte)']');
     }
 
     private static void WriteTabs(
@@ -1216,9 +1813,10 @@ public static class WorkspaceSharePacketCodec
         }
     }
 
-    private static void WriteFormat2ViewState(
+    private static void WriteCommittedViewState(
         CanonicalWriter writer,
-        WorkspaceShareViewState state)
+        WorkspaceShareViewState state,
+        int formatVersion)
     {
         writer.WriteAscii("{\"t\":"u8);
         if (state.TabIndex is int tabIndex)
@@ -1238,7 +1836,17 @@ public static class WorkspaceSharePacketCodec
             {
                 PortableSubjectRequestKind.Workspace => "workspace",
                 PortableSubjectRequestKind.Package => "package",
-                _ => throw new UnreachableException(),
+                PortableSubjectRequestKind.Library
+                    when formatVersion == Format4Version =>
+                    "library",
+                PortableSubjectRequestKind.Type
+                    when formatVersion == Format4Version =>
+                    "type",
+                PortableSubjectRequestKind.Member
+                    when formatVersion == Format4Version =>
+                    "member",
+                _ => throw InvalidShape(
+                    $"Workspace share format {formatVersion} does not support subject kind {state.Subject.Kind}."),
             });
             writer.WriteByte((byte)'}');
         }
@@ -1300,7 +1908,15 @@ public static class WorkspaceSharePacketCodec
         CanonicalWriter writer,
         PortableLibraryIdentity library)
     {
-        writer.WriteAscii(",\"l\":["u8);
+        writer.WriteAscii(",\"l\":"u8);
+        WritePortableLibraryIdentityTuple(writer, library);
+    }
+
+    private static void WritePortableLibraryIdentityTuple(
+        CanonicalWriter writer,
+        PortableLibraryIdentity library)
+    {
+        writer.WriteByte((byte)'[');
         writer.WriteString(library.Name);
         writer.WriteByte((byte)',');
         writer.WriteString(library.Version);

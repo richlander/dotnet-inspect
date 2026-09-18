@@ -8,6 +8,7 @@ import {
   capabilityReason,
   createAnnotatedSourceViewerModel,
   factForId,
+  findingEvidenceForFact,
   invocationDestinationForNode,
   nodesForPrimary,
   renderedFindingTargets,
@@ -62,6 +63,11 @@ export type AnnotatedSourceAction =
       destinationIndex: number;
       destination: "member" | "source";
     }
+  | {
+      kind: "finding-evidence-open";
+      factId: number;
+      destination: "member" | "source";
+    }
   | { kind: "source-select"; offset: number; medium: SourceMedium };
 
 export interface AnnotatedSourceBindingActions {
@@ -78,6 +84,7 @@ interface SourceRenderContext {
   session: AnnotatedSourceSession;
   escapeHtml: (value: unknown) => string;
   highlighting: CSharpRangeHighlighter;
+  highlightCSharp: AnnotatedSourceRenderOptions["highlightCSharp"];
 }
 
 type RenderedLineAnnotation =
@@ -318,6 +325,7 @@ function renderContext(
         return options.escapeHtml(source.slice(start, start + length));
       },
     },
+    highlightCSharp: options.highlightCSharp,
   };
 }
 
@@ -626,7 +634,7 @@ function renderDetail(context: SourceRenderContext): string {
           : ""}
       </dl>
       <section>
-        <h4>Targets</h4>
+        <h4>Caller relationship targets</h4>
         ${targets.length
           ? `<ul>${targets.map(node => `<li>
               ${escapeHtml(node.kind)} · ${MEDIUM_LABELS[node.medium]}
@@ -637,17 +645,158 @@ function renderDetail(context: SourceRenderContext): string {
             </li>`).join("")}</ul>`
           : `<p class="annotated-unavailable">No product-issued source target</p>`}
       </section>
+      ${renderFindingEvidence(context, fact.id)}
       <section class="annotated-detail-capabilities">
-        <div>
-          <h4>Evidence</h4>
-          <p>${escapeHtml(capabilityReason(model.catalog.findingEvidence))}</p>
-        </div>
         <div>
           <h4>Destinations</h4>
           <p>${escapeHtml(capabilityReason(model.catalog.destinations))}</p>
         </div>
       </section>
     </section>`;
+}
+
+function renderFindingEvidence(
+  context: SourceRenderContext,
+  factId: number,
+): string {
+  const { model, session, escapeHtml } = context;
+  const evidence = findingEvidenceForFact(model, factId);
+  if (!evidence) {
+    const fact = factForId(model, factId);
+    const reason = fact?.descriptor === "cost.callee"
+        || fact?.descriptor === "semantics.callee"
+        || fact?.descriptor === "safety.callee"
+      ? capabilityReason(model.catalog.findingEvidence)
+      : "No separate callee evidence applies to this Finding";
+    return `
+      <section class="annotated-callee-evidence">
+        <h4>Callee evidence</h4>
+        <p class="annotated-unavailable">${escapeHtml(reason)}</p>
+      </section>`;
+  }
+
+  const coordinates = session.coordinatesVisible
+    ? `<ul class="annotated-evidence-coordinates">${evidence.coordinates.map(
+      coordinate => `<li>${escapeHtml(evidenceKindLabel(coordinate.kind))}
+        · IL_${coordinate.ilOffset.toString(16).toUpperCase().padStart(4, "0")}</li>`,
+    ).join("")}</ul>`
+    : "";
+  let source = "";
+  if (evidence.state !== "Method") {
+    if (evidence.unavailableReason) {
+      source = `<p class="annotated-unavailable">${escapeHtml(evidence.unavailableReason)}</p>`;
+    } else {
+      if (evidence.document === null) {
+        throw new TypeError(
+          "Available Annotated Source Finding evidence has no callee document.");
+      }
+      source = renderEvidenceSource(context, evidence.document, evidence.nodeIds);
+    }
+  }
+  return `
+    <section class="annotated-callee-evidence">
+      <h4>Callee evidence</h4>
+      <code class="annotated-evidence-member">${escapeHtml(evidence.member)}</code>
+      <div class="annotated-destinations">
+        <span>Open callee</span>
+        <div>
+          <button type="button"
+            data-annotated-action="finding-evidence-open"
+            data-fact-id="${factId}"
+            data-destination="member">Member</button>
+          <button type="button"
+            data-annotated-action="finding-evidence-open"
+            data-fact-id="${factId}"
+            data-destination="source">Source</button>
+        </div>
+      </div>
+      ${coordinates}
+      ${evidence.state === "Method"
+        ? renderMethodEvidence(evidence.aggregateInputs, escapeHtml)
+        : source}
+    </section>`;
+}
+
+function renderMethodEvidence(
+  inputs: AnnotatedSourceResult["findingEvidence"][number]["aggregateInputs"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `
+    <div class="annotated-method-evidence">
+      <p><strong>Method-level aggregate evidence</strong> · no singular source line is claimed</p>
+      <ul>${inputs.map(input => {
+        const label = costEvidenceInputLabel(input.kind);
+        return `<li>${escapeHtml(label)}${input.value === null
+          ? ""
+          : ` · <strong>${input.value.toLocaleString()}</strong>`}</li>`;
+      }).join("")}</ul>
+    </div>`;
+}
+
+function costEvidenceInputLabel(value: string | number): string {
+  switch (value) {
+    case "AllocationInLoop":
+      return "Allocation in loop";
+    case "Reflection":
+      return "Reflection calls";
+    case "CallInLoop":
+      return "Caller invocation in loop";
+    case "RootReach":
+      return "Root reach";
+    case "DirectCallers":
+      return "Direct callers";
+    case "LoopCalls":
+      return "Calls from loops";
+    default:
+      return String(value);
+  }
+}
+
+function renderEvidenceSource(
+  context: SourceRenderContext,
+  document: AnnotatedSourceResult["document"],
+  nodeIds: readonly number[],
+): string {
+  const view = buildAnnotatedView(document, {
+    media: { CSharp: true, Il: false },
+    selectedNodeIds: nodeIds,
+  });
+  const relevantLines = view.lines.filter(line =>
+    line.segments.some(segment => segment.selected));
+  const visibleLines = relevantLines.slice(0, 8);
+  const input = csharpHighlightingInput(document);
+  const highlighting = context.highlightCSharp?.(
+    document.text,
+    input.text,
+    input.excludedRanges,
+  ) ?? {
+    render(start: number, length: number) {
+      return context.escapeHtml(document.text.slice(start, start + length));
+    },
+  };
+  return `
+    <pre class="annotated-evidence-source"><code>${visibleLines.map(line =>
+      `<span class="annotated-evidence-line"><span class="annotated-evidence-line-number">${line.number}</span><span>${line.segments.map(segment =>
+        `<span class="${segment.selected ? "annotated-evidence-selected" : ""}">${highlighting.render(
+          segment.start,
+          segment.text.length,
+        )}</span>`).join("") || " "}</span></span>`).join("")}</code></pre>
+    ${relevantLines.length > visibleLines.length
+      ? `<p class="annotated-evidence-omitted">${relevantLines.length - visibleLines.length} additional evidence lines omitted</p>`
+      : ""}`;
+}
+
+function evidenceKindLabel(value: string | number): string {
+  switch (value) {
+    case "ExceptionConstruction":
+      return "exception construction";
+    case "Localloc":
+      return "stack allocation";
+    case "Calli":
+      return "indirect invocation";
+    default:
+      return String(value);
+  }
 }
 
 function detailRow(
@@ -710,9 +859,9 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
     }
     case "destination-open": {
       const destinationIndex = dataInteger(element, "destinationIndex");
-      const destination = element.dataset.destination;
+      const destination = dataDestination(element);
       return destinationIndex === null
-        || (destination !== "member" && destination !== "source")
+        || destination === null
         ? null
         : {
             kind: "destination-open",
@@ -720,9 +869,29 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
             destination,
           };
     }
+    case "finding-evidence-open": {
+      const factId = dataInteger(element, "factId");
+      const destination = dataDestination(element);
+      return factId === null || destination === null
+        ? null
+        : {
+            kind: "finding-evidence-open",
+            factId,
+            destination,
+          };
+    }
     default:
       return null;
   }
+}
+
+function dataDestination(
+  element: HTMLElement,
+): "member" | "source" | null {
+  const destination = element.dataset.destination;
+  return destination === "member" || destination === "source"
+    ? destination
+    : null;
 }
 
 function bindSourceHit(

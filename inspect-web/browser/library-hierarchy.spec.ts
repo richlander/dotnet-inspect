@@ -447,11 +447,42 @@ async function installFacades(
             throw new Error("Version inspection failed");
           }
         }
+        const selectedVersion = version === "latest" ? surface.version : version;
         return {
+          versionSettlement: {
+            content: {
+              kind: "Settled",
+              result: {
+                request: {
+                  packageId: id.toLowerCase(),
+                  version: version === "latest" ? null : selectedVersion,
+                },
+                coordinate: {
+                  packageId: id.toLowerCase(),
+                  version: selectedVersion,
+                },
+                includePrerelease: false,
+                freshness: version === "latest" ? "RefreshedForRequest" : null,
+                listings: [],
+                sourceListings: [],
+              },
+              failure: null,
+            },
+            share: {
+              kind: "NonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "package-version-settlement/share",
+              reason: "No canonical Workspace share projection.",
+            },
+            diagnostics: [],
+          },
+          surface: {
           ...surfaceFor(id, version, framework),
           package: id,
-          version: version === "latest" ? surface.version : version,
+          version: selectedVersion,
           activeFramework: framework || surface.activeFramework,
+          },
         };
       }
       export async function queryPackageVersions() {
@@ -479,7 +510,10 @@ async function installFacades(
       export async function activateWorkspacePackageOccurrence(action) {
         const coordinate = JSON.parse(action);
         return { activated: true, superseded: false,
-          package: await queryPackage(coordinate.package, coordinate.version, coordinate.framework) };
+          package: (await queryPackage(
+            coordinate.package,
+            coordinate.version,
+            coordinate.framework)).surface };
       }
       export async function packageCacheStats() {
         if (diagnosticsOptions.cachePending) {
@@ -514,7 +548,7 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { facets: [], terms: [] }; }
+      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
       export async function queryMemberDocumentation() {
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }

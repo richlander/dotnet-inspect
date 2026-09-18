@@ -1,8 +1,222 @@
+using System.Collections.Immutable;
+
 using ILInspector.Analysis;
 using ILInspector.Decompiler.Annotations;
 using Inspector.Findings;
 
 namespace ILInspector.Research;
+
+public enum CallSiteEvidenceKind
+{
+    ExceptionConstruction,
+    Localloc,
+    Calli,
+}
+
+/// <summary>
+/// One typed physical location supporting a caller-side relationship fact.
+/// </summary>
+public sealed record CallSiteEvidenceCoordinate
+{
+    public CallSiteEvidenceCoordinate(
+        MethodIdentity method,
+        int ilOffset,
+        CallSiteEvidenceKind kind)
+    {
+        Location = ResearchEvidenceLocation.ForInstruction(
+            method,
+            ilOffset);
+        Kind = kind;
+    }
+
+    public ResearchEvidenceLocation Location { get; }
+    public CallSiteEvidenceKind Kind { get; }
+}
+
+public sealed record CallSiteSemanticsEvidence(
+    MethodIdentity Callee,
+    ImmutableArray<string> ExceptionTypes,
+    ImmutableArray<CallSiteEvidenceCoordinate> Coordinates)
+{
+    public string Detail =>
+        $"may-throw {string.Join("/", ExceptionTypes)}";
+
+    public static bool TryCreate(
+        DirectCall call,
+        ResearchAssemblyContext assembly,
+        out CallSiteSemanticsEvidence? evidence)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        if (!TryResolveCallee(
+                call,
+                assembly,
+                out MethodIdentity? callee)
+            || callee is null)
+        {
+            evidence = null;
+            return false;
+        }
+
+        ImmutableArray<string> exceptionTypes =
+        [
+            .. assembly.Signals
+                .GetValueOrDefault(
+                    callee.MetadataToken,
+                    MethodSignals.None)
+                .ExceptionTypes
+                .Where(type =>
+                    !IsArgumentValidationException(type))
+                .Take(2),
+        ];
+        if (exceptionTypes.IsDefaultOrEmpty)
+        {
+            evidence = null;
+            return false;
+        }
+
+        ImmutableArray<CallSiteEvidenceCoordinate> coordinates =
+        [
+            .. assembly.CallsByCaller
+                .GetValueOrDefault(callee.MetadataToken, [])
+                .Where(candidate =>
+                    candidate.Kind == CallKind.NewObject
+                    && exceptionTypes.Contains(
+                        ConstructedTypeName(
+                            candidate.Callee.DeclaringType),
+                        StringComparer.Ordinal))
+                .Select(candidate =>
+                    new CallSiteEvidenceCoordinate(
+                        candidate.EvidenceMethod,
+                        candidate.ILOffset,
+                        CallSiteEvidenceKind.ExceptionConstruction))
+                .Distinct()
+                .OrderBy(coordinate =>
+                    coordinate.Location.Method.ModuleVersionId)
+                .ThenBy(coordinate =>
+                    coordinate.Location.Method.MetadataToken)
+                .ThenBy(coordinate =>
+                    coordinate.Location.ILOffset),
+        ];
+
+        evidence = new CallSiteSemanticsEvidence(
+            callee,
+            exceptionTypes,
+            coordinates);
+        return true;
+    }
+
+    internal static bool TryResolveCallee(
+        DirectCall call,
+        ResearchAssemblyContext assembly,
+        out MethodIdentity? callee)
+    {
+        int token = call.CalleeDefinitionToken;
+        callee = assembly.Signals.ContainsKey(token)
+            || assembly.LeverageByToken.ContainsKey(token)
+                ? assembly.Index.DeclaredMethods.FirstOrDefault(
+                    method => method.MetadataToken == token)
+                : null;
+        return callee is not null;
+    }
+
+    static bool IsArgumentValidationException(string type)
+        => type is "ArgumentException"
+            or "ArgumentNullException"
+            or "ArgumentOutOfRangeException";
+
+    static string ConstructedTypeName(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } element
+                ? element.Name
+                : type.Name;
+}
+
+public sealed record CallSiteSafetyEvidence(
+    MethodIdentity Callee,
+    ImmutableArray<CallSiteEvidenceCoordinate> Coordinates)
+{
+    public string Detail
+    {
+        get
+        {
+            string[] details =
+            [
+                .. Coordinates
+            .Select(static coordinate =>
+                coordinate.Kind switch
+                {
+                    CallSiteEvidenceKind.Localloc => "stackalloc",
+                    CallSiteEvidenceKind.Calli => "calli",
+                    _ => throw new InvalidOperationException(
+                        "Unsupported callee safety evidence kind "
+                            + $"'{coordinate.Kind}'."),
+                })
+            .Distinct(StringComparer.Ordinal),
+            ];
+            return details.Length == 0
+                ? "unsafe"
+                : $"unsafe; {string.Join("; ", details)}";
+        }
+    }
+
+    public static bool TryCreate(
+        DirectCall call,
+        ResearchAssemblyContext assembly,
+        out CallSiteSafetyEvidence? evidence)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        if (!CallSiteSemanticsEvidence.TryResolveCallee(
+                call,
+                assembly,
+                out MethodIdentity? callee)
+            || callee is null
+            || !assembly.UnsafeEvidenceByToken.TryGetValue(
+                callee.MetadataToken,
+                out IReadOnlyList<UnsafeEvidence>? unsafeEvidence))
+        {
+            evidence = null;
+            return false;
+        }
+
+        ImmutableArray<CallSiteEvidenceCoordinate> coordinates =
+        [
+            .. unsafeEvidence
+                .Select(ToCoordinate)
+                .Where(static coordinate => coordinate is not null)
+                .Select(static coordinate => coordinate!)
+                .Distinct()
+                .OrderBy(coordinate =>
+                    coordinate.Location.Method.ModuleVersionId)
+                .ThenBy(coordinate =>
+                    coordinate.Location.Method.MetadataToken)
+                .ThenBy(coordinate =>
+                    coordinate.Location.ILOffset)
+                .ThenBy(coordinate => coordinate.Kind),
+        ];
+        evidence = new CallSiteSafetyEvidence(callee, coordinates);
+        return true;
+    }
+
+    static CallSiteEvidenceCoordinate? ToCoordinate(
+        UnsafeEvidence evidence)
+        => (evidence.Detail, evidence.Kind, evidence.ILOffset)
+            switch
+            {
+                ("localloc", "opcode", int offset) => new(
+                    evidence.Member,
+                    offset,
+                    CallSiteEvidenceKind.Localloc),
+                (_, "calli", int offset) => new(
+                    evidence.Member,
+                    offset,
+                    CallSiteEvidenceKind.Calli),
+                _ => null,
+            };
+}
 
 sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
 {
@@ -12,7 +226,8 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
         new("safety.callee", AnnotationCategory.Semantics, "callee carries unsafe implementation evidence");
 
     public string Name => "call-site-semantics";
-    public IReadOnlyList<string> Produces { get; } = ["semantics.callee", "safety.callee"];
+    public IReadOnlyList<string> Produces { get; } =
+        [CalleeSemantics.Id, CalleeSafety.Id];
     public IReadOnlyList<string> DependsOn { get; } = [];
     public ResearchFactRequirements Requirements { get; } =
         ResearchFactRequirements.ForAssembly(
@@ -30,57 +245,36 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
         foreach (var finding in callSites)
         {
             var call = finding.Payload;
-            int calleeToken = ResolveCallee(call, assembly);
-            if (calleeToken == 0)
-                continue;
-
-            var signals = assembly.Signals.GetValueOrDefault(calleeToken, MethodSignals.None);
-            var exceptionTypes = DomainExceptionTypes(signals);
-            if (exceptionTypes.Count > 0)
+            if (CallSiteSemanticsEvidence.TryCreate(
+                    call,
+                    assembly,
+                    out CallSiteSemanticsEvidence? semantics)
+                && semantics is not null)
             {
                 facts.Add(ResearchFactFinding.Project(
                     finding,
-                    new Annotation(
+                    new Annotation<CallSiteSemanticsEvidence>(
                         CalleeSemantics,
                         call.ILOffset,
-                        ExceptionDetail(exceptionTypes))));
+                        semantics,
+                        Formatter: static item => item.Detail)));
             }
 
-            var unsafeDetail = UnsafeDetail(assembly, calleeToken);
-            if (unsafeDetail is not null)
+            if (CallSiteSafetyEvidence.TryCreate(
+                    call,
+                    assembly,
+                    out CallSiteSafetyEvidence? safety)
+                && safety is not null)
             {
                 facts.Add(ResearchFactFinding.Project(
                     finding,
-                    new Annotation(CalleeSafety, call.ILOffset, unsafeDetail)));
+                    new Annotation<CallSiteSafetyEvidence>(
+                        CalleeSafety,
+                        call.ILOffset,
+                        safety,
+                        Formatter: static item => item.Detail)));
             }
         }
         return facts;
-    }
-
-    static int ResolveCallee(DirectCall call, ResearchAssemblyContext assembly)
-        => assembly.Signals.ContainsKey(call.CalleeDefinitionToken) || assembly.LeverageByToken.ContainsKey(call.CalleeDefinitionToken)
-            ? call.CalleeDefinitionToken
-            : 0;
-
-    static IReadOnlyList<string> DomainExceptionTypes(MethodSignals signals)
-        => [.. signals.ExceptionTypes.Where(type => !IsArgumentValidationException(type)).Take(2)];
-
-    static bool IsArgumentValidationException(string type)
-        => type is "ArgumentException" or "ArgumentNullException" or "ArgumentOutOfRangeException";
-
-    static string ExceptionDetail(IReadOnlyList<string> exceptionTypes)
-        => $"may-throw {string.Join("/", exceptionTypes)}";
-
-    static string? UnsafeDetail(ResearchAssemblyContext assembly, int token)
-    {
-        if (!assembly.UnsafeEvidenceByToken.TryGetValue(token, out var calleeEvidence) || calleeEvidence.Count == 0)
-            return null;
-
-        var parts = new List<string> { "unsafe" };
-        if (calleeEvidence.Any(item => item.Detail == "localloc"))
-            parts.Add("stackalloc");
-        if (calleeEvidence.Any(item => item.Kind == "calli"))
-            parts.Add("calli");
-        return string.Join("; ", parts);
     }
 }

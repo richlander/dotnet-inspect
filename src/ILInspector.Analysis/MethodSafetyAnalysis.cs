@@ -244,8 +244,9 @@ internal static class MethodSafetyAnalysis
         MemberRef callee,
         CallKind kind,
         int offset,
-        int token)
-        => IsUnsafeCall(callee)
+        int token,
+        CallerUnsafeMode? targetCallerUnsafeMode = null)
+        => IsUnsafeCall(callee, targetCallerUnsafeMode)
             ? new UnsafeEvidence(
                 caller,
                 "Unsafe call",
@@ -399,11 +400,15 @@ internal static class MethodSafetyAnalysis
             _ => null,
         };
 
-    internal static bool IsUnsafeCall(MemberRef member)
+    internal static bool IsUnsafeCall(
+        MemberRef member,
+        CallerUnsafeMode? targetCallerUnsafeMode = null)
         => IsUnsafeApi(member.DeclaringType)
-            || member.ParameterTypes
-                .Append(member.ReturnType)
-                .Any(ContainsUnsafeType);
+            || (targetCallerUnsafeMode is { } mode
+                ? CallerUnsafeModeFacts.RequiresUnsafe(mode)
+                : member.ParameterTypes
+                    .Append(member.ReturnType)
+                    .Any(ContainsUnsafeType));
 
     internal static bool IsUnsafeOperation(
         ILOpCode operation,

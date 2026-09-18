@@ -14,11 +14,11 @@ export type BrowserPackageDependencyDeclarationFailureKind = "ConflictingPackage
 export type BrowserPackageGraphIdentityRole = "Inspected" | "SamePrefix" | "External" | number;
 export type BrowserPackagePruningCompletion = "Complete" | "Partial" | "Failed" | "NotApplicable" | number;
 export type BrowserPackagePruningDisposition = "PlatformDelegation" | "PackageRetained" | "CandidateUnavailable" | "NotEvaluated" | number;
+export type BrowserPackageQueryAcquisitionTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 export type BrowserPackageQueryCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | "ExactPackageComplete" | "ExplicitCandidatesComplete" | number;
 export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | "Assessment" | number;
 export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
-export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | "SearchMetadata" | "Assembly" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
 export type BrowserPackageQueryManifestIdentityProvenance = "ExpectedCoordinate" | "SelfAttested" | number;
@@ -26,6 +26,7 @@ export type BrowserPackageQueryMatchCreditKind = "Granted" | "NotActive" | numbe
 export type BrowserPackageQueryOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | "Assembly" | number;
 export type BrowserPackageQueryResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+export type BrowserPackageVersionSettlementOutcomeKind = "Settled" | "NotSettled" | number;
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -439,6 +440,10 @@ export interface BrowserPackageIcon {
     readonly mediaType: string;
     readonly base64: string;
 }
+export interface BrowserPackageLoadResult {
+    readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+    readonly surface: BrowserPackageSurface | null;
+}
 export interface BrowserPackagePruningRequest {
     readonly schemaVersion: number;
     readonly family: string;
@@ -488,7 +493,7 @@ export interface BrowserPackageQueryCancellation {
     readonly reason: string | null;
 }
 export interface BrowserPackageQueryCatalog {
-    readonly facets: ReadonlyArray<BrowserPackageQueryFacetDescriptor>;
+    readonly presets: ReadonlyArray<BrowserPackageQueryPresetDescriptor>;
     readonly terms: ReadonlyArray<BrowserPackageQueryTermDescriptor>;
 }
 export interface BrowserPackageQueryCompletion {
@@ -516,6 +521,7 @@ export interface BrowserPackageQueryDeclaredDependencyGroup {
 }
 export interface BrowserPackageQueryDocument {
     readonly results: ReadonlyArray<BrowserPackageQueryRow>;
+    readonly hasPackages: boolean;
     readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
     readonly completion: BrowserPackageQueryCompletion;
 }
@@ -537,17 +543,6 @@ export interface BrowserPackageQueryEvidence {
 export interface BrowserPackageQueryEvidenceSummary {
     readonly count: number;
     readonly preview: ReadonlyArray<string>;
-}
-export interface BrowserPackageQueryFacetDescriptor {
-    readonly id: string;
-    readonly label: string;
-    readonly summary: string;
-    readonly weight: number;
-    readonly tier: BrowserPackageQueryFacetTier;
-    readonly selectionGroupId: string | null;
-    readonly combinesWithinSelectionGroup: boolean;
-    readonly displayGroupId: string | null;
-    readonly displayGroupLabel: string | null;
 }
 export interface BrowserPackageQueryFailure {
     readonly packageId: string | null;
@@ -585,6 +580,20 @@ export interface BrowserPackageQueryMatchCreditResponse {
     readonly kind: BrowserPackageQueryMatchCreditKind;
     readonly additionalMatchCredit: number | null;
 }
+export interface BrowserPackageQueryPresetDescriptor {
+    readonly key: string;
+    readonly operator: string;
+    readonly value: string;
+    readonly label: string;
+    readonly summary: string;
+    readonly weight: number;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
+    readonly selectionGroupId: string | null;
+    readonly combinesWithinSelectionGroup: boolean;
+    readonly replacementGroupId: string | null;
+    readonly displayGroupId: string | null;
+    readonly displayGroupLabel: string | null;
+}
 export interface BrowserPackageQueryProgress {
     readonly phase: BrowserPackageQueryProgressPhase;
     readonly completed: number;
@@ -603,7 +612,7 @@ export interface BrowserPackageQueryResult {
 export interface BrowserPackageQueryRow {
     readonly packageId: string;
     readonly version: string;
-    readonly tier: BrowserPackageQueryFacetTier;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
     readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
     readonly totalDownloads: number | null;
     readonly verified: boolean | null;
@@ -623,7 +632,7 @@ export interface BrowserPackageQueryTermDescriptor {
     readonly label: string;
     readonly summary: string;
     readonly weight: number;
-    readonly tier: BrowserPackageQueryFacetTier;
+    readonly tier: BrowserPackageQueryAcquisitionTier;
     readonly operators: ReadonlyArray<string>;
     readonly valueKind: string;
     readonly example: string;
@@ -643,6 +652,54 @@ export interface BrowserPackageSurface {
     readonly documents: ReadonlyArray<BrowserPackageDocument>;
     readonly inspectionErrors: ReadonlyArray<string>;
     readonly inspectionError: string | null;
+}
+export interface BrowserPackageVersionSettlementAuthorityFailure {
+    readonly authority: string;
+    readonly kind: string;
+    readonly message: string;
+    readonly timeoutKind: string | null;
+}
+export interface BrowserPackageVersionSettlementCoordinate {
+    readonly packageId: string;
+    readonly version: string;
+}
+export interface BrowserPackageVersionSettlementFailure {
+    readonly request: BrowserPackageVersionSettlementRequest;
+    readonly kind: string;
+    readonly reason: string;
+    readonly operationTimedOut: boolean;
+    readonly authorityFailures: ReadonlyArray<BrowserPackageVersionSettlementAuthorityFailure>;
+}
+export interface BrowserPackageVersionSettlementInspection {
+    readonly content: BrowserPackageVersionSettlementOutcome;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserPackageVersionSettlementListing {
+    readonly version: string;
+    readonly listed: boolean;
+}
+export interface BrowserPackageVersionSettlementOutcome {
+    readonly kind: BrowserPackageVersionSettlementOutcomeKind;
+    readonly result: BrowserPackageVersionSettlementResult | null;
+    readonly failure: BrowserPackageVersionSettlementFailure | null;
+}
+export interface BrowserPackageVersionSettlementRequest {
+    readonly packageId: string;
+    readonly version: string | null;
+}
+export interface BrowserPackageVersionSettlementResult {
+    readonly request: BrowserPackageVersionSettlementRequest;
+    readonly coordinate: BrowserPackageVersionSettlementCoordinate;
+    readonly includePrerelease: boolean;
+    readonly freshness: string | null;
+    readonly listings: ReadonlyArray<BrowserPackageVersionSettlementListing>;
+    readonly sourceListings: ReadonlyArray<BrowserPackageVersionSettlementSourceListing>;
+}
+export interface BrowserPackageVersionSettlementSourceListing {
+    readonly version: string;
+    readonly feed: string;
+    readonly listed: boolean;
 }
 export interface BrowserPackageVersions {
     readonly versions: ReadonlyArray<string>;
@@ -749,7 +806,7 @@ export declare function packageCacheStats(): BrowserPackageCacheStats;
 export declare function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void>;
 export declare function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection>;
 export declare function queryMemberDocumentation(packageId: string, version: string, framework: string, assemblyName: string, documentationId: string): Promise<BrowserMemberDocumentation>;
-export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
+export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
 export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;
 export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
@@ -757,5 +814,5 @@ export declare function queryWorkspacePackageOccurrences(workspaceJson: string):
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
-export declare function runPackageQuery(operationId: string, prefix: string, facetIdsJson: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
+export declare function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;
