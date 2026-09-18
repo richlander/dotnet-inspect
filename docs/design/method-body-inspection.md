@@ -381,13 +381,16 @@ Constructed parameter and return views do not replace that identity. Generic
 variables in a declaring TypeSpec and optional vararg arguments belong to the
 caller's scope; variables in the open return and required-parameter signature
 belong to the target's scope. Nested function-pointer signatures retain their
-enclosing type and method generic scope. A constructed declaring type must
-supply exactly the generic arity declared by its canonical metadata-name
-segments. Arity is summed from retained root-to-leaf metadata-name segments,
-not reconstructed from flattened display text, so a literal `+` within one
-segment is not mistaken for nesting. Full analysis leaves malformed
-correspondence unresolved, while the bounded presence query fails visibly
-rather than using an argument count as a substitute for declaration arity.
+enclosing type and method generic scope. For source-attributed calls, caller
+scope comes from `DirectCall.EvidenceMethod`, whose physical body contains the
+operand, rather than the projected source `Caller`. A constructed declaring
+type must supply exactly the generic arity declared by its canonical
+metadata-name segments. Arity is summed from retained root-to-leaf
+metadata-name segments, not reconstructed from flattened display text, so a
+literal `+` within one segment is not mistaken for nesting. Full analysis
+leaves malformed correspondence unresolved, while the bounded presence query
+fails visibly rather than using an argument count as a substitute for
+declaration arity.
 
 Call-contract composition uses the primary image's declared module name to
 recognize same-module `ModuleRef` aliases, including aliases nested in signature
@@ -461,7 +464,41 @@ public query's bounded failure paths. The presence matcher examines only the
 resolved local declaring type, compares candidate names without materializing
 them, decodes only same-name signatures, charges operand and candidate metadata
 rows plus signature, type-name, and transitive TypeSpec/MethodSpec work, and
-rejects malformed or ambiguous matches.
+rejects malformed or ambiguous matches. Preliminary classification preserves
+raw current-module TypeRef scope when structured decoding rejects the type, so
+malformed local metadata cannot be reclassified as an ordinary foreign
+reference. A corresponding MethodDef target and the physical
+`EvidenceMethod` supplying generic scope must each have `GenericParam` rows
+that exactly declare the signature generic parameters by count and zero-based
+contiguous index. This applies equally to direct MethodDef tokens, peeled
+MethodSpec tokens, and signature-matched MemberRefs. Every `GenericParam` row
+visited by the bounded resolver is charged to its aggregate correspondence-row
+budget.
+`SameImageCalls_MalformedTargetGenericDeclarationDoesNotBind` gates that rule
+for full analysis with a well-formed neighboring control, while
+`UnsafeEvidencePresence_InvalidTargetGenericDeclarationFailsVisibly` gates
+the bounded absence claim.
+`SameImageCalls_MalformedDirectTargetGenericDeclarationDoesNotBind`,
+`SameImageCalls_MalformedPhysicalCallerGenericDeclarationDoesNotBind`,
+`SameImageCalls_GuardRejectedPhysicalCallerRetainsInvalidDeclaration`,
+`UnsafeEvidencePresence_InvalidDirectTargetGenericDeclarationFailsVisibly`,
+`UnsafeEvidencePresence_InvalidPhysicalCallerGenericDeclarationFailsVisibly`,
+and `UnsafeEvidencePresence_ChargesRepeatedTargetGenericParameterRows` gate
+the direct token, physical scope, and bounded-work paths.
+`UnsafeEvidencePresence_ReusesValidatedLookalikeCallerGenericRows` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget` gate
+presence-mode caller identity at and beyond the aggregate row boundary without
+repeating the validated scope's generic-row traversal.
+`UnsafeEvidencePresence_AccountsLookalikeCallerAttributeRowsWithinBudget` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerAttributeRowsAboveBudget` gate
+the same bounded identity path when extension-method classification traverses
+declaring-type custom attributes: each visited attribute row and materialized
+attribute type name consumes the aggregate correspondence budget.
+`UnsafeEvidencePresence_AccountsLookalikeCallerTypeSpecAttributeNamesWithinBudget`
+and
+`UnsafeEvidencePresence_RejectsLookalikeCallerTypeSpecAttributeNamesAboveBudget`
+gate visible byte-budget failure when a TypeSpec-backed attribute constructor
+converts structural decode rejection into an absent type name.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.
@@ -471,12 +508,19 @@ ambiguity rather than successful absence.
 gate exact declaration arity in full and bounded paths.
 `MethodDefinitionMap_DeclaringTypeMethodVariableOutsideCallerScopeDoesNotBind`
 gates caller-owned generic scope in full correspondence.
+`MethodDefinitionMap_AttributedCallUsesPhysicalGenericScope` and
+`SameImageCalls_AttributedLocalUsesPhysicalGenericScope` gate physical generic
+scope through source attribution and downstream call-tree/leverage consumers.
 `MethodDefinitionMap_LiteralPlusSegmentPreservesDeclaredArity` and
 `SameImageCalls_LiteralPlusSegmentPreservesGenericArity` gate structured-name
 arity and full/bounded agreement for a literal `+` segment.
 `UnsafeEvidencePresence_MalformedOpenMemberSignatureFailsVisibly` and
 `UnsafeEvidencePresence_MalformedTargetSignatureFailsVisibly` gate visible
 bounded failure for malformed reference and candidate signatures.
+`UnsafeEvidencePresence_MismatchedTargetGenericDeclarationFailsVisibly` gates
+signature-declared generic count against MethodDef generic rows, and
+`UnsafeEvidencePresence_MalformedLocalTypeReferenceFailsVisibly` gates raw
+current-module scope through TypeRef decode rejection.
 `UnsafeLeverage_AmbiguousFallbackDoesNotSelectUnsafeSubset` gates resolution
 against the complete declaration population before the unsafe subset is
 ranked. `MethodLeverage_ResolvesBeforeFilteringBodilessDeclarations` and
