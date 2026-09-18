@@ -41,6 +41,19 @@ public static class WorkspaceCommandDefinitions
                 "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
             Arity = ArgumentArity.ExactlyOne,
         };
+        var replacePackageOption = new Option<int?>("--replace-package")
+        {
+            Description =
+                "Replace one direct Package by its one-based packet navigation-row order",
+        };
+        var replacementVersionOption = new Option<string?>("--to-version")
+        {
+            Description = "Exact destination Version for --replace-package",
+        };
+        var replacementTfmOption = new Option<string?>("--to-tfm")
+        {
+            Description = "Destination TFM for --replace-package (isolated context only)",
+        };
         var registerLibraryOption =
             new Option<string[]>("--register-library")
             {
@@ -126,6 +139,9 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
         command.Options.Add(packetOption);
+        command.Options.Add(replacePackageOption);
+        command.Options.Add(replacementVersionOption);
+        command.Options.Add(replacementTfmOption);
         command.Options.Add(registerLibraryOption);
         command.Options.Add(registerPackagePrefixOption);
         command.Options.Add(registerEcosystemOption);
@@ -142,6 +158,7 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
+        command.Options.Add(opts.Envelope);
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(
             command,
@@ -154,7 +171,8 @@ public static class WorkspaceCommandDefinitions
                     typeOption,
                     memberOption,
                     lensOption,
-                    shareOption));
+                    shareOption,
+                    replacePackageOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
@@ -220,6 +238,10 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
+                    ReplacePackage = parseResult.GetValue(replacePackageOption),
+                    ReplacementVersion = parseResult.GetValue(replacementVersionOption),
+                    ReplacementTfm = parseResult.GetValue(replacementTfmOption),
+                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                     OrderedRegistrations = orderedRegistrations,
                     RegisteredLibraries =
                         parseResult.GetValue(registerLibraryOption) ?? [],
@@ -279,7 +301,8 @@ public static class WorkspaceCommandDefinitions
                     typeOption,
                     memberOption,
                     lensOption,
-                    shareOption),
+                    shareOption,
+                    replacePackageOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -296,14 +319,16 @@ public static class WorkspaceCommandDefinitions
         Option<string?> typeOption,
         Option<string?> memberOption,
         Option<string?> lensOption,
-        Option<string?> shareOption) =>
+        Option<string?> shareOption,
+        Option<int?> replacePackageOption) =>
         commandResult.GetValue(activePackageOption) is null
         && commandResult.GetValue(libraryOption) is null
         && !commandResult.GetValue(allLibrariesOption)
         && commandResult.GetValue(typeOption) is null
         && commandResult.GetValue(memberOption) is null
         && commandResult.GetValue(lensOption) is null
-        && commandResult.GetResult(shareOption) is null;
+        && commandResult.GetResult(shareOption) is null
+        && commandResult.GetValue(replacePackageOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,
