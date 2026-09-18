@@ -507,6 +507,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                         _reader,
                         attribute.Constructor,
                         workBudget.ReserveCorrespondenceBytes);
+                workBudget.ThrowIfCorrespondenceByteBudgetExceeded();
                 if (attributeTypeName
                     == KnownAttributeNames.ExtensionAttribute)
                 {

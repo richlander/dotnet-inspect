@@ -498,6 +498,11 @@ repeating the validated scope's generic-row traversal.
 the same bounded identity path when extension-method classification traverses
 declaring-type custom attributes: each visited attribute row and materialized
 attribute type name consumes the aggregate correspondence budget.
+`UnsafeEvidencePresence_AccountsLookalikeCallerTypeSpecAttributeNamesWithinBudget`
+and
+`UnsafeEvidencePresence_RejectsLookalikeCallerTypeSpecAttributeNamesAboveBudget`
+gate visible byte-budget failure when a TypeSpec-backed attribute constructor
+converts structural decode rejection into an absent type name.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.

@@ -137,6 +137,44 @@ public class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_AccountsLookalikeCallerTypeSpecAttributeNamesWithinBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 100,
+                useTypeSpecification: true,
+                attributeTypeNameLength: 1024);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeTypeSpecAttributeCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerTypeSpecAttributeNamesAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 5_000,
+                useTypeSpecification: true,
+                attributeTypeNameLength: 1024);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeTypeSpecAttributeCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "same-image correspondence",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
         UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly()
     {
         ImmutableArray<byte> image =
@@ -2280,7 +2318,9 @@ public class UnsafeEvidencePresenceTests
 
     static ImmutableArray<byte>
         BuildLargeAttributeCallerIdentityAssembly(
-            int attributeCount)
+            int attributeCount,
+            bool useTypeSpecification = false,
+            int attributeTypeNameLength = 1)
     {
         MetadataBuilder metadata =
             CreateMetadata("LargeAttributeCallerIdentity");
@@ -2336,10 +2376,36 @@ public class UnsafeEvidencePresenceTests
             metadata.AddTypeReference(
                 resolutionScope: default,
                 @namespace: default,
-                metadata.GetOrAddString("A"));
+                metadata.GetOrAddString(
+                    new string(
+                        'A',
+                        attributeTypeNameLength)
+                    + (useTypeSpecification
+                        ? "`1"
+                        : "")));
+        EntityHandle markerConstructorOwner =
+            markerAttribute;
+        if (useTypeSpecification)
+        {
+            var markerTypeSpecification =
+                new BlobBuilder();
+            new BlobEncoder(
+                    markerTypeSpecification)
+                .TypeSpecificationSignature()
+                .GenericInstantiation(
+                    markerAttribute,
+                    genericArgumentCount: 1,
+                    isValueType: false)
+                .AddArgument()
+                .Int32();
+            markerConstructorOwner =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(
+                        markerTypeSpecification));
+        }
         MemberReferenceHandle markerConstructor =
             metadata.AddMemberReference(
-                markerAttribute,
+                markerConstructorOwner,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(
                     new byte[] { 0x20, 0x00, 0x01 }));
