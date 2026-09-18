@@ -535,6 +535,7 @@ public static class PackageOptionsParser
                 is { Implicit: false }
             || result.GetResult(opts.Select)
                 is { Implicit: false }
+            || result.GetValue(opts.Tree)
             || result.GetValue(args.DependenciesOption)
             || result.GetValue(args.LayoutOption)
             || result.GetResult(args.PathOption)
@@ -552,13 +553,18 @@ public static class PackageOptionsParser
             return false;
         }
 
-        return !result.GetValue(opts.Count)
-            || packageArgs is not [var packageReference]
-            || !PackageVersionRange.TryParse(
+        string packageReference = packageArgs[0];
+        if (!File.Exists(packageReference))
+        {
+            bool isRange = PackageVersionRange.TryParse(
                 packageReference,
                 out _,
-                out string? rangeError)
-            || rangeError is not null;
+                out string? rangeError);
+            if (isRange || rangeError is not null)
+                return false;
+        }
+
+        return true;
     }
 
     private static string[]? ParseSelectors(string? value)

@@ -544,6 +544,50 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        "Package.That.Must.Not.Resolve",
+        "--tree",
+        "--tree requires exactly one tree-shaped section (-S Dependencies).")]
+    [InlineData(
+        "Newtonsoft.Json@1.0.0..2.0.0",
+        null,
+        "Package range 'Newtonsoft.Json@1.0.0..2.0.0' requires --versions for package inspection.")]
+    [InlineData(
+        "Example@bad..2.0.0",
+        null,
+        "Invalid package version 'bad' in range 'Example@bad..2.0.0'.")]
+    public async Task Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics(
+        string package,
+        string? competingOption,
+        string expectedError)
+    {
+        var args = new List<string>
+        {
+            "--offline",
+            "package",
+            package,
+            "--tfms",
+        };
+        if (competingOption is not null)
+            args.Add(competingOption);
+        args.AddRange(["--rows", "1", "--tips", "q"]);
+
+        var (exit, output, error) =
+            await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            expectedError,
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Tfms_ShapeProjection_IsRefused()
     {
