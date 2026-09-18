@@ -6,16 +6,18 @@ This document is the normative owner for stateless library-body Analysis
 execution, tracked by
 [#7553](https://github.com/richlander/dotnet-inspect/issues/7553).
 
-The initial adoption moves immutable-image execution behind
-`LibraryBodyAnalysisService` and moves the Workspace-backed method and
-optimization-opportunity queries onto that boundary. Those queries are
-production inputs to Inspect Web Analysis exports; method analysis also feeds
-the shared matched-member query.
+The initial adoption moved immutable-image execution behind
+`LibraryBodyAnalysisService`, moved the Workspace-backed method and
+optimization-opportunity queries onto that boundary, and moved
+`AssemblyPairClusterRootPathQuery` onto the same immutable-image boundary.
+Those consumers established the service but retained `LibraryBodyIndex` as its
+only public result shape.
 
-The next consumer-led adoption moves
-`AssemblyPairClusterRootPathQuery` onto the same immutable-image boundary. That
-query composes Analysis path evidence with Metadata public roots for the
-production `library call-use` CLI.
+The current migration phase breaks that compatibility pattern. Selected
+producers publish focused Analysis-owned result types, and each result type
+lands with a production query or section that consumes it. One service
+invocation may still coordinate several producers over one body acquisition;
+that does not make their answers one semantic type.
 
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
@@ -23,8 +25,11 @@ command-selected feature and body-scope policy, resolver binding policy, source
 attribution, and reuse of one detached index across requested sections.
 
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
-unmigrated consumers. Each later implementation slice moves at least one
-production consumer and retires its corresponding compatibility call.
+unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
+for those consumers, not the destination for new producer evidence or query
+algorithms. Each later implementation slice moves at least one production
+consumer to the service and an owner-issued result type, then removes the
+corresponding index dependency.
 
 ## Authority and exact claim
 
@@ -32,9 +37,9 @@ production consumer and retires its corresponding compatibility call.
 
 > Given one exact assembly input, one explicit Analysis request, and any
 > owner-issued reference resolver required by that request, execute the
-> selected library-body producers once and return detached
-> `LibraryBodyIndex` evidence without retaining behavior-bearing state between
-> invocations.
+> selected library-body producers once and publish their detached,
+> owner-typed results without retaining behavior-bearing state between
+> invocations or requiring consumers to depend on `LibraryBodyIndex`.
 
 The owner defines:
 
@@ -43,7 +48,7 @@ The owner defines:
 - path and caller-supplied immutable-image execution entry points;
 - PE and Metadata reader lifetime during execution;
 - selected producer coordination; and
-- construction of the detached Analysis result.
+- construction and publication of focused detached Analysis results.
 
 It does not define:
 
@@ -64,8 +69,11 @@ exact path or caller-owned immutable image
        -> normalize producer prerequisites and scope
        -> open operation-local PE and Metadata readers
        -> execute the selected Analysis producers
-       -> construct detached evidence
-  -> LibraryBodyIndex
+       -> construct owner-typed detached results
+       -> publish one execution receipt for shared identity, coverage,
+          diagnostics, and explicitly named result values
+  -> adopting query or section consumes only its focused result
+  -> LibraryBodyIndex compatibility adapter serves unmigrated consumers
 ```
 
 `LibraryBodyAnalysisService` is a static callable boundary, not a global
@@ -74,9 +82,15 @@ service provider, or coordinator identity.
 
 `LibraryBodyAnalysisRequest` snapshots an explicit token scope. Its optional
 type predicate remains caller-supplied behavior for the invocation. The
-normalized internal plan may expand prerequisite features or evidence scope;
-the returned index records the effective features and whether it covers the
-full method-evidence population.
+normalized internal plan may expand prerequisite features or evidence scope.
+The execution publication records the effective features, shared diagnostics,
+and whether it covers the full method-evidence population.
+
+The publication may aggregate several explicitly named result values so one
+command can reuse one acquisition. It is not a universal result algebra,
+producer registry, type-keyed bag, or semantic facade. Producer result types
+remain independently named and owned; section and query APIs accept those
+focused types rather than the aggregate publication or `LibraryBodyIndex`.
 
 ## Input ownership
 
@@ -96,10 +110,29 @@ does not retain it after returning.
 
 ## Result boundary
 
-`LibraryBodyIndex` is detached evidence. It retains image-derived module
-identity, effective features and scope, producer evidence, diagnostics, and
-result-local derived indexes. It owns no PE reader, Metadata reader, resolver,
-stream, Workspace lease, or service instance.
+Each producer result is detached evidence. It retains only the identity,
+coverage, facts, diagnostics, and typed limitations required by its owning
+claim. It owns no PE reader, Metadata reader, resolver, stream, Workspace
+lease, or service instance.
+
+Common execution identity, coverage, and diagnostics may be published once in
+an execution receipt. A focused result refers to that common evidence through
+an explicit typed association; it does not infer correspondence from a path,
+display name, equal content, or neighboring result.
+
+The existing internal `MethodBodyAnalysisResult`, `SafetyAnalysisResult`,
+`AllocationAnalysisResult`, `OptimizationAnalysisResult`,
+`ResourceLifecycleAnalysisResult`, and `OwnershipFlowAnalysisResult` establish
+the decomposition direction, not final public API approval. A result becomes
+public only when its first production consumer fixes the smallest useful
+shape. New Resource Occurrence Analysis publishes a distinct
+`ResourceOccurrenceAnalysisResult`; it does not add another property or
+projection method to `LibraryBodyIndex`.
+
+During migration, `LibraryBodyIndex` may adapt the execution receipt and
+focused results for unmigrated consumers. Adapter-only lazy indexes may remain
+until their focused owner and consumer move. The adapter must not become the
+input required by a newly migrated query.
 
 This first adoption preserves the existing exception boundary. Invalid
 requests fail during request construction; invalid images and producer
@@ -117,19 +150,47 @@ execution change with producer-owned evidence.
 
 ## Consumer-led adoption
 
-Each implementation slice is organized by a production consumer:
+The library section system is the first deliberate result-type consumer. It
+currently maps its complete selected-query set to one feature union, lazily
+builds one `LibraryBodyIndex`, and passes that index to five unrelated typed
+queries. The migration keeps the useful single execution and removes the
+shared semantic input.
 
-1. Immutable-image service execution plus Workspace method and optimization
-   queries.
-2. The next Workspace, Research, or CLI consumer plus only the additional
-   entry point or result responsibility it needs.
-3. Removal of `LibraryBodyIndex.Open*` when its final production consumer
-   moves.
-4. Independent evaluation of result lookup, leverage, and call-graph methods;
-   each moves only with a focused owner and adopting consumer.
+| Sequence | Production consumer | Focused Analysis result |
+| --- | --- | --- |
+| 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
+| 2 | Library Optimization Opportunities section | Optimization result including its explicitly required allocation and leverage inputs or completed owner-issued projections |
+| 3 | Library Top Leverage and call-graph sections | Focused leverage and local call-graph results after their current index-local derivations receive an owner |
+| 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
+| 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
 
-No service substrate, producer registry, universal request, or generic result
-lands for hypothetical later adoption.
+Every slice:
+
+1. defines or narrows one owner-issued Analysis result;
+2. makes `LibraryBodyAnalysisService` publish it from the shared execution;
+3. changes at least one production section or query to consume that type;
+4. lets `InspectionQueryContext` share the execution receipt without exposing
+   `LibraryBodyIndex` to the migrated section;
+5. removes the superseded index member, projection, or compatibility call when
+   no remaining consumer needs it; and
+6. gates unchanged section output, diagnostics, cost declaration, and
+   single-acquisition behavior.
+
+The first implementation slice should migrate both Unsafe Evidence and
+Implementation Profiles because they already project cohesive internal result
+families and exercise the library section system directly. It must not first
+publish unused public result types.
+
+`OptimizationOpportunities`, `TopLeverage`, call trees, and other methods that
+currently compute derived answers on `LibraryBodyIndex` move only after their
+focused owner identifies the exact inputs and result. Resource Triage follows
+issues #6730 and #6731 so the new ownership path reaches a section without
+returning through the old index shape.
+
+Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
+Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
+consumer. No service substrate, producer registry, universal request, generic
+result, or type-keyed result bag lands for hypothetical later adoption.
 
 ## Demo
 
@@ -149,7 +210,7 @@ to explicit execution:
 LibraryBodyAnalysisRequest request =
     LibraryBodyAnalysisRequest.Create(
         LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-LibraryBodyIndex index =
+LibraryBodyIndex compatibilityIndex =
     LibraryBodyAnalysisService.AnalyzeImage(
         sourceName,
         snapshot.Content,
@@ -157,17 +218,26 @@ LibraryBodyIndex index =
         resolver);
 ```
 
-Inspect Web continues to consume the same method evidence and ranked
-optimization opportunities through its existing query exports. The change is
-architectural: the result no longer acts as the production service. The
-browser host remains compiler-banned from calling the Analysis service
-directly; Workspace queries own service execution and project its evidence.
+The existing call remains a compatibility stage. A migrated section instead
+asks its query context for the service execution and passes the focused result
+to its typed query:
+
+```csharp
+SafetyAnalysisResult safety = context.BodyAnalysis().Safety;
+UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
+```
+
+The concrete execution-publication API lands with that section migration; the
+example fixes the direction rather than pre-approving property names.
+Inspect Web continues to receive owner-typed query exports. The browser host
+remains compiler-banned from calling the Analysis service directly; Workspace
+queries own service execution and project its evidence.
 The cluster root-path query follows the same request/service shape for
 `MethodEvidence`; its existing section and CLI continue to own composition and
-presentation.
-`MethodBodyInspectionSession` similarly translates command capability and
-scope policy into one request, delegates path or prefetched-image execution to
-the service, and retains the returned detached index for the command.
+presentation. `MethodBodyInspectionSession` similarly translates command
+capability and scope policy into one request, delegates path or
+prefetched-image execution to the service, and retains the returned detached
+compatibility index for the command.
 
 ## Evidence
 
@@ -202,6 +272,17 @@ The initial Release gates are:
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
 
+Each result-type migration additionally gates:
+
+- the migrated section no longer accepts or acquires `LibraryBodyIndex`;
+- selecting several migrated sections performs one service execution;
+- selecting one migrated section does not run unrelated producers;
+- the focused result preserves positive evidence and typed incompleteness;
+- section output and diagnostics remain unchanged unless that slice names a
+  separately reviewed correction; and
+- no public result type lands without its adopting production section or
+  query.
+
 ## Non-claims
 
 - No `AnalysisHouse`.
@@ -210,5 +291,5 @@ established by the production call sites and focused behavior gates.
 - No asynchronous or concurrent producer execution contract beyond existing
   behavior.
 - No path identity, file-stability, or persistent-cache claim.
-- No decomposition of result-local lookup or projection methods in this
-  slice.
+- No requirement to decompose every result-local lookup or projection before
+  the first section migrates.

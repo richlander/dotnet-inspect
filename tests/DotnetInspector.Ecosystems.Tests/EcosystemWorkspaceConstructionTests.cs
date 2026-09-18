@@ -25,11 +25,20 @@ public sealed class EcosystemWorkspaceConstructionTests
                 Assert.Same(pack.CorePackages[index], declaration.CorePackages[index]);
         }
 
-        var platform = SelectKnown(EcosystemPackIds.Platform);
-        Assert.Equal(PlatformFamily.DotNetRuntime,
-            Assert.IsType<WorkspaceEcosystemPopulationDeclaration.Platform>(
-                Assert.Single(platform.Populations)).Population.Family);
-        Assert.Empty(platform.CorePackages);
+        var runtime = SelectKnown(EcosystemPackIds.Runtime);
+        Assert.Collection(
+            runtime.Populations,
+            item => Assert.Equal(
+                PlatformFamily.DotNetRuntime,
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.Platform>(
+                        item).Population.Family),
+            item => Assert.Equal(
+                "System.",
+                Assert.IsType<
+                    WorkspaceEcosystemPopulationDeclaration.PackagePrefix>(
+                        item).Prefix.Prefix));
+        Assert.Empty(runtime.CorePackages);
         var aspNetCore = SelectKnown(EcosystemPackIds.AspNetCore);
         Assert.Collection(aspNetCore.Populations,
             item => Assert.Equal(PlatformFamily.AspNetCore,
@@ -223,7 +232,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         EcosystemPackId[] selected =
         [
             EcosystemPackIds.AI,
-            EcosystemPackIds.Platform,
+            EcosystemPackIds.Runtime,
         ];
 
         WorkspacePlan plan =
@@ -239,7 +248,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             selected.Select(id => id.Value),
             declarations.Select(declaration => declaration.Id.Value));
         Assert.Same(SelectKnown(EcosystemPackIds.AI), declarations[0]);
-        Assert.Same(SelectKnown(EcosystemPackIds.Platform), declarations[1]);
+        Assert.Same(SelectKnown(EcosystemPackIds.Runtime), declarations[1]);
     }
 
     [Fact]
@@ -253,7 +262,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             EcosystemPackCatalog.CreateWorkspacePlan([null!]));
         Assert.Throws<ArgumentException>(() =>
             EcosystemPackCatalog.CreateWorkspacePlan(
-                [EcosystemPackIds.Platform, EcosystemPackIds.Platform]));
+                [EcosystemPackIds.Runtime, EcosystemPackIds.Runtime]));
         Assert.True(EcosystemPackId.TryCreate(
             "ecosystem.not-shipped",
             out EcosystemPackId? unknown));
@@ -273,7 +282,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Unavailable>(
             registry.SelectWorkspaceRegistration(EcosystemPackIds.Aspire));
         Assert.IsType<EcosystemWorkspaceRegistrationSelectionResult.Unknown>(
-            registry.SelectWorkspaceRegistration(EcosystemPackIds.Platform));
+            registry.SelectWorkspaceRegistration(EcosystemPackIds.Runtime));
         Assert.Throws<ArgumentNullException>(() => registry.SelectWorkspaceRegistration(null!));
     }
 
@@ -282,7 +291,7 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         WorkspaceEcosystemRegistrationDeclaration declaration = Declaration(EcosystemPackIds.Aspire);
         Assert.Throws<ArgumentException>(() => new EcosystemPackRegistry(
-            [Pack(EcosystemPackIds.Platform, declaration)]));
+            [Pack(EcosystemPackIds.Runtime, declaration)]));
         Assert.Throws<ArgumentException>(() => new EcosystemPackRegistry(
         [
             Pack(EcosystemPackIds.Aspire, declaration),
@@ -300,7 +309,7 @@ public sealed class EcosystemWorkspaceConstructionTests
             [],
             [null!],
             [EcosystemPackIds.Aspire, EcosystemPackIds.Aspire],
-            [EcosystemPackIds.Platform],
+            [EcosystemPackIds.Runtime],
         ];
         foreach (EcosystemPackId[] manifest in invalid)
             Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(registry, manifest));
@@ -341,13 +350,13 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         var registry = new EcosystemPackRegistry(
         [
-            Pack(EcosystemPackIds.Platform, Declaration(EcosystemPackIds.Platform)),
+            Pack(EcosystemPackIds.Runtime, Declaration(EcosystemPackIds.Runtime)),
             Pack(EcosystemPackIds.Aspire, null) with { Order = 200, PackageSet = PackageSetIds.Aspire },
         ]);
         Assert.Throws<ArgumentException>(() =>
-            EcosystemWorkspacePlanFactory.Create(registry, [EcosystemPackIds.Platform], requireAllPacks: true));
+            EcosystemWorkspacePlanFactory.Create(registry, [EcosystemPackIds.Runtime], requireAllPacks: true));
         Assert.Throws<ArgumentException>(() => EcosystemWorkspacePlanFactory.Create(
-            registry, [EcosystemPackIds.Platform, EcosystemPackIds.Aspire], requireAllPacks: true));
+            registry, [EcosystemPackIds.Runtime, EcosystemPackIds.Aspire], requireAllPacks: true));
     }
 
     [Fact]
@@ -355,10 +364,10 @@ public sealed class EcosystemWorkspaceConstructionTests
     {
         var registry = new EcosystemPackRegistry(
         [
-            Pack(EcosystemPackIds.Platform, Declaration(EcosystemPackIds.Platform)),
+            Pack(EcosystemPackIds.Runtime, Declaration(EcosystemPackIds.Runtime)),
             Pack(EcosystemPackIds.Aspire, Declaration(EcosystemPackIds.Aspire)) with { Order = 200 },
         ]);
-        EcosystemPackId[] manifest = [EcosystemPackIds.Platform];
+        EcosystemPackId[] manifest = [EcosystemPackIds.Runtime];
         WorkspacePlan firstPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
         manifest[0] = EcosystemPackIds.Aspire;
         WorkspacePlan laterPlan = EcosystemWorkspacePlanFactory.Create(registry, manifest);
@@ -368,7 +377,7 @@ public sealed class EcosystemWorkspaceConstructionTests
         await using InspectionWorkspace restored = new(initial.Plan);
         await using InspectionWorkspace empty = new([]);
 
-        Assert.Equal("ecosystem.platform", Assert.Single(Declarations(initial)).Id.Value);
+        Assert.Equal("ecosystem.runtime", Assert.Single(Declarations(initial)).Id.Value);
         Assert.Equal("ecosystem.aspire", Assert.Single(
             Declarations(Read(later))).Id.Value);
         Assert.Same(initial, Read(first));
