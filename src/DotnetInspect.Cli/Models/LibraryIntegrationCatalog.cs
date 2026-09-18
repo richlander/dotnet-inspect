@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 
@@ -15,8 +16,6 @@ internal sealed record LibraryIntegrationDescriptor(
     Func<LibraryInspection, bool> HasPresence,
     bool IncludeTypesWhenApisPresent)
 {
-    public EcosystemPackId? Ecosystem { get; init; }
-
     public string Name => Concept.DisplayLabel;
 
     public bool CanRender(LibraryInspection inspection)
@@ -86,6 +85,10 @@ internal sealed record LibraryIntegrationDescriptor(
     }
 }
 
+internal sealed record LibraryIntegrationEcosystemBinding(
+    EcosystemPackId Ecosystem,
+    ImmutableArray<IntegrationConceptDescriptor> Concepts);
+
 internal static class LibraryIntegrationCatalog
 {
     public const string RollupName = EcosystemIntegrationNames.Integrations;
@@ -118,10 +121,7 @@ internal static class LibraryIntegrationCatalog
         IntegrationConceptCatalog.Aspire,
         LibraryIntegrationSource.Ecosystem,
         inspection => inspection.HasAspireSupport,
-        IncludeTypesWhenApisPresent: true)
-    {
-        Ecosystem = EcosystemPackIds.Aspire,
-    };
+        IncludeTypesWhenApisPresent: true);
 
     public static readonly LibraryIntegrationDescriptor DependencyInjection = new(
         IntegrationConceptCatalog.DependencyInjection,
@@ -174,11 +174,31 @@ internal static class LibraryIntegrationCatalog
     public static readonly LibraryIntegrationDescriptor[] All =
         [.. IntegrationConceptCatalog.Concepts.Select(DescriptorFor)];
 
+    public static readonly ImmutableArray<LibraryIntegrationEcosystemBinding>
+        EcosystemBindings =
+        [
+            new(
+                EcosystemPackIds.Aspire,
+                [.. All.Select(descriptor => descriptor.Concept)]),
+        ];
+
     public static bool CanRenderAny(LibraryInspection inspection)
         => All.Any(descriptor => descriptor.CanRender(inspection));
 
     public static int CountPresence(LibraryInspection inspection)
         => All.Count(descriptor => descriptor.HasPresence(inspection));
+
+    public static ImmutableArray<IntegrationConceptDescriptor> ConceptsFor(
+        EcosystemPackId ecosystem)
+    {
+        foreach (LibraryIntegrationEcosystemBinding binding in EcosystemBindings)
+        {
+            if (binding.Ecosystem == ecosystem)
+                return binding.Concepts;
+        }
+
+        return [];
+    }
 
     static LibraryIntegrationDescriptor DescriptorFor(
         IntegrationConceptDescriptor concept)

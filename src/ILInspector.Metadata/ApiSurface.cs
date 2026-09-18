@@ -482,6 +482,15 @@ public class TypeParameter
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
+    /// Exact definition names referenced by type constraints. An empty list
+    /// means the constraints reference no named definitions; null means the
+    /// constraint shape or an exact definition name was unavailable.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<MetadataTypeDefinitionName>? ConstraintTypeDefinitionNames
+        { get; set; }
+
+    /// <summary>
     /// Whether the constraint set proves this type parameter is a reference type, a
     /// value type, or neither — the metadata fact behind C#'s "known to be a reference
     /// type" rule, which is not the same question as which constraint keywords are

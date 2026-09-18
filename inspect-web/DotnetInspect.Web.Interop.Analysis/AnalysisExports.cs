@@ -289,11 +289,16 @@ public static partial class AnalysisExports
                 AssemblyIntegrationsInspection.Execute);
 
         return CreateIntegrations(
-            coordinate.PackageId,
-            coordinate.Version,
-            coordinate.Framework,
-            [inspection.Content],
-            compileLibrary);
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                [inspection.Content],
+                compileLibrary)
+            with
+            {
+                Inspection =
+                    BrowserAnalysisInspectionProjection.Project(inspection),
+            };
     }
 
     /// <summary>
@@ -354,11 +359,16 @@ public static partial class AnalysisExports
                 AssemblyIntegrationOpportunitiesInspection.Execute);
 
         return CreateOpportunities(
-            coordinate.PackageId,
-            coordinate.Version,
-            coordinate.Framework,
-            [inspection.Content.Opportunities],
-            compileLibrary);
+                coordinate.PackageId,
+                coordinate.Version,
+                coordinate.Framework,
+                [inspection.Content.Opportunities],
+                compileLibrary)
+            with
+            {
+                Inspection =
+                    BrowserAnalysisInspectionProjection.Project(inspection),
+            };
     }
 
     internal static BrowserPackageIntegrations CreateIntegrations(
