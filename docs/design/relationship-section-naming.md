@@ -60,7 +60,7 @@ bind stable facet identities.
 | --- | --- | --- |
 | Set-valued direct evidence | Concise plural relationship noun | `Dependencies`, `References`, `Calls`, `Callers`, `Interfaces`, `Implementers`, `Extensions`, `Integrations` |
 | Structurally scalar direct evidence | Conventional singular relationship noun | `Baseclass` |
-| Rooted, ancestry-preserving result | Singular relationship domain + `Hierarchy` | `Dependency Hierarchy`, `Reference Hierarchy` |
+| Rooted, occurrence-addressed result | Singular relationship domain + `Hierarchy` | `Dependency Hierarchy`, `Reference Hierarchy` |
 | Identity-preserving typed topology | Singular relationship or purpose + `Graph` | `Dependency Graph`, `Reference Graph`, `Call Graph`, `Dispatch Graph`, `Integration Graph` |
 | Optional derived analysis | Descriptive analysis noun phrase | `Direct Use Clusters` |
 
@@ -91,11 +91,18 @@ item.
 
 ### Rooted hierarchies
 
-A `Hierarchy` preserves one or more roots and the ancestry or path context that
-explains how each result was reached. A shared target may appear beneath
-multiple parents because each occurrence answers a different root-relative
-question. Dependency-specific resolution, pruning, failures, and partial
-completion remain owned by Depends or the corresponding relationship owner.
+A `Hierarchy` makes rooted occurrence identity its primary result currency.
+Each owner-issued occurrence identity preserves its root, parent occurrence or
+root position, relationship, and target associations. A shared target reached
+through two parents therefore has two hierarchy occurrences even when both
+refer to one canonical subject identity.
+
+Canonical nodes and edges may back or enrich a hierarchy, but they do not
+collapse its occurrence identity. A result that exposes only the union of
+canonical nodes and typed edges, with roots serving as seeds or annotations,
+is a Graph rather than a hierarchy. Dependency-specific resolution, pruning,
+failures, and partial completion remain owned by Depends or the corresponding
+relationship owner.
 
 `Hierarchy` does not assert that the underlying domain is mathematically a
 tree. The semantic obligation is rooted explanatory occurrence and ancestry.
@@ -104,9 +111,11 @@ that hierarchy contract.
 
 ### Identity-preserving graphs
 
-A `Graph` preserves canonical subject identities and typed relationships.
-Convergence and cycles remain explicit; repeated paths do not create a new
-subject identity. Graph modes may add peer seeds, induced sets, mixed
+A `Graph` makes canonical subject and typed-edge identities its primary result
+currency. Convergence and cycles remain explicit; repeated paths do not create
+a new subject or edge identity. Roots and paths may be seeds, queries, or
+annotations, but root-relative path multiplicity does not define a second node
+or edge result identity. Graph modes may add peer seeds, induced sets, mixed
 relationship families, clusters, or other Graph-owned characteristics without
 changing the base naming rule.
 
@@ -211,7 +220,7 @@ each component.
 | --- | --- | --- |
 | Package `Dependencies` | Direct declared dependency evidence | Conforming direct name |
 | Package `Dependencies --tree` | Resolved transitive rooted dependency result | **Target:** separate `Dependency Hierarchy`; projection must stop changing the result |
-| Depends `Dependency Graph` | Rooted dependency result with roots, ancestry, root-relative depth, pruning, and per-root failures | **Target:** `Dependency Hierarchy`; current spelling remains until Dependency adoption |
+| Depends `Dependency Graph` | Mixed carrier with roots and root-relative behavior over canonical nodes and a union of logical edges | **Target:** #7648 adopts an occurrence-addressed `Dependency Hierarchy`; the current mixed result is not renamed in place |
 | Library `References` without `--tree` | Direct assembly-reference evidence | Conforming direct name |
 | Library `References --tree` | Resolved transitive rooted reference result | **Target:** separate `Reference Hierarchy`; projection must stop changing the result |
 | `Calls` and `Callers` | Direct call evidence by direction | Conforming direct names |
@@ -239,7 +248,7 @@ performing a blind text replacement:
 | Categories | `@Dependencies`, `@Calls`, `@Relations`, and `@Integrations` group current sections | Keep category identity separate; deliberately place each new hierarchy or graph section |
 | Compatibility aliases | `SelectResolver.LegacySectionAliases` globally maps `Dependencies` to `References` when no exact section wins | Remove or narrow the cross-domain alias under CLI change classification |
 | Portable View Facets | `package.dependencies`, `library.references`, `library.integrations`, and `member.call-graph` are issued identities | Preserve their current purposes; issue a distinct identity for each new hierarchy or graph result |
-| Structured output | Depends currently exposes a `DependencyGraph` schema member and graph-named nested types | Decide schema compatibility in the Dependency adoption; do not infer a schema rename from the display name |
+| Structured output | Depends currently exposes a `DependencyGraph` schema member and graph-named nested types for the mixed result | Decide whether the hierarchy result requires a new or versioned schema in the Dependency adoption; do not infer a field rename from the display name |
 | Share and replay | Portable state binds facet identity and query intent rather than display text | Preserve old packet meaning and map new result shapes through new or explicitly versioned identities |
 | README, focused docs, and shipped skills | Current guidance contains existing `Dependency Graph`, `Dependencies --tree`, and `References --tree` spellings | Update examples in the adoption that makes the replacement executable |
 | Browser labels and gestures | Browser currently exposes direct `Integrations` and `Call Graph`; hierarchy facets are not issued | Reuse conforming names and add hierarchy labels only when the shared host-neutral result is available |
@@ -306,8 +315,9 @@ dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree
 
 Conforming owner adoptions must preserve these distinctions:
 
-1. **Shared dependency:** two parents reach one package. A hierarchy may repeat
-   the package beneath both parents; a graph retains one node with two edges.
+1. **Shared dependency:** two parents reach one package. A hierarchy issues two
+   root/parent-addressed occurrences that may refer to one canonical package;
+   a graph retains one package node with two edges.
 2. **Cycle:** a hierarchy reports a cycle boundary in its rooted path context;
    a graph preserves the cycle as topology.
 3. **Renderer coincidence:** identical-looking indented output from a hierarchy
@@ -357,9 +367,10 @@ Adoption is staged by architectural owner:
 1. **Naming owner:** this document establishes the grammar and transfers
    relationship-specific naming from the general Section Model.
 2. **Dependency owner:** [#7648](https://github.com/richlander/dotnet-inspect/issues/7648)
-   adopts `Dependency Hierarchy`, updates discovery and compatibility
-   behavior, and decides any public schema migration without renaming internal
-   carriers solely for consistency.
+   adopts an occurrence-addressed `Dependency Hierarchy`, updates discovery
+   and compatibility behavior, and decides any public schema migration. It
+   does not treat the current mixed canonical-node carrier as a display-only
+   rename.
 3. **Package owner:** [#7649](https://github.com/richlander/dotnet-inspect/issues/7649)
    keeps `Dependencies` direct and binds a distinct
    `Dependency Hierarchy` subject section to the shared Depends operation.
@@ -392,6 +403,8 @@ gates covering:
 - exact section registration, discovery, help, and completion names;
 - selection, category expansion, aliases, and obsolete-input behavior;
 - direct versus hierarchy versus graph acquisition and result identity;
+- root/parent-addressed hierarchy occurrences versus canonical Graph node and
+  edge identities;
 - tree, Mermaid, table, structured, and Count projection invariance;
 - stable View Facet IDs and any versioned schema mappings;
 - the shared-dependency, cycle, empty-result, and incompatible-projection
