@@ -9,13 +9,15 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class CompleteRestorationExecutionTests
+public sealed partial class CompleteRestorationExecutionTests
 {
-    [Fact]
-    public async Task RegistrationOnlyVersion3_RestoresWithoutAcquisition()
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task RegistrationOnly_RestoresWithoutAcquisition(int version)
     {
-        const string json =
-            """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
+        string json =
+            $$$"""{"f":{{{version}}},"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
             json,
             TestContext.Current.CancellationToken);
@@ -48,8 +50,12 @@ public sealed class CompleteRestorationExecutionTests
         Assert.Empty(activated.Workspace.Snapshot.Scope.Packages);
         Assert.Single(
             activated.Workspace.Snapshot.Definition.Plan.Registrations);
-        Assert.IsType<CompleteRestorationResolvedState.Version3>(
-            activated.Workspace.Snapshot.Resolved);
+        if (version == InspectionDefinitionSchema.Version3)
+            Assert.IsType<CompleteRestorationResolvedState.Version3>(
+                activated.Workspace.Snapshot.Resolved);
+        else
+            Assert.IsType<CompleteRestorationResolvedState.Version4>(
+                activated.Workspace.Snapshot.Resolved);
         var projectable =
             Assert.IsType<CompleteRestorationProjection.Projectable>(
                 activated.Workspace.Projection);

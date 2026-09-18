@@ -9,8 +9,9 @@
 > Package's retained path is active, independently of deeper retained context
 > and independently of an exact inspector request versus recommendation.
 
-This is **design only**. Format-4 construction, projection, restoration and
-host adoption are **unverified** until the gates below exist. The current
+Format-4 construction, managed projection, exact selector resolution and
+complete restoration are implemented, with the Release gates below.
+CLI and Browser capture/transport adoption remain **unverified**. The
 schema/packet 2/3 active-subject vocabulary remains Workspace and Package.
 Retained Library, Type and Member selectors already exist; they do not make
 those nodes active.
@@ -34,7 +35,7 @@ The real destination from
 PublicKeyToken=c8d484a7012f9a8b`; its parameterless constructor has canonical
 selector `M:Avalonia.Data.MultiBinding.#ctor()`.
 
-This proposed long-form view keeps the constructor as retained context while
+This long-form view keeps the constructor as retained context while
 selecting **Type**, not Member:
 
 ```json
@@ -167,6 +168,10 @@ not downgrade it to format 3. Existing format-2/3 producer paths do not
 silently start emitting format 4. Migration, automatic upgrade and legacy
 consumer retirement are not part of this extension.
 
+`WorkspaceSharePacket.CreateV4` and schema-version-4 records explicitly select
+the new format. `WorkspaceSharePacketCodec.Format4Version` identifies it;
+`CurrentFormatVersion` remains the existing format-3 producer default.
+
 ## Resolution and inspector intent
 
 Resolve the existing retained selectors against the row's exact realized
@@ -250,11 +255,23 @@ renderShare(result.share);
 renderDiagnostics(result.diagnostics);
 ```
 
-The implementation's planned Release gates extend
-`WorkspaceSharePacketCodecTests`, `WorkspaceSharePacketTransposerTests`,
-`CommittedScenarioSelectorResolverTests` and
-`CompleteRestorationExecutionTests`, plus the CLI and Browser production
-capture/restoration gates. All new properties remain **unverified** here:
+The shared Release gates are `WorkspaceSharePacketV4CodecTransposerTests`
+and the `Version4_*` cases in `CompleteRestorationExecutionTests`.
+The latter exercise the public consumer assembly, product-owned selector
+resolution and complete unpublished-Workspace restoration, from both packets
+and definitions. The Avalonia activation cases measured above two seconds and
+are `Speed=Slow`: the focused pre-merge selection runs them, and the existing
+daily Deep Inspect query suite retains them. Codec, shape, early-facet-refusal
+and stale-forwarder cases are PR-fast.
+
+`RegistrationOnly_RestoresWithoutAcquisition` covers versions 3 and 4.
+`BrowserRetainedWorkspaceActivationTests.CommittedPacket_RemainsActivatable`
+covers the existing managed installation seam for versions 2, 3 and 4; it
+does not establish Browser capture or transport support. Existing CLI
+format-3 authoring and Browser canonicalization admission remain unchanged.
+
+These gates cover the shared cases below. Equivalent CLI and Browser
+capture/replay remains **unverified** pending adoption steps 3 and 4:
 
 | Case | Required result |
 | --- | --- |
@@ -272,6 +289,6 @@ capture/restoration gates. All new properties remain **unverified** here:
 
 The real identity and constructor selector were obtained from production
 `dotnet-inspect` against `Avalonia@12.1.2` and its exact
-`lib/net8.0/Avalonia.Base.dll` asset. The future outcome gates must exercise
-product-owned codecs and restoration rather than have a harness repair the
+`lib/net8.0/Avalonia.Base.dll` asset. The outcome gates exercise
+product-owned codecs and restoration rather than having a harness repair the
 packet or inject an active subject after restoration.
