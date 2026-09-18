@@ -1,6 +1,6 @@
 export const MAX_RETAINED_WORKSPACES = 4;
 
-export interface LegacyRetainedWorkspace<TSnapshot> {
+interface LegacyRetainedWorkspace<TSnapshot> {
   id: string;
   label: string;
   kind: "legacy";

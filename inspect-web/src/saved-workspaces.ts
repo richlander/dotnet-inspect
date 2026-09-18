@@ -1,4 +1,4 @@
-export interface LegacySavedWorkspace {
+interface LegacySavedWorkspace {
   name: string;
   kind: "legacy-format-1";
   packet: string;
