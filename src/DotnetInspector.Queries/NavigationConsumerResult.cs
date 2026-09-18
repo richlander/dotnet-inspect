@@ -120,7 +120,32 @@ public sealed record NavigationConsumerScopeOutcome(
     NavigationScopeSettlementKind Kind,
     WorkspaceScopeOperationKind Operation,
     WorkspaceScopeRejection? Rejection = null,
-    ArtifactRootFailure? Failure = null);
+    ArtifactRootFailure? Failure = null)
+{
+    public static NavigationConsumerScopeOutcome FromSettlement(
+        WorkspaceScopeOperationResult settlement) =>
+        settlement switch
+        {
+            WorkspaceScopeOperationResult.Committed committed =>
+                new(NavigationScopeSettlementKind.Committed, committed.Association.Kind),
+            WorkspaceScopeOperationResult.NoEffect noEffect =>
+                new(NavigationScopeSettlementKind.NoEffect, noEffect.Association.Kind),
+            WorkspaceScopeOperationResult.Rejected rejected =>
+                new(NavigationScopeSettlementKind.Rejected, rejected.Association.Kind,
+                    Rejection: rejected.Reason),
+            WorkspaceScopeOperationResult.Failed failed =>
+                new(NavigationScopeSettlementKind.Failed, failed.Association.Kind,
+                    Failure: failed.Failure),
+            WorkspaceScopeOperationResult.Cancelled cancelled =>
+                new(NavigationScopeSettlementKind.Cancelled, cancelled.Association.Kind),
+            WorkspaceScopeOperationResult.Superseded superseded =>
+                new(NavigationScopeSettlementKind.Superseded, superseded.Association.Kind),
+            WorkspaceScopeOperationResult.Unavailable unavailable =>
+                new(NavigationScopeSettlementKind.Unavailable, unavailable.Association.Kind,
+                    Failure: unavailable.RuntimeFailure),
+            _ => throw new InvalidOperationException("Unknown Scope settlement."),
+        };
+}
 
 /// <summary>Navigation's coordinate decision; native evidence remains on the operation result.</summary>
 public sealed record NavigationConsumerCoordinateOutcome(

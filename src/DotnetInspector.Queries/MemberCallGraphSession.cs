@@ -379,12 +379,84 @@ public sealed class MemberCallGraphSession : IDisposable
                 _catalogScope!,
                 request.MaxDepth,
                 request.MaxNodes);
+        CallGraphProjection source =
+            CallGraphProjection.FromCallees(calleeRoot);
+        ExternalFocusedCallGraphProjection externalFocused =
+            CreateExternalFocusedProjection(source, root.ImageIdentity);
         return CallGraphInspectionGraphAdapter
-            .CreateOutgoingNeighborhood(
-                CallGraphProjection.FromCallees(calleeRoot),
+            .CreateExternalFocusedOutgoingNeighborhood(
+                externalFocused,
                 request.MaxDepth,
                 request.MaxNodes,
                 _catalogScope!.Diagnostics);
+    }
+
+    ExternalFocusedCallGraphProjection CreateExternalFocusedProjection(
+        CallGraphProjection source,
+        AssemblyImageIdentity rootImage)
+    {
+        var hubNodeIds = new List<int>();
+        var externalNodeIds = new List<int>();
+        foreach (CallGraphNode node in source.Nodes)
+        {
+            if (!TryGetDefinitionImage(node, out AssemblyImageIdentity image))
+                continue;
+
+            if (image == rootImage)
+                hubNodeIds.Add(node.Id);
+            else if (_fullIndexesByImage.ContainsKey(image))
+                externalNodeIds.Add(node.Id);
+        }
+
+        if (!hubNodeIds.Contains(source.Focus.Id))
+        {
+            throw new InspectionQueryException(
+                "The call-graph focus could not be joined to the root assembly generation.");
+        }
+
+        return ExternalFocusedCallGraphProjection.Create(
+            source,
+            new ExternalFocusedCallGraphRequest(
+                hubNodeIds,
+                externalNodeIds,
+                ExternalFocusedCallGraphDirection.Outgoing,
+                ExternalFocusedCallGraphMode.SeededConnectors,
+                [source.Focus.Id]));
+    }
+
+    static bool TryGetDefinitionImage(
+        CallGraphNode node,
+        out AssemblyImageIdentity image)
+    {
+        image = default;
+        if (node.DefinitionAssemblyIdentity is not { } assemblyIdentity)
+            return false;
+
+        Guid? moduleVersionId = null;
+        foreach (Analysis.GraphNodeEvidence evidence in node.GraphEvidence)
+        {
+            Analysis.GraphNodeStorageKey? definition =
+                evidence.DefinitionStorage;
+            if (definition is null
+                && evidence.Storage.Kind
+                    == Analysis.GraphNodeStorageKind.Definition)
+            {
+                definition = evidence.Storage;
+            }
+            if (definition is null)
+                continue;
+            if (moduleVersionId is Guid existing
+                && existing != definition.ModuleVersionId)
+            {
+                return false;
+            }
+            moduleVersionId = definition.ModuleVersionId;
+        }
+
+        if (moduleVersionId is not Guid mvid)
+            return false;
+        image = new AssemblyImageIdentity(assemblyIdentity, mvid);
+        return true;
     }
 
     MemberCallGraphView View(
@@ -677,7 +749,20 @@ public sealed class MemberCallGraphSession : IDisposable
 
     readonly record struct AssemblyImageIdentity(
         AssemblyReferenceIdentity Identity,
-        Guid ModuleVersionId);
+        Guid ModuleVersionId)
+    {
+        public bool Equals(AssemblyImageIdentity other) =>
+            ModuleVersionId == other.ModuleVersionId
+            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                Identity,
+                other.Identity);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                AssemblyReferenceIdentity.EquivalentComparer
+                    .GetHashCode(Identity),
+                ModuleVersionId);
+    }
 
     enum IndexBuildKind
     {

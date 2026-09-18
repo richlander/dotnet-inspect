@@ -16,6 +16,22 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class PackageQueryCommand
 {
+    private static readonly InspectionEnvelopeJsonContract<
+        PackageQueryDocument> PackageQueryJsonContract =
+            new(
+                "package-query",
+                1,
+                PackageQueryJsonContext.Default.PackageQueryDocument);
+
+    private static readonly InspectionEnvelopeJsonContract<
+        PackageAssemblySemanticQueryDocument>
+        PackageAssemblySemanticQueryJsonContract =
+            new(
+                "package-assembly-semantic-query",
+                1,
+                PackageAssemblySemanticQueryJsonContext.Default
+                    .PackageAssemblySemanticQueryDocument);
+
     internal static async Task<int> ExecuteAsync(
         PackageQueryOptions options,
         CommandContext context,
@@ -120,7 +136,7 @@ internal static class PackageQueryCommand
                 fetchOptions.RequestTimeout,
                 budget.MaximumDuration);
 
-        PackageAssemblySemanticQueryDocument document;
+        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope;
         try
         {
             PackageAcquisitionPopulation population =
@@ -152,7 +168,7 @@ internal static class PackageQueryCommand
             PackageSourceOperationLease transferredOperation =
                 operation;
             operation = null;
-            InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope =
+            envelope =
                 await PackageAssemblySemanticQueryInspection.ExecuteAsync(
                     request,
                     transferredOperation,
@@ -163,11 +179,36 @@ internal static class PackageQueryCommand
                         context.Logger,
                         population.Candidates.Length),
                     cancellationToken).ConfigureAwait(false);
-            document = envelope.Content;
         }
         finally
         {
             operation?.Dispose();
+        }
+
+        return CompleteLibraryLiteralExecution(
+            options,
+            plan,
+            envelope);
+    }
+
+    internal static int CompleteLibraryLiteralExecution(
+        PackageQueryOptions options,
+        PackageAssemblySemanticQueryCliPlan plan,
+        InspectionEnvelope<PackageAssemblySemanticQueryDocument> envelope)
+    {
+        PackageAssemblySemanticQueryDocument document = envelope.Content;
+        bool complete =
+            document.Completion.IsRequestedPopulationComplete
+            && document.Completion.IsSemanticEvaluationComplete;
+        if (options.EnvelopeOutput || options.IsContentJson)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                PackageAssemblySemanticQueryJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            WriteLibraryLiteralDiagnostics(document);
+            return wrote && complete ? 0 : 1;
         }
 
         return CompleteLibraryLiteralExecution(
@@ -248,6 +289,20 @@ internal static class PackageQueryCommand
                 cancellationToken).ConfigureAwait(false);
         PackageQueryDocument document = envelope.Content;
         PackageQuerySummary summary = document.Summary;
+        if (options.EnvelopeOutput || options.IsContentJson)
+        {
+            bool wrote = InspectionEnvelopeOutput.TryWrite(
+                envelope,
+                PackageQueryJsonContract,
+                options.EnvelopeOutput,
+                options.CompactJson);
+            WriteDiagnostics(
+                document.Failures,
+                summary,
+                options.SemanticHeadPushedDown);
+            return wrote ? ExitCode(summary) : 1;
+        }
+
         if (!CliSemanticRowSelection.TrySelect(
                 options.RowSelection,
                 document.Results,

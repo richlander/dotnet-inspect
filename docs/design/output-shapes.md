@@ -62,7 +62,8 @@ not a new rung in this ladder or an already available output option.
 ### Implementation status
 
 Baseline transport is adopted by positional `depends <type>`, ordinary
-Library API Diff with exactly one Library per endpoint, and Package Activity.
+Library API Diff with exactly one Library per endpoint, Package Activity,
+ordinary Package Query, and Package Query assembly-semantic evaluation.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -108,6 +109,14 @@ selection, and semantic result limit remain service inputs. Projection, Count,
 row selection, discovery, section selection, and competing output formats are
 rejected with `--envelope`. Typed incomplete or failed Documents remain
 visible before the command returns a nonzero exit.
+
+Ordinary Package Query registers `package-query`, while `--library-literal`
+registers `package-assembly-semantic-query`, both at schema version `1`.
+Unprojected `--json` and `--envelope.content` share each owner's complete
+Document serializer. Query planning inputs remain admitted, while row
+selection, projection, section selection, Count, discovery, and competing
+output formats are rejected with `--envelope`. Typed incomplete or failed
+Documents remain visible before the command returns a nonzero exit.
 
 Asset-mode `depends`, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
@@ -308,6 +317,8 @@ The registered adopter identities are:
 | `library-api-diff` | `LibraryApiDiffOutcome` |
 | `asset-dependencies` | `DependencyInspectionContent` |
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
+| `package-query` | `PackageQueryDocument` |
+| `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
 
 The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
