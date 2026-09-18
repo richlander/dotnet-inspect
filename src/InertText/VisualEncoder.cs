@@ -9,22 +9,16 @@ namespace InertText.Encoding;
 /// The transform that makes text inert, and the decoder that recovers what it was given.
 /// </summary>
 /// <remarks>
-/// Deliberately in its own namespace, because that is what makes the guarantee auditable.
-/// <see cref="InertString"/> can be carried, composed and printed without ever naming this
-/// type: text enters through its constructor, which calls in here, and leaves through
-/// <c>ToString</c> already spelled. So a file that imports <c>InertText</c> and not
-/// <c>InertText.Encoding</c> has no way to recover the original text of any value it handles,
-/// and that is visible in its using block rather than by tracing calls.
+/// Deliberately in its own namespace so ordinary currency use does not require a recovery type.
+/// <see cref="InertString"/> can be carried, composed and printed without naming this type: text
+/// enters through its constructor and leaves through <c>ToString</c> already spelled.
 ///
-/// The separation is an audit boundary, not a capability barrier. Nothing stops a file from
-/// adding the import or writing the name out in full — but it cannot do so invisibly, and
-/// making the dangerous half impossible to reach by accident is the achievable goal. A
-/// reflection test enforces the other half of it: no public member of <see cref="InertString"/>
-/// returns text derived from the original.
+/// The separation is an API and discoverability boundary, not a capability barrier. Trusted
+/// callers may explicitly invoke this decoder. Reflection tests enforce the currency side: its
+/// public surface exposes no equivalent recovery path or callback disclosure.
 ///
-/// The name stays deliberately distinct from the currency type's. Two unrelated names give two
-/// independent searches — one for who carries inert text, one for who can recover it — where a
-/// shared prefix would blur both into a single noisy result.
+/// The name stays deliberately distinct from the currency type's so construction and recovery
+/// remain separate concepts in the public API.
 /// </remarks>
 public static class VisualEncoder
 {

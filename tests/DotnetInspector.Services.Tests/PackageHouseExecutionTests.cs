@@ -82,6 +82,131 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task VersionListingPreservesPartialRowsWithoutPayload()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(["1.0.0", "2.0.0"]),
+            new SourceBehavior(
+                [],
+                VersionFailure:
+                    PackageSourceFailureKind.AuthenticationRequired));
+        PackageHouseVersionListingRequest request =
+            ListingRequest();
+
+        var available = Assert.IsType<
+            PackageHouseVersionListingResult.Available>(
+                await environment.CreateHouse()
+                    .SettleVersionListingAsync(
+                        request,
+                        environment.Root.IssueOperationLease(
+                            TestContext.Current.CancellationToken,
+                            request.Operation.RequestTimeout,
+                            request.Operation.OperationTimeout)));
+
+        Assert.False(available.IsAuthoritative);
+        Assert.Equal(
+            ["2.0.0", "1.0.0"],
+            available.Evidence.Discovery!.Versions);
+        PackageHouseFailure.Authority failure =
+            Assert.IsType<PackageHouseFailure.Authority>(
+                Assert.Single(available.Evidence.Failures));
+        Assert.Equal(
+            PackageAuthorityFailureKind.AuthenticationRequired,
+            failure.Failure.Kind);
+        Assert.All(
+            environment.Clients,
+            client => Assert.Equal(0, client.PayloadRequests));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionListingAuthoritativeAbsenceIsNotFound()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior([]));
+        PackageHouseVersionListingRequest request =
+            ListingRequest();
+
+        PackageHouseVersionListingResult result =
+            await environment.CreateHouse()
+                .SettleVersionListingAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionListingResult.NotFound>(
+            result);
+        Assert.Equal(1, environment.Clients[0].VersionRequests);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionListingFailedDiscoveryPublishesNoAvailableRows()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [],
+                VersionFailure: PackageSourceFailureKind.Transport));
+        PackageHouseVersionListingRequest request =
+            ListingRequest();
+
+        PackageHouseVersionListingResult result =
+            await environment.CreateHouse()
+                .SettleVersionListingAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionListingResult.Failed>(
+            result);
+        Assert.IsNotType<PackageHouseVersionListingResult.Available>(
+            result);
+        Assert.Equal(0, environment.Clients[0].PayloadRequests);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task VersionListingOperationTimeoutIsTypedAndReleasesOperation()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                ["1.0.0", "2.0.0"],
+                BeforeVersions: async (_, token) =>
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(60),
+                        token)));
+        PackageHouseVersionListingRequest request =
+            ListingRequest(
+                operationTimeout:
+                    TimeSpan.FromMilliseconds(20));
+
+        PackageHouseVersionListingResult result =
+            await environment.CreateHouse()
+                .SettleVersionListingAsync(
+                    request,
+                    environment.Root.IssueOperationLease(
+                        TestContext.Current.CancellationToken,
+                        request.Operation.RequestTimeout,
+                        request.Operation.OperationTimeout));
+
+        Assert.IsType<PackageHouseVersionListingResult.Failed>(
+            result);
+        Assert.Contains(
+            result.Evidence.Failures,
+            failure =>
+                failure is PackageHouseFailure.Timeout
+                {
+                    Kind: PackageHouseTimeoutKind.Operation,
+                });
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
     public async Task VersionPopulationSettlementServesMultipleCellsFromOneDiscovery()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
@@ -2548,6 +2673,18 @@ public sealed partial class PackageHouseExecutionTests
             includePrerelease,
             includeUnlisted: includeUnlisted);
     }
+
+    private static PackageHouseVersionListingRequest ListingRequest(
+        bool includePrerelease = false,
+        bool includeUnlisted = false,
+        TimeSpan? operationTimeout = null) =>
+        new(
+            PackageId,
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle,
+                operationTimeout: operationTimeout),
+            includePrerelease,
+            includeUnlisted);
 
     private static string[] VersionPopulation(int count) =>
     [

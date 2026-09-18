@@ -190,7 +190,12 @@ binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family
 should be narrowed. This is an induced set, not a traversal: it has no direction
 or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
-`--jsonl`, `--count`, and `--rows` project the same logical relationships.
+`--jsonl`, and `--count` project the same logical relationships. `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete logical edges after the
+graph is built and before those formats; use `--lines` only for explicit
+rendered-line clipping. Row selection does not reduce package acquisition or
+hide retained graph failures. `graph libraries` remains a separate
+multi-section command and keeps rendered-line `-n` behavior.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing
