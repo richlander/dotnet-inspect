@@ -227,10 +227,11 @@ cannot be combined with `-Q`.
 `library -Q Integrations` describes the concept and ecosystem facets for the
 whole Integration family. All integrations are enabled by default; use
 `library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
-to select an ecosystem's bound concepts, or
-`--where "integration=integration.aspire"` to select one concept. The initial
-supported ecosystem value is `ecosystem.aspire`; query discovery lists every
-supported concept identity. The two facets intersect when combined.
+to enable an ecosystem's registered concepts, or
+`--where "integration=integration.aspire"` to select one concept. Aspire
+currently enables the complete configured Integration catalog, and an
+`integration` predicate narrows within that set. Query discovery lists every
+supported concept identity.
 `Integrations` supports TSV/JSONL. Neither facet combines with Body Shapes or
 Performance Triage filters/rankings.
 

@@ -24,8 +24,9 @@
   during the transition (#7307).
 - **Breaking:** Replaces the separate `Integration: <concept>` library sections
   with one homogeneous `Integrations` section. Narrow it with
-  `--where "integration=integration.<concept>"`; use the orthogonal
-  `ecosystem` facet for configured ecosystem bindings. Renames
+  `--where "integration=integration.<concept>"`; use the composable `ecosystem`
+  facet to enable an ecosystem's registered Integration set. The current Aspire
+  registration enables the complete configured Integration catalog. Renames
   `Integration: Opportunities` to `Integration Opportunities`, while
   `@Integrations` continues to select both current sections.
 - **Breaking:** Corrects Member `find` match vocabulary so direct non-glob
