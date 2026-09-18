@@ -7,8 +7,12 @@ public sealed class PdbLocalDeclarationScopeTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
+    static readonly TypeRef String = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef Owner = TypeRef.Definition("Tests", "Samples", "Scopes");
+    static readonly MethodRef StringValue = new(
+        Owner, "get_Value", String, [], HasThis: true);
 
     [Theory]
     [InlineData(nameof(PdbScopeFixtures.DisjointScopeLocals))]
@@ -141,6 +145,114 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
     }
 
+    [Fact]
+    public void SequentialPatternScopes_PreserveBothExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SequentialPatterns))!;
+
+        var result = CSharpPrinter.PrintRaised(function, member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("if (first is string value)", result.Output);
+        Assert.Contains("if (second is string value)", result.Output);
+        Assert.DoesNotContain(" V_", result.Output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OverlappingPatternScope_LeavesCollisionVisible(bool referenceOutsideFirstPattern)
+    {
+        var firstThen = new Block();
+        firstThen.Add(ObserveLocal(0, String));
+        var secondThen = new Block();
+        secondThen.Add(ObserveLocal(1, Int32));
+        var second = new IfStatement(
+            new IsPattern(new LoadArgument(1, "second", Object), Int32, 1),
+            secondThen,
+            null);
+        var first = new IfStatement(
+            new IsPattern(new LoadArgument(0, "first", Object), String, 0),
+            firstThen,
+            null);
+        var entry = new Block();
+        if (referenceOutsideFirstPattern)
+        {
+            entry.Add(first);
+            entry.Add(ObserveLocal(0, String));
+            entry.Add(second);
+        }
+        else
+        {
+            firstThen.Add(second);
+            entry.Add(first);
+        }
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Void,
+                [new Parameter("first", Object), new Parameter("second", Object)],
+                false, 0),
+            [String, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("is string same", result.Output);
+        Assert.Contains("is int V_1", result.Output);
+    }
+
+    [Fact]
+    public void SequentialPropertyPatternScopes_PreserveBothExactNames()
+    {
+        var firstThen = new Block();
+        firstThen.Add(ObserveLocal(0, String));
+        var secondThen = new Block();
+        secondThen.Add(ObserveLocal(1, String));
+        var entry = new Block();
+        entry.Add(new IfStatement(
+            new RecursivePropertyDeclarationPattern(
+                new LoadArgument(0, "first", Object), StringValue, String, 0),
+            firstThen,
+            null));
+        entry.Add(new IfStatement(
+            new RecursivePropertyDeclarationPattern(
+                new LoadArgument(1, "second", Object), StringValue, String, 1),
+            secondThen,
+            null));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction("M", Owner,
+            new MethodSignature(Void,
+                [new Parameter("first", Object), new Parameter("second", Object)],
+                false, 0),
+            [String, String],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "Value: string same", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(" V_", result.Output);
+    }
+
     static IrFunction Siblings(Parameter? parameter = null)
     {
         parameter ??= new Parameter("condition", Boolean);
@@ -166,4 +278,10 @@ public sealed class PdbLocalDeclarationScopeTests
             new MethodRef(Owner, "Observe", Void, [Int32], false),
             false,
             [new LoadLocal(index, Int32)]));
+
+    static IrNode ObserveLocal(int index, TypeRef type)
+        => new ExpressionStatement(new Call(
+            new MethodRef(Owner, "Observe", Void, [type], false),
+            false,
+            [new LoadLocal(index, type)]));
 }

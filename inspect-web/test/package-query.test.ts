@@ -10,11 +10,13 @@ import {
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  isLibraryLiteralQuery,
   shouldExecuteQuery,
   togglePreset,
   replaceTerm,
   withCompletion,
   withEditorDraft,
+  withLibraryLiteralDraft,
   withPreset,
   withTerm,
   withSourceSelection,
@@ -162,6 +164,61 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
   assert.equal(defaults.includePrerelease, false);
   assert.deepEqual(defaults.terms, []);
+});
+
+test("library-literal mode is exclusive and derives exact or prefix candidate bounds", () => {
+  const ordinary = withTerm(
+    withPreset(createQueryRequest("Contoso.Package"), TFM_FACET),
+    DEPENDS_TERM,
+    "eq",
+    "Contoso.Dependency");
+  const exact = withLibraryLiteralDraft(
+    ordinary,
+    "shared-literal-use-marker",
+    "net10.0");
+  const prefix = withScopeQuery(exact, "Contoso.*");
+
+  assert.equal(isLibraryLiteralQuery(exact), true);
+  assert.deepEqual(exact.presets, []);
+  assert.deepEqual(exact.terms, []);
+  assert.equal(exact.requestedLimit, 1);
+  assert.equal(exact.requestedMatchLimit, 1);
+  assert.equal(prefix.requestedLimit, 5);
+  assert.equal(prefix.requestedMatchLimit, 5);
+
+  const whitespace = withLibraryLiteralDraft(ordinary, " ", "net10.0");
+  assert.equal(isLibraryLiteralQuery(whitespace), true);
+  assert.deepEqual(whitespace.presets, []);
+  assert.deepEqual(whitespace.terms, []);
+  assert.equal(whitespace.requestedLimit, 1);
+  assert.equal(whitespace.requestedMatchLimit, 1);
+  assert.equal(whitespace.libraryLiteral.operand, " ");
+
+  const cleared = withLibraryLiteralDraft(prefix, "", "net9.0");
+  assert.equal(isLibraryLiteralQuery(cleared), false);
+  assert.equal(cleared.requestedLimit, 200);
+  assert.equal(cleared.requestedMatchLimit, 100);
+  assert.equal(cleared.libraryLiteral.targetFramework, "net9.0");
+});
+
+test("applying presets or free terms exits literal mode with ordinary query bounds", () => {
+  const literal = withLibraryLiteralDraft(
+    createQueryRequest("Contoso.*"),
+    "shared-literal-use-marker",
+    "net9.0");
+  for (const [request, candidateLimit] of [
+    [withPreset(literal, TFM_FACET), 200],
+    [togglePreset(literal, SKILL_FACET), 20],
+    [withTerm(literal, DEPENDS_TERM, "eq", "Contoso.Dependency"), 200],
+    [withTerm(literal, CONTENT_TERM, "eq", "tools/"), 20],
+  ] as const) {
+    assert.equal(isLibraryLiteralQuery(request), false);
+    assert.equal(request.libraryLiteral.operand, "");
+    assert.equal(request.libraryLiteral.targetFramework, "net9.0");
+    assert.equal(request.scopeQuery, "Contoso.*");
+    assert.equal(request.requestedLimit, candidateLimit);
+    assert.equal(request.requestedMatchLimit, 100);
+  }
 });
 
 test("operand-bearing terms retain exact repeated triples and edit by position", () => {

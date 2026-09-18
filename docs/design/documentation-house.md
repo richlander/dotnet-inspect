@@ -30,8 +30,10 @@ remain typed **Incomplete** evidence.
 The PackageHouse and direct-Library adapters plus the shared Queries
 compiled-documentation result are implemented. Queries preserves the exact
 detached House outcome for in-process composition and publishes a separately
-owned portable terminal outcome as the source-generated JSON contract.
-Platform and source adapters, host adoption, the authored channel, field
+owned portable terminal outcome as the source-generated JSON contract. Inspect
+Web package-member documentation now consumes that PackageHouse-to-Queries
+path and its generated TypeScript declaration. CLI adoption, platform and
+source adapters, platform host adoption, the authored channel, field
 settlement, and legacy retirement remain staged.
 
 This is one focused new-owner effort under
@@ -172,10 +174,12 @@ No adjacent owner should decide the product result:
 
 The current CLI `SourceEnricher` combines package-adjacent and platform
 reference-pack XML selection, source acquisition, comment search, parsing,
-field merging, and warnings. Inspect Web separately derives an XML path from a
-package assembly and parses it with a Browser-local reader. PlatformHouse
-contracts express a third settlement path. DocumentationHouse replaces these
-with one source-neutral product boundary.
+field merging, and warnings. Inspect Web package-member documentation has
+moved from its Browser-local adjacent-path reader to DocumentationHouse;
+platform reference-pack documentation remains on the previous host path until
+slice 11. PlatformHouse contracts express the remaining platform settlement
+path. DocumentationHouse replaces these with one source-neutral product
+boundary.
 
 ## Relationship to adjacent owners
 
@@ -729,9 +733,11 @@ The exact `DocumentationHouseOutcome` remains available on the in-process
 Queries result and is excluded from JSON. It retains reference-scoped Library,
 content, subject, and receipt correspondence that must not be mistaken for a
 portable interchange identity. The JSON context registers only the
-Queries-owned outcome. Its common subject contains only the exact assembly
-identity and compiler documentation ID needed for correlation. A required
-`kind` discriminator selects one case-specific shape: `available`, `absent`,
+Queries-owned outcome. A completed host adapter serializes that outcome to one
+JSON string; the string, not a UTF-8 byte array, is the C#-to-TypeScript
+exchange. Its common subject contains only the exact assembly identity and
+compiler documentation ID needed for correlation. A required `kind`
+discriminator selects one case-specific shape: `available`, `absent`,
 `unavailable`, `ambiguous`, `contributionsRejected`,
 `malformedOrUnreadableDocument`, `incomplete`, `requestRejected`, or
 `contentAccessFailed`.
@@ -888,7 +894,7 @@ assembly and XML companion in the .NET 11 reference pack.
 4. **Completed.** Add the PackageHouse adapter;
 5. **Completed.** Add the direct-library adapter;
 6. **Completed.** Add the shared Queries compiled-documentation result;
-7. adopt package compiled documentation in Inspect Web;
+7. **Completed.** Adopt package compiled documentation in Inspect Web;
 8. adopt package and direct-library compiled documentation in the CLI;
 9. add the PlatformHouse adapter;
 10. remove PlatformHouse's superseded documentation contracts;
@@ -993,13 +999,31 @@ incompleteness.
 A four-million-contribution input constrained by a nine-entry House limit
 retains eight distinct source, kind, and precedence values plus explicit
 truncation without presenting unfinished work as available documentation. That
-payload is 999 UTF-8 bytes and is gated at no more than 1,024 bytes. The
-available real-package payload is 1,028 bytes and is gated at no more than
-1,100 bytes.
+JSON string is 999 UTF-16 code units and is gated at no more than 1,024 code
+units. The available real-package JSON string is 1,028 code units and is gated
+at no more than 1,100 code units.
 `PortableContract_IsDiscriminatedAndQueriesOwned` provides full public-type
 closure plus exact discriminator and case-property coverage for the claim that
 the portable outcome contains only primitive, string, enum, nullable,
 immutable-array, and Queries-owned values.
+
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
+executes the production package export over the real `System.Text.Json` 10.0.0
+package and requires the Queries-owned `available` case and expected member
+summary.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
+gates the neighboring package-without-companion case as typed authoritative
+`absent` evidence rather than empty browser documentation.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_SelectableDeclarationShapesReturnAvailable`
+uses a compiled package fixture to gate both documentation on a non-public type
+exposed by the browser accessibility surface and declaration selection when an
+extension-method projection shares its compiler XML identity. The generated
+`QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable` test
+uses `Microsoft.FluentUI.AspNetCore.Components.Icons` 4.1.0 to require that
+documentation lookup admits the same large API surface as the browser member
+selector. The generated Inspect Web facade and frontend member-detail tests
+gate exhaustive consumption of the same discriminated contract across the
+C#-to-TypeScript JSON-string boundary.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

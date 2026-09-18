@@ -133,9 +133,6 @@ public static class PackageCommandDefinitions
             {
                 string[] packageReferences =
                     result.GetValue(packageNameArg) ?? [];
-                bool hasPopulationGesture =
-                    hasPluralVersionSelector
-                    || result.GetValue(opts.Count);
                 bool isRange =
                     packageReferences is [var packageReference]
                     && PackageVersionRange.TryParse(
@@ -143,11 +140,23 @@ public static class PackageCommandDefinitions
                         out _,
                         out string? rangeError)
                     && rangeError is null;
-                if (!hasPopulationGesture || !isRange)
+                bool isOrdinaryListing =
+                    packageReferences is [var ordinaryReference]
+                    && !File.Exists(ordinaryReference)
+                    && string.IsNullOrEmpty(
+                        PackageExtractor.ParsePackageReference(
+                            ordinaryReference).version);
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || (isRange && result.GetValue(opts.Count));
+                if (!hasPopulationGesture
+                    || (!isRange && !isOrdinaryListing))
                 {
                     result.AddError(
-                        "--envelope on package requires one Package@A..B "
-                        + "range and --versions, --versions-with-feed, or --count.");
+                        "--envelope on package requires one unversioned package "
+                        + "with --versions or --versions-with-feed, or one "
+                        + "Package@A..B range with --versions, "
+                        + "--versions-with-feed, or --count.");
                 }
 
                 if (!result.GetValue(opts.Count))
@@ -495,20 +504,30 @@ public static class PackageCommandDefinitions
             }
 
             string[]? select = opts.ParseSelect(parseResult);
+            HashSet<string>? includeSections = null;
             if (select is not null)
             {
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
-                    [PackageProfileSections.Packages],
-                    categories: new Dictionary<string, string[]>());
+                    PackageQuerySections.Catalog.SelectableSectionNames,
+                    categories:
+                        PackageQuerySections.Catalog.SelectionCategoryMap);
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
-                if (selection.Sections?.Contains(PackageProfileSections.Packages) != true)
+                includeSections = selection.Sections;
+                if (parseResult.GetValue(opts.Count)
+                    && (includeSections is not { Count: 1 }
+                        || !includeSections.Contains(PackageProfileSections.Packages)))
                 {
                     CommandError.Write(
-                        "Package Query data selection must include Packages.");
+                        "Package Query --count supports the Packages section only.");
                     return 1;
                 }
+                if (!parseResult.GetValue(opts.Count)
+                    && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                        opts.IsTableExplicitlySet(parseResult),
+                        includeSections))
+                    return 1;
             }
 
             if (!PackageQueryOptions.TryCreate(
@@ -539,7 +558,17 @@ public static class PackageCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
+                IncludeSections = includeSections,
+                SelectDefault = opts.ParseSelectDefault(parseResult),
             };
+            if (options.LibraryLiteralPlan is not null
+                && includeSections?.Contains(
+                    PackageQuerySections.QuerySummaryName) == true)
+            {
+                CommandError.Write(
+                    "Query Summary is not available with --library-literal.");
+                return 1;
+            }
             return await PackageQueryCommand.ExecuteAsync(
                 options,
                 new CommandContext(verbose: false),

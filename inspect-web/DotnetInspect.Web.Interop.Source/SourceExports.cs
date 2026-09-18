@@ -137,16 +137,16 @@ public static partial class SourceExports
             var request = AssemblyTypeSourceRequest.From(
                 type,
                 BrowserStyleOptions.Resolve(styleOptionsJson));
-            AssemblyTypeSourceEntry result = await scope.UseImplementationParticipant(
+            InspectionEnvelope<AssemblyTypeSourceEntry> inspection = await scope.UseImplementationParticipant(
                 participant,
-                (group, member) => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                (group, member) => TypeSourceInspection.ExecuteAsync(
                     group,
                     member,
                     request,
                     CreateSourceContext(),
                     cancellationToken));
 
-            return Adapt(result, participant);
+            return Adapt(inspection.Content, participant);
         }
     }
 

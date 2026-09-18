@@ -172,6 +172,8 @@ internal sealed class JsonSectionFormatter :
     private Section? _current;
     private Section? _streamingTable;
     private int _sectionLevel = 2;
+    private IReadOnlyDictionary<string, int>? _sectionOrder;
+    private MarkoutSectionOrder _defaultSectionOrder;
 
     /// <summary>
     /// Resets heading tracking for a new document. <paramref name="options"/> supplies the same
@@ -185,13 +187,24 @@ internal sealed class JsonSectionFormatter :
         _current = null;
         _streamingTable = null;
         _sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
+        _defaultSectionOrder = options.DefaultSectionOrder;
+        _sectionOrder = null;
+        if (options.SectionOrder is { Count: > 0 } requestedOrder)
+        {
+            var order = new Dictionary<string, int>(
+                StringComparer.OrdinalIgnoreCase);
+            for (int index = 0; index < requestedOrder.Count; index++)
+                order.TryAdd(requestedOrder[index], index);
+            _sectionOrder = order;
+        }
     }
 
     /// <summary>
-    /// Names the sections that produced content, in emission order. Callers use this to report
+    /// Names the sections that produced content, in output order. Callers use this to report
     /// which sections a projection actually reached.
     /// </summary>
-    internal IReadOnlyList<string> SectionNames => _sections.Select(section => section.Name).ToArray();
+    internal IReadOnlyList<string> SectionNames =>
+        OrderedSections().Select(section => section.Name).ToArray();
 
     public void FormatHeading(TextWriter writer, int level, string text, string? context)
     {
@@ -342,13 +355,33 @@ internal sealed class JsonSectionFormatter :
             foreach (var field in _rootFields)
                 json.WriteString(RequireUniqueKey(emitted, field.Key), RenderInlineValue(field.Value));
 
-            foreach (var section in _sections)
+            foreach (var section in OrderedSections())
                 WriteSection(json, section, RequireUniqueKey(emitted, section.Name));
 
             json.WriteEndObject();
         }
 
         return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private IEnumerable<Section> OrderedSections()
+    {
+        if (_sectionOrder is null)
+            return _sections;
+
+        return _sections
+            .OrderBy(
+                section => _sectionOrder.TryGetValue(
+                    section.Name,
+                    out int index)
+                    ? index
+                    : int.MaxValue)
+            .ThenBy(
+                section => _sectionOrder.ContainsKey(section.Name)
+                    || _defaultSectionOrder == MarkoutSectionOrder.Data
+                    ? null
+                    : section.Name,
+                StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
