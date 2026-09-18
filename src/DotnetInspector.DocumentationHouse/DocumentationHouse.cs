@@ -264,20 +264,19 @@ public static class DocumentationHouse
                 operationLease,
                 plan.Limits,
                 cancellationToken)
-            ?? new(
-                ReadCompiledXml(
-                    selected,
-                    operationLease,
-                    plan.Limits,
-                    [subject.CompiledXmlIdentity],
-                    cancellationToken),
-                PerformedRead: true);
+            ?? ReadCompiledXml(
+                selected,
+                operationLease,
+                plan.Limits,
+                [subject.CompiledXmlIdentity],
+                plan.Deadline,
+                cancellationToken);
         CompiledXmlRead read = batchRead.Read;
 
-        var snapshotWork = new DocumentationHouseWorkCharge(
+        var readWork = new DocumentationHouseWorkCharge(
             contributionCount,
-            batchRead.PerformedRead ? read.Length : 0,
-            ParsedCompiledXml: false);
+            batchRead.PerformedSnapshot ? read.Length : 0,
+            ParsedCompiledXml: batchRead.PerformedParse);
         cancellationToken.ThrowIfCancellationRequested();
         if (DateTimeOffset.UtcNow >= plan.Deadline)
         {
@@ -286,7 +285,16 @@ public static class DocumentationHouse
                     DocumentationIncompleteBoundary.Deadline,
                     selected,
                     contributions),
-                snapshotWork);
+                readWork);
+        }
+        if (read.Status == CompiledXmlReadStatus.Deadline)
+        {
+            return new CompletedOutcome(
+                new DocumentationCompiledXmlAttempt.Incomplete(
+                    DocumentationIncompleteBoundary.Deadline,
+                    selected,
+                    contributions),
+                readWork);
         }
         if (read.Status == CompiledXmlReadStatus.ContentAccessFailed)
         {
@@ -307,7 +315,7 @@ public static class DocumentationHouse
                         .CompiledXmlByteLimit,
                     selected,
                     contributions),
-                snapshotWork);
+                readWork);
         }
         if (read.Status == CompiledXmlReadStatus.Malformed)
         {
@@ -318,7 +326,7 @@ public static class DocumentationHouse
                         DocumentationCompiledXmlFailureKind
                             .MalformedOrUnreadableDocument),
                     contributions),
-                snapshotWork);
+                readWork);
         }
 
         if (read.RetainedTextLimitExceeded.Contains(
@@ -331,14 +339,10 @@ public static class DocumentationHouse
                         DocumentationCompiledXmlFailureKind
                             .MalformedOrUnreadableDocument),
                     contributions),
-                snapshotWork);
+                readWork);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var parsedWork = new DocumentationHouseWorkCharge(
-            contributionCount,
-            batchRead.PerformedRead ? read.Length : 0,
-            ParsedCompiledXml: batchRead.PerformedRead);
         if (DateTimeOffset.UtcNow >= plan.Deadline)
         {
             return new CompletedOutcome(
@@ -346,7 +350,7 @@ public static class DocumentationHouse
                     DocumentationIncompleteBoundary.Deadline,
                     selected,
                     contributions),
-                parsedWork);
+                readWork);
         }
 
         read.Entries.TryGetValue(
@@ -361,16 +365,29 @@ public static class DocumentationHouse
                     selected,
                     documentation,
                     contributions);
-        return new CompletedOutcome(completed, parsedWork);
+        return new CompletedOutcome(completed, readWork);
     }
 
-    private static CompiledXmlRead ReadCompiledXml(
+    private static CompiledXmlBatchRead ReadCompiledXml(
         CompiledXmlContribution selected,
         LibraryOperationLease operationLease,
         DocumentationHouseLimits limits,
         IReadOnlyCollection<XmlDocMemberIdentity> identities,
+        DateTimeOffset parseDeadline,
         CancellationToken cancellationToken)
     {
+        if (DateTimeOffset.UtcNow >= parseDeadline)
+        {
+            return new(
+                new(
+                    CompiledXmlReadStatus.Deadline,
+                    Length: 0,
+                    EmptyEntries,
+                    EmptyIdentities),
+                PerformedSnapshot: false,
+                PerformedParse: false);
+        }
+
         XmlSnapshot snapshot;
         try
         {
@@ -400,19 +417,38 @@ public static class DocumentationHouse
                 or ArgumentException)
         {
             return new(
-                CompiledXmlReadStatus.ContentAccessFailed,
-                Length: 0,
-                EmptyEntries,
-                EmptyIdentities);
+                new(
+                    CompiledXmlReadStatus.ContentAccessFailed,
+                    Length: 0,
+                    EmptyEntries,
+                    EmptyIdentities),
+                PerformedSnapshot: false,
+                PerformedParse: false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= parseDeadline)
+        {
+            return new(
+                new(
+                    CompiledXmlReadStatus.Deadline,
+                    snapshot.Length,
+                    EmptyEntries,
+                    EmptyIdentities),
+                PerformedSnapshot: true,
+                PerformedParse: false);
         }
 
         if (snapshot.Bytes is null)
         {
             return new(
-                CompiledXmlReadStatus.ByteLimit,
-                snapshot.Length,
-                EmptyEntries,
-                EmptyIdentities);
+                new(
+                    CompiledXmlReadStatus.ByteLimit,
+                    snapshot.Length,
+                    EmptyEntries,
+                    EmptyIdentities),
+                PerformedSnapshot: true,
+                PerformedParse: false);
         }
 
         try
@@ -426,19 +462,25 @@ public static class DocumentationHouse
                     identities,
                     limits.XmlReadLimits);
             return new(
-                CompiledXmlReadStatus.Completed,
-                snapshot.Length,
-                result.Entries,
-                result.RetainedTextLimitExceeded);
+                new(
+                    CompiledXmlReadStatus.Completed,
+                    snapshot.Length,
+                    result.Entries,
+                    result.RetainedTextLimitExceeded),
+                PerformedSnapshot: true,
+                PerformedParse: true);
         }
         catch (Exception failure) when (
             failure is XmlException or IOException)
         {
             return new(
-                CompiledXmlReadStatus.Malformed,
-                snapshot.Length,
-                EmptyEntries,
-                EmptyIdentities);
+                new(
+                    CompiledXmlReadStatus.Malformed,
+                    snapshot.Length,
+                    EmptyEntries,
+                    EmptyIdentities),
+                PerformedSnapshot: true,
+                PerformedParse: false);
         }
     }
 
@@ -559,6 +601,7 @@ public static class DocumentationHouse
     private enum CompiledXmlReadStatus
     {
         Completed,
+        Deadline,
         ContentAccessFailed,
         ByteLimit,
         Malformed,
@@ -572,7 +615,8 @@ public static class DocumentationHouse
 
     private sealed record CompiledXmlBatchRead(
         CompiledXmlRead Read,
-        bool PerformedRead);
+        bool PerformedSnapshot,
+        bool PerformedParse);
 
     private sealed class CompiledXmlBatch
     {
@@ -596,10 +640,16 @@ public static class DocumentationHouse
                 limits.MaximumCompiledXmlBytes,
                 limits.XmlReadLimits);
             if (_reads.TryGetValue(key, out CompiledXmlRead? read))
-                return new(read, PerformedRead: false);
+            {
+                return new(
+                    read,
+                    PerformedSnapshot: false,
+                    PerformedParse: false);
+            }
 
             var identities = new List<XmlDocMemberIdentity>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            DateTimeOffset parseDeadline = DateTimeOffset.MinValue;
             foreach (DocumentationHouseRequest request in _requests)
             {
                 if (TryGetKey(
@@ -613,15 +663,21 @@ public static class DocumentationHouse
                     identities.Add(
                         request.Subject.CompiledXmlIdentity);
                 }
+                if (requestKey == key
+                    && request.Plan.Deadline > parseDeadline)
+                {
+                    parseDeadline = request.Plan.Deadline;
+                }
             }
-            read = ReadCompiledXml(
+            CompiledXmlBatchRead performed = ReadCompiledXml(
                 selected,
                 operationLease,
                 limits,
                 identities,
+                parseDeadline,
                 cancellationToken);
-            _reads.Add(key, read);
-            return new(read, PerformedRead: true);
+            _reads.Add(key, performed.Read);
+            return performed;
         }
 
         private static bool TryGetKey(

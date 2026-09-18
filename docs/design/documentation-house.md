@@ -952,7 +952,7 @@ Implementation and adoption slices own these Release gates:
 | Explicit authorization | No SourceHouse, source/PDB discovery or acquisition, repository, content-store, or network work occurs without authored demand and a pre-authorized deferred provider. Snapshots of already-realized XML require compiled demand and the transferred Library lease. |
 | Cheap-first ordering | Provider construction starts no source work; combined demand reaches a terminal detached compiled-XML attempt and ends every borrow before the provider receives the lease once, and XML availability does not suppress the requested source attempt. |
 | Exact XML lookup | Compiled XML uses the Metadata-issued compiler ID and associated contribution. |
-| Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, and reports actual parsing work once. |
+| Bounded repeated lookup | A multi-subject request scans each selected compiled-XML companion once per matching read policy, retains only that policy's requested exact IDs under independent per-request retained-text budgets, rechecks the latest matching request deadline between snapshot and parse, and reports actual parsing work once. |
 | Authoritative absence | XML absence requires complete readable companion evidence for the exact subject. |
 | Independent channels | Success, absence, failure, or incompleteness in one channel does not rewrite the other. |
 | Authored-source boundary | Source documentation consumes SourceHouse-authored evidence plus #6584 trusted physical-declaration correspondence and never decompiled or PDB-only output. |
@@ -969,9 +969,16 @@ Implementation and adoption slices own these Release gates:
 slice. It exercises the real `System.Text.Json` 10.0.0 assembly and XML
 companion, equal-ID cross-Library substitution, readable absence, unavailable
 and partial selection, distinct-content precedence with duplicate
-observations, malformed and bounded XML, stage-boundary deadline and
-cancellation, in-flight owner retirement, and the resource-free result
-closure.
+observations, malformed and bounded XML, the deadline boundary between content
+snapshot and parsing, cancellation, in-flight owner retirement, and the
+resource-free result closure.
+`DeadlineReachedDuringSnapshot_PreventsCompiledXmlParsing` proves that an
+expired latest matching deadline stops before parsing while retaining the
+snapshot byte charge.
+`SharedParseCompletedAfterFirstDeadline_IsChargedExactlyOnce` proves that a
+later live matching request may authorize the shared parse and that the
+request performing it retains the sole parse and byte charge even when its own
+terminal attempt is deadline-incomplete.
 
 `PackageHouseExecutionTests` gates the PackageHouse adapter over real
 `System.Text.Json` 10.0.0 package assembly and XML content. It demonstrates the
