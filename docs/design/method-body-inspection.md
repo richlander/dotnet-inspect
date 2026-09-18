@@ -184,7 +184,9 @@ public sealed class MethodBodyInspectionSession
 
 The exact method names can change. The boundary should not:
 
-- `Open` captures command-selected capability and body-scope policy
+- `Open` captures command-selected capability and body-scope policy, creates a
+  `LibraryBodyAnalysisRequest`, and delegates path or prefetched-image
+  execution to `LibraryBodyAnalysisService`
 - one session builds and reuses one Analysis index per command
 - neutral Analysis queries stay on `LibraryBodyIndex` or Analysis projections
 - session methods exist only for composition requiring session-owned state,

@@ -17,6 +17,11 @@ The next consumer-led adoption moves
 query composes Analysis path evidence with Metadata public roots for the
 production `library call-use` CLI.
 
+The CLI session adoption moves both path and prefetched-image execution in
+`MethodBodyInspectionSession` onto the service. The session continues to own
+command-selected feature and body-scope policy, resolver binding policy, source
+attribution, and reuse of one detached index across requested sections.
+
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. Each later implementation slice moves at least one
 production consumer and retires its corresponding compatibility call.
@@ -160,6 +165,9 @@ directly; Workspace queries own service execution and project its evidence.
 The cluster root-path query follows the same request/service shape for
 `MethodEvidence`; its existing section and CLI continue to own composition and
 presentation.
+`MethodBodyInspectionSession` similarly translates command capability and
+scope policy into one request, delegates path or prefetched-image execution to
+the service, and retains the returned detached index for the command.
 
 ## Evidence
 
@@ -180,6 +188,12 @@ The initial Release gates are:
 - existing `AssemblyPairCallUseQueryTests` cluster root-path cases for public
   root composition, exact path witnesses, completion boundaries, owner
   diagnostics, and stale-selection rejection;
+- existing `MethodBodyInspectionSessionTests` for path execution, requested
+  features, body scope, source attribution, and cross-assembly composition;
+- existing `IndexBuildInvariantTests` for one Analysis execution per command,
+  plus
+  `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+  for prefetched-image execution over a retained package participant;
 - `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor` and
   `EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface` for the
   query-owned Browser/Wasm boundary; and
