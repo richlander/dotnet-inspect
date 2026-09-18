@@ -103,6 +103,40 @@ public class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_AccountsLookalikeCallerAttributeRowsWithinBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 262_000);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeAttributeCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerAttributeRowsAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeAttributeCallerIdentityAssembly(
+                attributeCount: 262_145);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeAttributeCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "metadata-row budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
         UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly()
     {
         ImmutableArray<byte> image =
@@ -2240,6 +2274,87 @@ public class UnsafeEvidencePresenceTests
             AddVoidMethodSignature(metadata),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildLargeAttributeCallerIdentityAssembly(
+            int attributeCount)
+    {
+        MetadataBuilder metadata =
+            CreateMetadata("LargeAttributeCallerIdentity");
+        TypeDefinitionHandle unsafeType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("Unsafe"),
+                baseType: default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Target"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(2)));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Call"),
+            AddVoidMethodSignature(metadata),
+            callerBody,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+
+        TypeReferenceHandle markerAttribute =
+            metadata.AddTypeReference(
+                resolutionScope: default,
+                @namespace: default,
+                metadata.GetOrAddString("A"));
+        MemberReferenceHandle markerConstructor =
+            metadata.AddMemberReference(
+                markerAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+        BlobHandle markerValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x01, 0x00, 0x00, 0x00 });
+        for (int index = 0;
+            index < attributeCount;
+            index++)
+        {
+            metadata.AddCustomAttribute(
+                unsafeType,
+                markerConstructor,
+                markerValue);
+        }
 
         return Serialize(metadata, bodies);
     }

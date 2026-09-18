@@ -489,6 +489,11 @@ the direct token, physical scope, and bounded-work paths.
 `UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget` gate
 presence-mode caller identity at and beyond the aggregate row boundary without
 repeating the validated scope's generic-row traversal.
+`UnsafeEvidencePresence_AccountsLookalikeCallerAttributeRowsWithinBudget` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerAttributeRowsAboveBudget` gate
+the same bounded identity path when extension-method classification traverses
+declaring-type custom attributes: each visited attribute row and materialized
+attribute type name consumes the aggregate correspondence budget.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.

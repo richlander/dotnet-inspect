@@ -406,7 +406,12 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             signature.RequiredParameterCount,
             scope.MethodParameters.Length,
             scope.MethodParameters,
-            hasInvalidGenericParameterDeclaration: false);
+            hasInvalidGenericParameterDeclaration: false,
+            isExtensionMethod:
+                IsExtensionMethod(
+                    typeHandle,
+                    method,
+                    workBudget));
     }
 
     MethodIdentity CreateMethodIdentity(
@@ -421,7 +426,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         int requiredParameterCount,
         int genericArity,
         ImmutableArray<string> genericParameterNames,
-        bool hasInvalidGenericParameterDeclaration)
+        bool hasInvalidGenericParameterDeclaration,
+        bool? isExtensionMethod = null)
         => new(
             _assemblyName,
             _mvid,
@@ -431,7 +437,11 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             returnType,
             MetadataTokens.GetToken(methodHandle),
             (method.Attributes & MethodAttributes.Static) != 0,
-            IsExtensionMethod(typeHandle, method),
+            isExtensionMethod
+                ?? IsExtensionMethod(
+                    typeHandle,
+                    method,
+                    workBudget: null),
             CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(methodHandle)),
             genericArity,
@@ -465,14 +475,49 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return names.MoveToImmutable();
     }
 
-    bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)
+    bool IsExtensionMethod(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinition methodDef,
+        UnsafePresenceWorkBudget? workBudget)
     {
         var type = _reader.GetTypeDefinition(typeHandle);
-        return (type.Attributes & TypeAttributes.Abstract) != 0
-            && (type.Attributes & TypeAttributes.Sealed) != 0
-            && (methodDef.Attributes & MethodAttributes.Static) != 0
-            && AttributeReader.HasExtensionAttribute(_reader, type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
+        if ((type.Attributes & TypeAttributes.Abstract) == 0
+            || (type.Attributes & TypeAttributes.Sealed) == 0
+            || (methodDef.Attributes & MethodAttributes.Static) == 0)
+        {
+            return false;
+        }
+
+        bool HasExtensionAttribute(
+            CustomAttributeHandleCollection attributes)
+        {
+            if (workBudget is null)
+            {
+                return AttributeReader.HasExtensionAttribute(
+                    _reader,
+                    attributes);
+            }
+            foreach (CustomAttributeHandle handle in attributes)
+            {
+                workBudget.ReserveCorrespondenceRow();
+                CustomAttribute attribute =
+                    _reader.GetCustomAttribute(handle);
+                string? attributeTypeName =
+                    AttributeReader.GetAttributeTypeName(
+                        _reader,
+                        attribute.Constructor,
+                        workBudget.ReserveCorrespondenceBytes);
+                if (attributeTypeName
+                    == KnownAttributeNames.ExtensionAttribute)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return HasExtensionAttribute(type.GetCustomAttributes())
+            && HasExtensionAttribute(methodDef.GetCustomAttributes());
     }
 
     static CallerUnsafeMode CallerUnsafeModeFromContract(
