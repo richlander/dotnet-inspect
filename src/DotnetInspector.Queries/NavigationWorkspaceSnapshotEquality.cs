@@ -213,7 +213,11 @@ internal static class NavigationWorkspaceSnapshotEquality
 
     static bool TypeParameter(TypeParameter a, TypeParameter b) =>
         a.Name == b.Name && a.Variance == b.Variance && a.TypeKind == b.TypeKind
-        && Sequence(a.Constraints, b.Constraints) && Sequence(a.StructuredConstraints, b.StructuredConstraints);
+        && Sequence(a.Constraints, b.Constraints)
+        && Sequence(a.StructuredConstraints, b.StructuredConstraints)
+        && Sequence(
+            a.ConstraintTypeDefinitionNames,
+            b.ConstraintTypeDefinitionNames);
 
     static bool Documentation(DocComment a, DocComment b) =>
         a.Summary == b.Summary && a.Remarks == b.Remarks && a.Returns == b.Returns
