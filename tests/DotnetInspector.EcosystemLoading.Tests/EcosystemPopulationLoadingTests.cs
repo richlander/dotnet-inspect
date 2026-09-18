@@ -86,21 +86,26 @@ public sealed class EcosystemPopulationLoadingTests
                     new WorkspaceRegistration.Ecosystem(retained))));
         WorkspaceRegistrationRevision revision = Read(workspace);
 
-        var exact =
-            new EcosystemPopulationLoaderCorrespondence<TestInputs>(
-                retained,
-                binding);
-        var mismatch =
-            new EcosystemPopulationLoaderCorrespondence<TestInputs>(
-                equalButDistinct,
-                binding);
+        EcosystemPopulationLoaderCorrespondence exact =
+            binding.CreateCorrespondence(retained);
+        EcosystemPopulationLoaderCorrespondence mismatch =
+            binding.CreateCorrespondence(equalButDistinct);
 
+        EcosystemPopulationLoaderSelection exactSelection =
+            exact.Select(
+                revision,
+                retained,
+                EcosystemPopulationDemand.WholePopulation.Instance);
+        Assert.Same(retained, exact.Registration);
+        Assert.Same(binding, exact.Binding);
+        Assert.Same(
+            binding,
+            Assert.IsAssignableFrom<
+                EcosystemPopulationLoaderSelection.Known>(
+                    exactSelection).Binding);
         Assert.IsType<
             EcosystemPopulationLoaderSelection.Known<TestInputs>>(
-                exact.Select(
-                    revision,
-                    retained,
-                    EcosystemPopulationDemand.WholePopulation.Instance));
+                exactSelection);
         var rejected =
             Assert.IsType<EcosystemPopulationLoaderSelection.Rejected>(
                 mismatch.Select(
