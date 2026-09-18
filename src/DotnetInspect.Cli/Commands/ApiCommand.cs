@@ -2586,7 +2586,8 @@ public class ApiCommand
         ApiOptions options,
         TextWriter? output = null,
         ResolvedAssemblyReference? sourceAssembly = null,
-        ResolvedAssemblyReference? memberCodeSourceAssembly = null)
+        ResolvedAssemblyReference? memberCodeSourceAssembly = null,
+        HttpClient? sourceClient = null)
     {
         var sink = output ?? Console.Out;
 
@@ -3176,7 +3177,9 @@ public class ApiCommand
 
         if (options.Print)
         {
-            int result = await PrintApiProjectionAsync(view, options);
+            int result = await PrintApiProjectionAsync(
+                view, type, options, sourceAssembly, packageName, packageVersion,
+                sourceClient ?? DotnetInspector.Networking.HttpClientFactory.Shared);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return result;
         }
@@ -3540,21 +3543,35 @@ public class ApiCommand
         };
     }
 
-    private static async Task<int> PrintApiProjectionAsync(TypeView view, ApiOptions options)
+    private static async Task<int> PrintApiProjectionAsync(
+        TypeView view,
+        ApiType type,
+        ApiOptions options,
+        ResolvedAssemblyReference? sourceAssembly,
+        string? packageName,
+        string? packageVersion,
+        HttpClient sourceClient)
     {
         var section = options.IncludeSections!.Single();
         if (section.Equals(SectionNames.SourceFiles, StringComparison.OrdinalIgnoreCase))
         {
-            return await PrintUrlProjectionAsync(
-                section,
-                view.SourceFileRows?.Select((row, index) => (
+            var rows = view.SourceFileRows ?? [];
+            var selection = SelectPrintableRow(
+                rows.Select((row, index) => (
                     Row: index + 1,
                     Label: (string?)row.Url,
-                    Url: (string?)row.Url,
-                    row.FilePath,
-                    row.Checksum,
-                    row.ChecksumAlgorithm)),
-                options);
+                    Url: (string?)row.Url)).ToList(),
+                options.PrintRow,
+                out var selectionError);
+            if (selection is not { } selected)
+            {
+                CommandError.Write(selectionError);
+                return 1;
+            }
+
+            return await TypeSourceDocumentPrinter.PrintAsync(
+                type, rows[selected.Row - 1], selected.Row,
+                options, sourceAssembly, packageName, packageVersion, sourceClient);
         }
 
         if (section.Equals(SectionNames.SourceLocations, StringComparison.OrdinalIgnoreCase))
