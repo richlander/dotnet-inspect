@@ -2659,11 +2659,15 @@ public sealed class SwitchRaisingPass : IIrPass
                 out var enumValue,
                 out int labelBase))
         {
-            var knownEnumType = enumValue.ResultType!;
-            var underlying = function.EnumUnderlyingTypes[
-                CoercionRendering.NamedDefinition(knownEnumType)];
-            if (!CSharpConversionRules.ConstantFits(guardLabel, underlying))
+            if (enumValue is not (LoadArgument or LoadLocal)
+                || enumValue.ResultType is not { } knownEnumType
+                || !function.EnumUnderlyingTypes.TryGetValue(
+                    CoercionRendering.NamedDefinition(knownEnumType),
+                    out var underlying)
+                || !CSharpConversionRules.ConstantFits(guardLabel, underlying))
+            {
                 return false;
+            }
             input = new SwitchInput(enumValue, labelBase);
             return true;
         }

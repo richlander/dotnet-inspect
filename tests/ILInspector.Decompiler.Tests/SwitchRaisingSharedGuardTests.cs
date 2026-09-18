@@ -229,6 +229,61 @@ static class SharedGuardSwitchFixture
             or GuardedSwitchExpressionKind.Submission => true,
         _ => false,
     };
+
+    public static bool IsIgnoredThroughRef(
+        GuardedSwitchExpressionKind other,
+        ref GuardedSwitchExpressionKind kind)
+    {
+        bool result;
+        if (other == GuardedSwitchExpressionKind.Unknown)
+            goto WhenTrue;
+        switch (kind)
+        {
+            case GuardedSwitchExpressionKind.Enum:
+            case GuardedSwitchExpressionKind.Error:
+            case GuardedSwitchExpressionKind.Module:
+            case GuardedSwitchExpressionKind.TypeParameter:
+            case GuardedSwitchExpressionKind.Submission:
+                goto WhenTrue;
+            default:
+                goto WhenFalse;
+        }
+    WhenTrue:
+        result = true;
+        goto Done;
+    WhenFalse:
+        result = false;
+    Done:
+        return result;
+    }
+
+    public static bool IsIgnoredThroughArray(
+        GuardedSwitchExpressionKind other,
+        GuardedSwitchExpressionKind[] kinds,
+        int index)
+    {
+        bool result;
+        if (other == GuardedSwitchExpressionKind.Unknown)
+            goto WhenTrue;
+        switch (kinds[index])
+        {
+            case GuardedSwitchExpressionKind.Enum:
+            case GuardedSwitchExpressionKind.Error:
+            case GuardedSwitchExpressionKind.Module:
+            case GuardedSwitchExpressionKind.TypeParameter:
+            case GuardedSwitchExpressionKind.Submission:
+                goto WhenTrue;
+            default:
+                goto WhenFalse;
+        }
+    WhenTrue:
+        result = true;
+        goto Done;
+    WhenFalse:
+        result = false;
+    Done:
+        return result;
+    }
 }
 
 [Trait("Area", "Pass")]
@@ -395,6 +450,25 @@ public class SwitchRaisingSharedGuardTests
         new SwitchRaisingPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+    }
+
+    [Theory]
+    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughRef))]
+    [InlineData(nameof(SharedGuardSwitchFixture.IsIgnoredThroughArray))]
+    public void CompilerProducedGuardOverDifferentIndirectEnumPlace_RemainsFlat(
+        string methodName)
+    {
+        var function = Import(methodName);
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+
+        var result = CSharpPrinter.PrintRaised(function);
+
+        Assert.True(result.Succeeded, string.Join(Environment.NewLine, result.Diagnostics));
+        function.CheckInvariant();
         Assert.Single(function.Descendants.OfType<SwitchBranch>());
         Assert.Single(function.Descendants.OfType<ConditionalBranch>());
         Assert.Empty(function.Descendants.OfType<SwitchExpression>());
