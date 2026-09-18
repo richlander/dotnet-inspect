@@ -66,7 +66,7 @@ The adapter consumes, but does not redefine, these owner-issued behaviors:
   best-effort misses or acceptance, and cancellation before committing a
   write. The desktop compatibility adapter preserves `PersistentCache`'s
   best-effort read and write semantics.
-- `PdbSourceHouse`, or SourceHouse for the selected-member pair, owns
+- `PdbSourceHouse`, or SourceHouse for shared member Source/comparison and pairs, owns
   local/repository/remote ordering, decoding, and settled PDB-source outcomes.
 - `SourceAvailabilityService` and `SourceIntegrityService` own their distinct
   endpoint and audit claims.
