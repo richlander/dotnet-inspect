@@ -221,13 +221,14 @@ public sealed partial class AssemblyContextSourceQueryTests
             source.Inspection.Strength);
         Assert.True(source.Inspection.IsPartial);
         Assert.Same(native.SourceMapping, projected);
+        var primary = Assert.Single(projected.Documents,
+            document => document.FilePath == native.Document.OriginalPath);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.SourceLink,
-            native.SourceMapping.ResolutionMethod);
-        Assert.Equal(native.SourceMapping.LineNumber, projected.LineNumber);
-        Assert.NotNull(projected.GitHubBrowseUrl);
-        Assert.NotEmpty(projected.Checksum!);
-        Assert.NotNull(projected.ChecksumAlgorithm);
+            primary.ResolutionMethod);
+        Assert.NotNull(primary.GitHubBrowseUrl);
+        Assert.NotEmpty(primary.Checksum!);
+        Assert.NotNull(primary.ChecksumAlgorithm);
         Assert.EndsWith("SourceLinkService.cs", source.Inspection.Document!.OriginalPath);
         Assert.Equal(native.Document, source.Inspection.Document);
         Assert.Equal(native.AdditionalDocuments.Count, source.Inspection.AdditionalDocuments.Count);
@@ -235,8 +236,8 @@ public sealed partial class AssemblyContextSourceQueryTests
             source.Inspection.AdditionalDocuments,
             document => document.OriginalPath.EndsWith(
                 "SourceLinkService.SourceContent.cs", StringComparison.Ordinal));
-        SourceLinkResolver.PartialSourceFile additional = Assert.Single(
-            projected.AdditionalSourceFiles,
+        SourceLinkResolver.TypeSourceDocument additional = Assert.Single(
+            projected.Documents,
             document => document.FilePath.EndsWith(
                 "SourceLinkService.SourceContent.cs", StringComparison.Ordinal));
         Assert.NotNull(additional.GitHubBrowseUrl);
