@@ -8,12 +8,15 @@ public sealed class ImplementationProfilesQueryTests
     [Fact]
     public void Execute_RetainsProfilesAndExactOverloadRelationships()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.ImplementationProfiles));
 
         ImplementationProfilesResult result =
-            ImplementationProfilesQuery.Execute(index);
+            ImplementationProfilesQuery.Execute(
+                analysis.ImplementationProfiles);
 
         var available =
             Assert.IsType<ImplementationProfilesResult.Available>(
@@ -75,12 +78,15 @@ public sealed class ImplementationProfilesQueryTests
     [Fact]
     public void Execute_MissingProfileAcquisitionRemainsTypedFailure()
     {
-        var index = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-            LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
 
         ImplementationProfilesResult result =
-            ImplementationProfilesQuery.Execute(index);
+            ImplementationProfilesQuery.Execute(
+                analysis.ImplementationProfiles);
 
         var failed =
             Assert.IsType<ImplementationProfilesResult.Failed>(

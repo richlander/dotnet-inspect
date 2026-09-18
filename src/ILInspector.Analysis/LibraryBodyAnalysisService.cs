@@ -16,6 +16,16 @@ public static class LibraryBodyAnalysisService
     public static LibraryBodyIndex AnalyzePath(
         string path,
         LibraryBodyAnalysisRequest request,
+        IAssemblyReferenceResolver? resolver = null) =>
+        ExecutePath(path, request, resolver).CompatibilityIndex();
+
+    /// <summary>
+    /// Executes Analysis over an exact path and publishes independently typed
+    /// focused results from one body walk.
+    /// </summary>
+    public static LibraryBodyAnalysisExecution ExecutePath(
+        string path,
+        LibraryBodyAnalysisRequest request,
         IAssemblyReferenceResolver? resolver = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -61,6 +71,22 @@ public static class LibraryBodyAnalysisService
         string sourceName,
         ImmutableArray<byte> image,
         LibraryBodyAnalysisRequest request,
+        IAssemblyReferenceResolver? resolver = null) =>
+        ExecuteImage(
+            sourceName,
+            image,
+            request,
+            resolver).CompatibilityIndex();
+
+    /// <summary>
+    /// Executes Analysis over caller-provided immutable PE image content,
+    /// publishing independently typed focused results without reopening
+    /// <paramref name="sourceName"/> as a path.
+    /// </summary>
+    public static LibraryBodyAnalysisExecution ExecuteImage(
+        string sourceName,
+        ImmutableArray<byte> image,
+        LibraryBodyAnalysisRequest request,
         IAssemblyReferenceResolver? resolver = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
@@ -89,7 +115,7 @@ public static class LibraryBodyAnalysisService
             rootSnapshot);
     }
 
-    private static LibraryBodyIndex BuildFromReader(
+    private static LibraryBodyAnalysisExecution BuildFromReader(
         string sourceName,
         PEReader peReader,
         LibraryBodyAnalysisPlan plan,
@@ -117,14 +143,13 @@ public static class LibraryBodyAnalysisService
                 : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
-        return new LibraryBodyIndex(
+        return new LibraryBodyAnalysisExecution(
             sourceName,
             moduleIdentity,
             reader.GetString(
                 reader.GetModuleDefinition().Name),
             analysis,
-            plan.Features,
-            hasFullMethodEvidenceScope: !plan.IsScoped);
+            plan);
     }
 
     private static bool UsesReferenceResolution(
