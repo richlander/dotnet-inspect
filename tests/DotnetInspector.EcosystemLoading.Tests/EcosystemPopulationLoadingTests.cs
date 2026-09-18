@@ -12,7 +12,7 @@ namespace DotnetInspector.EcosystemLoading.Tests;
 public sealed class EcosystemPopulationLoadingTests
 {
     [Theory]
-    [InlineData("ecosystem-loader.dotnet")]
+    [InlineData("ecosystem-loader.runtime")]
     [InlineData("ecosystem-loader.aspnetcore")]
     [InlineData("ecosystem-loader.a1-b2")]
     public void LoaderIdsAcceptCanonicalValues(string value)
@@ -27,12 +27,12 @@ public sealed class EcosystemPopulationLoadingTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("ecosystem.dotnet")]
+    [InlineData("ecosystem.runtime")]
     [InlineData("ecosystem-loader.Dotnet")]
     [InlineData("ecosystem-loader.-dotnet")]
-    [InlineData("ecosystem-loader.dotnet-")]
-    [InlineData("ecosystem-loader.dotnet--runtime")]
-    [InlineData("ecosystem-loader.dotnet.runtime")]
+    [InlineData("ecosystem-loader.runtime-")]
+    [InlineData("ecosystem-loader.runtime--platform")]
+    [InlineData("ecosystem-loader.runtime.platform")]
     public void LoaderIdsRejectNonCanonicalValues(string value)
     {
         Assert.False(

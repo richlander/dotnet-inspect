@@ -173,6 +173,12 @@ scope comes from base categories and verbosity, not computed category poles.
 
 Names communicate ownership but do not determine behavior.
 
+[Relationship Section Naming](relationship-section-naming.md) owns the
+additional grammar for direct relationship evidence, rooted hierarchies,
+identity-preserving graphs, conventional relationship names, and optional
+analyses. This document retains general section identity, category, selection,
+and planning ownership.
+
 ### Base and cross-listed sections
 
 Base sections use concise noun phrases:
@@ -221,22 +227,12 @@ inputs](cli-change-classification.md) owns the removal mechanics when a former
 spelling can bind or route differently; a section rename does not itself
 justify retention.
 
-Alternate projections do not create synonymous sections. `References` renders
-direct references as a flat table by default. `-S References --tree` renders
-the resolved transitive reference graph; `--depth N` limits that graph, with
-depth 1 containing direct references only. Omitting `--depth` traverses the
-complete resolvable graph. The current implementation also lowers the former
-`Dependencies` spelling to `References` and requests its tree projection; its
-retention follows development practices, while any removal mechanics follow
-the CLI change-classification design rather than this projection contract.
-
-Package `Dependencies` follows the same projection model: the section is a flat
-table of declared dependencies by target framework by default, while
-`-S Dependencies --tree` resolves the transitive graph for the selected or
-highest target framework. The current implementation also accepts the former
-package `--dependencies` flag as `-S Dependencies --tree`; its retention
-follows development practices, while any removal mechanics follow the CLI
-change-classification design rather than this projection contract.
+Alternate projections do not create synonymous sections or authorize another
+semantic query. A tree, Mermaid, table, structured, or Count projection retains
+the selected section identity. Current relationship surfaces whose projection
+also changes acquisition or result shape are migration inputs to
+[Relationship Section Naming](relationship-section-naming.md), not precedent
+for new sections.
 
 ## Section axes
 

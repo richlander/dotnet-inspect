@@ -1872,7 +1872,6 @@ public partial class DependsCommand
             if (IsColumnProjectionRequested(options))
             {
                 WriteProjectedAssetMarkdown(
-                    projection,
                     options,
                     includeSections,
                     tableView);
@@ -1990,14 +1989,6 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string> includeSections)
     {
-        string summary = MarkoutSerializer.Serialize(
-            BuildAssetView(
-                projection,
-                NoAssetSections,
-                options.Rows,
-                options.EmbeddedMermaid),
-            DependsAssetViewContext.Default,
-            new MarkoutWriterOptions());
         var sections = new HashSet<string>(
             includeSections,
             StringComparer.OrdinalIgnoreCase);
@@ -2029,23 +2020,14 @@ public partial class DependsCommand
         }
 
         Console.Out.WriteLine(
-            JoinMarkdown(summary, graph, evidence));
+            JoinMarkdown(graph, evidence));
     }
 
     private static void WriteProjectedAssetMarkdown(
-        DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
         DependsAssetTableView tableView)
     {
-        string summary = MarkoutSerializer.Serialize(
-            BuildAssetView(
-                projection,
-                NoAssetSections,
-                options.Rows,
-                embeddedMermaid: false),
-            DependsAssetViewContext.Default,
-            new MarkoutWriterOptions());
         var writerOptions = OutputFormatter.CreateWindowedOptions(
             rows: null,
             options.Columns,
@@ -2055,8 +2037,7 @@ public partial class DependsCommand
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, writer);
-        Console.Out.WriteLine(
-            JoinMarkdown(summary, writer.ToString()));
+        Console.Out.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(

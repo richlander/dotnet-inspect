@@ -1085,6 +1085,88 @@ public sealed class JsonWireContractResolverTests
         Assert.Equal(
             [FixtureNamespace + "WidgetDto"],
             renameWidget.ParameterWireTypes);
+        JsExportParameterWireBinding binding = Assert.Single(
+            renameWidget.ParameterWireBindings);
+        Assert.Equal(0, binding.ParameterIndex);
+        Assert.Equal(FixtureNamespace + "WidgetDto", binding.WireType);
+        Assert.NotNull(binding.WireTypeShape);
+        Assert.Contains(
+            binding.WireTypeReferences,
+            reference => reference.DefinitionName?.Segments
+                is [nameof(WidgetDto)]);
+        Assert.NotEmpty(binding.ContextScopeKeys);
+    }
+
+    [Fact]
+    public void Build_AssociatesDeserializeWireTypeWithNonFirstParameterThroughLocal()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "RenameWidgetForOwner");
+        JsExportParameterWireBinding binding = Assert.Single(
+            function.ParameterWireBindings);
+
+        Assert.Equal(1, binding.ParameterIndex);
+        Assert.Equal(FixtureNamespace + "WidgetDto", binding.WireType);
+    }
+
+    [Fact]
+    public void Build_DoesNotBindOneParameterToConflictingDeserializeRoots()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "ReadWidgetOrAudit");
+
+        Assert.Equal(3, function.ParameterWireTypes.Count);
+        Assert.Empty(function.ParameterWireBindings);
+    }
+
+    [Fact]
+    public void Build_DoesNotBindTransformedDeserializeInput()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "RenameNormalizedWidget");
+
+        Assert.Single(function.ParameterWireTypes);
+        Assert.Empty(function.ParameterWireBindings);
+    }
+
+    [Fact]
+    public void Build_AssociatesIndependentDeserializeParameters()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction function = Assert.Single(
+            surface.Functions,
+            candidate => candidate.Name == "WidgetMatchesAudit");
+
+        Assert.Collection(
+            function.ParameterWireBindings,
+            binding =>
+            {
+                Assert.Equal(0, binding.ParameterIndex);
+                Assert.Equal(
+                    FixtureNamespace + nameof(WidgetDto),
+                    binding.WireType);
+            },
+            binding =>
+            {
+                Assert.Equal(1, binding.ParameterIndex);
+                Assert.Equal(
+                    FixtureNamespace + nameof(WidgetAudit),
+                    binding.WireType);
+            });
     }
 
     [Fact]

@@ -5,6 +5,7 @@ import {
 } from "./annotated-source-view.ts";
 import {
   annotationState,
+  callCyclesForFact,
   capabilityReason,
   createAnnotatedSourceViewerModel,
   factForId,
@@ -645,6 +646,7 @@ function renderDetail(context: SourceRenderContext): string {
             </li>`).join("")}</ul>`
           : `<p class="annotated-unavailable">No product-issued source target</p>`}
       </section>
+      ${renderCallCycles(context, fact)}
       ${renderFindingEvidence(context, fact.id)}
       <section class="annotated-detail-capabilities">
         <div>
@@ -653,6 +655,80 @@ function renderDetail(context: SourceRenderContext): string {
         </div>
       </section>
     </section>`;
+}
+
+function renderCallCycles(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  if (fact.descriptor !== "call.edge") return "";
+  const { model, escapeHtml } = context;
+  const inspection = model.callCycles;
+  if (!inspection.available) {
+    return `
+      <section class="annotated-call-cycles">
+        <h4>Call cycles</h4>
+        <p class="annotated-unavailable">${escapeHtml(
+          capabilityReason(inspection))}</p>
+      </section>`;
+  }
+
+  const findings = callCyclesForFact(model, fact.id);
+  const completeness = inspection.isComplete
+    ? "Cycle census complete for the projected focus graph"
+    : `Additional cycles may be unobserved · ${inspection.limits
+      .map(cycleLimitLabel)
+      .join(", ")}`;
+  if (findings.length === 0) {
+    return `
+      <section class="annotated-call-cycles">
+        <h4>Call cycles</h4>
+        <p>No focus cycle was observed through this relationship.</p>
+        <p class="annotated-unavailable">${escapeHtml(completeness)}</p>
+      </section>`;
+  }
+
+  return `
+    <section class="annotated-call-cycles">
+      <h4>Call cycles</h4>
+      <ul>${findings.map(finding => {
+        const focus = finding.targets.at(-1);
+        if (!focus) {
+          throw new TypeError(
+            "An Annotated Source call cycle has no focus target.");
+        }
+        const path = [focus, ...finding.targets]
+          .map(target =>
+            `${target.typeFullName}.${target.memberName}`)
+          .join(" → ");
+        return `<li>
+          <strong>${finding.edgeRows.length === 1
+            ? "Direct recursion"
+            : "Mutual recursion"}</strong>
+          · ${escapeHtml(path)}
+        </li>`;
+      }).join("")}</ul>
+      <p class="${inspection.isComplete
+        ? ""
+        : "annotated-unavailable"}">${escapeHtml(completeness)}</p>
+    </section>`;
+}
+
+function cycleLimitLabel(value: string | number): string {
+  switch (value) {
+    case "TraversalBoundary":
+      return "traversal boundary";
+    case "IncompleteCorrespondence":
+      return "incomplete correspondence";
+    case "WitnessBudget":
+      return "witness budget";
+    case "PathBudget":
+      return "path budget";
+    case "AnalysisFailure":
+      return "analysis failure";
+    default:
+      return String(value);
+  }
 }
 
 function renderFindingEvidence(
