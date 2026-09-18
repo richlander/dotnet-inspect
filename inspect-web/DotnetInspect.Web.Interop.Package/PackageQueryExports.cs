@@ -14,7 +14,7 @@ using NuGetFetch;
 namespace DotnetInspect.Web.Interop.Package
 {
     [SupportedOSPlatform("browser")]
-    internal static class BrowserPackageQueryOperations
+    internal static partial class BrowserPackageQueryOperations
     {
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
@@ -479,7 +479,7 @@ namespace DotnetInspect.Web.Interop.Package
                         diagnostic.Correspondence?.ToString()))]);
         }
 
-        static BrowserInspectionShare Project(InspectionShare share) =>
+        internal static BrowserInspectionShare Project(InspectionShare share) =>
             share switch
             {
                 InspectionShare.Available available =>

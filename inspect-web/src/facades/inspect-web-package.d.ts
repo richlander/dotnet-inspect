@@ -7,6 +7,11 @@ export type BrowserExactLibraryApiInspectionOutcome = number;
 export type BrowserExactLibraryApiProjectionLimit = number;
 export type BrowserInspectionShareKind = "Available" | "NonProjectable" | number;
 export type BrowserPackageAssemblyAssessmentKind = "NoMatch" | "NotApplicable" | number;
+export type BrowserPackageAssemblyNotApplicableReason = "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "NoImplementationCounterpart" | number;
+export type BrowserPackageAssemblySemanticCandidateOutcomeKind = "Matched" | "NoMatch" | "NotApplicable" | "Failure" | "NotEvaluated" | number;
+export type BrowserPackageAssemblySemanticFailureKind = "Acquisition" | "Evaluation" | number;
+export type BrowserPackageAssemblySemanticNonEvaluationKind = "OperationDeadline" | number;
+export type BrowserPackageAssemblySemanticPopulationCompletionKind = "ExactPackageComplete" | "PrefixExhausted" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "SourceFailed" | number;
 export type BrowserPackageChangesCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 export type BrowserPackageChangesOperationFailureKind = "Expected" | "Unexpected" | number;
 export type BrowserPackageChangesResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -212,6 +217,87 @@ export interface BrowserPackageAssemblyAssessment {
     readonly disposition: BrowserPackageAssemblyAssessmentKind;
     readonly message: string;
     readonly assetPath: string | null;
+    readonly rootRequest: string;
+}
+export interface BrowserPackageAssemblySemanticCandidateOutcome {
+    readonly kind: BrowserPackageAssemblySemanticCandidateOutcomeKind;
+    readonly candidateOrdinal: number;
+    readonly packageId: string;
+    readonly version: string;
+    readonly producer: string;
+    readonly result: BrowserPackageAssemblySemanticResult | null;
+    readonly selectedAsset: BrowserPackageAssemblySemanticSelectedAsset | null;
+    readonly rootRequest: string | null;
+    readonly notApplicableReason: BrowserPackageAssemblyNotApplicableReason | null;
+    readonly failureKind: BrowserPackageAssemblySemanticFailureKind | null;
+    readonly failureStage: string | null;
+    readonly nonEvaluationKind: BrowserPackageAssemblySemanticNonEvaluationKind | null;
+    readonly timeoutKind: string | null;
+    readonly timeoutSeconds: number | null;
+    readonly message: string | null;
+}
+export interface BrowserPackageAssemblySemanticCompletion {
+    readonly population: BrowserPackageAssemblySemanticPopulationCompletionKind;
+    readonly isRequestedPopulationComplete: boolean;
+    readonly allCandidatesHaveTerminalOutcomes: boolean;
+    readonly hasFailures: boolean;
+    readonly isSemanticEvaluationComplete: boolean;
+    readonly isOperationDeadlineExpired: boolean;
+}
+export interface BrowserPackageAssemblySemanticDocument {
+    readonly population: BrowserPackageAssemblySemanticPopulation;
+    readonly results: ReadonlyArray<BrowserPackageAssemblySemanticResult>;
+    readonly candidateOutcomes: ReadonlyArray<BrowserPackageAssemblySemanticCandidateOutcome>;
+    readonly candidateCount: number;
+    readonly evaluatedCandidateCount: number;
+    readonly notEvaluatedCount: number;
+    readonly matchedPackageCount: number;
+    readonly occurrenceCount: number;
+    readonly semanticMissCount: number;
+    readonly notApplicableCount: number;
+    readonly failureCount: number;
+    readonly completion: BrowserPackageAssemblySemanticCompletion;
+}
+export interface BrowserPackageAssemblySemanticOccurrence {
+    readonly moduleVersionId: string;
+    readonly methodDefinitionToken: number;
+    readonly ilOffset: number;
+    readonly userStringToken: number;
+    readonly literalCharacterCount: number;
+    readonly literalText: string;
+}
+export interface BrowserPackageAssemblySemanticPopulation {
+    readonly requestedCandidates: number;
+    readonly candidates: number;
+    readonly completion: BrowserPackageAssemblySemanticPopulationCompletionKind;
+    readonly isRequestedPopulationComplete: boolean;
+    readonly failures: ReadonlyArray<BrowserPackageAssemblySemanticPopulationFailure>;
+}
+export interface BrowserPackageAssemblySemanticPopulationFailure {
+    readonly candidateOrdinal: number | null;
+    readonly packageId: string | null;
+    readonly version: string | null;
+    readonly authority: string;
+    readonly kind: string;
+    readonly message: string;
+    readonly timeoutKind: string | null;
+    readonly timeoutSeconds: number | null;
+}
+export interface BrowserPackageAssemblySemanticResult {
+    readonly candidateOrdinal: number;
+    readonly packageId: string;
+    readonly version: string;
+    readonly producer: string;
+    readonly selectedAsset: BrowserPackageAssemblySemanticSelectedAsset;
+    readonly occurrences: ReadonlyArray<BrowserPackageAssemblySemanticOccurrence>;
+}
+export interface BrowserPackageAssemblySemanticSelectedAsset {
+    readonly path: string;
+    readonly assemblyName: string;
+    readonly targetFramework: string;
+    readonly sequence: string;
+    readonly ordinal: number;
+    readonly unevaluatedSiblings: number;
     readonly rootRequest: string;
 }
 export interface BrowserPackageCacheStats {
@@ -514,6 +600,8 @@ export interface BrowserPackageQueryCompletion {
     readonly semanticMisses: number | null;
     readonly notApplicable: number | null;
     readonly scope: string | null;
+    readonly occurrences: number | null;
+    readonly notEvaluated: number | null;
 }
 export interface BrowserPackageQueryDeclaredDependency {
     readonly id: string;
@@ -529,6 +617,7 @@ export interface BrowserPackageQueryDocument {
     readonly hasPackages: boolean;
     readonly failures: ReadonlyArray<BrowserPackageQueryFailure>;
     readonly completion: BrowserPackageQueryCompletion;
+    readonly assemblySemantic: BrowserPackageAssemblySemanticDocument | null;
 }
 export interface BrowserPackageQueryEvent {
     readonly kind: BrowserPackageQueryEventKind;
@@ -820,10 +909,12 @@ export declare function queryMemberDocumentation(packageId: string, version: str
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageLoadResult>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
 export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;
+export declare function queryPackageRoot(rootRequest: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runPackageActivity(operationId: string, requestJson: string, eventSink: unknown): Promise<BrowserPackageChangesResult>;
+export declare function runPackageAssemblySemanticQuery(operationId: string, packageInput: string, literal: string, targetFramework: string, maximumCandidates: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function runPackageQuery(operationId: string, prefix: string, termsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryResult>;
 export declare function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit>;
