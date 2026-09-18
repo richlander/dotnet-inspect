@@ -287,6 +287,15 @@ the callee evidence kind and method-relative IL offset. A missing or ambiguous
 callee correspondence remains visible and never substitutes the caller
 snippet.
 
+For a `call.edge` Finding, detail consumes the CallGraph-issued focus-cycle
+inspection rather than inferring recursion from labels. Every observed cycle
+that begins with that logical edge appears as an ordered typed member path;
+repeated physical calls sharing the edge therefore show the same witness
+without collapsing their separate source annotations. The detail also states
+whether the bounded caller-scope census is complete. A positive witness remains
+valid under any reported limit, while an empty incomplete census says only that
+no cycle was observed within the available scope.
+
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
