@@ -3012,18 +3012,13 @@ public class CSharpStructuralComparisonTests
     [Fact]
     public void IssueCorrespondence_DoesNotProjectWhenNoDeclarationCandidateExists()
     {
-        // Close negative (round-1 review, reviewer B): CSharpAnnotatedSourceProjection.Create
-        // requires every IL-medium node to be exactly one contiguous rendered
-        // line, but AnnotatedSourceNode itself permits a structural
-        // (non-instruction) IL-medium node -- a "Block", say -- with several
-        // spans and no IlOffset. Before this fix, ClassifyUnprovenancedDeclarations
-        // built a projection of every document unconditionally, so
-        // IssueCorrespondence would throw on such a document even though it
-        // has no null-provenance declaration candidate that could ever be
-        // promoted. The declaration-count checks must run first, and the
-        // projection must stay unbuilt when they already rule out a
-        // promotion, so this document -- which has no LocalFunctionStatement
-        // node at all -- must not throw.
+        // Close negative (round-1 review, reviewer B): this document carries
+        // partial IL ownership that C# projection must reject. Before this fix,
+        // ClassifyUnprovenancedDeclarations built a projection of every
+        // document unconditionally, so IssueCorrespondence would throw even
+        // though no null-provenance declaration candidate could be promoted.
+        // The declaration-count checks must run first, so this document --
+        // which has no LocalFunctionStatement node at all -- must not throw.
         var before = TrustedDocument(
             "A();",
             new NodeSpec("InvocationExpression", "A()", [0x10]));
@@ -3057,20 +3052,17 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void IssueCorrespondence_DoesNotThrowWhenDeclarationCandidateCoexistsWithMultiSpanIlNode()
+    public void IssueCorrespondence_DoesNotThrowWhenDeclarationCandidateCoexistsWithPartialIlCoverage()
     {
         // Close negative (round-1 review, reviewers A and B, on the previous
         // fix): a sole null-provenance LocalFunctionStatement makes
         // declarationAdded true, so the call-site rewrite check does build a
         // projection -- but a wholly unrelated structural "Block" IL node
-        // elsewhere in the same document still violates
-        // CSharpAnnotatedSourceProjection.Create's one-contiguous-span
-        // requirement. The declaration-count gate alone cannot rule this out,
-        // since it says nothing about the document's IL node shapes. The
-        // projection attempt must fail conservatively -- leaving the
-        // declaration Unsupported -- rather than let the document's
-        // unrelated shape surface as a thrown exception from
-        // IssueCorrespondence.
+        // elsewhere in the same document establishes only partial line
+        // ownership. The declaration-count gate alone cannot rule this out.
+        // The projection attempt must fail conservatively -- leaving the
+        // declaration Unsupported -- rather than let unrelated invalid
+        // coverage surface from IssueCorrespondence.
         const string invocationText = "A();";
         const string declarationText = "static void Own()\n{\n}";
         string afterText = $"{invocationText}\n{declarationText}";
@@ -3086,9 +3078,8 @@ public class CSharpStructuralComparisonTests
                     [new AnnotatedSourceSpan(0, invocationText.Length)],
                     Provenance: new AnnotatedSourceNodeProvenance([0x10])),
                 // Unrelated to the invocation or the declaration below: a
-                // structural, offsetless IL node spanning two disjoint
-                // pieces, which AnnotatedSourceNode permits but
-                // CSharpAnnotatedSourceProjection.Create does not.
+                // structural, offsetless IL node spanning two disjoint pieces
+                // whose union still does not own the complete line.
                 new AnnotatedSourceNode(
                     1,
                     "Block",
@@ -3540,8 +3531,8 @@ public class CSharpStructuralComparisonTests
         var before = new AnnotatedSourceDocument(
             beforeText,
             [
-                new AnnotatedSourceNode(0, "ReturnStatement", SourceLineKind.CSharp, [new(0, 7)], Provenance: provenance),
-                new AnnotatedSourceNode(1, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(8, 12)], 0),
+                new AnnotatedSourceNode(0, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(8, 12)], 0),
+                new AnnotatedSourceNode(1, "ReturnStatement", SourceLineKind.CSharp, [new(0, 7)], Provenance: provenance),
             ],
             [],
             [],
@@ -3550,8 +3541,8 @@ public class CSharpStructuralComparisonTests
         var after = new AnnotatedSourceDocument(
             afterText,
             [
-                new AnnotatedSourceNode(0, "BreakStatement", SourceLineKind.CSharp, [new(0, 6)], Provenance: provenance),
-                new AnnotatedSourceNode(1, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(7, 12)], 0),
+                new AnnotatedSourceNode(0, AnnotatedSourceNode.InstructionKind, SourceLineKind.Il, [new(7, 12)], 0),
+                new AnnotatedSourceNode(1, "BreakStatement", SourceLineKind.CSharp, [new(0, 6)], Provenance: provenance),
             ],
             [],
             [],
@@ -3568,6 +3559,10 @@ public class CSharpStructuralComparisonTests
         Assert.Equal("return;\n", comparison.Before.Text);
         Assert.Equal("break;\n", comparison.After.Text);
         Assert.Single(comparison.Rows);
+        Assert.Equal(1, document.Correspondence.Matches.Single().Before.NodeId);
+        Assert.Equal(1, document.Correspondence.Matches.Single().After.NodeId);
+        Assert.Equal(0, comparison.Rows[0].BeforeNodeId);
+        Assert.Equal(0, comparison.Rows[0].AfterNodeId);
         Assert.DoesNotContain("IL_0000", CSharpStructuralDiffPrinter.RenderAnnotatedBody(
             comparison,
             CSharpStructuralSide.Before), StringComparison.Ordinal);
