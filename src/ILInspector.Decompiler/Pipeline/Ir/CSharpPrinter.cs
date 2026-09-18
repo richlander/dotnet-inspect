@@ -7,6 +7,7 @@ using ILInspector.ControlFlow;
 using ILInspector.Metadata;
 using Inspector.Text;
 using static ILInspector.Decompiler.Pipeline.PointerArithmetic;
+using static ILInspector.Decompiler.Pipeline.PlaceIdentity;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -2697,7 +2698,9 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+            string initializer = forLoop.Initializer is PointerCompoundAssignment update
+                ? PointerUpdateText(update, statement: false)
+                : Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad);
             int headerStart = sb.Length;
@@ -4050,6 +4053,7 @@ public sealed partial class CSharpPrinter
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {UnsafeExpressionText(s.Value, InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s)))};",
         PointerElementCompoundAssignment s => $"{Operand(s.Pointer)}[{Expression(s.Index)}] {BinaryOperator(s.Operation)}= {Expression(s.Value)};",
+        PointerCompoundAssignment s => PointerUpdateText(s, statement: true),
         StoreIndirect s => AssignmentText(
             s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
@@ -4101,9 +4105,53 @@ public sealed partial class CSharpPrinter
     }
 
     string ForLoopIncrementText(IrNode node)
-        => node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
+    {
+        if (node is PointerCompoundAssignment update)
+            return PointerUpdateText(update, statement: false);
+        return node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
             ? Expression(increment)
             : Statement(node)?.TrimEnd(';') ?? "";
+    }
+
+    string PointerUpdateText(PointerCompoundAssignment update, bool statement)
+    {
+        bool enclosingChecked = _checkedContext;
+        _checkedContext = update.IsChecked;
+        try
+        {
+            string target = update.Target switch
+            {
+                LoadIndirect load => IndirectTarget(load.Address, update.PointerType),
+                LoadProperty load => PropertyTarget(update.Setter!, load.Instance, load.IndexArguments, load.PropertyName, load.IsVirtual),
+                _ => Expression(update.Target),
+            };
+            string? context = update.IsChecked ? "checked" : enclosingChecked ? "unchecked" : null;
+            if (!statement && context is not null)
+            {
+                string op = update.Kind is PointerUpdateKind.Add or PointerUpdateKind.Increment ? "+" : "-";
+                _printedRangeMetadata?.SetNodeKind(update, "AssignmentStatement");
+                return $"{target} = {context}({target} {op} {Operand(update.Index)})";
+            }
+            string incrementTarget = update.Target is LoadIndirect indirect && RendersAsPointerDeref(indirect.Address)
+                ? $"({target})" : target;
+            string text = update.Kind switch
+            {
+                PointerUpdateKind.Increment => $"{incrementTarget}++",
+                PointerUpdateKind.Decrement => $"{incrementTarget}--",
+                PointerUpdateKind.Add => $"{target} += {Expression(update.Index)}",
+                PointerUpdateKind.Subtract => $"{target} -= {Expression(update.Index)}",
+                _ => throw new InvalidOperationException($"Unknown pointer update: {update.Kind}"),
+            };
+            if (context is null)
+                return statement ? $"{text};" : text;
+            _printedRangeMetadata?.SetNodeKind(update, "CheckedStatement");
+            return $"{context} {{ {text}; }}";
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
+    }
 
     string DeconstructionTargetText(DeconstructionTarget target) => target.Kind switch
     {
@@ -6002,7 +6050,7 @@ public sealed partial class CSharpPrinter
         TypeRef? targetType = null,
         bool parenthesizeIncrementTarget = false)
     {
-        if (value is Binary binary && readsTarget(binary.Left))
+        if (targetType?.Kind != TypeRefKind.Pointer && value is Binary binary && readsTarget(binary.Left))
         {
             // A compound assignment only forms when the value reads the target
             // in same-type arithmetic, so the result already matches the target
@@ -6046,20 +6094,6 @@ public sealed partial class CSharpPrinter
         string incrementTarget = parenthesizeIncrementTarget
             ? $"({target})"
             : target;
-        if (targetType is { Kind: TypeRefKind.Pointer, ElementType: { } pointerElement }
-            && binary.Kind is BinaryKind.Add or BinaryKind.Subtract)
-        {
-            if (TryScaledPointerIndex(binary.Right, pointerElement, out var pointerIndex))
-            {
-                if (pointerIndex is Constant { Value: 1 })
-                {
-                    isIncrement = true;
-                    return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-                }
-                return $"{target} {BinaryOperator(binary)}= {Expression(pointerIndex)};";
-            }
-            return $"{target} = {CoerceText(binary, targetType)};";
-        }
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
         {
             isIncrement = true;
@@ -6116,50 +6150,6 @@ public sealed partial class CSharpPrinter
         rightText = UnsafeExpressionText(binary.Right, rightText);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }
-
-    /// <summary>Structural same-place check for compound-assignment receivers; conservative (this/locals/arguments/static only).</summary>
-    static bool SamePlace(IrExpression? a, IrExpression? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
-            x.Index,
-            x.Parameter,
-            y.Index,
-            y.Parameter),
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        _ => false,
-    };
-
-    /// <summary>
-    /// Structural, side-effect-free equality for compound-assignment lvalues — the
-    /// receiver/address an <c>x op= v</c> fold reads on its right and writes on its
-    /// left. Restricted to leaves whose re-evaluation is observably free (locals,
-    /// arguments, constants, and field/element addresses rooted in those), so
-    /// collapsing the two evaluations into one preserves the opcode stream. A
-    /// shape with any potential side effect (a call, an arbitrary expression)
-    /// falls through to <c>false</c> and keeps the expanded spelling.
-    /// </summary>
-    static bool SameLValue(IrExpression? a, IrExpression? b) => (a, b) switch
-    {
-        (null, null) => true,
-        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
-            x.Index,
-            x.Parameter,
-            y.Index,
-            y.Parameter),
-        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        (Constant x, Constant y) => Equals(x.Value, y.Value),
-        (LoadField x, LoadField y) => x.Field.Name == y.Field.Name
-            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
-        (LoadFieldAddress x, LoadFieldAddress y) => x.Field.Name == y.Field.Name
-            && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
-        (FixedBufferElementAddress x, FixedBufferElementAddress y) => x.BufferField.Name == y.BufferField.Name
-            && Equals(x.BufferField.DeclaringType, y.BufferField.DeclaringType)
-            && SameLValue(x.Instance, y.Instance)
-            && SameLValue(x.Index, y.Index),
-        (LoadElementAddress x, LoadElementAddress y) => SameLValue(x.Array, y.Array) && SameLValue(x.Index, y.Index),
-        _ => false,
-    };
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call)

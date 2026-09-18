@@ -48,7 +48,7 @@ public partial class SectionPipelineTests
             EcosystemSections.NamespaceHintsSection,
             EcosystemSections.CorePackagesSection,
             EcosystemSections.ToolPackagesSection,
-            EcosystemSections.KnownIntegrationsSection,
+            EcosystemSections.IntegrationsSection,
             EcosystemSections.DemosSection,
             .. includePruning
                 ? [EcosystemSections.PruningSection]
@@ -56,17 +56,11 @@ public partial class SectionPipelineTests
         ];
 
         Assert.Equal(
-            [
-                SectionCategoryNames.Ecosystem,
-                SectionCategoryNames.Integrations,
-            ],
+            [SectionCategoryNames.Ecosystem],
             categories.Keys);
         Assert.Equal(
             expectedSections,
             categories[SectionCategoryNames.Ecosystem]);
-        Assert.Equal(
-            [EcosystemSections.KnownIntegrationsSection],
-            categories[SectionCategoryNames.Integrations]);
         Assert.Equal(expectedSections, pipeline.SelectableSectionNames);
         Assert.Equal(expectedSections, pipeline.BaseSectionNames);
         Assert.Empty(pipeline.GetCatalogHiddenSections());

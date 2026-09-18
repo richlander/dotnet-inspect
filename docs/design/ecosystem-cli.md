@@ -64,10 +64,10 @@ focus is resolved. Catalog-wide and ordinary focused routes therefore have six
 members; the focused `.NET` route has the same focused members plus
 `Pruning`.
 
-`@Integrations` is a domain door containing `Known Integrations`. It does not
-change focus and does not turn configured knowledge into library observation.
-The former unprefixed `Integrations` alias is removed; exact
-`Known Integrations` remains selectable.
+`Integrations` is an exact section. It does not change focus and does not turn
+configured knowledge into library observation. Ecosystem publishes no
+single-member `@Integrations` category; that category remains specific to
+Library, where it composes `Integrations` and `Integration Opportunities`.
 
 Ordinary output still renders only `Ecosystems` or `Ecosystem Info`. Bare `-S`
 and explicit `@Ecosystem` compose the selected route's complete section set,
@@ -76,7 +76,7 @@ ordered alphabetically.
 ## Sections
 
 Shared across every focus: `Namespace Hints`, `Core Packages`,
-`Tool Packages`, `Known Integrations`, `Demos`. Catalog-wide adds
+`Tool Packages`, `Integrations`, `Demos`. Catalog-wide adds
 `Ecosystems`; a focused view adds `Ecosystem Info`.
 
 `Core Packages` lists the ecosystem's inert concrete package roots in authored

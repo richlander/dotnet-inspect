@@ -4,7 +4,7 @@ using DotnetInspector.Packages;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Tests for router --version, --latest-version, and --versions behavior.
+/// Tests for router --version and --versions behavior.
 /// Validates candidate-cache resolution, fallthrough, and offline behavior.
 /// </summary>
 [Collection("Console")]

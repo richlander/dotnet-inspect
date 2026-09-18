@@ -140,6 +140,7 @@ internal static class OperationMemorySafetyContract
             || comparison.Right.ResultType is { Kind: TypeRefKind.Pointer },
         IncrementDecrement increment =>
             increment.Target.ResultType is { Kind: TypeRefKind.Pointer },
+        PointerCompoundAssignment => true,
         _ => false,
     };
 
