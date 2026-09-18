@@ -103,9 +103,19 @@ const representativeOperations: Readonly<Record<string, RepresentativeOperation>
     key: "BuildIdentity",
   },
   "inspect-web-package": {
-    name: "queryPackageVersions",
-    args: ["Example.Package", "1.0.0"],
-    key: "QueryPackageVersions",
+    name: "matchPackageDependencyCoordinate",
+    args: [
+      "Example.Dependency",
+      null,
+      [{
+        key: "example",
+        provenance: "NuGetPackage",
+        packageId: "Example.Dependency",
+        version: "1.0.0",
+        targetFramework: "net11.0",
+      }],
+    ],
+    key: "MatchPackageDependencyCoordinate",
   },
   "inspect-web-metadata": {
     name: "queryPackageMetadata",
@@ -141,9 +151,22 @@ const representativeOperations: Readonly<Record<string, RepresentativeOperation>
     key: "ExpandPlatformCallGraph",
   },
   "inspect-web-catalog": {
-    name: "listVocabulary",
-    args: [],
-    key: "ListVocabulary",
+    name: "encodeWorkspaceShareState",
+    args: [{
+      tabs: [],
+      contexts: [],
+      activeTabId: "",
+      selectedContextId: "",
+      view: {
+        lens: null,
+        type: null,
+        memberAnchor: null,
+        memberSignature: null,
+        section: null,
+        libraries: [],
+      },
+    }],
+    key: "EncodeWorkspaceShareState",
   },
 };
 
@@ -388,6 +411,44 @@ for (const facade of facades) {
       representative.key}\\.-?\\d+:`),
     `${facade.module}.${representative.name}() must dispatch into its own assembly`);
 }
+
+const packageCandidateJson = JSON.stringify([{
+  key: "example",
+  provenance: "NuGetPackage",
+  packageId: "Example.Dependency",
+  version: "1.0.0",
+  targetFramework: "net11.0",
+}]);
+assert.ok(
+  importedState.calls.some(call =>
+    call.includes(":MatchPackageDependencyCoordinate.")
+    && call.endsWith(JSON.stringify([
+      "Example.Dependency",
+      null,
+      packageCandidateJson,
+    ]))),
+  "the package facade must serialize typed candidates before managed dispatch",
+);
+const workspaceStateJson = JSON.stringify({
+  tabs: [],
+  contexts: [],
+  activeTabId: "",
+  selectedContextId: "",
+  view: {
+    lens: null,
+    type: null,
+    memberAnchor: null,
+    memberSignature: null,
+    section: null,
+    libraries: [],
+  },
+});
+assert.ok(
+  importedState.calls.some(call =>
+    call.includes(":EncodeWorkspaceShareState.")
+    && call.endsWith(JSON.stringify([workspaceStateJson]))),
+  "the catalog facade must serialize typed workspace state before managed dispatch",
+);
 
 const source = facadeModule("inspect-web-source");
 const sourceArguments = [

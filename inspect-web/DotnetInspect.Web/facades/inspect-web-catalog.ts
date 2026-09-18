@@ -846,6 +846,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export function abandonRetainedWorkspaceNavigation(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["AbandonRetainedWorkspaceNavigation.1618630472"](realizationId, publicationOrdinal, session, revision, intent, epoch);
 }
@@ -878,8 +892,8 @@ export function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShar
   return $parsed as BrowserWorkspaceShareDecodeResult;
 }
 
-export function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["EncodeWorkspaceShareState.304094707"](stateJson);
+export function encodeWorkspaceShareState(stateJson: BrowserWorkspaceShareState): BrowserWorkspaceShareEncodeResult {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["EncodeWorkspaceShareState.304094707"]($serializeJsonInput(stateJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.EncodeWorkspaceShareState.304094707", "stateJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspaceShareEncodeResult;
 }

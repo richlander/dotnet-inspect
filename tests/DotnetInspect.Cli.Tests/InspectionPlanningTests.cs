@@ -909,28 +909,26 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessNumericTypeLimit_RetainsTypeMemberAlternatives()
+    public async Task CommandlessNumericTypeFilterSelectsTypeListing()
     {
-        var result = await RunAppAsync(
+        string[] args =
+        [
             "Missing.Type.Run",
             "-t",
             "5",
             "-D",
-            SectionNames.TypeInfo,
+            SectionNames.Classes,
             "--schema",
             "--table",
             "--tips",
-            "q");
+            "q",
+        ];
+        var commandless = await RunAppAsync(args);
+        var explicitType = await RunAppAsync(
+            [TypeCommand.Name, .. args]);
 
-        Assert.Equal(0, result.Exit);
-        Assert.Contains(
-            "[type/type/ApiMember]",
-            result.Output,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "[type/type/ApiType]",
-            result.Output,
-            StringComparison.Ordinal);
+        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(explicitType, commandless);
     }
 
     [Fact]
@@ -2498,16 +2496,12 @@ public sealed class InspectionPlanningTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("type")]
-    [InlineData("member")]
-    public async Task StaticSchema_NumericFilterUsesNormalizedLimitIntent(
-        string command)
+    [Fact]
+    public async Task StaticMemberSchema_NumericFilterUsesNormalizedLimitIntent()
     {
-        string filter = command == "type" ? "-t" : "-m";
         string[] common =
         [
-            command,
+            "member",
             "System.String",
             "--platform",
             "System.Private.CoreLib",
@@ -2523,7 +2517,7 @@ public sealed class InspectionPlanningTests
         var limited = await RunAppAsync(
             [
                 .. common[..4],
-                filter,
+                "-m",
                 "5",
                 .. common[4..],
             ]);
@@ -3972,7 +3966,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessSourceIdentityNumericTypeLimitRetainsListing()
+    public async Task CommandlessSourceIdentityNumericTypeFilterRetainsListing()
     {
         string[] projection =
         [
@@ -4075,7 +4069,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task SeparatedSignedTypeLimitMatchesAttachedSpelling()
+    public async Task SeparatedSignedTypeFilterMatchesAttachedSpelling()
     {
         string[] suffix =
         [
@@ -4093,7 +4087,7 @@ public sealed class InspectionPlanningTests
         Assert.Equal(attached, separated);
         Assert.Equal(0, separated.Exit);
         Assert.Contains(
-            "[type/type/ApiType]",
+            SectionNames.ApiInfo,
             separated.Output);
     }
 

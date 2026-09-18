@@ -13,20 +13,26 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             Path.GetTempPath(),
             $"dotnet-inspect-local-repo-projection-{Guid.NewGuid():N}");
 
-    // PR-fast: two bounded offline production-host document requests.
+    // PR-fast: bounded offline production-host document requests.
     [Theory]
-    [InlineData("first", "SourceLinkService.cs")]
-    [InlineData("2", "SourceLinkService.SourceContent.cs")]
+    [InlineData("first", "SourceLinkService.cs", false)]
+    [InlineData("first", "SourceLinkService.cs", true)]
+    [InlineData("2", "SourceLinkService.SourceContent.cs", false)]
+    [InlineData("2", "SourceLinkService.SourceContent.cs", true)]
     public async Task TypeSourceFilesPrint_SelectsExactRepositoryDocument(
         string row,
-        string fileName)
+        string fileName,
+        bool preferRenderedUrls)
     {
         string repositoryRoot = FindRepositoryRoot();
         var result = await RunCliAsync(
-            "type", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
-            "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
-            "-S", "Source Files", "--print", "--row", row,
-            "--repo", repositoryRoot, "--bare", "--tips", "q");
+            [
+                "type", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
+                "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
+                "-S", "Source Files", "--print", "--row", row,
+                "--repo", repositoryRoot, "--bare", "--tips", "q",
+                .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
+            ]);
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);

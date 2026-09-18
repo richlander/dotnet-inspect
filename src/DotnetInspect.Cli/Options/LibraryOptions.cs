@@ -103,9 +103,9 @@ public record LibraryOptions : IProjectionOptions
     internal RowSelectionIntent<string>? CoordinateRowSelection { get; init; }
 
     /// <summary>
-    /// Use GitHub /blob/ URLs for browser viewing instead of raw source URLs.
+    /// Prefer rendered browser-view URLs when supported; otherwise keep the original URL.
     /// </summary>
-    public bool BrowsableUrls { get; init; }
+    public bool PreferRenderedUrls { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.

@@ -104,9 +104,8 @@ internal static class TypeSourceDocumentPrinter
             return 1;
         }
 
-        string rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selected.Url);
         var document = new PrintableDocument(
-            row, SectionNames.SourceFiles, selected.Url, null, rawUrl, source.Text);
+            row, SectionNames.SourceFiles, selected.Url, null, selected.Url, source.Text);
         return PrintProjectionOutput.Write(
             [document],
             new PrintProjectionOptions(
