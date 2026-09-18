@@ -10,6 +10,7 @@ internal sealed record PackageChangesOptions
     internal bool SecurityOnly { get; init; }
     internal int MaximumRows { get; init; }
     internal OutputFormat Format { get; init; }
+    internal bool EnvelopeOutput { get; init; }
     internal bool CompactJson { get; init; }
     internal bool Verbose { get; init; }
 }
