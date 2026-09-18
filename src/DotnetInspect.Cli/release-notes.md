@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Breaking:** Removes the redundant package `--latest-version` option. Use
+  `Package@latest --version` to query the latest published version, or omit the
+  version to inspect the latest eligible package. The shared PackageHouse
+  settlement and `@latest` freshness behavior are unchanged (#7500).
 - **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
   `@Integrations` categories, category-first alphabetical discovery, and
   alphabetical multi-section output. Replace the former unprefixed

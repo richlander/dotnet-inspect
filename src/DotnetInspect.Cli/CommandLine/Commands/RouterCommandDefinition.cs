@@ -823,11 +823,15 @@ public static class RouterCommandDefinition
                 || ContainsOption(tail, "--project")
                 || (hasLibraryValue
                     && !hasPackageRelativeLibrary);
+            if (ContainsOption(tokens, "--latest-version"))
+            {
+                // Route the retired spelling only far enough for the package command to
+                // produce its replacement guidance; it is no longer a version-query mode.
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
-                || CommandLineHelpers.IsBooleanOptionEnabled(
-                    tokens,
-                    "--latest-version")
                 || ContainsOption(tokens, "--versions")
                 || ContainsOption(
                     tokens,
