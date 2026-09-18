@@ -77,7 +77,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
-        ResolveAsync_RejectsForeignAndNonGlobalInputsWithoutAuthorityTransfer()
+        ResolveAsync_RejectsNonGlobalInputBeforeSourceAccess()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
@@ -128,6 +128,36 @@ public sealed class PlatformAssemblyReferenceResolverTests
             await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
                 nonGlobal,
                 foreignItem,
+                input.Consumed);
+
+        Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Rejected>(
+                outcome);
+        Assert.Equal(0, sourceOpens);
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_RejectsMismatchedRouteBeforeSourceAccess()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        ResolvedAssemblyReference sourceAssembly = Descriptor(image);
+        int sourceOpens = 0;
+        var input = Input(
+            sourceAssembly.Identity,
+            image,
+            static () => true,
+            () => sourceOpens++,
+            cancellationToken,
+            mismatchRoute: true);
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                input.Request,
+                input.Item,
                 input.Consumed);
 
         Assert.IsType<
@@ -265,7 +295,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             byte[] image,
             Func<bool> sourceAvailable,
             Action observedOpen,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool mismatchRoute = false)
     {
         PlatformSourceCapabilityIdentity capability =
             PlatformSourceCapabilityIdentity.Create(
@@ -275,7 +306,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             capability,
             AssemblyBindingOrigin.Global(),
             cancellationToken,
-            image.LongLength);
+            image.LongLength,
+            mismatchRoute);
         var contribution =
             new PlatformSourceContribution.Realization(
                 PlatformSourceFacet.Reference,
@@ -333,7 +365,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
         PlatformSourceCapabilityIdentity capability,
         AssemblyBindingOrigin origin,
         CancellationToken cancellationToken,
-        long maxBytes)
+        long maxBytes,
+        bool mismatchRoute = false)
     {
         var target = new PlatformFamilyTarget(
             PlatformFamily.DotNetRuntime,
@@ -365,7 +398,10 @@ public sealed class PlatformAssemblyReferenceResolverTests
             target,
             requestOrigin,
             sources.Identity,
-            sources.Generation);
+            mismatchRoute
+                ? PlatformSourcePolicyGeneration.Create(
+                    "mismatched-source-generation")
+                : sources.Generation);
         var operation = new PlatformHouseOperation.ResolveAssemblyReference
             .WithPrerequisites<PlatformAssemblyReferenceRoute>(
                 metadataRequest,

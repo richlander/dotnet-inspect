@@ -1018,10 +1018,17 @@ only after every accepted authority has settled or retired.
 `PlatformAssemblyReferenceResolverTests.ResolveAsync_DetachesDecisionAndRetiresAuthorities`
 gates the real-framework-assembly completion path and exact physical supplier
 correspondence in Release.
-`PlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsForeignAndNonGlobalInputsWithoutAuthorityTransfer`
-gates the focused input boundary in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsNonGlobalInputBeforeSourceAccess`
+and
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsMismatchedRouteBeforeSourceAccess`
+gate the focused input and exact route-correspondence boundaries before source
+access in Release.
 `PlatformAssemblyReferenceResolverTests.PublicResultClosure_IsResourceFree`
 gates the completed public type closure in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_ReportsMetadataIdentityFailure`
+gates visible Metadata identity failure in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_ObservesCancellationAfterCleanup`
+gates terminal cancellation after owned cleanup in Release.
 
 ## Typed platform delegation from PackageHouse
 
