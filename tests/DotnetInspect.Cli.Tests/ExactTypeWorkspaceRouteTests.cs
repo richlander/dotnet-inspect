@@ -157,7 +157,7 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task WorkspaceRouteAcceptsExactUrlAndSchema3RefusesOnlyShare()
+    public async Task WorkspaceRouteSchema3RefusesOnlyShare()
     {
         var store = await CachedStoreAsync();
         string packet = EncodePacket(
@@ -169,8 +169,7 @@ public sealed class ExactTypeWorkspaceRouteTests
         using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
-            WorkspacePacket =
-                $"https://dotnet-inspect.net/?w={packet}",
+            WorkspacePacket = packet,
             TypeName = typeof(ApiType).FullName,
             ShareFormat = WorkspaceShareFormat.Packet,
             TipLevel = TipLevel.Quiet,
@@ -197,6 +196,21 @@ public sealed class ExactTypeWorkspaceRouteTests
             "schema version 4",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task WorkspaceRouteRejectsUrlInput()
+    {
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(PackageId, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+
+        await AssertWorkspaceFailureAsync(
+            $"https://dotnet-inspect.net/?w={packet}",
+            "URLs are not supported");
     }
 
     [Fact]

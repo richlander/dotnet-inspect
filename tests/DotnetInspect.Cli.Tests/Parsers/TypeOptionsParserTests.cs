@@ -214,6 +214,38 @@ public class TypeOptionsParserTests
         Assert.Null(options.PackagePath);
     }
 
+    [Fact]
+    public async Task Workspace_RejectsUrlInput()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            [
+                "type",
+                "System.Text.Json.JsonSerializer",
+                "--workspace",
+                "https://dotnet-inspect.net/?w=packet",
+            ]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error = Assert.IsType<TypeOptionsParser.VersionError>(
+            result);
+        Assert.Contains(
+            "Base64URL Workspace packet string",
+            error.Error.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "URLs are not supported",
+            error.Error.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("type", "--workspace", "packet")]
     [InlineData("type", "System.*", "--workspace", "packet")]

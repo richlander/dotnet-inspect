@@ -232,6 +232,15 @@ public static class TypeOptionsParser
         }
         if (workspacePacket is not null)
         {
+            if (Uri.TryCreate(
+                    workspacePacket,
+                    UriKind.Absolute,
+                    out _))
+            {
+                return new VersionError(
+                    "--workspace accepts a canonical Base64URL Workspace "
+                        + "packet string; URLs are not supported.");
+            }
             if (hasProjectSource
                 || hasNonProjectSource
                 || parseResult.GetValue(args.FrameworkOption) is not null

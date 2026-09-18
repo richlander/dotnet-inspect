@@ -1,4 +1,3 @@
-using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -113,32 +112,20 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new InvalidDataException(
-                $"{optionName} requires a non-empty Workspace packet or URL.");
-        }
-
-        if (value.StartsWith(
-                WorkspaceShareOutput.UrlPrefix,
-                StringComparison.Ordinal))
-        {
-            string packet =
-                value[WorkspaceShareOutput.UrlPrefix.Length..];
-            if (packet.Length == 0)
-            {
-                throw new InvalidDataException(
-                    "The Workspace URL does not contain a packet.");
-            }
-            return packet;
+                $"{optionName} requires a non-empty canonical Base64URL "
+                    + "Workspace packet string.");
         }
 
         if (Uri.TryCreate(value, UriKind.Absolute, out _))
-        {
-            throw new InvalidDataException(
-                $"{optionName} accepts a canonical packet or an exact "
-                    + $"{WorkspaceShareOutput.UrlPrefix}<packet> URL.");
-        }
+            throw UrlNotSupported(optionName);
 
         return value;
     }
+
+    static InvalidDataException UrlNotSupported(string optionName) =>
+        new(
+            $"{optionName} accepts a canonical Base64URL Workspace packet "
+                + "string; URLs are not supported.");
 
     static string[] RestorationFailureDetails(
         CompleteRestorationFailure failure) =>

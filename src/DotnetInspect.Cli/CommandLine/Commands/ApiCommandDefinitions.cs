@@ -41,7 +41,7 @@ public static class ApiCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
         var workspaceOption = new Option<string?>("--workspace")
         {
-            Description = "Source: canonical Workspace packet or exact dotnet-inspect Workspace URL",
+            Description = "Source: canonical Base64URL Workspace packet string",
         };
         var matchOption = new Option<bool>("--match")
         {
