@@ -992,6 +992,10 @@ public partial class PackageCommand
 
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
+        bool requestsLibrarySubject =
+            options.AggregateLibraries
+            || options.PackageLibrary != null
+            || options.NamesakeLibrary;
 
         try
         {
@@ -1002,12 +1006,14 @@ public partial class PackageCommand
                     ? await PackageExtractor.ExtractPinnedPackageAsync(
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
-                        createComposition: context.CreatePackageSourceComposition)
+                        createComposition: context.CreatePackageSourceComposition,
+                        logToolWrapperPayload: !requestsLibrarySubject)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
-                        createComposition: context.CreatePackageSourceComposition);
+                        createComposition: context.CreatePackageSourceComposition,
+                        logToolWrapperPayload: !requestsLibrarySubject);
             }
             else
             {
@@ -1018,7 +1024,8 @@ public partial class PackageCommand
                     sourceOptions: options.SourceOptions,
                     version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
                     forceLatest: options.ForceLatest,
-                    includePrerelease: options.IncludePrerelease);
+                    includePrerelease: options.IncludePrerelease,
+                    logToolWrapperPayload: !requestsLibrarySubject);
             }
 
             if (!outcome.IsSuccess)
@@ -1078,9 +1085,7 @@ public partial class PackageCommand
                     options);
             }
 
-            if ((options.AggregateLibraries
-                    || options.PackageLibrary != null
-                    || options.NamesakeLibrary)
+            if (requestsLibrarySubject
                 && LibraryCommand.RejectToolWrapperLowerSubject(resolution))
             {
                 return 1;

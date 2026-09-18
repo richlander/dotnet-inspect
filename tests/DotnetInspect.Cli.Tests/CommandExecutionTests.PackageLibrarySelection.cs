@@ -908,10 +908,12 @@ public partial class CommandExecutionTests
                 await RunAppAsync(
                     "library", "--package", "Test.Tool@1.0.0",
                     "--source", Source,
+                    "--verbose",
                     "-S", "Library Info"),
                 await RunAppAsync(
                     "package", "Test.Tool@1.0.0",
                     "--source", Source,
+                    "--verbose",
                     "-S", "Library Info"),
             };
 

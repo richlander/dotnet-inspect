@@ -1155,6 +1155,15 @@ public class LibraryCommand
                     CommandError.Write("No libraries could be read from the package.");
                     return 1;
                 }
+                if (options.Count
+                    && (libraryInspectionIncomplete
+                        || descriptorSelectionExitCode != 0))
+                {
+                    CommandError.Write(
+                        "Count output is unavailable because one or more "
+                        + "selected package Libraries could not be inspected.");
+                    return 1;
+                }
 
                 foreach (var insp in inspections)
                     insp.Source = SourceKind.NuGet;
@@ -3632,7 +3641,12 @@ public class LibraryCommand
         HttpClient httpClient)
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
+            httpClient,
+            packageSource,
+            logger.Log,
+            sourceOptions: sourceOptions,
+            includePrerelease: includePrerelease,
+            logToolWrapperPayload: false);
         if (!outcome.IsSuccess)
         {
             CommandError.Write($"{outcome.ErrorMessage}");

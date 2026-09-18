@@ -277,6 +277,7 @@ public static class PackageExtractor
     /// <param name="version">Explicit version (overrides any version embedded in packageSource)</param>
     /// <param name="forceLatest">When true, always resolve version from network (bypass candidate metadata caches)</param>
     /// <param name="includePrerelease">When true, latest resolution includes prerelease/preview versions</param>
+    /// <param name="logToolWrapperPayload">When false, suppresses payload-specific progress after a tools-v2 redirect.</param>
     /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
     public static Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
@@ -286,10 +287,12 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null,
         string? version = null,
         bool forceLatest = false,
-        bool includePrerelease = false) =>
+        bool includePrerelease = false,
+        bool logToolWrapperPayload = true) =>
         ExtractPackageCoreAsync(
             client, packageSource, log, tempDirPrefix, sourceOptions,
-            version, forceLatest, includePrerelease, authoritySession: null);
+            version, forceLatest, includePrerelease, authoritySession: null,
+            logToolWrapperPayload: logToolWrapperPayload);
 
     public static Task<PackageExtractionOutcome>
         ExtractPackageWithCancellationAsync(
@@ -313,7 +316,8 @@ public static class PackageExtractor
         Action<string>? log = null,
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
-        Func<DesktopPackageSourceComposition>? createComposition = null)
+        Func<DesktopPackageSourceComposition>? createComposition = null,
+        bool logToolWrapperPayload = true)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -326,7 +330,9 @@ public static class PackageExtractor
             client.Timeout, tempDirPrefix, createComposition);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
-            normalizedVersion, forceLatest: false, includePrerelease: false, session)
+            normalizedVersion, forceLatest: false, includePrerelease: false,
+            session,
+            logToolWrapperPayload: logToolWrapperPayload)
             .ConfigureAwait(false);
     }
 
@@ -343,7 +349,8 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null,
         bool includePrerelease = false,
         string? rangeAddress = null,
-        Func<DesktopPackageSourceComposition>? createComposition = null)
+        Func<DesktopPackageSourceComposition>? createComposition = null,
+        bool logToolWrapperPayload = true)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -366,7 +373,8 @@ public static class PackageExtractor
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             selected.Result!.Version, forceLatest: false, includePrerelease: false,
-            session, selected).ConfigureAwait(false);
+            session, selected,
+            logToolWrapperPayload: logToolWrapperPayload).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -402,7 +410,8 @@ public static class PackageExtractor
         bool includePrerelease,
         ConfiguredPackageExtractionSession? authoritySession,
         PackageExtractionOutcome? initialOutcome = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool logToolWrapperPayload = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool isLocalFile = authoritySession is null
@@ -428,6 +437,7 @@ public static class PackageExtractor
         bool currentForceLatest = forceLatest;
         bool currentIncludePrerelease = includePrerelease;
         NuGetSourceOptions? currentSourceOptions = sourceOptions;
+        Action<string>? currentLog = log;
 
         while (true)
         {
@@ -441,7 +451,7 @@ public static class PackageExtractor
                 outcome = initialOutcome ?? await DownloadAndExtractPackageAsync(
                     client,
                     currentPackageSource,
-                    log,
+                    currentLog,
                     tempDirPrefix,
                     currentSourceOptions,
                     currentVersion,
@@ -508,8 +518,15 @@ public static class PackageExtractor
                     $"{string.Join(" -> ", redirectChain)} -> {redirectId}.");
             }
 
-            log?.Invoke(
-                $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");
+            if (logToolWrapperPayload)
+            {
+                log?.Invoke(
+                    $"'{result.PackageName}' is a tool wrapper with no managed libraries; inspecting '{redirectId}' instead.");
+            }
+            else
+            {
+                currentLog = null;
+            }
 
             currentPackageSource = redirectId;
             currentVersion = result.Version;

@@ -3395,14 +3395,17 @@ public partial class CommandExecutionTests
         try
         {
             string content = Path.Combine(tempDir, "content");
-            string libraryDirectory =
-                Path.Combine(content, "lib", "net11.0");
-            Directory.CreateDirectory(libraryDirectory);
+            string healthyDirectory =
+                Path.Combine(content, "lib", "net8.0");
+            string malformedDirectory =
+                Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(healthyDirectory);
+            Directory.CreateDirectory(malformedDirectory);
             string healthyPath = Path.Combine(
-                libraryDirectory,
+                healthyDirectory,
                 "Good.dll");
             string malformedPath = Path.Combine(
-                libraryDirectory,
+                malformedDirectory,
                 "Bad.dll");
             WriteTruncatedMetadataTableAssembly(
                 TestAssemblyPath,
@@ -3432,6 +3435,26 @@ public partial class CommandExecutionTests
                 "selected managed assembly contains invalid metadata",
                 error,
                 StringComparison.OrdinalIgnoreCase);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, countExit);
+            Assert.Empty(countOutput);
+            Assert.Contains("Bad.dll", countError);
+            Assert.Contains(
+                "Count output is unavailable because one or more selected "
+                    + "package Libraries could not be inspected",
+                countError);
         }
         finally
         {
