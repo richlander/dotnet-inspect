@@ -1519,6 +1519,45 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void FocusedMemberCompletenessUsesConstraintFailureSubject()
+    {
+        byte[] image =
+            BuildUnrelatedMissingConstraintConsumer();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy());
+
+        ApiType widget = Assert.Single(
+            surface.Types,
+            static type => type.FullName == "N.Widget");
+        ApiType consumer = Assert.Single(
+            surface.Types,
+            static type => type.FullName == "N.Consumer`1");
+        KeyValuePair<
+            ApiSurfaceInspectionSubject,
+            List<ApiSurfaceInspectionFailure>> failure =
+                Assert.Single(
+                    surface.ConstraintResolutionFailuresBySubject);
+        Assert.Equal(
+            consumer.MetadataToken,
+            failure.Key.SubjectToken);
+        Assert.True(
+            MetadataFindings.IsApiMemberComparisonComplete(
+                surface,
+                widget.FullName));
+        Assert.False(
+            MetadataFindings.IsApiMemberComparisonComplete(
+                surface,
+                consumer.FullName));
+    }
+
+    [Fact]
     public void DistinctResolutionFailuresOnOneSubjectArePreserved()
     {
         byte[] image =
@@ -1653,6 +1692,33 @@ public class ConstraintResolutionHardeningTests
                 parameter,
                 constraint);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildUnrelatedMissingConstraintConsumer()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("UnrelatedMissingConstraint");
+        AssemblyReferenceHandle missing =
+            AddReference(metadata, "Missing");
+        AddModule(metadata);
+        AddType(metadata, "Widget");
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                missing,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"));
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
         return Serialize(metadata);
     }
 

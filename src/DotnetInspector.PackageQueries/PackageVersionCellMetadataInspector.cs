@@ -21,10 +21,23 @@ public static class PackageVersionCellMetadataInspector
         return await ExecuteCoreAsync(
                 request,
                 executor,
+                resolveApiConstraints: false,
                 provisionalOutcomeObserver: null,
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    internal static Task<PackageVersionCellMetadataInspectionOutcome>
+        ExecuteForApiComparisonAsync(
+            PackageVersionCellMetadataInspectionRequest request,
+            IPackageHouseVersionPopulationCellExecutor executor,
+            CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            request,
+            executor,
+            resolveApiConstraints: true,
+            provisionalOutcomeObserver: null,
+            cancellationToken);
 
     internal static Task<PackageVersionCellMetadataInspectionOutcome>
         ExecuteWithProvisionalOutcomeObserverAsync(
@@ -38,6 +51,7 @@ public static class PackageVersionCellMetadataInspector
         return ExecuteCoreAsync(
             request,
             executor,
+            resolveApiConstraints: false,
             provisionalOutcomeObserver,
             cancellationToken);
     }
@@ -46,6 +60,7 @@ public static class PackageVersionCellMetadataInspector
         ExecuteCoreAsync(
             PackageVersionCellMetadataInspectionRequest request,
             IPackageHouseVersionPopulationCellExecutor executor,
+            bool resolveApiConstraints,
             Action<PackageVersionCellMetadataInspectionOutcome>?
                 provisionalOutcomeObserver,
             CancellationToken cancellationToken)
@@ -145,6 +160,7 @@ public static class PackageVersionCellMetadataInspector
                             contribution.Binding,
                             evidence,
                             request.ApiInspection,
+                            resolveApiConstraints,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -244,6 +260,7 @@ public static class PackageVersionCellMetadataInspector
             PackageRootBinding binding,
             PackageVersionCellExecutionEvidence evidence,
             PackageVersionCellApiInspectionRequest? apiInspection,
+            bool resolveApiConstraints,
             CancellationToken cancellationToken)
     {
         WorkspacePackageOccurrenceDescriptor occurrence =
@@ -277,10 +294,17 @@ public static class PackageVersionCellMetadataInspector
                         {
                             AssemblyContextApiSurfaceResult surfaces =
                                 realization.HasAssemblyContexts
-                                    ? AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                                        realization.SurfaceGroup,
-                                        apiInspection.Scope,
-                                        apiInspection.Limits)
+                                    ? resolveApiConstraints
+                                        ? AssemblyContextApiSurfaceQuery
+                                            .ExecuteBoundedResolved(
+                                                realization.SurfaceGroup,
+                                                apiInspection.Scope,
+                                                apiInspection.Limits)
+                                        : AssemblyContextApiSurfaceQuery
+                                            .ExecuteBounded(
+                                                realization.SurfaceGroup,
+                                                apiInspection.Scope,
+                                                apiInspection.Limits)
                                     : new(new([]), ApiAccessibility.Buckets([]));
                             api = new(apiInspection, surfaces, token);
                         }
