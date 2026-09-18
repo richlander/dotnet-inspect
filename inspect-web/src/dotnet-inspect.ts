@@ -1972,9 +1972,9 @@ function publishRetainedWorkspaceSelectionHistory(): void {
         navigationHistory.snapshot())));
 }
 
-function publishRetainedWorkspaceDeletionHistory(): void {
-  if (pendingWorkspaceHistoryTraversal !== null) return;
-  workspaceLocation.replace(
+function publishRetainedWorkspaceDeletionHistory(): boolean {
+  if (pendingWorkspaceHistoryTraversal !== null) return true;
+  return workspaceLocation.replace(
     activeWorkspaceUrl ?? "/demos",
     withPlatformRootParentHistory(
       history.state,
@@ -2135,9 +2135,7 @@ async function activateManagedRetainedWorkspaceProjection(
       const historyCommitted = historyMode === "push"
         ? commitDemoNavigation(navigationSeq)
         : historyMode === "replace"
-          ? workspaceLocation.replace(
-            installation.canonicalLocation,
-            history.state)
+          ? publishRetainedWorkspaceDeletionHistory()
           : true;
       if (renderResult) {
         render({ synchronizeUrl: false });
