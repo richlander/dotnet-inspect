@@ -2736,7 +2736,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
         const string PackageName = "pinned-local";
         string local = Path.Combine(_testRoot, PackageName);
         WriteLocalPackage(local, PackageName, "1.0.0");
-        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
             PackageName, "9.0.0",
             ["package", PackageName + "@1.0", "--version", "--jsonl",
                 "--source", RefusedSource, "--source", local],
@@ -2745,6 +2746,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal("""{"version":"1.0.0"}""", output.Trim());
         Assert.Contains("partial", error);
         Assert.Contains("requires credentials", error);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -2820,6 +2826,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(output);
         Assert.Contains("not found", error);
         Assert.NotEmpty(requests);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]

@@ -162,15 +162,13 @@ still belong in `ILInspector.Research`, whose `IResearchFactProducer` /
 public sealed class MethodBodyInspectionSession
 {
     public string SourceName { get; }
-
-    // The session shares one LibraryBodyAnalysisService execution.
-    // Migrated queries receive focused Analysis-owned result types.
-    // LibraryBodyIndex remains available only to compatibility consumers.
+    public LibraryBodyAnalysisExecution AnalysisExecution { get; }
+    public LibraryBodyIndex BodyIndex { get; } // compatibility only
 }
 ```
 
-The exact method names and execution-publication shape land with the first
-section migration. The boundary should not:
+`InspectionQueryContext.BodyAnalysis()` shares `AnalysisExecution` across
+migrated queries. The boundary:
 
 - `Open` captures command-selected capability and body-scope policy, creates a
   `LibraryBodyAnalysisRequest`, and delegates path or prefetched-image

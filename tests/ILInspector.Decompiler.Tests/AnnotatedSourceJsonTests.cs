@@ -105,8 +105,25 @@ public class AnnotatedSourceJsonTests
         Assert.Equal(expected.Rows[0].Change, actual.Rows[0].Change);
         Assert.Equal(expected.Rows[0].BeforeSpans, actual.Rows[0].BeforeSpans);
         Assert.Equal(expected.Rows[0].AfterSpans, actual.Rows[0].AfterSpans);
+        Assert.Empty(actual.MultiplicityDeltas);
         Assert.Equal(expected.Fidelity, actual.Fidelity);
         Assert.Single(actual.ToComparison().Rows);
+    }
+
+    [Fact]
+    public void StructuralDiffWriter_RoundTripsMultiplicityDeltas()
+    {
+        var expected = StructuralMultiplicityDiff();
+
+        string json = AnnotatedSourceJson.SerializeStructuralDiff(expected);
+        var actual = AnnotatedSourceJson.DeserializeStructuralDiff(json);
+
+        var delta = Assert.Single(actual.MultiplicityDeltas);
+        Assert.Equal("ReturnStatement", delta.NodeKind);
+        Assert.Equal([0x20, 0x21], delta.Evidence.IlOffsets);
+        Assert.Equal(3, delta.BeforeCount);
+        Assert.Equal(2, delta.AfterCount);
+        Assert.Single(actual.ToComparison().MultiplicityDeltas);
     }
 
     [Theory]
@@ -183,10 +200,12 @@ public class AnnotatedSourceJsonTests
         string expectedMessage)
     {
         const string HostilePropertyName = "ATTACKER_TOKEN";
+        string schemaProperty =
+            $"\"schema_version\":{CSharpStructuralDiffDocument.CurrentSchemaVersion}";
         string json = (structuralDiff ? StructuralDiffJson() : CompactJson()).Replace(
-            structuralDiff ? "\"schema_version\":1" : "\"text\":\"return;\"",
+            structuralDiff ? schemaProperty : "\"text\":\"return;\"",
             structuralDiff
-                ? $"\"schema_version\":1,\"{HostilePropertyName}\":0"
+                ? $"{schemaProperty},\"{HostilePropertyName}\":0"
                 : $"\"text\":\"return;\",\"{HostilePropertyName}\":0",
             StringComparison.Ordinal);
 
@@ -278,10 +297,12 @@ public class AnnotatedSourceJsonTests
         bool structuralDiff,
         string expectedMessage)
     {
+        string schemaProperty =
+            $"\"schema_version\":{CSharpStructuralDiffDocument.CurrentSchemaVersion}";
         string json = (structuralDiff ? StructuralDiffJson() : CompactJson()).Replace(
-            structuralDiff ? "\"schema_version\":1" : "\"text\":\"return;\"",
+            structuralDiff ? schemaProperty : "\"text\":\"return;\"",
             structuralDiff
-                ? "\"schema_version\":1,\"\\uD800\":0"
+                ? $"{schemaProperty},\"\\uD800\":0"
                 : "\"text\":\"return;\",\"\\uD800\":0",
             StringComparison.Ordinal);
 
@@ -317,6 +338,7 @@ public class AnnotatedSourceJsonTests
     [InlineData("before")]
     [InlineData("after")]
     [InlineData("rows")]
+    [InlineData("multiplicity_deltas")]
     public void StrictStructuralDiffReader_RejectsNullRequiredFields(string propertyName)
     {
         var root = JsonNode.Parse(StructuralDiffJson())!.AsObject();
@@ -419,6 +441,46 @@ public class AnnotatedSourceJsonTests
         Assert.Equal(
             "C# structural diff JSON violates the product-issued model contract.",
             error.Message);
+        AssertContained(error);
+    }
+
+    [Fact]
+    public void StrictStructuralDiffReader_RejectsTamperedMultiplicityDelta()
+    {
+        string json = AnnotatedSourceJson.SerializeStructuralDiff(
+            StructuralMultiplicityDiff(),
+            indented: false).Replace(
+                "\"after_count\":2",
+                "\"after_count\":1",
+                StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeStructuralDiff(json));
+
+        Assert.Equal(
+            "C# structural diff JSON violates the product-issued model contract.",
+            error.Message);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData("\"node_kind\":\"ReturnStatement\",", "", "node_kind")]
+    [InlineData("\"before_count\":3,", "", "before_count")]
+    [InlineData("\"evidence\":{\"il_offsets\":[32,33]}", "\"evidence\":{}", "il_offsets")]
+    public void StrictStructuralDiffReader_RejectsMissingMultiplicityFields(
+        string oldValue,
+        string newValue,
+        string expected)
+    {
+        string json = AnnotatedSourceJson.SerializeStructuralDiff(
+            StructuralMultiplicityDiff(),
+            indented: false).Replace(oldValue, newValue, StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeStructuralDiff(json));
+
+        Assert.Contains("missing required properties", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expected, error.Message, StringComparison.Ordinal);
         AssertContained(error);
     }
 
@@ -601,6 +663,38 @@ public class AnnotatedSourceJsonTests
                 ILInspector.Instructions.IlBodyDiffOutcome.OpcodeDiff,
                 ILInspector.Instructions.IlBodyDiffOutcome.Exact,
                 "terminal IL_0000: ret"));
+    }
+
+    static CSharpStructuralDiffDocument StructuralMultiplicityDiff()
+    {
+        var source = new AnnotatedSourceDocumentSource(
+            "Tests",
+            new Guid("00112233-4455-6677-8899-AABBCCDDEEFF"),
+            0x06000001,
+            new string('A', 64),
+            "M");
+
+        AnnotatedSourceDocument Document(int count)
+        {
+            const string SelectedText = "return;";
+            string text = string.Join(' ', Enumerable.Repeat(SelectedText, count));
+            int start = 0;
+            var nodes = new List<AnnotatedSourceNode>(count);
+            for (int id = 0; id < count; id++)
+            {
+                nodes.Add(new(
+                    id,
+                    "ReturnStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(start, SelectedText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x20, 0x21])));
+                start += SelectedText.Length + 1;
+            }
+
+            return new AnnotatedSourceDocument(text, nodes, [], [], [], source);
+        }
+
+        return CSharpStructuralDiffDocument.Create(Document(3), Document(2));
     }
 
     static AnnotatedSourceDocument TrustedDocument(

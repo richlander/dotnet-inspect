@@ -246,6 +246,34 @@ internal static class BrowserPackageWireProjection
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
+    internal static BrowserPackageInfoMeasurementInspection Project(
+        InspectionEnvelope<PackageInfoMeasurements> inspection)
+    {
+        ArgumentNullException.ThrowIfNull(inspection);
+        PackageInfoMeasurements content = inspection.Content;
+        return new(
+            new BrowserPackageInfoMeasurements(
+                content.Status.ToString(),
+                content.PackageId,
+                content.PackageVersion,
+                content.CompressedPackageBytes,
+                content.SelectedTargetFramework,
+                content.AvailableTargetFrameworkCount,
+                content.SelectedTargetFrameworkFolders is null
+                    ? null
+                    : [
+                        .. content.SelectedTargetFrameworkFolders.Select(
+                            static folder => folder.ToString()),
+                    ],
+                content.SelectedLibraryPayloadBytes,
+                content.SelectedLibraryCount,
+                content.Detail?.ToString(),
+                content.UnavailableReason?.ToString(),
+                content.HasSelectedSlice),
+            Project(inspection.Share),
+            [.. inspection.Diagnostics.Select(Project)]);
+    }
+
     static BrowserPackageVersionSettlementOutcome Project(
         PackageVersionSettlementOutcome outcome) =>
         outcome switch

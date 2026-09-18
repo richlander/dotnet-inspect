@@ -92,26 +92,6 @@ public sealed class PlatformReferenceCandidateEvidence<TCandidate>
 }
 
 /// <summary>
-/// One documentation subject captured together with its resource-free
-/// identity.
-/// </summary>
-public sealed class PlatformDocumentationSubjectEvidence<TSubject>
-    where TSubject : notnull
-{
-    public PlatformDocumentationSubjectEvidence(
-        TSubject value,
-        string identityName)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        Value = value;
-        Identity = PlatformDocumentationSubjectIdentity.Issue(identityName);
-    }
-
-    public TSubject Value { get; }
-    public PlatformDocumentationSubjectIdentity Identity { get; }
-}
-
-/// <summary>
 /// Settled reference evidence captured together with its resource-free
 /// identity.
 /// </summary>
