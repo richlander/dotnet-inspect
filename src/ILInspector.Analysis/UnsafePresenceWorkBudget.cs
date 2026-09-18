@@ -43,6 +43,17 @@ internal sealed class UnsafePresenceWorkBudget
             MaxCorrespondenceBytes,
             "Unsafe evidence same-image correspondence exceeds the assembly budget.");
 
+    internal void ThrowIfCorrespondenceByteBudgetExceeded()
+    {
+        if (Volatile.Read(
+                ref _correspondenceBytes)
+            < 0)
+        {
+            throw new BadImageFormatException(
+                "Unsafe evidence same-image correspondence exceeds the assembly budget.");
+        }
+    }
+
     internal void ReserveCorrespondenceRow()
         => Reserve(
             ref _correspondenceRows,
