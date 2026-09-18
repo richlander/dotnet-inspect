@@ -457,6 +457,12 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     Framework,
                     null,
+                    allowsCompatibleTargetSelection: true),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
                     usesCompatibleImplementationSelection: true),
                 Request(null, null, "netstandard2.0", null),
                 Request(null, null, null, null),
@@ -495,13 +501,14 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? legacy));
         Assert.Equal(Framework, legacy.CompileTargetFramework);
         Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.False(legacy.AllowsCompatibleTargetSelection);
         Assert.False(legacy.UsesCompatibleImplementationSelection);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             legacy.Encode(),
             StringComparison.Ordinal);
 
-        string previousToken = VersionedToken(
+        string earlierToken = VersionedToken(
             "pkgroot2",
             PackageId,
             Version,
@@ -513,8 +520,31 @@ public sealed class PackageRootAcquisitionTests
             null);
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
+                earlierToken,
+                out PackageRootReacquisitionRequest? earlier));
+        Assert.True(earlier.AllowsCompatibleTargetSelection);
+        Assert.True(earlier.UsesCompatibleImplementationSelection);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            earlier.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot3",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
                 previousToken,
                 out PackageRootReacquisitionRequest? previous));
+        Assert.True(previous.AllowsCompatibleTargetSelection);
         Assert.True(previous.UsesCompatibleImplementationSelection);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
@@ -649,7 +679,19 @@ public sealed class PackageRootAcquisitionTests
                     Framework,
                     Framework,
                     null,
-                    "other"),
+                    "other",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "compatible"),
             })
         {
             Assert.False(
@@ -762,7 +804,8 @@ public sealed class PackageRootAcquisitionTests
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool allowsCompatibleTargetSelection = false)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -770,7 +813,8 @@ public sealed class PackageRootAcquisitionTests
             selectionTargetFramework,
             selectionRuntimeIdentifier,
             compileTargetFramework,
-            usesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -779,7 +823,8 @@ public sealed class PackageRootAcquisitionTests
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool allowsCompatibleTargetSelection = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -797,13 +842,19 @@ public sealed class PackageRootAcquisitionTests
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier,
-                usesCompatibleImplementationSelection));
+                usesCompatibleImplementationSelection,
+                allowsCompatibleTargetSelection));
     }
 
     static string Token(params string?[] fields)
-        => VersionedToken(
+    {
+        if (fields.Length == 9)
+            fields = [.. fields, fields[8]];
+
+        return VersionedToken(
             PackageRootReacquisitionRequest.TokenPrefix,
             fields);
+    }
 
     static string VersionedToken(
         string prefix,

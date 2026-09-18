@@ -2177,6 +2177,15 @@ coordinate and both identities without repeating coordinate resolution,
 content acquisition, or compile asset selection. A resolved compatibility
 payload that carries no source-issued producer identity may bind only a
 coordinate whose producer equals its retained content producer key.
+
+The binding also retains compatible target-selection authorization separately
+from the observed selection outcome. Exact-only construction retains neither.
+Compatible construction retains authorization even when the exact compile
+slice wins, and additionally records compatible implementation use only when
+that path governs the frozen outcome. PackageHouse compile receipts map
+`ExplicitTarget` to compatible authorization and `HighestAvailable` or
+`ExactTarget` to no such authorization; the binding freezes the receipt's
+existing selection without invoking the selector again.
 Public typed acquisition asks the runtime source identity to match its legacy
 configured-source identity against a private digest before any cache lookup or
 download. That check prevents one source from reading or publishing through
@@ -2206,9 +2215,10 @@ reacquired typed payload proves that spelling belongs to the same source
 producer, and preserves the request's spelling rather than silently rewriting
 it. Arbitrary configured full producer keys remain outside Root transport;
 their portable token is the representation.
-The `pkgroot3` field layout and encoding remain unchanged: the producer field's
-`nfp-1` namespace versions the new value, so no new Root-token prefix is
-required.
+The producer-identity migration did not change the then-current `pkgroot3`
+field layout: the producer field's `nfp-1` namespace versioned that value.
+The later authorization/outcome split adds a field and therefore uses the
+`pkgroot4` prefix.
 
 A destination coordinate grants no source authority. Reacquisition first
 intersects the requested producer with currently authorized sources by asking
@@ -3166,7 +3176,7 @@ requests are equal exactly when this owner classifies them as the same logical
 Root. It is not `PackageArtifactRootCorrespondence` and carries no Workspace
 identity.
 
-The request preserves four facts separately:
+The request preserves six facts separately:
 
 - the realized producer-pinned acquisition coordinate, whose acquisition
   framework may be absent for framework-neutral source acquisition; and
@@ -3174,15 +3184,20 @@ The request preserves four facts separately:
   empty groups; and
 - the normalized implementation-selection target and runtime identifier that
   froze the binding's implementation universe; and
-- whether an exact compile-target miss invokes compatible implementation
-  selection, including when that selection produces no unique universe.
+- whether the caller or owner-issued selection policy authorized compatible
+  target selection; and
+- whether an exact compile-target miss actually invoked compatible
+  implementation selection, including when that selection produced no unique
+  universe.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
 pair a requested compile target with an older implementation target. Collapsing
-either pair, or omitting compatible-selection intent when no unique universe
-exists, would fail with `MissingAcquisitionTarget` or silently select a
-different compile or implementation outcome.
+either pair, omitting authorization when an exact compile slice wins, or
+omitting the observed compatible outcome when no unique universe exists would
+fail with `MissingAcquisitionTarget`, prevent a later consumer from applying
+the authorized policy, or silently select a different compile or
+implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
@@ -3275,10 +3290,13 @@ single opaque token from the request and decodes it back.
 
 The token is this owner's, not a host format: its version tag, field order, and
 encoding are owner-owned, and only the owner's decode reads it. Current
-`pkgroot3` tokens carry the separate compile and implementation targets plus
-compatible-selection intent. Previous `pkgroot2` tokens infer that intent when
-their two targets differ. Legacy `pkgroot1` tokens decode only with their one
-target applied to both roles. Older tokens re-encode in the current format.
+`pkgroot4` tokens carry separate compatible authorization and observed
+implementation-use fields. Previous `pkgroot3` tokens carry only the observed
+field, so decoding conservatively grants compatible authorization exactly when
+that field is true. Earlier `pkgroot2` tokens infer both facts when their two
+targets differ. Legacy `pkgroot1` tokens decode only with their one target
+applied to both roles and neither compatible fact. Older tokens re-encode in
+the current format.
 No form carries content,
 generation, Workspace identity, session, lease, path, source URL, or
 credential.
@@ -3323,11 +3341,30 @@ In `PackageRootAcquisitionTests`:
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
 
+`Token_RoundTripsExactRequest` additionally gates independent `pkgroot4`
+compatible-selection authorization and observed-use fields plus `pkgroot1`,
+`pkgroot2`, and `pkgroot3` migration. `Token_RejectsMalformedOrNonCanonicalInput`
+rejects an observed compatible-use claim without its authorization.
+
+In `PackageAssemblyContextRealizationTests`,
+`PackageRootBinding_SourceSelectionPreservesCompatibleTargetAuthorization`
+gates owner-issued PackageHouse receipt mapping when compatible selection is
+observed;
+`PackageRootBinding_CompatibleAuthorizationSurvivesExactSelection` gates
+authorization retention when exact target selection wins; and
+`CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget` gates
+reacquisition rejection when replacement content changes that prior exact
+selection outcome.
 `PackageAssemblyContextRealizationTests.CompatibleEmptyGroup_ReacquisitionPreservesCompileSelection`
 gates the compatible-selection round trip, including token transport and exact
 empty-group preservation.
 `CompatibleAmbiguousImplementationLayout_ReacquisitionRemainsInvalid` gates
 compatible-selection intent when no unique implementation universe exists.
+
+In `PackageHouseExecutionTests`,
+`ExactCompileRealizeKeepsRequestedAndSelectedFrameworksDistinct` gates
+independent retention of the requested compile target, selected implementation
+target, compatible-selection authorization, and observed compatible use.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

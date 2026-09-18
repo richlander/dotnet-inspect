@@ -156,7 +156,9 @@ public sealed class PackageRootAcquisitionRequest
 /// binding's frozen asset selection. It is therefore usable where the realized
 /// coordinate alone would fail with
 /// <see cref="WorkspaceContextLoadFailureKind.MissingAcquisitionTarget"/> or
-/// select a different asset universe.
+/// select a different asset universe. Compatible target-selection
+/// authorization remains separate from whether compatible implementation
+/// selection governed the frozen outcome.
 /// </para>
 /// <para>
 /// The request carries no package content, generation identity, selection
@@ -177,16 +179,18 @@ public sealed class PackageRootReacquisitionRequest :
     IEquatable<PackageRootReacquisitionRequest>
 {
     /// <summary>The current opaque token format tag.</summary>
-    public const string TokenPrefix = "pkgroot3";
+    public const string TokenPrefix = "pkgroot4";
 
-    const string PreviousTokenPrefix = "pkgroot2";
+    const string PreviousTokenPrefix = "pkgroot3";
+    const string EarlierTokenPrefix = "pkgroot2";
     const string LegacyTokenPrefix = "pkgroot1";
 
     /// <summary>The largest token this owner encodes or decodes.</summary>
     public const int MaxEncodedLength = 1024;
 
-    const int FieldCount = 9;
-    const int PreviousFieldCount = 8;
+    const int FieldCount = 10;
+    const int PreviousFieldCount = 9;
+    const int EarlierFieldCount = 8;
     const int LegacyFieldCount = 7;
 
     static readonly UTF8Encoding StrictUtf8 = new(
@@ -222,6 +226,12 @@ public sealed class PackageRootReacquisitionRequest :
         _request.SelectionRuntimeIdentifier;
 
     /// <summary>
+    /// Whether the Root request authorizes compatible target selection.
+    /// </summary>
+    public bool AllowsCompatibleTargetSelection =>
+        _request.AllowsCompatibleTargetSelection;
+
+    /// <summary>
     /// Whether the Root applies compatible implementation selection after an
     /// exact compile-target miss.
     /// </summary>
@@ -250,6 +260,9 @@ public sealed class PackageRootReacquisitionRequest :
         AppendField(builder, CompileTargetFramework);
         AppendField(builder, SelectionTargetFramework);
         AppendField(builder, SelectionRuntimeIdentifier);
+        AppendField(
+            builder,
+            AllowsCompatibleTargetSelection ? "compatible" : "exact");
         AppendField(
             builder,
             UsesCompatibleImplementationSelection ? "compatible" : "exact");
@@ -305,22 +318,30 @@ public sealed class PackageRootReacquisitionRequest :
                 parts[0],
                 PreviousTokenPrefix,
                 StringComparison.Ordinal);
+        bool earlier =
+            parts.Length == EarlierFieldCount + 1
+            && string.Equals(
+                parts[0],
+                EarlierTokenPrefix,
+                StringComparison.Ordinal);
         bool current =
             parts.Length == FieldCount + 1
             && string.Equals(
                 parts[0],
                 TokenPrefix,
                 StringComparison.Ordinal);
-        if (!legacy && !previous && !current)
+        if (!legacy && !earlier && !previous && !current)
         {
             return false;
         }
 
         int fieldCount = legacy
             ? LegacyFieldCount
-            : previous
-                ? PreviousFieldCount
-                : FieldCount;
+            : earlier
+                ? EarlierFieldCount
+                : previous
+                    ? PreviousFieldCount
+                    : FieldCount;
         var fields = new string?[fieldCount];
         for (int index = 0; index < fieldCount; index++)
         {
@@ -363,8 +384,33 @@ public sealed class PackageRootReacquisitionRequest :
         {
             return false;
         }
+        bool allowsCompatibleTargetSelection;
         bool usesCompatibleImplementationSelection;
         if (current)
+        {
+            allowsCompatibleTargetSelection = fields[8] switch
+            {
+                "compatible" => true,
+                "exact" => false,
+                _ => false,
+            };
+            if (fields[8] is not ("compatible" or "exact"))
+                return false;
+            usesCompatibleImplementationSelection = fields[9] switch
+            {
+                "compatible" => true,
+                "exact" => false,
+                _ => false,
+            };
+            if (fields[9] is not ("compatible" or "exact"))
+                return false;
+            if (usesCompatibleImplementationSelection
+                && !allowsCompatibleTargetSelection)
+            {
+                return false;
+            }
+        }
+        else if (previous)
         {
             usesCompatibleImplementationSelection = fields[8] switch
             {
@@ -374,6 +420,8 @@ public sealed class PackageRootReacquisitionRequest :
             };
             if (fields[8] is not ("compatible" or "exact"))
                 return false;
+            allowsCompatibleTargetSelection =
+                usesCompatibleImplementationSelection;
         }
         else
         {
@@ -382,6 +430,8 @@ public sealed class PackageRootReacquisitionRequest :
                     compileTargetFramework,
                     selectionTargetFramework,
                     StringComparison.Ordinal);
+            allowsCompatibleTargetSelection =
+                usesCompatibleImplementationSelection;
         }
 
         PackageArtifactRootRequest decoded = PackageArtifactRootRequest.Create(
@@ -389,7 +439,8 @@ public sealed class PackageRootReacquisitionRequest :
             compileTargetFramework,
             selectionTargetFramework,
             fields[selectionRuntimeIndex],
-            usesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection);
 
         // A token that is not already canonical is refused rather than
         // silently normalized, so one request has exactly one token.
@@ -406,7 +457,9 @@ public sealed class PackageRootReacquisitionRequest :
                 fields[selectionRuntimeIndex],
                 StringComparison.Ordinal)
             || decoded.UsesCompatibleImplementationSelection
-                != usesCompatibleImplementationSelection)
+                != usesCompatibleImplementationSelection
+            || decoded.AllowsCompatibleTargetSelection
+                != allowsCompatibleTargetSelection)
         {
             return false;
         }

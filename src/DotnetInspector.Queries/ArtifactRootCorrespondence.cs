@@ -47,7 +47,8 @@ internal readonly record struct PackageArtifactRootRequest(
     string? CompileTargetFramework,
     string? SelectionTargetFramework,
     string? SelectionRuntimeIdentifier,
-    bool UsesCompatibleImplementationSelection)
+    bool UsesCompatibleImplementationSelection,
+    bool AllowsCompatibleTargetSelection)
 {
     internal static PackageArtifactRootRequest From(
         PackageRootBinding binding)
@@ -58,7 +59,8 @@ internal readonly record struct PackageArtifactRootRequest(
             binding.CompileTargetFramework,
             binding.Root.RequestedTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
-            binding.UsesCompatibleImplementationSelection);
+            binding.UsesCompatibleImplementationSelection,
+            binding.AllowsCompatibleTargetSelection);
     }
 
     internal static PackageArtifactRootRequest Create(
@@ -66,7 +68,8 @@ internal readonly record struct PackageArtifactRootRequest(
         string? compileTargetFramework,
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool allowsCompatibleTargetSelection = false)
     {
         ArgumentNullException.ThrowIfNull(coordinate);
         string? normalizedCompileTarget =
@@ -81,23 +84,27 @@ internal readonly record struct PackageArtifactRootRequest(
                 nameof(selectionTargetFramework));
         }
         if (normalizedCompileTarget is null
-            && usesCompatibleImplementationSelection)
+            && (usesCompatibleImplementationSelection
+                || allowsCompatibleTargetSelection))
         {
             throw new ArgumentException(
-                "Compatible implementation selection requires a target framework.",
-                nameof(usesCompatibleImplementationSelection));
+                "Compatible target selection requires a target framework.",
+                nameof(allowsCompatibleTargetSelection));
         }
 
+        bool usesCompatibleSelection =
+            usesCompatibleImplementationSelection
+            || !string.Equals(
+                normalizedCompileTarget,
+                normalizedSelectionTarget,
+                StringComparison.Ordinal);
         return new(
             coordinate,
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
-            usesCompatibleImplementationSelection
-                || !string.Equals(
-                    normalizedCompileTarget,
-                    normalizedSelectionTarget,
-                    StringComparison.Ordinal));
+            usesCompatibleSelection,
+            allowsCompatibleTargetSelection || usesCompatibleSelection);
     }
 
     internal static string? NormalizeFramework(string? framework)
