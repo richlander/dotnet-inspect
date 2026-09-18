@@ -2199,6 +2199,9 @@ public partial class CommandExecutionTests
     [InlineData("--il-offset=0x06000001+0x0", "coordinate <token>+<offset>")]
     [InlineData("--il-offsets=/definitely/missing-coordinate-file.txt", "coordinate --file <path>")]
     [InlineData("--heap=#Strings:0x1a4", "coordinate \"<heap>:<address>\"")]
+    [InlineData("--il-offset:0x06000001+0x0", "coordinate <token>+<offset>")]
+    [InlineData("--il-offsets:/definitely/missing-coordinate-file.txt", "coordinate --file <path>")]
+    [InlineData("--heap:#Strings:0x1a4", "coordinate \"<heap>:<address>\"")]
     [InlineData("--IL-OFFSET=0x06000001+0x0", "coordinate <token>+<offset>")]
     public async Task LibraryCommand_RemovedInlineCoordinateOptionsGiveReplacementGuidance(
         string removedOption,
@@ -2213,6 +2216,28 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(replacement, error);
+    }
+
+    [Theory]
+    [InlineData("--il-offset")]
+    [InlineData("--il-offsets")]
+    [InlineData("--heap")]
+    public async Task LibraryCoordinateCommand_FileValueMayMatchRetiredOptionName(
+        string fileValue)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "--file",
+            fileValue,
+            "-D",
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.NotEmpty(output);
     }
 
     [Fact]

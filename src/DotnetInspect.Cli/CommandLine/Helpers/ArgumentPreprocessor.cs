@@ -134,6 +134,7 @@ public static class ArgumentPreprocessor
 
     internal static bool TryGetRemovedCommandError(
         string[] args,
+        Command rootCommand,
         out string? error)
     {
         int command = FindFirstPositionalArgument(
@@ -165,6 +166,7 @@ public static class ArgumentPreprocessor
                 StringComparison.OrdinalIgnoreCase)
             && TryGetRemovedLibraryCoordinateOptionError(
                 args,
+                rootCommand.Parse(args),
                 out error))
         {
             return true;
@@ -176,6 +178,7 @@ public static class ArgumentPreprocessor
 
     private static bool TryGetRemovedLibraryCoordinateOptionError(
         string[] args,
+        ParseResult parseResult,
         out string? error)
     {
         int end = Array.IndexOf(args, "--");
@@ -184,6 +187,9 @@ public static class ArgumentPreprocessor
 
         for (var i = 0; i < end; i++)
         {
+            if (IsClaimedByRequiredOption(parseResult, args, i))
+                continue;
+
             string option = args[i];
             if (MatchesRemovedOption(option, "--il-offset"))
             {
@@ -220,6 +226,9 @@ public static class ArgumentPreprocessor
         token.Equals(option, StringComparison.OrdinalIgnoreCase)
         || token.StartsWith(
             option + "=",
+            StringComparison.OrdinalIgnoreCase)
+        || token.StartsWith(
+            option + ":",
             StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCommandTokenAfterBareTips(

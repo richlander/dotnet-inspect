@@ -173,7 +173,10 @@ try
 
     var rootCommand = CommandLineBuilder.CreateRootCommand();
 
-    if (CommandLineBuilder.TryGetRemovedCommandError(args, out var removedCommandError))
+    if (CommandLineBuilder.TryGetRemovedCommandError(
+            args,
+            rootCommand,
+            out var removedCommandError))
     {
         CommandError.Write(removedCommandError!);
         return 1;

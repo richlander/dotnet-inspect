@@ -1748,6 +1748,7 @@ public partial class CommandExecutionTests
             var root = CommandLineBuilder.CreateRootCommand();
             if (CommandLineBuilder.TryGetRemovedCommandError(
                     args,
+                    root,
                     out var removedCommandError))
             {
                 CommandError.Write(removedCommandError!);
