@@ -1,4 +1,5 @@
 using DotnetInspector.Sections;
+using DotnetInspector.SourceHouse;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -44,5 +45,12 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.IsType<InspectionShare.NonProjectable>(inspection.Share);
         Assert.Equal("member-source-pair/share", share.Path);
         Assert.Empty(inspection.Diagnostics);
+        foreach (var endpoint in new[] { content.Before, content.After })
+        {
+            var resolved = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(endpoint);
+            var house = Assert.IsType<SourceHouseOutcome.Available>(resolved.HouseOutcome);
+            Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
+            Assert.NotEmpty(house.Source.Text);
+        }
     }
 }
