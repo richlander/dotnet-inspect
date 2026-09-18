@@ -93,7 +93,7 @@ public sealed class PackageHouseVersionPopulationEvidence
 
     public ImmutableArray<PackageHouseFailure> Failures { get; }
 
-    internal bool HasOperationTimeout =>
+    public bool HasOperationTimeout =>
         Failures.OfType<PackageHouseFailure.Timeout>().Any(timeout =>
             timeout.Kind == PackageHouseTimeoutKind.Operation)
         || Failures.OfType<PackageHouseFailure.Authority>().Any(authority =>
