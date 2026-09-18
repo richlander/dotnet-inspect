@@ -284,6 +284,40 @@ public sealed class PlatformAssemblyReferenceResolverTests
                     input.Consumed));
     }
 
+    [Fact]
+    public async Task
+        ResolveAsync_CleanupFailureRemainsPrimaryOverCancellation()
+    {
+        using var cancellation = CancellationTokenSource
+            .CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        ResolvedAssemblyReference sourceAssembly = Descriptor(image);
+        var input = Input(
+            sourceAssembly.Identity,
+            image,
+            static () => true,
+            cancellation.Cancel,
+            cancellation.Token,
+            openStream: static content =>
+                new ThrowingDisposeStream(content));
+
+        PlatformHouseOutcome<AssemblyBindingDecision> outcome =
+            await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                input.Request,
+                input.Item,
+                input.Consumed);
+
+        var failed = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Failed>(
+                outcome);
+        Assert.Contains(
+            PlatformHouseFailureKind.ArtifactPublication,
+            failed.Evidence.Failures);
+        Assert.True(failed.Evidence.CancellationObserved);
+    }
+
     static (
         PlatformHouseRequest Request,
         PlatformLibraryArtifactMaterializationItem Item,
@@ -296,7 +330,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
             Func<bool> sourceAvailable,
             Action observedOpen,
             CancellationToken cancellationToken,
-            bool mismatchRoute = false)
+            bool mismatchRoute = false,
+            Func<byte[], Stream>? openStream = null)
     {
         PlatformSourceCapabilityIdentity capability =
             PlatformSourceCapabilityIdentity.Create(
@@ -354,7 +389,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
         {
             observedOpen();
             return sourceAvailable()
-                ? new MemoryStream(image, writable: false)
+                ? openStream?.Invoke(image)
+                    ?? new MemoryStream(image, writable: false)
                 : throw new IOException(
                     "The original Platform source is retired.");
         }
@@ -445,4 +481,11 @@ public sealed class PlatformAssemblyReferenceResolverTests
             : type;
 
     sealed record TestProvenance : IArtifactProvenance;
+
+    sealed class ThrowingDisposeStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        protected override void Dispose(bool disposing) =>
+            throw new IOException("The source stream could not be closed.");
+    }
 }

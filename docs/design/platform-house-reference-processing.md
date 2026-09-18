@@ -1029,6 +1029,9 @@ gates the completed public type closure in Release.
 gates visible Metadata identity failure in Release.
 `PlatformAssemblyReferenceResolverTests.ResolveAsync_ObservesCancellationAfterCleanup`
 gates terminal cancellation after owned cleanup in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_CleanupFailureRemainsPrimaryOverCancellation`
+gates Artifact publication cleanup failure as primary over cancellation in
+Release.
 
 ## Typed platform delegation from PackageHouse
 

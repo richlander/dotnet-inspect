@@ -260,6 +260,18 @@ public static class PlatformHouseAssemblyReferenceResolver
             when (request.CancellationToken.IsCancellationRequested)
         {
             cancellation = ex;
+            IReadOnlyList<Exception> artifactCleanupFailures =
+                ArtifactSetSession.GetCleanupFailures(ex);
+            if (artifactCleanupFailures.Count != 0)
+            {
+                failures.Add(
+                    PlatformHouseFailureKind.ArtifactPublication);
+                foreach (Exception failure in artifactCleanupFailures)
+                {
+                    if (!cleanupExceptions.Contains(failure))
+                        cleanupExceptions.Add(failure);
+                }
+            }
         }
         catch (Exception ex)
         {
