@@ -2381,7 +2381,9 @@ public class LibraryCommand
             Method = first.Method,
             Token = first.Token,
             ILOffset = first.ILOffset,
-            MatchedOffset = first.MatchedOffset,
+            MatchedOffset = projections
+                .Select(projection => projection.MatchedOffset)
+                .FirstOrDefault(value => value is not null),
             File = projections
                 .Select(projection => projection.File)
                 .FirstOrDefault(value => value is not null),

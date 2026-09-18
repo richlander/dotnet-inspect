@@ -1479,6 +1479,27 @@ public partial class CommandExecutionTests
             Assert.Equal(0, unionExit);
             Assert.Empty(unionError);
             Assert.Contains("| Async | field |", unionOutput);
+
+            await File.WriteAllTextAsync(
+                coordinatePath,
+                $"0x06000001+0x0{Environment.NewLine}0x06000001+0x1",
+                TestContext.Current.CancellationToken);
+            var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "Context: Source Location",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, sourceExit);
+            Assert.Empty(sourceError);
+            Assert.Contains("| Matched Offset | field |", sourceOutput);
         }
         finally
         {
