@@ -36,16 +36,16 @@ internal static class BrowserSpotlightExternalPackageWorkspaceRequestFactory
                 nameof(curatedPlan));
         }
         if (!ReferenceEquals(
-                curatedPlan.TargetFrameworkPolicy,
-                WorkspaceTargetFrameworkPolicy.ProductDefault))
+                curatedPlan.TraversalTargetPolicy,
+                TraversalTargetFrameworkPolicy.ProductDefault))
         {
             throw new ArgumentException(
-                "The Spotlight curated plan must retain the product-default target framework policy.",
+                "The Spotlight curated plan must retain the product-default traversal target policy.",
                 nameof(curatedPlan));
         }
 
         string framework =
-            curatedPlan.TargetFrameworkPolicy.DefaultFramework;
+            curatedPlan.TraversalTargetPolicy.TargetFramework;
         var coordinate = new DefinitionMemberCoordinate.PackageCoordinate(
             package.PackageId,
             package.Version,

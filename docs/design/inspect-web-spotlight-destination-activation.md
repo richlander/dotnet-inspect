@@ -469,6 +469,11 @@ schema-version-3 Definitions request captured in the rendered Package
 descriptor. The request combines the exact Package coordinate with the exact
 Ecosystems-owned curated `WorkspacePlan`; the shared Core accepts that plan
 from its caller and does not reach into the facade-only Ecosystems catalog.
+This is fresh Workspace construction rather than an isolated package-local
+query, so the plan's traversal target supplies the context acquisition
+framework. Because schema version 3 does not encode a configured traversal
+target, this path accepts only the curated plan's product-default policy and
+retains that exact policy after restoration.
 Scanner-bearing ecosystem registrations may make the completed definition
 nonprojectable, so the retained record preserves the Definitions request and
 typed projection evidence rather than fabricating a packet. Only a typed

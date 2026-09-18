@@ -356,14 +356,14 @@ delegates or portable authorization. Document identity and display metadata,
 scenario composition, query/view/navigation state and their associations remain
 with their existing owners rather than becoming plan execution state.
 
-##### Implemented default target-framework policy adoption
+##### Implemented traversal target-framework policy adoption
 
-`WorkspacePlan.TargetFrameworkPolicy` carries the non-null, host-neutral value
+`WorkspacePlan.TraversalTargetPolicy` carries the non-null, host-neutral value
 owned by
-[Workspace default target framework](workspace-default-target-framework.md).
-Existing constructors use its `ProductDefault(net11.0)` value; callers may
-supply a configured policy. The policy is immutable construction intent
-retained by every Workspace created from the plan, and registration replacement
+[Traversal target-framework policy](traversal-target-framework-policy.md).
+Existing constructors use its `ProductDefault(net12.0)` value; callers may
+supply a configured policy. The policy is immutable traversal intent retained
+by every Workspace created from the plan, and registration replacement
 preserves the exact instance.
 
 This adoption does not consume the policy to select assets, rewrite explicit
@@ -577,8 +577,8 @@ It owns:
   Workspace-bound identities;
 - explicit Package addition, replacement, removal, and Clear operations;
 - complete ordered inert registration and exact-revision replacement;
-- one immutable default target-framework policy issued by
-  [its focused owner](workspace-default-target-framework.md);
+- one immutable traversal target-framework policy issued by
+  [its focused owner](traversal-target-framework-policy.md);
 - finite logical-scope limits;
 - exact closure-completeness and boundary-failure evidence;
 - revision-bound mutation admission, supersession, and publication; and

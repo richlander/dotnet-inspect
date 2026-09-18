@@ -59,12 +59,15 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             external,
             generation: 7);
 
-        var published = Assert.IsType<ActivationResult.Published>(
+        ActivationResult result =
             await BrowserSpotlightRetainedWorkspaceActivation.ExecuteAsync(
                 owner,
                 "source",
                 descriptor,
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
+        if (result is ActivationResult.RestorationFailed failed)
+            Assert.Fail(failed.Result.Message);
+        var published = Assert.IsType<ActivationResult.Published>(result);
 
         BrowserRetainedWorkspaceInstallation installation =
             published.Publication;
@@ -93,12 +96,28 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                     package.Occurrence.Package.PackageId)
                 .ToArray());
         Assert.Equal(
+            curated.TraversalTargetPolicy.TargetFramework,
+            Assert.Single(operation.Scope.Packages)
+                .Occurrence.Package.RequestedTargetFramework);
+        Assert.Equal(
             curated.Registrations,
             operation.Definition.Registrations.Registrations);
         Assert.Equal(
-            curated.TargetFrameworkPolicy,
-            operation.Definition.Plan.TargetFrameworkPolicy);
+            curated.TraversalTargetPolicy,
+            operation.Definition.Plan.TraversalTargetPolicy);
         Assert.Equal(1, installation.Navigation.ActiveStateIndex);
+    }
+
+    [Fact]
+    public void ConfiguredTraversalTargetIsRejectedBeforeRequestCapture()
+    {
+        WorkspacePlan platform =
+            EcosystemPackCatalog.CreatePlatformWorkspacePlan();
+        var configured = new WorkspacePlan(
+            new TraversalTargetFrameworkPolicy("net9.0"),
+            platform.Registrations);
+
+        Assert.Throws<ArgumentException>(() => ExternalRequest(configured));
     }
 
     [Fact]
@@ -196,13 +215,23 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         hostAuthority.BindCancellation(cancellation.Token);
         try
         {
+            BrowserSpotlightWorkspaceRestorationResult<
+                BrowserPreparedWorkspaceActivation,
+                CompleteRestorationFailure> restoration =
+                    await owner.RestoreSpotlightAsync(
+                        hostAuthority,
+                        TestContext.Current.CancellationToken);
+            if (restoration
+                is BrowserSpotlightWorkspaceRestorationResult<
+                    BrowserPreparedWorkspaceActivation,
+                    CompleteRestorationFailure>.Failed failed)
+            {
+                Assert.Fail(failed.Result.Message);
+            }
             var complete = Assert.IsType<
                 BrowserSpotlightWorkspaceRestorationResult<
                     BrowserPreparedWorkspaceActivation,
-                    CompleteRestorationFailure>.Complete>(
-                        await owner.RestoreSpotlightAsync(
-                            hostAuthority,
-                            TestContext.Current.CancellationToken));
+                    CompleteRestorationFailure>.Complete>(restoration);
 
             cancellation.Cancel();
 
