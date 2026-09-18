@@ -1879,25 +1879,35 @@ public static class PackageExtractor
         metadata = null;
         XElement? root = document.Root;
         if (root is null
-            || root.Name.LocalName != "package")
+            || root.Name.LocalName != "package"
+            || !IsNuspecNamespace(root.Name.Namespace))
         {
             return false;
         }
 
-        XNamespace nuspecNamespace = root.Name.Namespace;
-        XElement[] metadataElements = root.Elements()
+        XElement[] metadataCandidates = root.Elements()
             .Where(element =>
                 element.Name.LocalName == "metadata")
+            .ToArray();
+        XElement[] nuspecMetadataCandidates = metadataCandidates
+            .Where(element =>
+                IsNuspecNamespace(element.Name.Namespace))
+            .ToArray();
+        XElement[] metadataElements = nuspecMetadataCandidates
+            .Where(element =>
+                IsCompatibleMetadataNamespace(
+                    root.Name.Namespace,
+                    element.Name.Namespace))
             .Take(2)
             .ToArray();
-        if (metadataElements.Length != 1
-            || metadataElements[0].Name.Namespace
-                != nuspecNamespace)
+        if (nuspecMetadataCandidates.Length != metadataElements.Length
+            || metadataElements.Length != 1)
         {
             return false;
         }
 
         XElement candidate = metadataElements[0];
+        XNamespace nuspecNamespace = candidate.Name.Namespace;
         XElement[] idElements = candidate.Elements()
             .Where(element => element.Name.LocalName == "id")
             .Take(2)
@@ -1938,6 +1948,25 @@ public static class PackageExtractor
         metadata = candidate;
         return true;
     }
+
+    private static bool IsNuspecNamespace(XNamespace ns)
+    {
+        string uri = ns.NamespaceName;
+        if (uri.Length == 0)
+            return true;
+
+        const string Prefix = "http://schemas.microsoft.com/packaging/";
+        const string Suffix = "/nuspec.xsd";
+        return uri.Length > Prefix.Length + Suffix.Length
+            && uri.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)
+            && uri.EndsWith(Suffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCompatibleMetadataNamespace(
+        XNamespace rootNamespace,
+        XNamespace metadataNamespace) =>
+        string.IsNullOrEmpty(rootNamespace.NamespaceName)
+            || rootNamespace == metadataNamespace;
 
     /// <summary>
     /// Reads a local <c>.nuspec</c> under <see cref="MaxNuspecBytes"/>. Returns

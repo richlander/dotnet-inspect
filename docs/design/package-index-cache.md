@@ -4,11 +4,12 @@
 
 Implemented contract for the `PackageIndexCache` slice of
 [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
-The `pkg-index-v17` implementation consumes the configured authority and
+The `pkg-index-v18` implementation consumes the configured authority and
 acquisition-issued retained-content digest, binds lookup and publication to the
 same content generation, persists the complete closed projection defined here,
 and reconstructs request-current facts after a hit. The predecessor
-`pkg-index-v16` namespace is fenced and is never reinterpreted.
+`pkg-index-v17` namespace is fenced and is never reinterpreted because v18
+broadens persisted tool classification to include `DotnetToolRidPackage`.
 
 ## Decision
 
@@ -308,7 +309,7 @@ projection is not published. A value that this cache cannot represent,
 including one whose treated-text provenance cannot be persisted, declines
 publication rather than invalidating an otherwise successful package
 inspection. A storage write failure likewise leaves the cold result usable and
-visible. The `pkg-index-v17` production outcome makes the predecessor's
+visible. The `pkg-index-v18` production outcome makes the predecessor's
 truncated-description exception a cache nonpublication instead of a package
 failure:
 [#3787](https://github.com/richlander/dotnet-inspect/issues/3787) continues to
@@ -416,7 +417,7 @@ keeps that broader reuse honest without turning the cache into an authority.
 
 `PackageInspector` freezes a `PackageIndexCacheSubject` before lookup from the
 durable configured-authority key, normalized acquired coordinate,
-acquisition-issued SHA-256 digest, and `pkg-index-v17` projection identity. The
+acquisition-issued SHA-256 digest, and `pkg-index-v18` projection identity. The
 digest callback has a finite budget equal to the already-enforced admitted
 archive limit. Missing authority or digest evidence takes the ordinary cold
 path; no producer-key fallback exists.

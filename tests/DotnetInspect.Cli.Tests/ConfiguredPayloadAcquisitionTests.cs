@@ -919,7 +919,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
-    public async Task PackageCommand_DeclaredToolUsesAggregateToolMeasurements()
+    public async Task PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm()
     {
         string id = $"Pinned.ToolMeasurements.{Guid.NewGuid():N}";
         byte[] archive = CreateToolPackage(
@@ -940,21 +940,25 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 () => new ByteArrayContent(archive),
                 requests));
 
-        var (exit, output, error) = await RunCommandAsync(
-            ["package", $"{id}@{Version}", "--source", FirstFeed,
-                "-S", "Package Info", "--tfm", "all", "--tips", "q"]);
+        for (int run = 0; run < 2; run++)
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tfm", "all", "--tips", "q"]);
 
-        Assert.True(exit == 0, $"Exit {exit}: {error}");
-        Assert.Contains("| Type | Tool |", output);
-        Assert.Contains("| Selected TFM | net10.0 |", output);
-        Assert.Contains("| Selected-TFM Folders | tools |", output);
-        Assert.Contains("| TFM Count | 2 |", output);
-        Assert.Contains("| Selected-TFM Size | 28 B |", output);
-        Assert.Contains("| Selected-TFM Library Count | 2 |", output);
-        Assert.DoesNotContain("| Selected-TFM Status |", output);
-        Assert.Empty(error);
+            Assert.True(exit == 0, $"Exit {exit}: {error}");
+            Assert.Contains("| Type | Tool |", output);
+            Assert.Contains("| Selected TFM | net10.0 |", output);
+            Assert.Contains("| Selected-TFM Folders | tools |", output);
+            Assert.Contains("| TFM Count | 2 |", output);
+            Assert.Contains("| Selected-TFM Size | 28 B |", output);
+            Assert.Contains("| Selected-TFM Library Count | 2 |", output);
+            Assert.DoesNotContain("| Selected-TFM Status |", output);
+            Assert.Empty(error);
+        }
+
         Assert.Equal(
-            1,
+            2,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }

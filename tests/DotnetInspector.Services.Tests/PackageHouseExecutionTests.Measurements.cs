@@ -331,6 +331,75 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
+    public async Task ToolDeclarationAcceptsSchemaMetadataUnderNamespaceFreeRoot()
+    {
+        const string Schema =
+            "http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd";
+        byte[] archive = CreateDeclaredToolArchiveFromNuspec(
+            $"""
+            <package>
+              <metadata xmlns="{Schema}">
+                <id>{MaterializedPackageId}</id>
+                <version>{Version}</version>
+                <packageTypes>
+                  <packageType name="DotnetToolRidPackage" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """,
+            ("tools/net10.0/any/Tool.dll", []));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+
+        PackageToolDeclarationEvidence declaration =
+            Assert.IsType<PackageToolDeclarationEvidence>(
+                await PackageToolDeclarationEvidence.TryCreateAsync(
+                    payload,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal("DotnetToolRidPackage", declaration.PackageType);
+    }
+
+    [Fact]
+    public async Task ToolDeclarationRejectsForeignNuspecNamespace()
+    {
+        byte[] archive = CreateDeclaredToolArchiveFromNuspec(
+            $"""
+            <package xmlns="urn:foreign">
+              <metadata>
+                <id>{MaterializedPackageId}</id>
+                <version>{Version}</version>
+                <packageTypes>
+                  <packageType name="DotnetTool" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """,
+            ("tools/net10.0/any/Tool.dll", []));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+
+        Assert.Null(
+            await PackageToolDeclarationEvidence.TryCreateAsync(
+                payload,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ToolDeclarationRejectsMismatchedManifestCoordinate()
     {
         var content = new InMemoryPackageContent(
@@ -908,6 +977,18 @@ public sealed partial class PackageHouseExecutionTests
             """);
         return TestPackageArchive.CreateWithContent(
             [($"{packageId}.nuspec", nuspec), .. entries]);
+    }
+
+    private static byte[] CreateDeclaredToolArchiveFromNuspec(
+        string nuspec,
+        params (string Path, byte[] Content)[] entries)
+    {
+        return TestPackageArchive.CreateWithContent(
+            [
+                ($"{MaterializedPackageId}.nuspec",
+                    Encoding.UTF8.GetBytes(nuspec)),
+                .. entries,
+            ]);
     }
 
     private sealed class ArchiveOnlyPackageContent(
