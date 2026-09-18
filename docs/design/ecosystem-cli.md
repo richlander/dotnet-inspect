@@ -61,7 +61,7 @@ organize the selected route; they do not select or change focus.
 
 `@Ecosystem` is the base category and contains every section available after
 focus is resolved. Catalog-wide and ordinary focused routes therefore have six
-members; the focused `.NET` route has the same focused members plus
+members; the focused `.NET Runtime` route has the same focused members plus
 `Pruning`.
 
 `Integrations` is an exact section. It does not change focus and does not turn

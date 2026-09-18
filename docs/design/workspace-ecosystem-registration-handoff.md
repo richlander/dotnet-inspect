@@ -123,9 +123,9 @@ discovery-oriented command or Spotlight selection
 The declaration added by this slice carries the inert information needed at the
 second step. For example, the ASP.NET Core declaration can retain its concrete
 package roots, Platform population, and `Microsoft.AspNetCore.` package-prefix
-population, while the .NET declaration retains the .NET runtime population
-and `System.` package-prefix population. Later consumers can select those
-exact contributions without importing the application catalog or
+population, while the .NET Runtime declaration retains the .NET runtime
+population and `System.` package-prefix population. Later consumers can select
+those exact contributions without importing the application catalog or
 reconstructing them from display text.
 
 The handoff does not decide that the discovery operation should be curated,
@@ -442,9 +442,9 @@ Aspire is absent from platform curation and present in all-known construction.
 Its `Aspire.Hosting` registered root and exact Integration-owned scanner binding
 are retained alongside the prefix. This supports the real
 `Aspire.Hosting.Redis` scenario without resolving that package or invoking the
-scanner. .NET retains its runtime declaration and inert `System.` discovery
-prefix for scenarios such as `System.Text.Json`, without inventing a package
-coordinate for the framework library.
+scanner. .NET Runtime retains its runtime declaration and inert `System.`
+discovery prefix for scenarios such as `System.Text.Json`, without inventing a
+package coordinate for the framework library.
 
 AI is also absent from platform curation and present in all-known construction.
 Its five concrete registered packages supply finite traversal roots. Its four
