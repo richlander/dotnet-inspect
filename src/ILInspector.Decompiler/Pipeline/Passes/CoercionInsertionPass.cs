@@ -353,6 +353,9 @@ public static class CoercionSinks
                 case PointerElementCompoundAssignment assignment:
                     yield return new(assignment.Value, assignment.ElementType);
                     break;
+                case PointerCompoundAssignment assignment:
+                    yield return new(assignment.Index, TypeRef.CoreLib("System", "Int32"));
+                    break;
                 case NullCoalescingAssignment { Value: { } value, LocalType: { } type }:
                     yield return new(value, type);
                     break;

@@ -26,6 +26,25 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public static class PlaceIdentity
 {
+    internal static bool SamePlace(IrExpression? left, IrExpression? right)
+        => (left, right) is (null, null) || SameVariable(left, right);
+
+    internal static bool SameLValue(IrExpression? left, IrExpression? right)
+        => (left, right) is (null, null)
+            || SameOperand(left, right)
+            || (left, right) switch
+            {
+                (LoadField x, LoadField y) => x.Field.Name == y.Field.Name
+                    && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
+                (LoadFieldAddress x, LoadFieldAddress y) => x.Field.Name == y.Field.Name
+                    && Equals(x.Field.DeclaringType, y.Field.DeclaringType) && SameLValue(x.Instance, y.Instance),
+                (FixedBufferElementAddress x, FixedBufferElementAddress y) => x.BufferField.Name == y.BufferField.Name
+                    && Equals(x.BufferField.DeclaringType, y.BufferField.DeclaringType)
+                    && SameLValue(x.Instance, y.Instance) && SameLValue(x.Index, y.Index),
+                (LoadElementAddress x, LoadElementAddress y) => SameLValue(x.Array, y.Array) && SameLValue(x.Index, y.Index),
+                _ => false,
+            };
+
     /// <summary>
     /// Two reads of the same variable — a local, an argument, or <c>this</c>
     /// (argument 0). The atomic re-evaluation every fold relies on: a bare
