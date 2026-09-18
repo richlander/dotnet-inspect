@@ -32,10 +32,10 @@ column projection under `--json`. `project` also rejects projection, while
 `library`, `package`, `timeline`, `implements`, and `extensions` reject
 otherwise-unclaimed `--json --fields/--columns` requests at the typed-document
 serializer boundary. Discovery owns projected JSON for its `Name`/`Kind` row
-schema under the lens contract; unadopted lens routes such as
-`library --il-offsets` reject. New command families adopt
-this contract individually rather than treating the existing formatter as
-evidence that every section or route is correct.
+schema under the lens contract; unadopted lens routes such as `library
+coordinate --file` and transitional `library --il-offsets` reject. New command
+families adopt this contract individually rather than treating the existing
+formatter as evidence that every section or route is correct.
 
 The pilots do not yet satisfy the full contract. In particular, the current
 global rendered-line limiter can truncate their lowered JSON, section and field
