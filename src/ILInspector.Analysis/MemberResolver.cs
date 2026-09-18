@@ -141,6 +141,28 @@ internal static class MemberResolver
         MetadataReader reader,
         GenericParameterHandleCollection parameters,
         int signatureCount)
+        => HasExactGenericParametersCore(
+            reader,
+            parameters,
+            signatureCount,
+            reserveRow: null);
+
+    internal static bool HasExactGenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection parameters,
+        int signatureCount,
+        Action reserveRow)
+        => HasExactGenericParametersCore(
+            reader,
+            parameters,
+            signatureCount,
+            (Action?)reserveRow);
+
+    static bool HasExactGenericParametersCore(
+        MetadataReader reader,
+        GenericParameterHandleCollection parameters,
+        int signatureCount,
+        Action? reserveRow)
     {
         if (parameters.Count != signatureCount)
             return false;
@@ -148,6 +170,7 @@ internal static class MemberResolver
         int expectedIndex = 0;
         foreach (GenericParameterHandle handle in parameters)
         {
+            reserveRow?.Invoke();
             if (reader.GetGenericParameter(handle).Index
                 != expectedIndex++)
             {

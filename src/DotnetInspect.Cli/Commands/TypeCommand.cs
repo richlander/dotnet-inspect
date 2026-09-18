@@ -572,7 +572,8 @@ public static class TypeCommand
                         var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
-                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly);
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
+                            sourceClient: context.HttpClient);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -582,7 +583,8 @@ public static class TypeCommand
                     {
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
-                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly);
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
+                            sourceClient: context.HttpClient);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
