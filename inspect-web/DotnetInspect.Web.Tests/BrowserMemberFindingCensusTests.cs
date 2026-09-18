@@ -1,4 +1,6 @@
 using System.Text.Json;
+using DotnetInspector.Queries;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -12,6 +14,224 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed class BrowserMemberFindingCensusTests
 {
+    [Fact]
+    public void CalleeDocumentProjection_DeduplicatesOnlyCompleteMethodIdentity()
+    {
+        AnnotatedSourceDocument document = CalleeDocument();
+        MethodIdentity first = Method(Guid.Parse(
+            "11111111-1111-1111-1111-111111111111"));
+        MethodIdentity secondPhysicalBody = Method(Guid.Parse(
+            "22222222-2222-2222-2222-222222222222"));
+        AssemblyMemberFindingEvidence[] evidence =
+        [
+            Evidence(0, first, document),
+            Evidence(1, first, document),
+            Evidence(2, secondPhysicalBody, document),
+        ];
+
+        BrowserCalleeEvidenceDocumentProjectionResult projected =
+            BrowserCalleeEvidenceDocumentProjection.Project(evidence);
+
+        Assert.Equal(2, projected.Documents.Length);
+        Assert.Equal(0, projected.Admissions[first].DocumentId);
+        Assert.Equal(
+            1,
+            projected.Admissions[secondPhysicalBody].DocumentId);
+        BrowserCalleeEvidenceDocumentReference unavailable =
+            BrowserCalleeEvidenceDocumentProjection.Reference(
+                Evidence(3, first, document: null) with
+                {
+                    UnavailableReason = "Instruction coordinates unavailable.",
+                },
+                projected);
+        Assert.Null(unavailable.DocumentId);
+        Assert.Empty(unavailable.NodeIds);
+    }
+
+    [Fact]
+    public void CalleeDocumentProjection_ReportsAggregateBudgetOmission()
+    {
+        AnnotatedSourceDocument document = CalleeDocument();
+        int documentCharacters =
+            BrowserAnnotatedSource.SerializeDocument(document)!.Value
+                .GetRawText()
+                .Length;
+        MethodIdentity first = Method(Guid.Parse(
+            "11111111-1111-1111-1111-111111111111"));
+        MethodIdentity second = Method(Guid.Parse(
+            "22222222-2222-2222-2222-222222222222"));
+
+        BrowserCalleeEvidenceDocumentProjectionResult projected =
+            BrowserCalleeEvidenceDocumentProjection.Project(
+                [
+                    Evidence(0, first, document),
+                    Evidence(1, second, document),
+                ],
+                documentCharacters);
+
+        Assert.Single(projected.Documents);
+        Assert.NotNull(projected.Admissions[first].DocumentId);
+        Assert.Null(projected.Admissions[second].DocumentId);
+        Assert.Contains(
+            "aggregate Browser/Wasm document limit",
+            projected.Admissions[second].UnavailableReason);
+        BrowserCalleeEvidenceDocumentReference reference =
+            BrowserCalleeEvidenceDocumentProjection.Reference(
+                Evidence(1, second, document) with
+                {
+                    NodeIds = [0],
+                    UnavailableReason = "Original correspondence failure.",
+                },
+                projected);
+        Assert.Null(reference.DocumentId);
+        Assert.Empty(reference.NodeIds);
+        Assert.Contains(
+            "aggregate Browser/Wasm document limit",
+            reference.UnavailableReason);
+        Assert.Contains(
+            "Original correspondence failure.",
+            reference.UnavailableReason);
+    }
+
+    [Fact]
+    public void CalleeDocumentProjection_OrdersAdmissionByFirstFindingOccurrence()
+    {
+        AnnotatedSourceDocument document = CalleeDocument();
+        int documentCharacters =
+            BrowserAnnotatedSource.SerializeDocument(document)!.Value
+                .GetRawText()
+                .Length;
+        MethodIdentity first = Method(Guid.Parse(
+            "11111111-1111-1111-1111-111111111111"));
+        MethodIdentity second = Method(Guid.Parse(
+            "22222222-2222-2222-2222-222222222222"));
+        AssemblyMemberFindingEvidence firstUnavailable =
+            Evidence(0, first, document: null) with
+            {
+                UnavailableReason = "Instruction coordinates unavailable.",
+            };
+
+        BrowserCalleeEvidenceDocumentProjectionResult projected =
+            BrowserCalleeEvidenceDocumentProjection.Project(
+                [
+                    firstUnavailable,
+                    Evidence(1, second, document),
+                    Evidence(2, first, document),
+                ],
+                documentCharacters);
+
+        Assert.Single(projected.Documents);
+        Assert.Equal(0, projected.Admissions[first].DocumentId);
+        Assert.Null(projected.Admissions[second].DocumentId);
+        Assert.Null(
+            BrowserCalleeEvidenceDocumentProjection.Reference(
+                firstUnavailable,
+                projected).DocumentId);
+    }
+
+    [Fact]
+    public void CalleeDocumentProjection_RejectsOneIdentityWithDifferentDocuments()
+    {
+        MethodIdentity member = Method(Guid.Parse(
+            "11111111-1111-1111-1111-111111111111"));
+        AnnotatedSourceDocument first = CalleeDocument();
+        var second = new AnnotatedSourceDocument(
+            "stackalloc int[2]",
+            first.Nodes,
+            first.Regions,
+            first.Facts,
+            first.Targets);
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(() =>
+                BrowserCalleeEvidenceDocumentProjection.Project(
+                    [
+                        Evidence(0, member, first),
+                        Evidence(1, member, second),
+                    ]));
+
+        Assert.Contains("inconsistent source documents", error.Message);
+    }
+
+    [Fact]
+    public void SharedDocumentTable_GrowthTracksUniqueDocumentsNotFindingCount()
+    {
+        const int FindingCount = 64;
+        var descriptor = new AnnotationDescriptor(
+            "safety.callee",
+            AnnotationCategory.Unsafety,
+            "callee safety");
+        ResearchViews.MemberProjectionResult projection = Project(
+            new ResearchFactRegistry(
+                new TestProducer(
+                [
+                    .. Enumerable.Range(0, FindingCount).Select(_ =>
+                        Finding(new Annotation(
+                            descriptor,
+                            SourceOffset: 0))),
+                ])));
+        ResearchViews.AnnotatedSourceFactIdentity[] identities =
+        [
+            .. Assert.IsAssignableFrom<
+                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                    projection.SourceDocumentFactIdentities),
+        ];
+        JsonElement document = BrowserAnnotatedSource
+            .SerializeDocument(CalleeDocument())!.Value;
+        BrowserAnnotatedSourceFindingEvidence[] sharedRows =
+        [
+            .. identities.Select(identity =>
+                new BrowserAnnotatedSourceFindingEvidence(
+                    identity.FactId,
+                    identity.InstanceKey.Value,
+                    "Example.Targets.Target()",
+                    Target(),
+                    [new(2, BrowserCalleeEvidenceKind.Localloc)],
+                    DocumentId: 0,
+                    [0],
+                    UnavailableReason: null)),
+        ];
+        BrowserAnnotatedSourceFindingEvidence[] uniqueRows =
+        [
+            .. sharedRows.Select((row, index) => row with
+            {
+                DocumentId = index,
+            }),
+        ];
+
+        BrowserMemberFindingCensus shared = Create(
+            projection,
+            sharedRows,
+            [new(0, document)]);
+        BrowserMemberFindingCensus unique = Create(
+            projection,
+            uniqueRows,
+            [
+                .. Enumerable.Range(0, FindingCount).Select(
+                    id =>
+                        new BrowserAnnotatedSourceFindingEvidenceDocument(
+                            id,
+                            document)),
+            ]);
+        string sharedJson = JsonSerializer.Serialize(
+            shared,
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
+        string uniqueJson = JsonSerializer.Serialize(
+            unique,
+            BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
+
+        Assert.Single(shared.AnnotatedSource.FindingEvidenceDocuments);
+        Assert.Equal(
+            FindingCount,
+            shared.AnnotatedSource.FindingEvidence.Length);
+        Assert.Equal(
+            FindingCount,
+            unique.AnnotatedSource.FindingEvidenceDocuments.Length);
+        Assert.True(
+            uniqueJson.Length - sharedJson.Length
+                > (FindingCount - 1) * document.GetRawText().Length);
+    }
+
     [Fact]
     public void Create_PreservesDisplayIdenticalResearchInstancesAndDocumentShape()
     {
@@ -201,14 +421,16 @@ public sealed class BrowserMemberFindingCensusTests
             "Example.Targets.Target()",
             Target(),
             [new(2, BrowserCalleeEvidenceKind.Localloc)],
-            calleeDocument,
+            DocumentId: 0,
             [0],
             UnavailableReason: null);
 
         BrowserMemberFindingCensus envelope = Create(
             projection,
-            [available]);
+            [available],
+            [new(0, calleeDocument)]);
         Assert.Single(envelope.AnnotatedSource.FindingEvidence);
+        Assert.Single(envelope.AnnotatedSource.FindingEvidenceDocuments);
 
         InvalidOperationException identityError =
             Assert.Throws<InvalidOperationException>(() =>
@@ -217,7 +439,8 @@ public sealed class BrowserMemberFindingCensusTests
                     [available with
                     {
                         InstanceKey = identity.InstanceKey.Value + 1,
-                    }]));
+                    }],
+                    [new(0, calleeDocument)]));
         Assert.Contains("invalid or duplicate fact identity", identityError.Message);
 
         InvalidOperationException outcomeError =
@@ -226,8 +449,9 @@ public sealed class BrowserMemberFindingCensusTests
                     projection,
                     [available with
                     {
-                        Document = null,
-                    }]));
+                        DocumentId = null,
+                    }],
+                    []));
         Assert.Contains("requires a document", outcomeError.Message);
 
         InvalidOperationException staleUnavailableError =
@@ -239,7 +463,8 @@ public sealed class BrowserMemberFindingCensusTests
                         NodeIds = [],
                         UnavailableReason =
                             "No unique callee source node.",
-                    }]));
+                    }],
+                    [new(0, calleeDocument)]));
         Assert.Contains(
             "unavailable despite exact serialized correspondence",
             staleUnavailableError.Message);
@@ -257,7 +482,8 @@ public sealed class BrowserMemberFindingCensusTests
                 NodeIds = [],
                 UnavailableReason =
                     "No unique callee source node.",
-            }]);
+            }],
+            [new(0, calleeDocument)]);
         Assert.Single(unavailableEnvelope.AnnotatedSource.FindingEvidence);
 
         JsonElement reverseOrderDocument = JsonSerializer.SerializeToElement(
@@ -293,9 +519,9 @@ public sealed class BrowserMemberFindingCensusTests
                     new(2, BrowserCalleeEvidenceKind.Localloc),
                     new(9, BrowserCalleeEvidenceKind.Localloc),
                 ],
-                Document = reverseOrderDocument,
                 NodeIds = [0, 1],
-            }]);
+            }],
+            [new(0, reverseOrderDocument)]);
         Assert.Equal(
             [0, 1],
             Assert.Single(
@@ -328,9 +554,9 @@ public sealed class BrowserMemberFindingCensusTests
                     new(2, BrowserCalleeEvidenceKind.Localloc),
                     new(9, BrowserCalleeEvidenceKind.Localloc),
                 ],
-                Document = sharedNodeDocument,
                 NodeIds = [0],
-            }]);
+            }],
+            [new(0, sharedNodeDocument)]);
         Assert.Equal(
             [0],
             Assert.Single(
@@ -349,7 +575,8 @@ public sealed class BrowserMemberFindingCensusTests
                                 3,
                                 BrowserCalleeEvidenceKind.Localloc),
                         ],
-                    }]));
+                    }],
+                    [new(0, calleeDocument)]));
         Assert.Contains("matches 0", offsetError.Message);
 
         JsonElement secondCalleeDocument = JsonSerializer.SerializeToElement(
@@ -382,14 +609,14 @@ public sealed class BrowserMemberFindingCensusTests
                     projection,
                     [available with
                     {
-                        Document = secondCalleeDocument,
                         NodeIds = [1],
-                    }]));
+                    }],
+                    [new(0, secondCalleeDocument)]));
         Assert.Contains("do not equal", nodeIdentityError.Message);
 
         InvalidOperationException coverageError =
             Assert.Throws<InvalidOperationException>(() =>
-                Create(projection, []));
+                Create(projection, [], []));
         Assert.Contains("does not cover every", coverageError.Message);
     }
 
@@ -405,7 +632,9 @@ public sealed class BrowserMemberFindingCensusTests
 
     static BrowserMemberFindingCensus Create(
         ResearchViews.MemberProjectionResult projection,
-        BrowserAnnotatedSourceFindingEvidence[] findingEvidence)
+        BrowserAnnotatedSourceFindingEvidence[] findingEvidence,
+        BrowserAnnotatedSourceFindingEvidenceDocument[]
+            findingEvidenceDocuments)
         => BrowserMemberFindingCensus.Create(
             projection.FactCensusReceipt,
             projection.Facts,
@@ -413,6 +642,7 @@ public sealed class BrowserMemberFindingCensusTests
             projection.SourceDocumentFactIdentities,
             new InertString(TextPolicy.Field, "test provenance"),
             contextLimitation: null,
+            findingEvidenceDocuments: findingEvidenceDocuments,
             findingEvidence: findingEvidence);
 
     static BrowserCallGraphTarget Target() =>
@@ -434,6 +664,49 @@ public sealed class BrowserMemberFindingCensusTests
             "method",
             PlatformPack: null,
             "compile:ref/net11.0/Example.dll");
+
+    static AnnotatedSourceDocument CalleeDocument() =>
+        new(
+            "stackalloc int[1]",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "StackAllocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 17)],
+                    Provenance:
+                        new AnnotatedSourceNodeProvenance([2])),
+            ],
+            [],
+            [],
+            []);
+
+    static MethodIdentity Method(Guid moduleVersionId) =>
+        new(
+            "Example",
+            moduleVersionId,
+            ILInspector.Analysis.TypeRef.Definition(
+                "Example",
+                "Example",
+                "Targets"),
+            "Target",
+            [],
+            ILInspector.Analysis.TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+
+    static AssemblyMemberFindingEvidence Evidence(
+        int factId,
+        MethodIdentity member,
+        AnnotatedSourceDocument? document) =>
+        new(
+            factId,
+            default,
+            member,
+            Coordinates: [],
+            document,
+            NodeIds: [],
+            UnavailableReason: "test");
 
     static ResearchViews.MemberProjectionResult Project(
         ResearchFactRegistry registry)

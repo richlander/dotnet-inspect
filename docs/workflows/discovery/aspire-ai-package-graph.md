@@ -24,7 +24,7 @@ status: locked-demo
 | Need | Choice |
 | ---- | ------ |
 | Dual lens | Type `IChatClient` ↔ provider packages |
-| Arc richness | `Integration: AI`, `AsIChatClient`, package boundary |
+| Arc richness | AI integration, `AsIChatClient`, package boundary |
 | Real ecosystems | OpenAI, Bedrock, Azure opportunity — not one vendor |
 | Honest substrate | Members/adapters underneath; no fake edges from Aspire hosting |
 | Tool flex | `type`, `implements`, `library -S Integration`, `member` CG, later one graph |
@@ -44,7 +44,7 @@ lock. See [Related demos](#related-demos-not-locked).
 | Azure SDK (opportunity / refs) | `Azure.AI.OpenAI` | 2.1.0 |
 
 **Hub type:** `Microsoft.Extensions.AI.IChatClient`  
-**Hero arcs (target spelling):** `AsIChatClient` · `Integration: AI`  
+**Hero arcs (target spelling):** `AsIChatClient` · AI integration
 **Hero seeds (works-now CG):**
 
 - `OpenAIClientExtensions.AsIChatClient` (ChatClient overload)
@@ -138,11 +138,11 @@ Microsoft.Extensions.AI.Abstractions
 
 ```bash
 dotnet-inspect library Microsoft.Extensions.AI.OpenAI@10.9.0 \
-  -S "Integration: AI" -v:n
+  -S Integrations --where "integration=integration.ai" -v:n
 ```
 
 ```expect
-Integration: AI
+Integrations
 ```
 
 ```expect
@@ -151,7 +151,7 @@ AsIChatClient
 
 ```bash
 dotnet-inspect library AWSSDK.Extensions.Bedrock.MEAI@4.0.101.8 \
-  -S "Integration: AI" -v:n
+  -S Integrations --where "integration=integration.ai" -v:n
 ```
 
 ```expect
@@ -160,7 +160,7 @@ AsIChatClient
 
 ```bash
 dotnet-inspect library Azure.AI.OpenAI@2.1.0 \
-  -S "Integration: Opportunities" -v:n
+  -S "Integration Opportunities" -v:n
 ```
 
 ```expect

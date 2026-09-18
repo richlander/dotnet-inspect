@@ -230,11 +230,12 @@ state supplies a second analogy for composing durable Workspace and view intent
 without serializing rendered results. These analogies support the separation;
 they do not transfer another system's schema or lifecycle.
 
-The current CLI does not satisfy this target. It constructs one ephemeral
-realization, renders the typed top-level inventory, optionally enters Package
-Navigation, and exits. Direct registration construction is non-projectable, and
-the current packet grammar cannot represent every supported top-level
-registration.
+The CLI resource-free authoring path is implemented under #7427. Direct
+Package and registration inputs produce one schema-version-3 definition and
+canonical format-3 packet or URL; canonical packet and exact Inspect Web URL
+input re-emits the same durable value without realization. The default
+inventory and optional Package Navigation paths remain realization-backed
+transitional behavior when durable output is not requested.
 
 ### Definition, plan, and realization
 
@@ -643,7 +644,8 @@ Implementation proceeds in focused slices:
    contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
    definition, support packet/URL input, and emit packet/URL output without
-   realization when no transformation needs it.
+   realization when no transformation needs it. Implemented under
+   [#7427](https://github.com/richlander/dotnet-inspect/issues/7427).
 4. **Portable enrichment.** Add one real realization-backed transformation,
    “make Package dependencies explicit/top-level,” using a nuget.org package
    with deterministic direct dependencies and proving context-preserving
@@ -1034,6 +1036,12 @@ Universe, Integration, host rendering, navigation, acquisition, or execution
 claim.
 
 ### Complete committed views
+
+[Portable active descendant views](portable-active-descendant-views.md) defines
+the target schema-version-4/packet-format-4 extension under #7475. It adds
+explicit active Library, Type and Member requests without reinterpreting the
+version-2/3 subject tags specified here. Its implementation and host adoption
+remain unverified.
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
@@ -1783,8 +1791,9 @@ workspace only after selection and any graph rendering succeed. Failure or
 supersession publishes no partial replacement. These frontend boundaries are
 gated by `product-home-demos.test.ts`,
 `saved-workspace-navigation.test.ts`, the home-demo source contract in
-`spotlight-identity.test.ts`, and the package/Platform Methods and Call Graph
-production-composition cases in `library-hierarchy.spec.ts`.
+`composition-root-workspace-navigation.test.ts`, and the package/Platform
+Methods and Call Graph production-composition cases in
+`library-hierarchy.spec.ts`.
 
 The System.Text.Json and Microsoft.Extensions migrations are gated by two
 independent exact facts: `PlatformPrunePolicy` reports that each former package

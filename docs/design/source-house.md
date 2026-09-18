@@ -24,8 +24,9 @@ It does not redefine PackageHouse, PlatformHouse, Workspace, artifact, PDB,
 SourceLink interpretation, source-fetch transport, or decompiler internals.
 Their adoption remains separately reviewed through the tracker.
 
-The first production consumer is Inspect Web package type/member Source. The
-CLI and Browser/Wasm hosts then converge on the same SourceHouse contract.
+The first production consumer is the shared selected-member source pair for
+CLI and Browser/Wasm, adopted under #7448. Ordinary Inspect Web package
+type/member Source remains a later consumer of the full SourceHouse contract.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
@@ -33,7 +34,9 @@ The current production implementation is `AssemblyContextSourceQuery`, which
 resolves an exact member or type, attempts PDB-mapped source, and falls back to
 `CSharpDecompilerService`. `PdbSourceHouse` currently owns PDB-specific source
 candidate ordering; SourceLinkService owns checksum verification and decoding.
-These are migration evidence, not the target public composition boundary.
+These ordinary-query paths are migration evidence, not the target public
+composition boundary. The selected-member source pair now uses the authored
+House operation through its existing shared envelope.
 
 ### Authored settlement delivery
 
@@ -110,8 +113,9 @@ settlement.
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
 its callers. The four-delivery adapter-first path and overall twelve-step
-plan below still require both CLI and Browser/Wasm consumers of a shared
-completed `InspectionEnvelope<TContent>` API.
+plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
+cutover in #7448 supplies the first shared completed
+`InspectionEnvelope<TContent>` adoption, not full source-policy retirement.
 
 The motivating real repository input for this delivery is
 [`richlander/dotnet-inspect`](https://github.com/richlander/dotnet-inspect):
@@ -749,7 +753,8 @@ The immediate delivery path is the merged adapter in
 [#7313](https://github.com/richlander/dotnet-inspect/pull/7313), the authored
 settlement core in #7356, supplied-PDB adapter admission in
 [#7439](https://github.com/richlander/dotnet-inspect/issues/7439), and the shared
-member-source-pair cutover through its existing completed
+member-source-pair cutover in
+[#7448](https://github.com/richlander/dotnet-inspect/issues/7448) through its existing completed
 `InspectionEnvelope<TContent>` for CLI and Browser/Wasm. These four deliveries
 reach the first production consumers without combining the adapter's companion
 contract with query adoption. The last delivery retires only the composition
