@@ -121,24 +121,63 @@ project to a release workflow. Internal libraries remain non-packable and
 non-publishable, and may still generate XML documentation in their own build
 outputs. `PackagingSurfaceTests` pins both defaults and the tool census.
 
+## Release-note intake and handoff
+
+`src/DotnetInspect.Cli/release-notes.md` is a release-preparation artifact.
+Ordinary feature and fix PRs do not edit it. Instead, `AGENTS.md` names the
+current release tracker, and each user-observable change adds a short comment
+there with its implementing PR or stack link.
+
+A tracker is an append-only candidate ledger, not a release manifest. The exact
+shipped commit defines release membership. Do not move or delete entries to
+make an issue look like the final release contents.
+
+Prepare the notes and hand off intake as follows:
+
+1. Create the successor release tracker before finalizing the outgoing release.
+   Give it the same candidate-ledger and SHA-boundary explanation.
+2. Update the tracker link and actual issue number in `AGENTS.md`. New changes
+   now report to the successor while release preparation continues.
+3. Write the outgoing release notes from the candidate comments and linked
+   implementations on both the outgoing and successor trackers. Include a
+   change only when its implementation is after the previous release commit
+   and is an ancestor of the proposed release commit; tracker placement never
+   decides membership.
+4. Commit the notes, then select the exact release SHA. Recheck the linked
+   implementations from both trackers against that SHA. If the selected history
+   and notes disagree, correct the notes and select the replacement commit
+   before dispatching.
+5. After every coordinated release surface succeeds, comment on the successor
+   tracker with the released version, release URL, and full shipped SHA. State
+   that changes at or before that commit shipped in the completed release and
+   later changes remain candidates for the successor. Naming individual entries
+   that crossed the issue boundary is optional.
+6. Close the outgoing tracker only after that successor-boundary comment exists.
+
+Publication retries retain the same tracker handoff and release boundary. Do
+not create another successor or post a successful boundary until the coordinated
+release is complete.
+
 ## Prerequisites
 
 Before dispatching a release:
 
-1. Select a successful CI run for the exact commit to publish.
-2. Select a successful Deep Inspect `test` run completed within the last 36
+1. Complete the release-note intake handoff and select the exact commit whose
+   history agrees with the prepared notes.
+2. Select a successful CI run for that exact commit.
+3. Select a successful Deep Inspect `test` run completed within the last 36
    hours. Prefer an exact-SHA match.
-3. Select the successful `deploy-inspect-web.yml` run for the exact commit to
+4. Select the successful `deploy-inspect-web.yml` run for the exact commit to
    publish. Use its main-push run by default. A person may authorize a manual
    main staging run as an explicit exception.
-4. Compare the CI and staging runs' full 40-character `head_sha` values. Stop
+5. Compare the CI and staging runs' full 40-character `head_sha` values. Stop
    if they differ.
-5. If publishing a later commit, review every intervening commit and decide
+6. If publishing a later commit, review every intervening commit and decide
    whether carrying the ancestor's certification is justified.
-6. Confirm that the commit contains the intended `VersionPrefix` and release
+7. Confirm that the commit contains the intended `VersionPrefix` and release
    notes.
-7. Confirm that the version has not already been published.
-8. Reconcile the shipped documentation with what the release actually does —
+8. Confirm that the version has not already been published.
+9. Reconcile the shipped documentation with what the release actually does —
    see [Shipped documentation](#shipped-documentation).
 
 ## Shipped documentation

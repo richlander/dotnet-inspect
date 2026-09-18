@@ -15,6 +15,36 @@ A release is one exact `(commit SHA, VersionPrefix)` pair shared by the NuGet
 packages, GitHub release, `https://dotnet-inspect.net`, and the CoreCLR
 comparison site. Never advance only the packages or only one site.
 
+## Prepare release notes and hand off intake
+
+Read the current release tracker from `AGENTS.md`. It is a candidate ledger, not
+a release manifest; the exact shipped SHA decides which changes shipped.
+
+Before selecting the outgoing release commit:
+
+1. Create the successor release tracker with the same intake instructions:
+   comments briefly describe user-observable changes and link their implementing
+   PR or stack.
+2. Update `AGENTS.md` to name and link the successor's actual issue number.
+   Ordinary change PRs now report there instead of editing
+   `src/DotnetInspect.Cli/release-notes.md`.
+3. Write the outgoing release notes from the candidate comments and linked
+   implementations on both the outgoing and successor trackers. Include only
+   changes implemented after the previous release commit and at or before the
+   proposed release commit. Issue placement never determines membership.
+4. Land the release-preparation change, select its exact release SHA, and
+   recheck every linked implementation from both trackers against that SHA. If
+   the history and notes disagree, correct the notes and select the replacement
+   commit before dispatching.
+
+After packages, the GitHub release, production, and CoreCLR all succeed, comment
+on the successor tracker with the released version, release URL, and full
+shipped SHA. State that changes at or before that commit shipped in the
+completed release and later changes remain candidates for the successor.
+Listing individual entries that crossed the issue boundary is optional. Close
+the outgoing tracker only after posting this boundary. A retry retains the same
+trackers and must not claim success early.
+
 ## Collect the release evidence
 
 From `main`, collect:
