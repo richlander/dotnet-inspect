@@ -4,7 +4,7 @@ using NuGet.Frameworks;
 namespace DotnetInspector.Queries;
 
 /// <summary>Creates canonical NuGet framework identity without repairing target-plus-RID text.</summary>
-public static class NuGetTargetFrameworkIdentity
+static class NuGetTargetFrameworkIdentity
 {
     public static bool TryNormalize(string source, out string canonical)
     {

@@ -525,20 +525,10 @@ public static class WorkspacePackageDependencyEnrichmentInspection
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(id, version);
-        string? normalizedFramework = null;
-        if (framework is not null
-            && !NuGetTargetFrameworkIdentity.TryNormalize(
-                framework,
-                out normalizedFramework))
-        {
-            throw new InvalidOperationException(
-                "Prepared Package targets must use a recognized target framework.");
-        }
-
         return new(
             coordinate.PackageId,
             coordinate.Version,
-            normalizedFramework,
+            framework?.ToLowerInvariant(),
             runtimeIdentifier?.ToLowerInvariant());
     }
 
