@@ -433,8 +433,8 @@ internal sealed class DependencyEvidenceSourceTokens
 {
     private readonly Dictionary<PackageSourceAssociation, int> _tokens =
         new(AssociationComparer.Instance);
-    private readonly Dictionary<int, int> _evidenceTokens = [];
-    private readonly List<PackageDependencyEvidenceSourceIdentity>
+    private readonly Dictionary<EvidenceSourceKey, int> _evidenceTokens = [];
+    private readonly List<EvidenceSourceToken>
         _evidenceSources = [];
     private readonly Dictionary<
         PackageAcquisitionCandidateCorrespondence,
@@ -506,12 +506,28 @@ internal sealed class DependencyEvidenceSourceTokens
         ArgumentNullException.ThrowIfNull(association);
         if (_tokens.TryGetValue(association, out int token))
             return token;
-        PackageDependencyEvidenceSourceIdentity? evidence =
-            _evidenceSources.FirstOrDefault(source =>
-                source.MatchesRuntimeAssociation(association));
-        token = evidence is null
-            ? ++_nextToken
-            : _evidenceTokens[evidence.Association];
+        List<EvidenceSourceToken> matches =
+        [
+            .. _evidenceSources.Where(entry =>
+                entry.Source.MatchesRuntimeAssociation(association)),
+        ];
+        if (matches.Count == 0)
+        {
+            token = ++_nextToken;
+        }
+        else
+        {
+            token = matches[0].Token;
+            if (matches.Any(entry => entry.Token != token)
+                || _evidenceSources.Any(entry =>
+                    entry.Token == token
+                    && !entry.Source.MatchesRuntimeAssociation(association)))
+            {
+                token = ++_nextToken;
+                foreach (EvidenceSourceToken match in matches)
+                    match.Token = token;
+            }
+        }
         _tokens[association] = token;
         return token;
     }
@@ -539,22 +555,47 @@ internal sealed class DependencyEvidenceSourceTokens
     {
         if (source is null)
             return 0;
-        if (_evidenceTokens.TryGetValue(source.Association, out int token))
-            return token;
-        token = 0;
         foreach (KeyValuePair<PackageSourceAssociation, int> runtime in
             _tokens)
         {
             if (!source.MatchesRuntimeAssociation(runtime.Key))
                 continue;
-            token = runtime.Value;
-            break;
+            _evidenceSources.Add(new EvidenceSourceToken(source, runtime.Value));
+            return runtime.Value;
         }
-        if (token == 0)
+
+        EvidenceSourceKey key = EvidenceSourceKey.Create(source);
+        if (!_evidenceTokens.TryGetValue(key, out int token))
+        {
             token = ++_nextToken;
-        _evidenceTokens[source.Association] = token;
-        _evidenceSources.Add(source);
+            _evidenceTokens[key] = token;
+        }
+        _evidenceSources.Add(new EvidenceSourceToken(source, token));
         return token;
+    }
+
+    private readonly record struct EvidenceSourceKey(
+        int Association,
+        string ProducerKey,
+        string PortableProducerKey,
+        PackageSourceKind TransportKind)
+    {
+        public static EvidenceSourceKey Create(
+            PackageDependencyEvidenceSourceIdentity source) =>
+            new(
+                source.Association,
+                source.ProducerKey,
+                source.PortableProducerKey,
+                source.TransportKind);
+    }
+
+    private sealed class EvidenceSourceToken(
+        PackageDependencyEvidenceSourceIdentity source,
+        int token)
+    {
+        public PackageDependencyEvidenceSourceIdentity Source { get; } = source;
+
+        public int Token { get; set; } = token;
     }
 
     /// <summary>An association is reference identity; nothing about it is a comparable value.</summary>

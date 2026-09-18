@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
@@ -1189,23 +1190,18 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task PackageGraphJson_RetainsProjectionProvenance()
     {
-        string missing = CreateTemporaryDirectory();
-        string source = CreateTemporaryDirectory();
+        string rootSource = CreateTemporaryDirectory();
+        string dependencySource = CreateTemporaryDirectory();
         WriteLocalSourcePackage(
-            source,
+            rootSource,
             "Contoso.Root",
             "1.0.0",
             Dependency("Contoso.Child", "[1.0.0]"));
         WriteLocalSourcePackage(
-            source,
+            dependencySource,
             "Contoso.Child",
             "1.0.0",
             "");
-        File.WriteAllText(
-            Path.Combine(
-                missing,
-                "Contoso.Child.1.0.0.nupkg"),
-            "not a package archive");
 
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
@@ -1213,9 +1209,9 @@ public sealed class DependsAssetCommandTests
             "--package",
             "Contoso.Root@1.0.0",
             "--source",
-            missing,
+            rootSource,
             "--source",
-            source,
+            dependencySource,
             "-S",
             "Dependency Graph,Roots",
             "--json",
@@ -1252,11 +1248,30 @@ public sealed class DependsAssetCommandTests
             acquired.GetProperty("candidate")
                 .GetProperty("authorities")
                 .EnumerateArray());
-        Assert.True(
+        JsonElement acquiredSource =
             acquired.GetProperty("evidence")
-                .GetProperty("source")
-                .GetProperty("association")
-                .GetInt32() > 0);
+                .GetProperty("source");
+        JsonElement suppliedSource =
+            supplied.GetProperty("evidence")
+                .GetProperty("source");
+        string? acquiredProducer =
+            acquiredSource.GetProperty("producer_key").GetString();
+        int[] authorityAssociations =
+        [
+            .. acquired.GetProperty("candidate")
+                .GetProperty("authorities")
+                .EnumerateArray()
+                .Select(static authority =>
+                    authority.GetProperty("association").GetInt32()),
+        ];
+        int acquiredAssociation =
+            acquiredSource.GetProperty("association").GetInt32();
+        int suppliedAssociation =
+            suppliedSource.GetProperty("association").GetInt32();
+
+        Assert.NotEqual(suppliedAssociation, acquiredAssociation);
+        Assert.Contains(acquiredAssociation, authorityAssociations);
+        Assert.False(string.IsNullOrEmpty(acquiredProducer));
         Assert.Equal(
             "NoDependencyGroups",
             acquired.GetProperty("evidence")
@@ -1289,13 +1304,63 @@ public sealed class DependsAssetCommandTests
             acquired.GetProperty("evidence")
                 .TryGetProperty("declaration", out _));
         JsonElement root = document.RootElement.GetProperty("roots")[0];
-        Assert.True(
+        Assert.Equal(
+            suppliedAssociation,
             root.GetProperty("package_source")
                 .GetProperty("association")
-                .GetInt32() > 0);
+                .GetInt32());
         Assert.Equal(
             "ExpectedCoordinate",
             root.GetProperty("identity_provenance").GetString());
+    }
+
+    [Fact]
+    public void SourceTokens_CorrelateDocumentLocalOrdinalsByRuntimeSource()
+    {
+        using IPackageSourceClient first =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        using IPackageSourceClient second =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageDependencyEvidenceSourceIdentity firstEvidence =
+            EvidenceSource(first.Source);
+        PackageDependencyEvidenceSourceIdentity secondEvidence =
+            EvidenceSource(second.Source);
+        DependencyEvidenceSourceTokens tokens =
+            DependencyEvidenceSourceTokens.Create();
+
+        tokens.Reserve(firstEvidence);
+        tokens.Reserve(secondEvidence);
+        int firstRuntimeToken = tokens.Reserve(first.Source);
+        int secondRuntimeToken = tokens.Reserve(second.Source);
+
+        Assert.Equal(1, firstEvidence.Association);
+        Assert.Equal(1, secondEvidence.Association);
+        Assert.NotEqual(firstRuntimeToken, secondRuntimeToken);
+        Assert.Equal(firstRuntimeToken, tokens.Reserve(firstEvidence));
+        Assert.Equal(secondRuntimeToken, tokens.Reserve(secondEvidence));
+
+        static PackageDependencyEvidenceSourceIdentity EvidenceSource(
+            PackageSourceResultIdentity source)
+        {
+            PackageDependencyEvidenceRootFailure.PackageProfile failure =
+                PackageDependencyEvidenceQuery.CreatePackageProfileFailure(
+                    new PackageProfileFailure(
+                        "Example.Package",
+                        "1.0.0",
+                        source,
+                        PackageProfileFailureKind.SearchContract,
+                        "Search failed"));
+            PackageDependencyEvidenceOutcome outcome =
+                PackageDependencyEvidenceQuery.Execute(
+                    new PackageDependencyEvidenceRequest(
+                        [],
+                        [failure]));
+            return Assert.IsType<
+                PackageDependencyEvidenceRootFailure.PackageProfile>(
+                    Assert.Single(outcome.FailedRoots)).Source;
+        }
     }
 #endif
 
