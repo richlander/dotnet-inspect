@@ -182,8 +182,10 @@ dump, or trace format parsers.
 The intentionally breaking placement change is complete. Ordinary `library`
 help and parsing no longer expose the three parent options, and the
 rejection-only guard reports the corresponding `library coordinate`
-replacement for separated and inline spellings. It does not forward, bind, or
-execute the retired request.
+replacement for separated, `=`, and `:` spellings. The guard follows parser
+ownership: a retired option name consumed as another option's required value is
+that value, not a retired request. It does not forward, bind, or execute the
+retired request.
 
 Release CLI gates cover:
 
@@ -201,9 +203,10 @@ Release CLI gates cover:
   `LibraryCoordinateCommand_FileLimitFailsBeforeLibraryAcquisition` for
   ordering, row windows, and the 1,024-record admission bound; and
 - `LibraryCommand_RemovedCoordinateOptionsGiveReplacementGuidance`,
-  `LibraryCommand_RemovedInlineCoordinateOptionsGiveReplacementGuidance`, and
+  `LibraryCommand_RemovedInlineCoordinateOptionsGiveReplacementGuidance`,
+  `LibraryCoordinateCommand_FileValueMayMatchRetiredOptionName`, and
   `LibraryCoordinateCommand_HelpShowsFocusAndNamedSources` for retirement,
-  help, and replacement guidance.
+  parser ownership, help, and replacement guidance.
 
 ## Other candidate surfaces
 
