@@ -3421,6 +3421,148 @@ public class OutputFormatterTests
                 .Count(line => line == "Signals"));
     }
 
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("plaintext")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    public async Task LibraryReports_HonorOutputDestination(
+        string format)
+    {
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("library-output-");
+        try
+        {
+            var pipeline = LibrarySections.CreatePipeline();
+            var singlePath =
+                Path.Combine(tempDirectory.FullName, $"single.{format}");
+            var aggregatePath =
+                Path.Combine(tempDirectory.FullName, $"aggregate.{format}");
+
+            static LibraryOptions CreateOptions(
+                string format,
+                string outputPath)
+            {
+                var options = new LibraryOptions
+                {
+                    IncludeSections = ["Library Info"],
+                    OutputPath = outputPath
+                };
+                return format switch
+                {
+                    "markdown" => options,
+                    "plaintext" => options with
+                    {
+                        Format = OutputFormat.PlainText,
+                        PlainText = true
+                    },
+                    "table" => options with
+                    {
+                        Format = OutputFormat.Table,
+                        Tabular = true,
+                        TabularExplicitlySet = true
+                    },
+                    "tsv" => options with
+                    {
+                        Format = OutputFormat.Tsv,
+                        Tabular = true,
+                        Tsv = true,
+                        TabularExplicitlySet = true
+                    },
+                    "jsonl" => options with
+                    {
+                        Format = OutputFormat.Jsonl,
+                        Tabular = true,
+                        Jsonl = true,
+                        TabularExplicitlySet = true
+                    },
+                    "json" => options with
+                    {
+                        Format = OutputFormat.Json,
+                        JsonOutput = true
+                    },
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(format),
+                        format,
+                        null)
+                };
+            }
+
+            var (singleOutput, singleError) =
+                await ConsoleCapture.RunAsync(
+                    () => OutputFormatter.WriteLibraryResult(
+                        CreateTestAudit("Test.dll", "net9.0"),
+                        CreateOptions(format, singlePath),
+                        pipeline));
+            var (aggregateOutput, aggregateError) =
+                await ConsoleCapture.RunAsync(
+                    () => OutputFormatter.WriteLibraryResults(
+                        CreateTestAudits("net9.0", "net8.0"),
+                        "Test",
+                        CreateOptions(format, aggregatePath),
+                        pipeline));
+
+            Assert.Empty(singleOutput);
+            Assert.Empty(singleError);
+            Assert.Contains("Test", File.ReadAllText(singlePath));
+            Assert.Empty(aggregateOutput);
+            Assert.Empty(aggregateError);
+            Assert.Contains("Test", File.ReadAllText(aggregatePath));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryReport_OutputDestinationTracksWrittenCharacters()
+    {
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("library-output-info-");
+        try
+        {
+            string outputPath =
+                Path.Combine(tempDirectory.FullName, "aggregate.md");
+            long charsWritten = -1;
+            var (output, error) = await ConsoleCapture.RunAsync(
+                () =>
+                {
+                    InfoTracker.Start();
+                    try
+                    {
+                        OutputFormatter.WriteLibraryResults(
+                            CreateTestAudits("net9.0", "net8.0"),
+                            "Test",
+                            new LibraryOptions
+                            {
+                                IncludeSections = ["Library Info"],
+                                OutputPath = outputPath
+                            },
+                            LibrarySections.CreatePipeline());
+                        charsWritten = InfoTracker.CharsWritten;
+                    }
+                    finally
+                    {
+                        InfoTracker.ResetForTests();
+                    }
+                });
+
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(
+                File.ReadAllText(outputPath).Length,
+                charsWritten);
+        }
+        finally
+        {
+            InfoTracker.ResetForTests();
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task MultiAssemblyReport_ProjectionPreservesAssemblyHeadings()
     {

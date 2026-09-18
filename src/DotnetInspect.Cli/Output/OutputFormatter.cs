@@ -596,35 +596,49 @@ public static class OutputFormatter
             return;
         }
 
-        if (options.JsonOutput)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection));
-            return;
-        }
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                if (options.JsonOutput)
+                {
+                    output.WriteLine(JsonSerializer.Serialize(
+                        inspection,
+                        JsonContext.Default.LibraryInspection));
+                    return;
+                }
 
-        if (options.Format == OutputFormat.PlainText)
-        {
-            WriteLfLine(Console.Out, SerializeLibraryPlainText(
-                auditView, inspection, writerOpts, options.Rows));
-        }
-        else if (options.VerbosityEnabled)
-        {
-            var markdown = SerializeLibraryMarkdown(
-                auditView, inspection, writerOpts, pipeline, options.Rows);
-            WriteLfLine(Console.Out, markdown);
-        }
-        else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
-        {
-            // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
-            var markdown = SerializeLibraryMarkdown(
-                auditView, inspection, writerOpts, pipeline, options.Rows);
-            WriteLfLine(Console.Out, markdown);
-        }
-        else
-        {
-            ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, inspection, writerOpts, options);
-        }
+                if (options.Format == OutputFormat.PlainText)
+                {
+                    WriteLfLine(output, SerializeLibraryPlainText(
+                        auditView, inspection, writerOpts, options.Rows));
+                }
+                else if (options.VerbosityEnabled)
+                {
+                    var markdown = SerializeLibraryMarkdown(
+                        auditView, inspection, writerOpts, pipeline, options.Rows);
+                    WriteLfLine(output, markdown);
+                }
+                else if (writerOpts.IncludeSections is { Count: > 1 }
+                         && !options.TabularExplicitlySet)
+                {
+                    // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
+                    var markdown = SerializeLibraryMarkdown(
+                        auditView, inspection, writerOpts, pipeline, options.Rows);
+                    WriteLfLine(output, markdown);
+                }
+                else
+                {
+                    ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                    WriteLibraryTabular(
+                        auditView,
+                        inspection,
+                        writerOpts,
+                        options,
+                        output);
+                }
+            });
     }
 
     private static string SerializeLibraryPlainText(
@@ -743,6 +757,7 @@ public static class OutputFormatter
     private static void WriteLibraryTabular(
         LibraryInspectionView auditView, LibraryInspection inspection,
         MarkoutWriterOptions writerOpts, LibraryOptions options,
+        TextWriter output,
         string? producerLibrary = null)
     {
         IMarkoutFormatter AddProducerLibrary(
@@ -762,7 +777,7 @@ public static class OutputFormatter
         if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
         {
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
                     inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
@@ -777,7 +792,7 @@ public static class OutputFormatter
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(
                     groupView,
                     writer,
@@ -788,7 +803,7 @@ public static class OutputFormatter
         }
         else
         {
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(
                     auditView,
                     writer,
@@ -832,71 +847,80 @@ public static class OutputFormatter
             return;
         }
 
-        if (options.JsonOutput)
-        {
-            Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
-            return;
-        }
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                if (options.JsonOutput)
+                {
+                    output.WriteLine(JsonSerializer.Serialize(
+                        inspections.ToArray(),
+                        JsonContext.Default.LibraryInspectionArray));
+                    return;
+                }
 
-        if (options.Format == OutputFormat.PlainText)
-        {
-            var documents = new List<string>
-            {
-                LibraryViewText.Contain(documentTitle) ?? string.Empty,
-                "Libraries"
-            };
-            documents.AddRange(inspections.Select(inspection =>
-            {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var writerOpts = WriterOptions(inspection);
-                var title = LibraryViewText.DocumentTitle(inspection);
-                var body = RemovePlainTextDocumentTitle(
-                    SerializeLibraryPlainText(
-                        auditView, inspection, writerOpts, options.Rows),
-                    LibraryViewText.DocumentTitle(auditView));
-                return body.Length == 0 ? title : title + "\n\n" + body;
-            }));
-            WriteLfLine(Console.Out, string.Join("\n\n", documents));
-        }
-        else if (options.VerbosityEnabled)
-        {
-            var documents = new List<string>
-            {
-                RenderMarkdownHeading(
-                    1,
-                    LibraryViewText.Contain(documentTitle) ?? string.Empty),
-                RenderMarkdownHeading(2, "Libraries")
-            };
-            documents.AddRange(inspections.Select(inspection =>
-            {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var title = LibraryViewText.DocumentTitle(inspection);
-                var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
-                    auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
-                body = ShiftMarkdownHeadingLevels(body, 2);
-                var heading = RenderMarkdownHeading(3, title);
-                return body.Length == 0
-                    ? heading
-                    : heading + "\n\n" + body;
-            }));
-            var markdown = string.Join("\n\n", documents);
-            WriteLfLine(Console.Out, markdown);
-        }
-        else
-        {
-            foreach (var inspection in inspections)
-            {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var writerOpts = WriterOptions(inspection);
-                ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(
-                    auditView,
-                    inspection,
-                    writerOpts,
-                    options,
-                    inspection.FileName);
-            }
-        }
+                if (options.Format == OutputFormat.PlainText)
+                {
+                    var documents = new List<string>
+                    {
+                        LibraryViewText.Contain(documentTitle) ?? string.Empty,
+                        "Libraries"
+                    };
+                    documents.AddRange(inspections.Select(inspection =>
+                    {
+                        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                        var writerOpts = WriterOptions(inspection);
+                        var title = LibraryViewText.DocumentTitle(inspection);
+                        var body = RemovePlainTextDocumentTitle(
+                            SerializeLibraryPlainText(
+                                auditView, inspection, writerOpts, options.Rows),
+                            LibraryViewText.DocumentTitle(auditView));
+                        return body.Length == 0 ? title : title + "\n\n" + body;
+                    }));
+                    WriteLfLine(output, string.Join("\n\n", documents));
+                }
+                else if (options.VerbosityEnabled)
+                {
+                    var documents = new List<string>
+                    {
+                        RenderMarkdownHeading(
+                            1,
+                            LibraryViewText.Contain(documentTitle) ?? string.Empty),
+                        RenderMarkdownHeading(2, "Libraries")
+                    };
+                    documents.AddRange(inspections.Select(inspection =>
+                    {
+                        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                        var title = LibraryViewText.DocumentTitle(inspection);
+                        var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
+                            auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
+                        body = ShiftMarkdownHeadingLevels(body, 2);
+                        var heading = RenderMarkdownHeading(3, title);
+                        return body.Length == 0
+                            ? heading
+                            : heading + "\n\n" + body;
+                    }));
+                    var markdown = string.Join("\n\n", documents);
+                    WriteLfLine(output, markdown);
+                }
+                else
+                {
+                    foreach (var inspection in inspections)
+                    {
+                        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                        var writerOpts = WriterOptions(inspection);
+                        ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+                        WriteLibraryTabular(
+                            auditView,
+                            inspection,
+                            writerOpts,
+                            options,
+                            output,
+                            inspection.FileName);
+                    }
+                }
+            });
     }
 
     private static string RenderMarkdownHeading(int level, string title)

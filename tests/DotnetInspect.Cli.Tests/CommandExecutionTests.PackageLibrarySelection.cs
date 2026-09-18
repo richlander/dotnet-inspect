@@ -414,6 +414,126 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("library")]
+    [InlineData("package")]
+    public async Task AllTfmLibraryInspection_RejectsPartialCompileSelection(
+        string command)
+    {
+        var (packagePath, tempDir) =
+            CreatePackageWithHealthyAndEmptyReferenceGroups();
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                packagePath,
+                "--tfm", "all",
+                "-S", "Library Info",
+                "--markdown",
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "declares an empty compile group for TFM 'net10.0'",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("aggregate")]
+    [InlineData("exact")]
+    [InlineData("namesake")]
+    public async Task PackageLibraryRoutes_HonorOutputDestination(
+        string route)
+    {
+        var (packagePath, tempDir) =
+            route == "aggregate"
+                ? CreateLocalLibPackage()
+                : CreateLocalMultiTfmLibraryPackage(
+                    "DotnetInspect.Cli.Tests",
+                    "Different.File.dll");
+        try
+        {
+            string outputPath =
+                Path.Combine(tempDir, $"{route}.md");
+            List<string> arguments =
+            [
+                "package",
+                packagePath,
+            ];
+            if (route == "exact")
+            {
+                arguments.AddRange(
+                    ["--library", "Different.File.dll"]);
+            }
+            else if (route == "namesake")
+            {
+                arguments.Add("--namesake-library");
+            }
+            arguments.AddRange(
+            [
+                "-S", "Library Info",
+                "--markdown",
+                "--out", outputPath,
+                "--tips", "q",
+            ]);
+
+            var result = await RunAppAsync(arguments.ToArray());
+
+            Assert.True(
+                result.Exit == 0,
+                $"Exit {result.Exit}: {result.Error}");
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            string written = File.ReadAllText(outputPath);
+            Assert.Contains(
+                route == "aggregate"
+                    ? "Latest.One.dll"
+                    : "Different.File.dll",
+                written);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAggregateOutputPath_AppliesLineWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string outputPath =
+                Path.Combine(tempDir, "aggregate-head.md");
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S", "Library Info",
+                "--markdown",
+                "-n", "3",
+                "--lines",
+                "--out", outputPath,
+                "--tips", "q");
+
+            Assert.True(
+                result.Exit == 0,
+                $"Exit {result.Exit}: {result.Error}");
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal(3, File.ReadAllLines(outputPath).Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_NamesakeAmbiguityFailsClosed()
     {
@@ -1057,6 +1177,33 @@ public partial class CommandExecutionTests
         string packagePath = Path.Combine(
             tempDir,
             "Empty.Reference.Group.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreatePackageWithHealthyAndEmptyReferenceGroups()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(libDir, "Healthy.dll"));
+        string refDir = Path.Combine(packageRoot, "ref", "net10.0");
+        Directory.CreateDirectory(refDir);
+        File.WriteAllText(
+            Path.Combine(refDir, "_._"),
+            "");
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Partial.Compile.Selection.1.0.0.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);

@@ -3690,48 +3690,43 @@ public class LibraryCommand
                 packageId,
                 tfm);
 
+        PackageCompileAssetSelection[] selectionFailures =
+        [
+            .. frameworkSelections.Where(selection =>
+                selection.Status
+                != PackageCompileAssetSelectionStatus.Selected),
+        ];
+        if (selectionFailures.Length > 0)
+        {
+            foreach (PackageCompileAssetSelection selection
+                in selectionFailures)
+            {
+                WritePackageCompileSelectionFailure(
+                    packageId,
+                    tfm,
+                    selection);
+            }
+            DeleteTempDir(tempDir);
+            return null;
+        }
+
         List<PackageCompileAsset> selectedAssets = [];
         foreach (PackageCompileAssetSelection selection
             in frameworkSelections)
         {
-            if (selection.Status
-                == PackageCompileAssetSelectionStatus.Selected)
+            IReadOnlyList<PackageCompileAsset>? narrowed =
+                NarrowPackageCompileAssets(
+                    selection,
+                    extractPath,
+                    packageId,
+                    assemblyName,
+                    namesakeLibrary);
+            if (narrowed is null)
             {
-                IReadOnlyList<PackageCompileAsset>? narrowed =
-                    NarrowPackageCompileAssets(
-                        selection,
-                        extractPath,
-                        packageId,
-                        assemblyName,
-                        namesakeLibrary);
-                if (narrowed is null)
-                {
-                    DeleteTempDir(tempDir);
-                    return null;
-                }
-                selectedAssets.AddRange(narrowed);
-                continue;
+                DeleteTempDir(tempDir);
+                return null;
             }
-
-            if (string.Equals(
-                    tfm,
-                    "all",
-                    StringComparison.OrdinalIgnoreCase)
-                && !namesakeLibrary
-                && string.IsNullOrWhiteSpace(assemblyName)
-                && selection.Status is
-                    PackageCompileAssetSelectionStatus.EmptyCompileGroup
-                    or PackageCompileAssetSelectionStatus.NoCompileAssets)
-            {
-                continue;
-            }
-
-            WritePackageCompileSelectionFailure(
-                packageId,
-                tfm,
-                selection);
-            DeleteTempDir(tempDir);
-            return null;
+            selectedAssets.AddRange(narrowed);
         }
 
         if (selectedAssets.Count == 0)
