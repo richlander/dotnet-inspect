@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
+  `@Integrations` categories, category-first alphabetical discovery, and
+  alphabetical multi-section output. Replace the former unprefixed
+  `-S Integrations` alias with `-S @Integrations`; exact
+  `-S "Known Integrations"` remains available. Computed `@All`, `@Default`,
+  and `@Hidden` selectors remain unsupported (#7453).
 - Adds focus-first `library coordinate <coordinate>` for exact IL and metadata
   heap inspection and `library coordinate --file <path>` for sparse IL
   coordinate populations, with named `--library`, `--package`, and `--platform`
