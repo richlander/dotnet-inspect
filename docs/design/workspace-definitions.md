@@ -585,8 +585,13 @@ packet-input and derived-Share path.
 Complete Restoration realizes the packet under the receiving host's ordinary
 source authorization and acquisition policy. The packet's **selected context**,
 not its focused Navigation tab, supplies the aggregate Type search scope.
-Resolution uses the existing aggregate Type owner and its defining-Library
-provenance. It never:
+Resolution consumes the host-neutral selected-context exact-Type operation
+owned by [#7429](https://github.com/richlander/dotnet-inspect/issues/7429).
+That operation accepts the complete realized selected context rather than one
+Package coordinate and returns an owner-issued unique result with its defining
+source occurrence and exact Library and Type identity, or a distinct
+incomplete, no-match, or ambiguity outcome. The Workspace adopter does not
+choose a Package before invoking it. Resolution never:
 
 - searches a global Package, Platform, project, or filesystem fallback;
 - chooses the first Package, Library, or Type participant;
@@ -596,10 +601,10 @@ provenance. It never:
 
 A missing selected context, restoration failure, incomplete trustworthy Type
 inventory, no match, and multiple matches remain distinct visible outcomes.
-The aggregate Type operation owns Type matching, ambiguity, incomplete
-participant evidence, and exact defining-Library identity. Workspace
-Definitions owns only the association between that owner-issued result and the
-complete portable scenario.
+The selected-context exact-Type operation owns Type matching, ambiguity,
+incomplete participant evidence, and exact defining source and Library
+identity. Workspace Definitions owns only the association between that
+owner-issued result and the complete portable scenario.
 
 Without `--share`, the command preserves ordinary exact-Type output, sections,
 formats, projections, diagnostics, and exit behavior. Appending
@@ -611,6 +616,13 @@ formats, projections, diagnostics, and exit behavior. Appending
 - the selected URL or packet is the final non-empty stderr line;
 - a Share refusal preserves ordinary stdout, writes no partial scalar, and
   makes the explicitly requested side output fail nonzero.
+
+Schemas 3 and 4 are valid packet inputs for ordinary Type inspection. A
+successful derived Type packet requires schema 4 because
+`PortableSubjectRequest.Type` has no schema-3 representation. Requesting Share
+from a schema-3 input therefore produces the named non-projectable refusal:
+ordinary Type stdout remains, no URL or packet scalar is written, and the
+command does not implicitly migrate or upgrade the packet.
 
 The derived packet preserves the complete input Workspace definition,
 registrations, context and member order, dormant Navigation rows, and unrelated
@@ -638,15 +650,25 @@ than the focused tab. Derived Share then focuses the exact System.Text.Json
 source while preserving the other context, its tab, registrations, and dormant
 state.
 
+A selected-context aggregate fixture places
+`Microsoft.Extensions.Hosting@10.0.0` before
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` in one context.
+`Microsoft.Extensions.Logging.ILogger` resolves from the non-first Package
+member and derived Share retains its owner-issued defining source and Library
+identity. The gate forbids choosing the first Package or filtering the
+selected-context operation to one Package coordinate.
+
 A focused ambiguity fixture places the same full Type name in two Libraries in
 the selected context. The command reports both defining-Library identities and
 emits no derived Share rather than selecting the first participant. Neighboring
 gates cover one unique Type, no match, incomplete inventory, registration-only
-or null-selected-context packets, schemas 3 and 4, exact URL input, invalid and
-over-limit packets, unauthorized content, and a non-projectable Type facet that
-preserves ordinary stdout.
+or null-selected-context packets, schema-3 ordinary inspection and Share
+refusal, schema-4 derived Share, exact URL input, invalid and over-limit
+packets, unauthorized content, and a non-projectable Type facet that preserves
+ordinary stdout.
 
-Implementation consumes aggregate Type resolution under #7429 and current
+Implementation begins only after #7429 exposes the host-neutral
+selected-context exact-Type operation and consumes that operation with current
 Complete Restoration. It must integrate the shared restoration and scenario
 work from #7542 before changing those owners. The older root-level replay
 proposal #4647 remains historical context; #7555 supersedes only its
