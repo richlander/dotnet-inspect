@@ -17,6 +17,7 @@ const data: BrowserPackageIntegrations = {
   ],
   totalSignals: 4, isComplete: true, inspectionError: null,
   compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
+  inspection: null,
 };
 
 function render(overrides: Partial<LibraryIntegrationsOptions> = {}) {
