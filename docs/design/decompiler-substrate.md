@@ -202,8 +202,8 @@ source construct.
 ## Noticing convergence
 
 The hard part is not building a layer — it is noticing that three discrete
-implementations should have been one. Two mechanisms, one proactive and one
-reactive:
+implementations should have been one. Use structured dependency evidence and
+review of the actual predicate semantics:
 
 ### Proactive — the ledger names predicate dependencies
 
@@ -222,17 +222,25 @@ the conflict-reduction shape from PRs such as the stable ledger and printer
 splits: the central ledger remains the stable denominator, while additive
 per-pass sidecars carry the changing work-queue metadata.
 
-### Reactive — a duplication census
+### Reactive — review semantic duplication
 
-The cheaper guard is a census test that flags un-migrated copies: a
-`static bool Same*(…)` / `static bool Is*(…)` predicate helper living inside a pass
-rather than in a substrate layer is a smell the test can surface. It does not
-forbid a pass-local helper — sometimes a predicate genuinely belongs to one pass
-— but it forces the question into review: *is this the third copy of a predicate
-that should be shared?* The answer is recorded, not assumed.
+When a pass adds or changes a proof predicate, compare its semantics with the
+existing substrate and neighboring passes. A helper may genuinely be
+pass-local: control-flow legality, region equality, and comparison of one
+pass-owned shape do not become shared identity atoms merely because their names
+start with `Same` or `IsInside`. If the same proof semantics reach a third
+consumer, promote the repeated atom and preserve each pass's discriminator.
 
-Both mechanisms encode the same rule of thumb: **the third occurrence builds the
-layer.** One use is local; two is a coincidence; three is a category.
+Direct substrate tests own the shared atom's admitted and rejected cases.
+Pass-specific positive and one-discriminator negative fixtures own each
+rewrite's use of that atom. Do not use a repository-wide source census or an
+approval inventory as evidence: method spelling does not establish semantic
+duplication, and trusted pass source is reviewed implementation rather than a
+product input boundary.
+
+The ledger and semantic review encode the same rule of thumb: **the third
+occurrence builds the layer.** One use is local; two is a coincidence; three is
+a category.
 
 The "two or more consumers" bar applies to a *composable atom* like
 `SameVariable` — there, an atom with a single caller is just a renamed helper,
