@@ -1420,21 +1420,25 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("section (verbose)", output);
         Assert.Contains("Symbols", names);
 
-        // Unlike the -D top level, --schema surfaces the whole catalog: the surface opt-ins, the
-        // source/audit sections, the footguns, the kind-scoped performance sub-group, and the
-        // coordinate-gated IL-context sections.
+        // Unlike the -D top level, --schema surfaces the whole parent catalog: the surface opt-ins,
+        // the source/audit sections, the footguns, and the kind-scoped performance sub-group.
         foreach (var expected in new[]
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
                      "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
-                     "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
+                     "SourceLink: Missing Files", "SourceLink: Integrity",
                      "Integration Opportunities"
                  })
         {
             Assert.Contains(expected, names);
         }
 
+        Assert.DoesNotContain(
+            names,
+            name => name.StartsWith(
+                "Context: ",
+                StringComparison.Ordinal));
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
         Assert.Contains(IntegrationSectionNames.Integrations, names);
         Assert.Contains(IntegrationSectionNames.Opportunities, names);
@@ -1444,10 +1448,10 @@ public partial class CommandExecutionTests
                 "Integration: ",
                 StringComparison.Ordinal));
 
-        // The topical category doors lead the catalog, in
-        // alphabetical order, and every category row precedes every section row. @Metadata is
-        // among them because --schema surfaces the whole catalog, including the explicit-only
-        // lens the curated top-level -D still leaves out.
+        // The parent-owned topical category doors lead the catalog, in alphabetical order, and
+        // every category row precedes every section row. @Metadata is among them because --schema
+        // surfaces the whole parent catalog, including the explicit-only lens the curated
+        // top-level -D still leaves out. @Context belongs to library coordinate.
         var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
@@ -1455,8 +1459,8 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
-                "@Audit", "@Context", "@Integrations", "@Library", "@Metadata",
-                "@Performance", "@ReadyToRun", "@SourceLink", "@Surface",
+                "@Audit", "@Integrations", "@Library", "@Metadata", "@Performance",
+                "@ReadyToRun", "@SourceLink", "@Surface",
             },
             categoryNames);
 

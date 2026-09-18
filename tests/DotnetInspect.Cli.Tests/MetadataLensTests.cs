@@ -1563,12 +1563,13 @@ public partial class CommandExecutionTests
         Assert.Contains("999999999", error, StringComparison.Ordinal);
         Assert.DoesNotContain("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
 
-        // Discovery must not advertise a section the coordinate cannot produce.
+        // Effective discovery must not advertise a section the coordinate cannot produce.
+        // Structural discovery intentionally does not acquire the Library or resolve the coordinate.
         var discovery = await RunAppAsync(
             "library", "coordinate", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
-            "--tsv", "--tips", "q");
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(1, discovery.Exit);
         Assert.DoesNotContain(
