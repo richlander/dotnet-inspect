@@ -134,6 +134,10 @@ with supplied transport.
 
 `eng/test-inspect-web-source-comparison-gate.sh` exercises the public generated
 facade directly in Firefox against the Release-published engine.
+It serves one harness-owned minimal document at the published site's origin;
+the generated modules, Wasm runtime, packages, and Source bytes still come
+through the production published paths without first booting and replacing the
+full application document.
 It supplies cataloged compiler-produced packages and their exact SourceLink
 bytes at network acquisition, not source endpoints or comparison results.
 The embedded PDB and allowed SourceLink host preserve real production
