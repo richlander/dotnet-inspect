@@ -284,7 +284,7 @@ Before, discover ecosystem knowledge, then name a package to search:
 ```console
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
-dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem aspire -S @Integrations
 dotnet-inspect find AddRedis --members --package Aspire.Hosting.Redis@13.5.3
 ```
 
@@ -294,13 +294,13 @@ to select the locator's candidate population:
 ```console
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
-dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem aspire -S @Integrations
 dotnet-inspect find --ecosystem aspire
 dotnet-inspect find AddRedis --members --ecosystem aspire
 ```
 
 The first three requests remain catalog inspection without package
-acquisition. `ecosystem ... -S Integrations` describes configured concepts and
+acquisition. `ecosystem ... -S @Integrations` describes configured concepts and
 bindings, not an API inventory. Core/tool packages, namespace hints, demos and
 availability stay discoverable on `ecosystem`. The fourth request discovers
 package/library roots; the fifth finds members in that population. Those last
@@ -1312,7 +1312,7 @@ The 2026-09-11 CLI probes used released `0.25.0+473d56a` and current-main
 | --- | --- |
 | `library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S "Integration: Aspire"` returns resource types and `AddRedis`; a bare copy gives the same inventory. | Preserve useful provider discovery, but do not call it consumer-use evidence. |
 | A compiled Aspire AppHost calling `AddRedis` has no rows in that Integration section. Main's `graph libraries` reports `Program.<Main>$` calling the exact overload at `IL_0016`. | Composition must join distinct provider and invocation evidence. |
-| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Retain the ecosystem vocabulary command and its identity handoff to queries, distinct from artifact inventory. |
+| Main's `ecosystem aspire -S @Integrations` reports the configured Aspire binding, not concrete APIs. | Retain the ecosystem vocabulary command and its identity handoff to queries, distinct from artifact inventory. |
 | Prefix discovery works, while direct prefix/curated-set Integration scope is not wired. The shipped four-package Integration graph example returns 91 relationships. | Reuse working producers and explicit-set composition; make population handoff first-class. |
 
 Real motivating assets for implementation are

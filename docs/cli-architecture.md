@@ -632,8 +632,10 @@ member qualifiers; real-package probes cover both spellings.
 `library -S Integrations` renders observed Integration currency in one
 homogeneous section. `library --where
 "integration=integration.aspire"` narrows by canonical concept identity, while
-`library --where "ecosystem=ecosystem.aspire"` narrows by the concepts bound to
-one canonical ecosystem pack. All integrations remain enabled without either
+`library --where "ecosystem=ecosystem.aspire"` enables the Integration concepts
+registered to one canonical ecosystem pack. The current Aspire registration is
+the complete configured Integration catalog; only concepts observed in the
+inspected library produce rows. All integrations remain enabled without either
 predicate; normal section disclosure still determines which results are
 requested and shown. There is no separate scanner opt-in or scanner-only
 section.
@@ -644,8 +646,9 @@ not display-name inference or a claim that every pack has an Integration
 mapping. The initial supported ecosystem value is `ecosystem.aspire`; every configured
 Integration concept ID is a supported `integration` value. Malformed, unknown,
 and known-but-unbound ecosystem IDs fail before source acquisition. At most one
-equality predicate per facet is supported. When both are supplied, their
-concept sets intersect. Body Shapes predicates and Performance Triage
+equality predicate per facet is supported. The facets are composable rather
+than independent: `ecosystem` enables a registered set and `integration`
+optionally narrows within it. Body Shapes predicates and Performance Triage
 filters/rankings cannot be combined with either facet. Explicit ranking options
 remain incompatible under `--count`, even when count-mode normalization would
 discard the ranking.

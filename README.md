@@ -186,7 +186,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--body` for decompiled C# and IL body differences. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
-| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S Integrations` for configured Integration concepts, distinct from observations in a library. |
+| `ecosystem [name]` | Inspect the ecosystem knowledge configured into this product build. Omit the name to list packs; use `-S @Integrations` for configured Integration concepts, distinct from observations in a library. |
 | `workspace` | Render the typed top-level inventory of one ephemeral Workspace: committed ordered Package occurrences first, then inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; add `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`; filter with repeatable `--kind`. Restore a current-format canonical Workspace packet with `--packet PACKET`, or use `--root-request TOKEN` to reopen the exact Package Root a `package query --library-literal` result names. Add `--active-package N` on direct construction to evaluate the exact occurrence and expose its Navigation hierarchy, Library asset IDs, Type and Member inventories, lenses, and diagnostics. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -201,7 +201,10 @@ you need them.
 
 Observed integration support is exposed through one `Integrations` section.
 Use `integration=<canonical-concept-id>` to focus one concept, or
-`ecosystem=<canonical-pack-id>` to select the concepts bound to an ecosystem.
+`ecosystem=<canonical-pack-id>` to enable the Integration concepts registered
+to an ecosystem. The current Aspire registration enables the complete
+configured Integration catalog; only concepts observed in the inspected
+library produce rows. Add `integration=...` to narrow within that enabled set.
 `@Integrations` also includes the separate `Integration Opportunities` section.
 
 Use `ecosystem` to inspect which ecosystem packs and Integration bindings are
@@ -211,7 +214,9 @@ acquired library:
 ```bash
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
-dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem aspire -D
+dotnet-inspect ecosystem aspire -S @Ecosystem
+dotnet-inspect ecosystem aspire -S @Integrations
 dotnet-inspect ecosystem ai -S "Core Packages"
 dotnet-inspect ecosystem azure -S "Core Packages"
 dotnet-inspect ecosystem blazor -S "Core Packages"
