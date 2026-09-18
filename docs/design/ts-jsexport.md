@@ -1240,8 +1240,9 @@ issue references below.
 - compiled conditional-presence fixtures emit exact optional serialize-side
   properties under `exactOptionalPropertyTypes`, remove only member-level outer
   `null` from present values, preserve nested and unconditionally present
-  nullability, retain `Never` as required, and continue to reject a
-  direction-sensitive bidirectional record;
+  nullability, retain `Never` as required, declare `JsonValue` for member-level,
+  context-default, and polymorphic-only conditional JSON members, and continue
+  to reject a direction-sensitive bidirectional record;
 - an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;

@@ -57,6 +57,8 @@ const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getConditionalOutputKey =
   facadeSource.match(/"(GetConditionalOutput\.-?\d+)"/)?.[1];
+const getInspectionEvidenceKey =
+  facadeSource.match(/"(GetInspectionEvidence\.-?\d+)"/)?.[1];
 const getInertWidgetAsyncKey =
   facadeSource.match(/"(GetInertWidgetAsync\.-?\d+)"/)?.[1];
 const getRuntimeApiAsyncKey =
@@ -139,6 +141,10 @@ assert.ok(
 assert.ok(
   getConditionalOutputKey,
   "The generated GetConditionalOutput runtime dispatch key was not found.",
+);
+assert.ok(
+  getInspectionEvidenceKey,
+  "The generated GetInspectionEvidence runtime dispatch key was not found.",
 );
 assert.ok(
   getInertWidgetAsyncKey,
@@ -297,6 +303,13 @@ function managedExports(methods = {}) {
                 name,
                 alwaysNullable: null,
               })),
+            [getInspectionEvidenceKey]:
+              methods.getInspectionEvidence
+              ?? ((includePayload) => JSON.stringify(
+                includePayload
+                  ? { payload: { source: "package.xml" } }
+                  : {},
+              )),
             [getInertWidgetAsyncKey]:
               methods.getInertWidgetAsync
               ?? (async (name) => JSON.stringify({

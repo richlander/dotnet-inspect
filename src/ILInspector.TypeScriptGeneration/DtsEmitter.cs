@@ -474,73 +474,14 @@ static class DtsEmitter
             StringComparer.Ordinal))
         {
             ApiType caseType = @case.Definition;
-            if (caseType.JsonPropertyNamingPolicy != root.JsonPropertyNamingPolicy)
-            {
-                throw new UnsupportedWireContractException(
-                    caseType.FullName,
-                    "polymorphic root and case naming policies differ");
-            }
-            if (caseType.JsonDefaultIgnoreCondition
-                    != root.JsonDefaultIgnoreCondition
-                || caseType.JsonUseStringEnumConverter
-                    != root.JsonUseStringEnumConverter)
-            {
-                throw new UnsupportedWireContractException(
-                    caseType.FullName,
-                    "polymorphic root and case serializer options differ");
-            }
-
-            var members = new List<(ApiMember Member, string ResolvedName)>();
-            var resolvedNames = new HashSet<string>(StringComparer.Ordinal)
-            {
-                discriminatorPropertyName,
-            };
-            foreach (ApiType declaringType in new[] { root, caseType })
-            {
-                foreach (ApiMember member in declaringType.Members.Where(
-                    member => JsonWireMemberRules.ParticipatesInWireContract(
-                        member,
-                        JsonWireDirection.Serialize,
-                        assemblyIdentity,
-                        declaredTypesByScopedIdentity)))
-                {
-                    int overriddenIndex = -1;
-                    if (ReferenceEquals(declaringType, caseType)
-                        && member.IsOverride)
-                    {
-                        overriddenIndex = members.FindIndex(
-                            candidate => candidate.Member.Name.Equals(
-                                member.Name,
-                                StringComparison.Ordinal));
-                        if (overriddenIndex >= 0)
-                        {
-                            resolvedNames.Remove(
-                                members[overriddenIndex].ResolvedName);
-                            members.RemoveAt(overriddenIndex);
-                        }
-                    }
-
-                    string resolvedName = member.JsonPropertyName
-                        ?? ApplyNamingPolicy(member.Name, namingPolicy);
-                    string location =
-                        $"{declaringType.FullName}.{member.Name}";
-                    ValidatePropertyName(location, resolvedName);
-                    if (!resolvedNames.Add(resolvedName))
-                    {
-                        throw new UnsupportedWireContractException(
-                            location,
-                            resolvedName == discriminatorPropertyName
-                                ? "serialized member collides with the "
-                                    + "polymorphic discriminator property"
-                                : "inherited and declared members resolve "
-                                    + "to the same JSON property name");
-                    }
-                    if (overriddenIndex >= 0)
-                        members.Insert(overriddenIndex, (member, resolvedName));
-                    else
-                        members.Add((member, resolvedName));
-                }
-            }
+            IReadOnlyList<(ApiMember Member, string ResolvedName)> members =
+                GetPolymorphicCaseMembers(
+                    root,
+                    caseType,
+                    discriminatorPropertyName,
+                    namingPolicy,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity);
 
             string declarationName =
                 AllocatedTypeName(caseType, allocatedTypeNames);
@@ -557,12 +498,12 @@ static class DtsEmitter
                 string location =
                     $"{caseType.FullName}.{member.Name}";
                 JsonWireMemberPresence presence =
-                    JsonWireMemberRules.GetPresence(
+                    GetEffectiveMemberPresence(
+                        caseType,
                         member,
                         JsonWireDirection.Serialize,
                         assemblyIdentity,
-                        declaredTypesByScopedIdentity,
-                        caseType.JsonDefaultIgnoreCondition);
+                        declaredTypesByScopedIdentity);
                 ValidateMemberTypeMapping(
                     caseType,
                     member,
@@ -639,6 +580,87 @@ static class DtsEmitter
                         @case.Definition,
                         allocatedTypeNames)))
             .Append(";\n\n");
+    }
+
+    static IReadOnlyList<(ApiMember Member, string ResolvedName)>
+        GetPolymorphicCaseMembers(
+            ApiType root,
+            ApiType caseType,
+            string discriminatorPropertyName,
+            JsonWireNamingPolicy namingPolicy,
+            ApiAssemblyIdentity? assemblyIdentity,
+            IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+                declaredTypesByScopedIdentity)
+    {
+        if (caseType.JsonPropertyNamingPolicy != root.JsonPropertyNamingPolicy)
+        {
+            throw new UnsupportedWireContractException(
+                caseType.FullName,
+                "polymorphic root and case naming policies differ");
+        }
+        if (caseType.JsonDefaultIgnoreCondition
+                != root.JsonDefaultIgnoreCondition
+            || caseType.JsonUseStringEnumConverter
+                != root.JsonUseStringEnumConverter)
+        {
+            throw new UnsupportedWireContractException(
+                caseType.FullName,
+                "polymorphic root and case serializer options differ");
+        }
+
+        var members = new List<(ApiMember Member, string ResolvedName)>();
+        var resolvedNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            discriminatorPropertyName,
+        };
+        foreach (ApiType declaringType in new[] { root, caseType })
+        {
+            foreach (ApiMember member in declaringType.Members.Where(
+                member => JsonWireMemberRules.ParticipatesInWireContract(
+                    member,
+                    JsonWireDirection.Serialize,
+                    assemblyIdentity,
+                    declaredTypesByScopedIdentity)))
+            {
+                int overriddenIndex = -1;
+                if (ReferenceEquals(declaringType, caseType)
+                    && member.IsOverride)
+                {
+                    overriddenIndex = members.FindIndex(
+                        candidate => candidate.Member.Name.Equals(
+                            member.Name,
+                            StringComparison.Ordinal));
+                    if (overriddenIndex >= 0)
+                    {
+                        resolvedNames.Remove(
+                            members[overriddenIndex].ResolvedName);
+                        members.RemoveAt(overriddenIndex);
+                    }
+                }
+
+                string resolvedName = member.JsonPropertyName
+                    ?? ApplyNamingPolicy(member.Name, namingPolicy);
+                string location =
+                    $"{declaringType.FullName}.{member.Name}";
+                ValidatePropertyName(location, resolvedName);
+                if (!resolvedNames.Add(resolvedName))
+                {
+                    throw new UnsupportedWireContractException(
+                        location,
+                        resolvedName == discriminatorPropertyName
+                            ? "serialized member collides with the "
+                                + "polymorphic discriminator property"
+                            : "inherited and declared members resolve "
+                                + "to the same JSON property name");
+                }
+                if (overriddenIndex >= 0)
+                    members.Insert(overriddenIndex, (member, resolvedName));
+                else
+                    members.Add((member, resolvedName));
+            }
+        }
+
+        return members;
     }
 
     static TypeScriptFunctionSignature GetFunctionSignature(
@@ -1224,12 +1246,12 @@ static class DtsEmitter
         var members = record.Members
             .Select(member => (
                 Member: member,
-                Presence: JsonWireMemberRules.GetPresence(
+                Presence: GetEffectiveMemberPresence(
+                    record,
                     member,
                     declarationDirection,
                     assemblyIdentity,
-                    declaredTypesByScopedIdentity,
-                    record.JsonDefaultIgnoreCondition),
+                    declaredTypesByScopedIdentity),
                 ResolvedName: member.JsonPropertyName
                     ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             // Unsupported presence is not absence. Keep the member required
@@ -1884,7 +1906,7 @@ static class DtsEmitter
                     TypeInventory(
                         surface,
                         declarationTypes));
-        return surface.Records
+        if (surface.Records
             .Where(type => ShouldEmit(surface, type))
             .Any(type =>
         {
@@ -1924,23 +1946,80 @@ static class DtsEmitter
                     ? JsonWireDirection.Serialize
                     : JsonWireDirection.Deserialize;
             return type.Members
-                .Any(member =>
-                    JsonWireMemberRules.GetPresence(
-                        member,
-                        declarationDirection,
+                .Any(member => MemberUsesJsonValue(
+                    type,
+                    member,
+                    declarationDirection,
+                    surface.AssemblyIdentity,
+                    declaredTypesByScopedIdentity));
+        }))
+        {
+            return true;
+        }
+
+        return surface.PolymorphicUnions
+            .Where(union => ShouldEmit(surface, union.Definition))
+            .Any(union =>
+            {
+                ApiType root = union.Definition;
+                string discriminatorPropertyName =
+                    union.TypeDiscriminatorPropertyName!;
+                JsonWireNamingPolicy namingPolicy =
+                    root.JsonPropertyNamingPolicy
+                        ?? JsonWireNamingPolicy.None;
+                return union.Cases.Any(@case =>
+                    GetPolymorphicCaseMembers(
+                        root,
+                        @case.Definition,
+                        discriminatorPropertyName,
+                        namingPolicy,
                         surface.AssemblyIdentity,
                         declaredTypesByScopedIdentity)
-                        == JsonWireMemberPresence.Conditional
-                    && (member.JsonConverterAttributeCount == 0
-                        || HasApprovedInertStringConverter(member))
-                    && !TryGetConditionalParameter(
-                        member.SignatureModel,
-                        type.TypeParameters,
-                        out _)
-                    && IsJsonElementPresentValue(
-                        member.SignatureModel?.ReturnTypeShape));
-        });
+                    .Any(item => MemberUsesJsonValue(
+                        @case.Definition,
+                        item.Member,
+                        JsonWireDirection.Serialize,
+                        surface.AssemblyIdentity,
+                        declaredTypesByScopedIdentity)));
+            });
     }
+
+    static bool MemberUsesJsonValue(
+        ApiType declaringType,
+        ApiMember member,
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity) =>
+        GetEffectiveMemberPresence(
+            declaringType,
+            member,
+            direction,
+            assemblyIdentity,
+            declaredTypesByScopedIdentity)
+            == JsonWireMemberPresence.Conditional
+        && (member.JsonConverterAttributeCount == 0
+            || HasApprovedInertStringConverter(member))
+        && !TryGetConditionalParameter(
+            member.SignatureModel,
+            declaringType.TypeParameters,
+            out _)
+        && IsJsonElementPresentValue(
+            member.SignatureModel?.ReturnTypeShape);
+
+    static JsonWireMemberPresence GetEffectiveMemberPresence(
+        ApiType declaringType,
+        ApiMember member,
+        JsonWireDirection direction,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            declaredTypesByScopedIdentity) =>
+        JsonWireMemberRules.GetPresence(
+            member,
+            direction,
+            assemblyIdentity,
+            declaredTypesByScopedIdentity,
+            declaringType.JsonDefaultIgnoreCondition);
 
     static bool IsJsonElementPresentValue(ApiTypeShape? type) =>
         UnwrapNullableShape(type)?.Definition is { } identity

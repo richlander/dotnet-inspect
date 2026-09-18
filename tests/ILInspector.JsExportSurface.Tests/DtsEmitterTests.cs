@@ -12,6 +12,7 @@ using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures.Contexts;
 using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures.Contexts;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -40,6 +41,33 @@ public sealed class DtsEmitterTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
         var bodyIndex = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        return JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+    }
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildTypeScriptFixtureSurface(string method)
+    {
+        string path = typeof(TypeScriptFixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface =
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        foreach (ApiMember member
+            in apiSurface.Types.SelectMany(type => type.Members))
+        {
+            if (member.HasRuntimeJsExport
+                && member.Name != method)
+            {
+                member.HasRuntimeJsExport = false;
+                member.RuntimeJsExportAttributeCount = 0;
+                member.HasMalformedRuntimeJsExportAttribute = false;
+            }
+        }
+
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
@@ -3088,6 +3116,37 @@ public sealed class DtsEmitterTests
             """,
             dts,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void
+        Emit_DeclaresJsonValueForContextDefaultConditionalJsonElement()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildTypeScriptFixtureSurface(
+                nameof(TypeScriptFixtureExports.GetInspectionEvidence));
+
+        Assert.Single(surface.Functions);
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("export type JsonValue =", dts, StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            export interface InspectionEvidence {
+              readonly payload?: JsonValue;
+            }
+            """,
+            dts,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            """{"payload":{"source":"package.xml"}}""",
+            TypeScriptFixtureExports.GetInspectionEvidence(
+                includePayload: true));
+        Assert.Equal(
+            "{}",
+            TypeScriptFixtureExports.GetInspectionEvidence(
+                includePayload: false));
     }
 
     [Fact]

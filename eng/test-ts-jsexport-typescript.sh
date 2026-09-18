@@ -34,6 +34,9 @@ fi
 
 fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
 fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+polymorphic_fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.PolymorphicExportFixtures/ILInspector.JsExportSurface.PolymorphicExportFixtures.csproj"
+polymorphic_fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicExportFixtures/release/ILInspector.JsExportSurface.PolymorphicExportFixtures.dll"
+polymorphic_contracts_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.PolymorphicContractsFixtures/release/ILInspector.JsExportSurface.PolymorphicContractsFixtures.dll"
 
 "$dotnet_exe" build "$fixture_project" -c Release --nologo >/dev/null
 "$dotnet_exe" run \
@@ -43,6 +46,16 @@ fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixt
   "$fixture_dll" \
   --runtime-module ./dotnet.js \
   --output "$scratch/facade.ts"
+
+"$dotnet_exe" build "$polymorphic_fixture_project" -c Release --nologo >/dev/null
+"$dotnet_exe" run \
+  --project "$repo_root/src/ts-jsexport" \
+  -c Release \
+  -- \
+  "$polymorphic_fixture_dll" \
+  --assembly-search-path "$polymorphic_contracts_dll" \
+  --runtime-module ./dotnet.js \
+  --output "$scratch/polymorphic-facade.ts"
 
 cat > "$scratch/callback-usage.ts" <<'TS'
 import { observeValue, transformValue } from "./facade.js";
@@ -412,6 +425,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
   },
   "include": [
     "facade.ts",
+    "polymorphic-facade.ts",
     "callback-usage.ts",
     "conditional-usage.ts",
     "inert-usage.ts",

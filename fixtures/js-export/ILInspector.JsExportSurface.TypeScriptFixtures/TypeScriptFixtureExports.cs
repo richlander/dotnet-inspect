@@ -68,6 +68,8 @@ public sealed record BlobDto(
     byte[]?[] Blobs,
     IReadOnlyDictionary<string, byte[]?> BlobsByName);
 
+public sealed record InspectionEvidence(JsonElement? Payload);
+
 public sealed record ConditionalOutputDto(string Name)
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
@@ -127,6 +129,13 @@ public sealed class HiddenTypeJsonIncludeDto
     TypeInfoPropertyName = "StringDtoMap")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(InspectionEvidence))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+internal sealed partial class InspectionEvidenceJsonContext
+    : JsonSerializerContext;
 
 [JsonSerializable(typeof(BlobDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -199,6 +208,19 @@ public static partial class TypeScriptFixtureExports
         JsonSerializer.Serialize(
             new ConditionalOutputDto(name),
             FixtureJsonContext.Default.ConditionalOutputDto);
+
+    [JSExport]
+    public static string GetInspectionEvidence(bool includePayload)
+    {
+        using JsonDocument document =
+            JsonDocument.Parse("""{"source":"package.xml"}""");
+        JsonElement? payload = includePayload
+            ? document.RootElement.Clone()
+            : null;
+        return JsonSerializer.Serialize(
+            new InspectionEvidence(payload),
+            InspectionEvidenceJsonContext.Default.InspectionEvidence);
+    }
 
     [JSExport]
     public static async Task<string> GetInertWidgetAsync(string name)

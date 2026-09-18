@@ -97,6 +97,7 @@ public sealed class JsonPolymorphicWireTests
               readonly detail?: string;
               readonly documentation: PackageDocumentation;
               readonly source_kind: PackageSourceKind;
+              readonly evidence?: JsonValue;
             }
             """,
             source,
@@ -111,6 +112,10 @@ public sealed class JsonPolymorphicWireTests
               readonly sourcesTruncated?: boolean;
             }
             """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export type JsonValue =",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -145,6 +150,7 @@ public sealed class JsonPolymorphicWireTests
             root.GetProperty("documentation")
                 .GetProperty("summary")
                 .GetString());
+        Assert.False(root.TryGetProperty("evidence", out _));
     }
 
     [Fact]
