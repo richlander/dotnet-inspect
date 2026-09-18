@@ -354,6 +354,52 @@ public sealed record DependencyHierarchyDocument(
                 }
             }
         }
+
+        foreach (DependencyGraphDepthBoundary boundary in
+                 graph.DepthBoundaries)
+        {
+            ValidateNodeId(graph, boundary.NodeId, "depth boundary");
+            ValidateDepthBoundaryPackageProjection(graph, boundary);
+            if (boundary.RootOccurrences.IsEmpty)
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph depth boundary for node {boundary.NodeId} is not associated with any root occurrence.");
+            }
+
+            var boundaryRootOccurrences = new HashSet<int>();
+            foreach (int rootOccurrence in boundary.RootOccurrences)
+            {
+                if (!boundaryRootOccurrences.Add(rootOccurrence))
+                {
+                    throw new InvalidOperationException(
+                        $"Dependency graph depth boundary for node {boundary.NodeId} duplicates root occurrence {rootOccurrence}.");
+                }
+                if (!rootOccurrences.Contains(rootOccurrence))
+                {
+                    throw new InvalidOperationException(
+                        $"Dependency graph depth boundary for node {boundary.NodeId} names unknown root occurrence {rootOccurrence}.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateDepthBoundaryPackageProjection(
+        DependencyGraphDocument graph,
+        DependencyGraphDepthBoundary boundary)
+    {
+        if (boundary.PackageProjectionId is not { } projectionId)
+            return;
+
+        if ((uint)projectionId >= (uint)graph.PackageProjections.Length)
+        {
+            throw new InvalidOperationException(
+                $"Dependency graph depth boundary for node {boundary.NodeId} names package projection {projectionId} outside the package projection table.");
+        }
+        if (graph.PackageProjections[projectionId].NodeId != boundary.NodeId)
+        {
+            throw new InvalidOperationException(
+                $"Dependency graph depth boundary package projection {projectionId} does not match node {boundary.NodeId}.");
+        }
     }
 
     private static void ValidatePackageProjection(

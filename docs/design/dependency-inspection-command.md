@@ -585,6 +585,10 @@ an occurrence endpoint; its typed depth boundary explains why it has no
 expanded children. Depth-boundary association uses the same expansion context,
 including source-relative package projection identity, so one projection's
 boundary never annotates another projection of the same canonical node.
+Hierarchy construction rejects a depth boundary unless its node exists, its
+optional package projection belongs to that node, and it names a non-empty,
+duplicate-free set of known root occurrences. Malformed boundary evidence
+therefore fails visibly instead of becoming an unexplained leaf.
 
 Rows, row windows, Count, Tree, Mermaid, tables, JSONL, and structured JSON all
 consume the same ordered non-root occurrence sequence. Roots are required

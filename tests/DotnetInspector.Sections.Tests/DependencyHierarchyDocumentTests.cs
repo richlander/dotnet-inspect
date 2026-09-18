@@ -357,11 +357,135 @@ public sealed class DependencyHierarchyDocumentTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void DepthBoundaryNodeMustExist()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root"],
+                        [],
+                        boundaries:
+                        [
+                            Boundary(nodeId: 1, rootOccurrences: [1]),
+                        ])));
+
+        Assert.Contains(
+            "depth boundary node 1 is outside the node table",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBoundaryPackageProjectionMustExist()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root"],
+                        [],
+                        boundaries:
+                        [
+                            Boundary(
+                                nodeId: 0,
+                                rootOccurrences: [1],
+                                packageProjectionId: 42),
+                        ])));
+
+        Assert.Contains(
+            "package projection 42 outside the package projection table",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBoundaryPackageProjectionMustMatchNode()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root", "Other"],
+                        [],
+                        [Projection(0, 1)],
+                        [
+                            Boundary(
+                                nodeId: 0,
+                                rootOccurrences: [1],
+                                packageProjectionId: 0),
+                        ])));
+
+        Assert.Contains(
+            "package projection 0 does not match node 0",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBoundaryMustNameARootOccurrence()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root"],
+                        [],
+                        boundaries: [Boundary(0, [])])));
+
+        Assert.Contains(
+            "is not associated with any root occurrence",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBoundaryRootOccurrencesMustBeUnique()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root"],
+                        [],
+                        boundaries: [Boundary(0, [1, 1])])));
+
+        Assert.Contains(
+            "duplicates root occurrence 1",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepthBoundaryRootOccurrencesMustExist()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyHierarchyDocument.Create(
+                    Graph(
+                        [new DependencyGraphRootOccurrence(1, 0)],
+                        ["Root"],
+                        [],
+                        boundaries: [Boundary(0, [999])])));
+
+        Assert.Contains(
+            "names unknown root occurrence 999",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
     private static DependencyGraphDocument Graph(
         ImmutableArray<DependencyGraphRootOccurrence> roots,
         ImmutableArray<string> labels,
         ImmutableArray<DependencyGraphEdge> edges,
-        ImmutableArray<DependencyGraphPackageProjection> projections = default) =>
+        ImmutableArray<DependencyGraphPackageProjection> projections = default,
+        ImmutableArray<DependencyGraphDepthBoundary> boundaries = default) =>
         new(
             roots,
             [
@@ -375,7 +499,7 @@ public sealed class DependencyHierarchyDocumentTests
             ],
             edges,
             projections.IsDefault ? [] : projections,
-            []);
+            boundaries.IsDefault ? [] : boundaries);
 
     private static DependencyGraphEdge Edge(
         int id,
@@ -410,4 +534,15 @@ public sealed class DependencyHierarchyDocumentTests
             Candidate: null,
             rootOccurrence,
             []);
+
+    private static DependencyGraphDepthBoundary Boundary(
+        int nodeId,
+        ImmutableArray<int> rootOccurrences,
+        int? packageProjectionId = null) =>
+        new(
+            nodeId,
+            packageProjectionId,
+            MaximumDepth: 1,
+            rootOccurrences,
+            DependencyGraphDepthBoundaryProducerKind.Package);
 }
