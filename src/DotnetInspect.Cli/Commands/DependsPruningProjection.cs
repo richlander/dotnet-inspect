@@ -607,7 +607,9 @@ public partial class DependsCommand
                     candidateOutcome)
                 : null,
             Result is { } result
-                ? DependencyInspectionPruningResult.Create(result)
+                ? DependencyInspectionPruningResult.Create(
+                    result,
+                    PlatformProvidedVersion)
                 : null)
         {
             RuntimeCandidateOutcome = CandidateOutcome,

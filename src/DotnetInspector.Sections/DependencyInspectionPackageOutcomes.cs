@@ -565,7 +565,8 @@ public abstract record DependencyInspectionPruningResult
         DependencyInspectionPruningResult;
 
     public static DependencyInspectionPruningResult Create(
-        PackageHouseDependencyPruningResult result) =>
+        PackageHouseDependencyPruningResult result,
+        string? platformProvidedVersion) =>
         result switch
         {
             PackageHouseDependencyPruningResult.Evaluated evaluated =>
@@ -574,8 +575,7 @@ public abstract record DependencyInspectionPruningResult
                     evaluated.Pruning.Target.Family,
                     evaluated.Pruning.Target.TargetFramework.ToString(),
                     evaluated.Pruning.Target.Version.Value,
-                    evaluated.Pruning.Supply.SuppliedVersion
-                        ?.ToNormalizedString(),
+                    platformProvidedVersion,
                     evaluated.Pruning.Supply.Subsumption,
                     evaluated.Pruning.Supply.DelegatesToPlatform),
             PackageHouseDependencyPruningResult.ApplicationAuthoredExemption =>
