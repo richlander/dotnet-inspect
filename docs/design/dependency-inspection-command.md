@@ -11,8 +11,9 @@ tracked by steps 5 and 8 of
 [#7308](https://github.com/richlander/dotnet-inspect/issues/7308), moves the
 selected-Type workflow to `type graph`, moves the heterogeneous asset-root
 workflow to `graph dependencies`, and then retires `depends`.
-The Debug service-evidence enrichment is proposed under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117).
+The Debug service-evidence enrichment is implemented for the CLI under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117);
+the Browser/Wasm consumer remains proposed.
 
 ## Owner and claim
 
@@ -897,18 +898,16 @@ pathological fixtures. They cover:
 - parsed-wire equality for existing `DependsAssetDocument` JSON with and
   without the sidecar, including selected-section presence and row windows;
   rejection of standalone asset-mode `--envelope`; and
-- matching runtime JSON and generated Browser/Wasm types for the complete
-  closed enrichment.
+- Release rejection of the Debug-only `--evidence-envelope` host surface.
 
 The Debug CLI public-entry gates required by Output Shapes additionally cover
 ordinary tree, JSON, and selected diagnostic-section output while the sidecar
 receives the complete closed enrichment; paired `--envelope` baseline
 equality including identical framing and Content serialization; and ordinary
 output plus nonzero status when sidecar publication fails. Demonstrations use
-the restored CLI project and each thin diagnostic view. A Debug Browser/Wasm
-demonstration consumes the same evidence value. These gates do not verify the
-already documented Release host-surface absence, which remains **unverified**
-under the generic envelope policy.
+the restored CLI project and each thin diagnostic view. A future Debug
+Browser/Wasm adoption must consume the same evidence value and add matching
+runtime JSON and generated-type gates for the complete closed enrichment.
 
 ## Graph rendering and row currency
 
