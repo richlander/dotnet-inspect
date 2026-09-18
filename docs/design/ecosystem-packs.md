@@ -1441,7 +1441,7 @@ Aspire AddRedis                    Redis resource registration graph
 The grouped ecosystem projection uses the same registrations:
 
 ```text
-Platform
+.NET Runtime
   3 demos
 
 Microsoft.Extensions

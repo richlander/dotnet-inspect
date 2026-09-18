@@ -172,7 +172,7 @@ no acquisition or analysis and never consults
 The Ecosystems API owns the current product manifests. The platform-curated
 registration sequence is:
 
-1. Platform
+1. .NET Runtime
 2. ASP.NET Core
 3. Microsoft.Extensions
 
@@ -448,7 +448,7 @@ permission editor:
 ```text
 Workspace                                                   [Edit]
   Registered scope
-    Platform
+    .NET Runtime
     ASP.NET Core
     Microsoft.Extensions
     Contoso.*
