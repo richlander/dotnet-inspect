@@ -1450,9 +1450,11 @@ Real evidence uses `Newtonsoft.Json@13.0.3` source links and this repository's
 source URL. PR-fast CLI parsing and service URL-conversion tests cover unknown
 providers and literal `/raw/` path segments; focused package/member/library
 source-output tests cover the production preference and unchanged default.
-`RenderedUrlPreference_SourceLocationRetainsUnmappedUrl` covers coordinate
-fallback, and `TypeSourceFilesPrint_SelectsExactRepositoryDocument` proves
-that preferring rendered URLs does not change selected authored text.
+`CoordinateUrls_ApplyPreferenceAndPreserveLine` covers production coordinate
+output for both GitHub forms, the unchanged default, line suffixes, and unknown
+providers. `RenderedUrlPreference_SourceLocationRetainsUnmappedUrl` also covers
+the Research fallback. `TypeSourceFilesPrint_SelectsExactRepositoryDocument`
+proves that preferring rendered URLs does not change selected authored text.
 
 ### Walking the ladder — one example
 

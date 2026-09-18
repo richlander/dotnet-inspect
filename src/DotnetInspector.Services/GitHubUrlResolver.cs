@@ -81,31 +81,7 @@ public static class GitHubUrlResolver
     /// Converts a GitHub /raw/ URL to a /blob/ URL for browser viewing.
     /// </summary>
     public static string ConvertRawToBlobUrl(string url)
-    {
-        // SourceLink owns conversion from a raw-content origin to a repository browser URL.
-        if (ILInspector.SourceLink.SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
-        {
-            return browseUrl;
-        }
-
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && uri.Scheme == Uri.UriSchemeHttps
-            && uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-            && uri.IsDefaultPort
-            && uri.UserInfo.Length == 0)
-        {
-            var parts = uri.AbsolutePath.TrimStart('/').Split('/', 5);
-            if (parts.Length == 5
-                && parts.All(static part => part.Length > 0)
-                && parts[2] == "raw")
-            {
-                parts[2] = "blob";
-                return new UriBuilder(uri) { Path = string.Join("/", parts) }.Uri.AbsoluteUri;
-            }
-        }
-
-        return url;
-    }
+        => ILInspector.SourceLink.SourceLinkUrlPresentation.PreferRenderedUrl(url);
 
     /// <summary>
     /// Converts GitHub browser/raw URLs to raw.githubusercontent.com URLs for
