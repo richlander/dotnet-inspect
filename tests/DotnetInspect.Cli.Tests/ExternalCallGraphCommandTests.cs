@@ -403,6 +403,46 @@ public sealed class ExternalCallGraphCommandTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task Count_CommandInvocationHonorsProjectionAudit()
+    {
+        string[] arguments =
+        [
+            "graph",
+            "calls",
+            "Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions",
+            "AddOpenTelemetrySharedProviderBuilderServices~4d95928639",
+            "--root-package",
+            "OpenTelemetry@1.18.0",
+            "--package",
+            "OpenTelemetry.Api@1.18.0",
+            "--tfm",
+            Framework,
+            "--all",
+            "--count",
+            "-n",
+            "1",
+        ];
+        var captured = await ConsoleCapture.RunAsync(
+            () =>
+            {
+                var parsed =
+                    CommandLineBuilder.CreateRootCommand()
+                        .Parse(arguments);
+                Assert.Empty(parsed.Errors);
+                return CommandLineBuilder.InvokeAsync(
+                    parsed,
+                    arguments);
+            });
+
+        Assert.Equal(0, captured.ExitCode);
+        Assert.Equal($"1{Environment.NewLine}", captured.Output);
+        Assert.DoesNotContain(
+            "unprojected output",
+            captured.Error);
+    }
+
+    [Fact]
     public async Task MissingExternalParticipant_FailsExplicitly()
     {
         Execution execution = await ExecuteAsync(
@@ -491,6 +531,37 @@ public sealed class ExternalCallGraphCommandTests
         Assert.Contains(
             "RuntimeContextSlot",
             mermaid.Output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task OpenTelemetry_AbstractFocusFailsAsMissingBody()
+    {
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName =
+                "OpenTelemetry.Context.RuntimeContextSlot`1",
+            Member = "Get",
+            RootPackage = "OpenTelemetry.Api@1.18.0",
+            Packages = ["OpenTelemetry@1.18.0"],
+            Tfm = Framework,
+            IncludeAll = true,
+            Format = OutputFormat.Json,
+        };
+
+        var captured = await ConsoleCapture.RunAsync(
+            () => ExternalCallGraphCommand.ExecuteAsync(
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Equal("", captured.Output);
+        Assert.Contains(
+            "without a managed implementation body",
+            captured.Error);
+        Assert.Contains(
+            "Select a non-abstract managed method",
+            captured.Error);
     }
 
     static async Task<Execution> ExecuteAsync(

@@ -256,6 +256,24 @@ public static class ExternalCallGraphCommand
             return false;
         }
 
+        using var metadata =
+            PdbContext.OpenMetadataOnly(match.Participant.Assembly);
+        bool? hasBody = metadata.MethodHasBody(methodToken);
+        if (hasBody is not true)
+        {
+            CommandError.Write(
+                hasBody is false
+                    ? $"Member selector '{target.NormalizedSelector}' selects a MethodDef without a managed implementation body."
+                    : $"The managed implementation body for member selector '{target.NormalizedSelector}' could not be confirmed.",
+                [
+                    hasBody is false
+                        ? "Select a non-abstract managed method, constructor, or exact property/event accessor."
+                        : "Use an implementation assembly that carries the selected method body.",
+                ]);
+            focus = default!;
+            return false;
+        }
+
         focus = new ResolvedFocus(
             match.Participant,
             methodToken);

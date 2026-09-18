@@ -43,7 +43,7 @@ internal static class ExternalCallGraphOutputAdapter
 
         if (options.Count)
         {
-            Console.WriteLine(rows.Count);
+            CountOutput.WriteCount(rows.Count);
         }
         else if (options.Tree)
         {
