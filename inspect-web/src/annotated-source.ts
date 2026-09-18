@@ -14,6 +14,7 @@ import {
   nodesForPrimary,
   renderedFindingTargets,
   renderedStructuralTargets,
+  synchronousCompletionForFact,
 } from "./annotated-source-session.ts";
 import type {
   AnnotatedFocusTarget,
@@ -646,6 +647,7 @@ function renderDetail(context: SourceRenderContext): string {
             </li>`).join("")}</ul>`
           : `<p class="annotated-unavailable">No product-issued source target</p>`}
       </section>
+      ${renderSynchronousCompletion(context, fact)}
       ${renderCallCycles(context, fact)}
       ${renderFindingEvidence(context, fact.id)}
       <section class="annotated-detail-capabilities">
@@ -655,6 +657,38 @@ function renderDetail(context: SourceRenderContext): string {
         </div>
       </section>
     </section>`;
+}
+
+function renderSynchronousCompletion(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  if (fact.descriptor !== "call.edge") return "";
+  const observation =
+    synchronousCompletionForFact(context.model, fact.id);
+  if (observation === null) return "";
+
+  return `
+    <section class="annotated-synchronous-completion">
+      <h4>Synchronous completion</h4>
+      <p><strong>${context.escapeHtml(
+        synchronousCompletionLabel(observation.kind))}</strong>
+        · may block the current thread when the task is incomplete</p>
+      <p>Structural call evidence only · no runtime blocking or duration was measured</p>
+    </section>`;
+}
+
+function synchronousCompletionLabel(value: string | number): string {
+  switch (value) {
+    case "TaskWait":
+      return "Task.Wait";
+    case "TaskResult":
+      return "Task result";
+    case "TaskAwaiterGetResult":
+      return "Task awaiter GetResult";
+    default:
+      return String(value);
+  }
 }
 
 function renderCallCycles(
