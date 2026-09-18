@@ -108,6 +108,9 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains("T:ILInspector.Analysis.LibraryBodyIndex", banned);
         Assert.Contains(
+            "T:ILInspector.Analysis.LibraryBodyAnalysisService",
+            banned);
+        Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup",

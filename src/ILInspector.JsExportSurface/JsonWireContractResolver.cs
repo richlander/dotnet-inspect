@@ -5,6 +5,20 @@ using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
 
+internal readonly record struct JsonContextGetterIdentity(
+    string Assembly,
+    string Namespace,
+    string TypeName,
+    string GetterName)
+{
+    public static JsonContextGetterIdentity From(MemberRef getter) =>
+        new(
+            getter.DeclaringType.Assembly,
+            getter.DeclaringType.Namespace,
+            getter.DeclaringType.Name,
+            getter.Name);
+}
+
 /// <summary>
 /// Resolves each <c>[JSExport]</c> method's actual JSON wire-contract DTO type(s) by reading the
 /// <c>JsonSerializer.Serialize</c>/<c>Deserialize</c> call sites in the method's own IL body (via
@@ -90,19 +104,21 @@ public static class JsonWireContractResolver
     /// direct calls found in <paramref name="bodyIndex"/> for the method
     /// identified by <paramref name="metadataToken"/>.
     /// </summary>
-    public static JsExportFunction Attach(
+    internal static JsExportFunction Attach(
         LibraryBodyIndex bodyIndex,
         JsExportFunction function,
         int metadataToken,
-        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+        IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             registeredJsonTypeInfoContextScopeKeys,
-        IReadOnlyDictionary<int, int>
-            registeredJsonTypeInfoDefaultGetterTokens,
-        IReadOnlyDictionary<int, ApiTypeShape>
+        IReadOnlyDictionary<
+            JsonContextGetterIdentity,
+            JsonContextGetterIdentity>
+            registeredJsonTypeInfoDefaultGetters,
+        IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
             registeredJsonTypeInfoShapes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
         var parameterTypes = new List<TypeRef>();
@@ -132,7 +148,7 @@ public static class JsonWireContractResolver
                     dto,
                     registeredJsonTypeInfoGetterModes,
                     registeredJsonTypeInfoContextScopeKeys,
-                    registeredJsonTypeInfoDefaultGetterTokens,
+                    registeredJsonTypeInfoDefaultGetters,
                     registeredJsonTypeInfoShapes,
                     unsupportedJsonTypeInfoGetterReasons,
                     JsonWireDirection.Deserialize,
@@ -157,7 +173,7 @@ public static class JsonWireContractResolver
             metadataToken,
             registeredJsonTypeInfoGetterModes,
             registeredJsonTypeInfoContextScopeKeys,
-            registeredJsonTypeInfoDefaultGetterTokens,
+            registeredJsonTypeInfoDefaultGetters,
             registeredJsonTypeInfoShapes,
             unsupportedJsonTypeInfoGetterReasons);
         return new JsExportFunction
@@ -207,15 +223,17 @@ public static class JsonWireContractResolver
     static AuthenticatedWireType? ResolveCompleteReturnWireType(
         LibraryBodyIndex bodyIndex,
         int metadataToken,
-        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+        IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             registeredJsonTypeInfoContextScopeKeys,
-        IReadOnlyDictionary<int, int>
-            registeredJsonTypeInfoDefaultGetterTokens,
-        IReadOnlyDictionary<int, ApiTypeShape>
+        IReadOnlyDictionary<
+            JsonContextGetterIdentity,
+            JsonContextGetterIdentity>
+            registeredJsonTypeInfoDefaultGetters,
+        IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
             registeredJsonTypeInfoShapes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
         var sinks = new List<MethodResultSink>();
@@ -291,7 +309,7 @@ public static class JsonWireContractResolver
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
                         registeredJsonTypeInfoContextScopeKeys,
-                        registeredJsonTypeInfoDefaultGetterTokens,
+                        registeredJsonTypeInfoDefaultGetters,
                         registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons,
                         JsonWireDirection.Serialize,
@@ -389,15 +407,17 @@ public static class JsonWireContractResolver
         LibraryBodyIndex bodyIndex,
         DirectCall serializerCall,
         TypeRef dto,
-        IReadOnlyDictionary<int, JsonSourceGenerationMode>
+        IReadOnlyDictionary<JsonContextGetterIdentity, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             registeredJsonTypeInfoContextScopeKeys,
-        IReadOnlyDictionary<int, int>
-            registeredJsonTypeInfoDefaultGetterTokens,
-        IReadOnlyDictionary<int, ApiTypeShape>
+        IReadOnlyDictionary<
+            JsonContextGetterIdentity,
+            JsonContextGetterIdentity>
+            registeredJsonTypeInfoDefaultGetters,
+        IReadOnlyDictionary<JsonContextGetterIdentity, ApiTypeShape>
             registeredJsonTypeInfoShapes,
-        IReadOnlyDictionary<int, string>
+        IReadOnlyDictionary<JsonContextGetterIdentity, string>
             unsupportedJsonTypeInfoGetterReasons,
         JsonWireDirection direction,
         out ApiTypeShape? authenticatedShape,
@@ -427,8 +447,10 @@ public static class JsonWireContractResolver
                 authenticatedContextScopeKeys = [];
                 return false;
             }
+            JsonContextGetterIdentity getterIdentity =
+                JsonContextGetterIdentity.From(source.Callee);
             if (unsupportedJsonTypeInfoGetterReasons.TryGetValue(
-                    source.CalleeDefinitionToken,
+                    getterIdentity,
                     out string? unsupportedReason))
             {
                 throw new UnsupportedJsExportSurfaceException(
@@ -436,11 +458,11 @@ public static class JsonWireContractResolver
                     unsupportedReason);
             }
             if (!registeredJsonTypeInfoGetterModes.TryGetValue(
-                    source.CalleeDefinitionToken,
+                    getterIdentity,
                     out JsonSourceGenerationMode generationMode)
                 || !SupportsDirection(generationMode, direction)
                 || !registeredJsonTypeInfoShapes.TryGetValue(
-                    source.CalleeDefinitionToken,
+                    getterIdentity,
                     out ApiTypeShape? sourceShape)
                 || !IsTrustedJsonTypeInfoOf(
                     source.Callee.ReturnType,
@@ -450,18 +472,18 @@ public static class JsonWireContractResolver
                 return false;
             }
             if (registeredJsonTypeInfoContextScopeKeys.TryGetValue(
-                    source.CalleeDefinitionToken,
+                    getterIdentity,
                     out string? contextScopeKey))
             {
                 authenticatedContexts.Add(contextScopeKey);
             }
-            if (registeredJsonTypeInfoDefaultGetterTokens.TryGetValue(
-                    source.CalleeDefinitionToken,
-                    out int defaultContextGetterToken)
+            if (registeredJsonTypeInfoDefaultGetters.TryGetValue(
+                    getterIdentity,
+                    out JsonContextGetterIdentity defaultContextGetter)
                 && !HasAuthenticatedDefaultContextReceiver(
                     bodyIndex,
                     source,
-                    defaultContextGetterToken))
+                    defaultContextGetter))
             {
                 throw new UnsupportedJsExportSurfaceException(
                     "serializer context",
@@ -485,7 +507,7 @@ public static class JsonWireContractResolver
     static bool HasAuthenticatedDefaultContextReceiver(
         LibraryBodyIndex bodyIndex,
         DirectCall getterCall,
-        int defaultContextGetterToken)
+        JsonContextGetterIdentity defaultContextGetter)
     {
         if (!getterCall.Callee.HasThis
             || getterCall.ReceiverSource is not
@@ -503,8 +525,9 @@ public static class JsonWireContractResolver
                 bodyIndex,
                 getterCall.EvidenceMethod,
                 sourceOffset);
-            if (source?.CalleeDefinitionToken
-                != defaultContextGetterToken)
+            if (source is null
+                || JsonContextGetterIdentity.From(source.Callee)
+                    != defaultContextGetter)
             {
                 return false;
             }

@@ -1753,6 +1753,7 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseResult),
+            typeof(PackageHouseVersionListingResult),
             typeof(PackageHouseVersionPopulationResult),
         ];
 
@@ -1825,6 +1826,11 @@ public sealed class PackageHouseContractTests
             typeof(PackageHouseLibraryHandoff),
             typeof(PackageHouseFailure),
             typeof(PackageHouseEvidence),
+            typeof(PackageHouseVersionListingRequest),
+            typeof(PackageHouseVersionListingEvidence),
+            typeof(PackageHouseVersionListingResult),
+            .. typeof(PackageHouseVersionListingResult)
+                .GetNestedTypes(BindingFlags.Public),
             typeof(PackageHouseVersionPopulationRequest),
             typeof(PackageHouseVersionPopulationEvidence),
             typeof(PackageHouseVersionPopulationCell),
@@ -1848,6 +1854,44 @@ public sealed class PackageHouseContractTests
                         "DotnetInspector.Queries",
                         StringComparison.Ordinal)
                     is true);
+    }
+
+    [Fact]
+    public void VersionListingTerminalFamilyIsClosedAndRejectsEmptyReason()
+    {
+        Type result = typeof(PackageHouseVersionListingResult);
+        string[] expected =
+        [
+            "Available",
+            "Failed",
+            "Incomplete",
+            "NotFound",
+            "Rejected",
+            "Unavailable",
+        ];
+        Assert.Equal(
+            expected,
+            result.GetNestedTypes(BindingFlags.Public)
+                .Select(type => type.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        var request = new PackageHouseVersionListingRequest(
+            "Contoso.Json",
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Settle),
+            includePrerelease: true,
+            includeUnlisted: true);
+        Assert.Equal("contoso.json", request.PackageId);
+        Assert.True(request.IncludePrerelease);
+        Assert.True(request.IncludeUnlisted);
+        var evidence = new PackageHouseVersionListingEvidence(
+            request);
+
+        Assert.Throws<ArgumentException>(
+            () => new PackageHouseVersionListingResult.Failed(
+                evidence,
+                default));
     }
 
     [Fact]

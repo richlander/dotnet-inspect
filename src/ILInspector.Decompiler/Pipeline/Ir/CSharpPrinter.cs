@@ -1705,6 +1705,14 @@ public sealed partial class CSharpPrinter
         {
             switch (node)
             {
+                case IsPattern pattern
+                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    AddOwned(pattern.LocalIndex, patternScope);
+                    break;
+                case RecursivePropertyDeclarationPattern pattern
+                    when PatternDeclarationScope(pattern) is { } patternScope:
+                    AddOwned(pattern.LocalIndex, patternScope);
+                    break;
                 case PatternSwitchExpressionArm arm:
                     AddOwned(arm.LocalIndex, arm);
                     AddOwned(arm.Subpattern?.LocalIndex, arm);
@@ -1727,6 +1735,18 @@ public sealed partial class CSharpPrinter
             }
         }
         return scopes;
+
+        static IrNode? PatternDeclarationScope(IrNode pattern)
+        {
+            for (IrNode? current = pattern.Parent;
+                current is not null and not IrFunction;
+                current = current.Parent)
+            {
+                if (current is Block block)
+                    return block.Parent is BlockContainer container ? container : block;
+            }
+            return null;
+        }
 
         void AddOwned(int? index, IrNode owner)
         {
