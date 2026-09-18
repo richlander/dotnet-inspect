@@ -52,16 +52,21 @@ public sealed class JsonUnionWireTests
     [Fact]
     public void Build_PreservesGenericCasePositionsAndClosedRootArguments()
     {
-        var surface = Build(nameof(UnionExports.GetGeneric));
+        var surface = Build(nameof(UnionExports.GetInspectionResult));
         JsExportUnion union = Assert.Single(
-            surface.Unions, item => item.Definition.Name.StartsWith("GenericUnion", StringComparison.Ordinal));
+            surface.Unions,
+            item => item.Definition.Name.StartsWith(
+                "InspectionResult",
+                StringComparison.Ordinal));
         Assert.Equal(TypeRefKind.GenericParameter, union.CaseTypes[0].Kind);
         Assert.Equal(0, union.CaseTypes[0].GenericParameterIndex);
         ApiTypeShape root = Assert.IsType<ApiTypeShape>(
             Assert.Single(surface.Functions).ReturnWireTypeShape);
         Assert.Equal(ApiPrimitiveType.Int32, Assert.Single(root.TypeArguments).Primitive);
-        Assert.Equal(typeof(int), UnionJsonContext.Default.GenericUnionInt32.UnionCases[0].CaseType);
-        Assert.Equal("7", UnionExports.GetGeneric());
+        Assert.Equal(
+            typeof(int),
+            UnionJsonContext.Default.InspectionResultInt32.UnionCases[0].CaseType);
+        Assert.Equal("7", UnionExports.GetInspectionResult());
     }
 
     [Fact]
@@ -101,16 +106,19 @@ public sealed class JsonUnionWireTests
     [Fact]
     public void Build_DoesNotPromoteWritingEvidenceToReadClassification()
     {
-        var surface = Build(nameof(UnionExports.ReadObjects));
-        JsExportUnion union = Find(surface, nameof(ObjectUnion));
+        var surface = Build(nameof(UnionExports.ReadPackageResolution));
+        JsExportUnion union = Find(surface, nameof(PackageResolutionResult));
         Assert.Null(union.SerializationUnsupportedReason);
         Assert.NotEmpty(union.DeserializationUnsupportedReason);
         Assert.Equal(JsonWireDirection.Deserialize, surface.WireDirections[union.Definition]);
-        Assert.Equal("{\"code\":404}", UnionExports.GetObjects());
-        Assert.Throws<JsonException>(() => UnionExports.ReadObjects("{\"code\":404}"));
-        Assert.Equal("1.5", UnionExports.GetNumbers());
+        Assert.Equal("{\"code\":404}", UnionExports.GetPackageResolution());
         Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize("1.5", UnionJsonContext.Default.NumberUnion));
+            UnionExports.ReadPackageResolution("{\"code\":404}"));
+        Assert.Equal("1.5", UnionExports.GetMetricValue());
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize(
+                "1.5",
+                UnionJsonContext.Default.MetricValue));
     }
 
     [Fact]
@@ -195,10 +203,16 @@ public sealed class JsonUnionWireTests
     [Theory]
     [InlineData(nameof(UnionExports.GetDto), "export type DtoUnion = PackageSummary | string | null;")]
     [InlineData(nameof(UnionExports.GetNullable), "export type NullableUnion = number | string | null;")]
-    [InlineData(nameof(UnionExports.GetGeneric), "export type GenericUnion<T0> = T0 | string | null;")]
+    [InlineData(
+        nameof(UnionExports.GetInspectionResult),
+        "export type InspectionResult<T0> = T0 | string | null;")]
     [InlineData(nameof(UnionExports.GetNested), "export type NestedUnion = ScalarUnion | boolean | null;")]
-    [InlineData(nameof(UnionExports.GetObjects), "export type ObjectUnion = PackageSummary | PackageProblem | null;")]
-    [InlineData(nameof(UnionExports.GetNumbers), "export type NumberUnion = number | null;")]
+    [InlineData(
+        nameof(UnionExports.GetPackageResolution),
+        "export type PackageResolutionResult = PackageSummary | PackageProblem | null;")]
+    [InlineData(
+        nameof(UnionExports.GetMetricValue),
+        "export type MetricValue = number | null;")]
     [InlineData(nameof(UnionExports.GetEnvelope), "readonly items: ReadonlyArray<ScalarUnion>;")]
     public void Emit_PreservesRepresentedCaseKinds(string method, string expected)
     {
@@ -207,13 +221,18 @@ public sealed class JsonUnionWireTests
         Assert.Contains(expected, DtsEmitter.Emit(surface, diagnostics), StringComparison.Ordinal);
         Assert.False(diagnostics.HasUnmappedTypes);
         Assert.Contains(expected, TypeScriptFacadeEmitter.Emit(surface, "./dotnet.js"), StringComparison.Ordinal);
-        if (method == nameof(UnionExports.GetGeneric))
-            Assert.Contains("getGeneric(): GenericUnion<number>", DtsEmitter.Emit(surface), StringComparison.Ordinal);
+        if (method == nameof(UnionExports.GetInspectionResult))
+        {
+            Assert.Contains(
+                "getInspectionResult(): InspectionResult<number>",
+                DtsEmitter.Emit(surface),
+                StringComparison.Ordinal);
+        }
     }
 
     [Theory]
     [InlineData(nameof(UnionExports.ReadScalar), "deserialization")]
-    [InlineData(nameof(UnionExports.ReadObjects), "deserialization")]
+    [InlineData(nameof(UnionExports.ReadPackageResolution), "deserialization")]
     [InlineData(nameof(UnionExports.GetCustom), "unsupported wire-shaping attributes")]
     public void Emit_UnsupportedUnionsStillFailBeforePublication(string method, string reason)
     {
@@ -226,25 +245,36 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
-    public void Emit_UsesClosedJsonArgumentsRatherThanRawClrRepresentations()
+    public void Emit_MapsPackagePayloadAndInspectionArgumentsToTheirWireTypes()
     {
-        string bytes = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericBytes)));
-        Assert.Contains("getGenericBytes(): GenericUnion<string>", bytes, StringComparison.Ordinal);
-        Assert.Equal("\"AQID\"", UnionExports.GetGenericBytes());
-        string dictionary = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericDictionary)));
-        Assert.Contains("GenericUnion<Readonly<Record<string, number | null>>>", dictionary, StringComparison.Ordinal);
-        Assert.Equal("{\"value\":42,\"empty\":null}", UnionExports.GetGenericDictionary());
+        string bytes = DtsEmitter.Emit(
+            Build(nameof(UnionExports.GetPackageReadBytes)));
+        Assert.Contains(
+            "getPackageReadBytes(): PackageReadResult<string>",
+            bytes,
+            StringComparison.Ordinal);
+        Assert.Equal("\"AQID\"", UnionExports.GetPackageReadBytes());
+
+        string dictionary = DtsEmitter.Emit(
+            Build(nameof(UnionExports.GetInspectionDictionary)));
+        Assert.Contains(
+            "InspectionResult<Readonly<Record<string, number | null>>>",
+            dictionary,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "{\"value\":42,\"empty\":null}",
+            UnionExports.GetInspectionDictionary());
     }
 
     [Fact]
-    public void Emit_DoesNotSubstituteWireParametersIntoClrArrayCases()
+    public void Emit_RejectsItemsOrCountWhenArrayWireShapeDependsOnT()
     {
-        Assert.Equal("\"AQID\"", UnionExports.GetGenericArrayBytes());
-        Assert.Equal("[1,2,3]", UnionExports.GetGenericArrayNumbers());
+        Assert.Equal("\"AQID\"", UnionExports.GetItemsOrCountBytes());
+        Assert.Equal("[1,2,3]", UnionExports.GetItemsOrCountNumbers());
         foreach (string method in new[]
         {
-            nameof(UnionExports.GetGenericArrayBytes),
-            nameof(UnionExports.GetGenericArrayNumbers),
+            nameof(UnionExports.GetItemsOrCountBytes),
+            nameof(UnionExports.GetItemsOrCountNumbers),
         })
         {
             var surface = Build(method);
@@ -354,16 +384,16 @@ public sealed class JsonUnionWireTests
 
     [Theory]
     [InlineData(
-        nameof(UnionExports.GetConditionalUnionRecord),
+        nameof(UnionExports.GetConditionalInspectionValue),
         "{\"payload\":{\"value\":1}}")]
     [InlineData(
-        nameof(UnionExports.GetConditionalGenericUnionRecord),
+        nameof(UnionExports.GetConditionalRawInspectionResult),
         "{\"payload\":{\"value\":1}}")]
     [InlineData(
-        nameof(UnionExports.GetConditionalNestedGenericUnionRecord),
+        nameof(UnionExports.GetConditionalNestedRawInspectionResult),
         "{\"payload\":{\"value\":1}}")]
     [InlineData(
-        nameof(UnionExports.GetConditionalOpenGenericUnionRecord),
+        nameof(UnionExports.GetConditionalOpenRawInspectionResult),
         "{\"payload\":{\"value\":1}}")]
     public void Emit_RejectsConditionalUnionThatCanCollapseToUnknown(
         string method,
@@ -371,13 +401,13 @@ public sealed class JsonUnionWireTests
     {
         string payload = method switch
         {
-            nameof(UnionExports.GetConditionalUnionRecord) =>
-                UnionExports.GetConditionalUnionRecord(),
-            nameof(UnionExports.GetConditionalGenericUnionRecord) =>
-                UnionExports.GetConditionalGenericUnionRecord(),
-            nameof(UnionExports.GetConditionalNestedGenericUnionRecord) =>
-                UnionExports.GetConditionalNestedGenericUnionRecord(),
-            _ => UnionExports.GetConditionalOpenGenericUnionRecord(),
+            nameof(UnionExports.GetConditionalInspectionValue) =>
+                UnionExports.GetConditionalInspectionValue(),
+            nameof(UnionExports.GetConditionalRawInspectionResult) =>
+                UnionExports.GetConditionalRawInspectionResult(),
+            nameof(UnionExports.GetConditionalNestedRawInspectionResult) =>
+                UnionExports.GetConditionalNestedRawInspectionResult(),
+            _ => UnionExports.GetConditionalOpenRawInspectionResult(),
         };
         Assert.Equal(expectedPayload, payload);
 
@@ -397,23 +427,23 @@ public sealed class JsonUnionWireTests
     }
 
     [Fact]
-    public void Emit_AllowsConditionalUnionWithNestedJsonElement()
+    public void Emit_AllowsConditionalInspectionRowsBecauseUnknownStaysNested()
     {
         Assert.Equal(
             """{"payload":[{"value":1}]}""",
-            UnionExports.GetConditionalJsonElementArrayUnionRecord());
+            UnionExports.GetConditionalInspectionRows());
 
         var surface = Build(
-            nameof(UnionExports.GetConditionalJsonElementArrayUnionRecord));
+            nameof(UnionExports.GetConditionalInspectionRows));
         string declaration = DtsEmitter.Emit(surface);
 
         Assert.Contains(
-            "export type JsonElementArrayUnion = "
+            "export type InspectionRowsOrCount = "
                 + "ReadonlyArray<unknown> | number | null;",
             declaration,
             StringComparison.Ordinal);
         Assert.Contains(
-            "readonly payload?: JsonElementArrayUnion;",
+            "readonly payload?: InspectionRowsOrCount;",
             declaration,
             StringComparison.Ordinal);
     }
@@ -489,11 +519,17 @@ public sealed class JsonUnionWireTests
     public void Emit_ReferenceCollectionEntriesRetainPossibleNulls()
     {
         Assert.Equal("[\"value\",null]", UnionExports.GetReferenceArrayUnion());
-        Assert.Equal("[\"value\",null]", UnionExports.GetGenericReferenceArray());
+        Assert.Equal(
+            "[\"value\",null]",
+            UnionExports.GetInspectionReferenceArray());
         string direct = DtsEmitter.Emit(Build(nameof(UnionExports.GetReferenceArrayUnion)));
         Assert.Contains("ReadonlyArray<string | null> | number | null", direct, StringComparison.Ordinal);
-        string generic = DtsEmitter.Emit(Build(nameof(UnionExports.GetGenericReferenceArray)));
-        Assert.Contains("GenericUnion<ReadonlyArray<string | null>>", generic, StringComparison.Ordinal);
+        string generic = DtsEmitter.Emit(
+            Build(nameof(UnionExports.GetInspectionReferenceArray)));
+        Assert.Contains(
+            "InspectionResult<ReadonlyArray<string | null>>",
+            generic,
+            StringComparison.Ordinal);
     }
 
     static JsExportUnion Find(JsExportSurface surface, string name) =>
