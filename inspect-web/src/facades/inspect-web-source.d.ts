@@ -2,8 +2,8 @@ declare const inertStringBrand: unique symbol;
 export type InertString = string & {
     readonly [inertStringBrand]: "InertString";
 };
-export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
+export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "Calli" | number;
 export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "InstructionUnavailable" | number;
