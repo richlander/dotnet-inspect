@@ -70,6 +70,13 @@ public sealed record DependencyHierarchyDocument(
             foreach (int rootOccurrence in edge.RootOccurrences)
                 admittedEdgeIdsByRoot[rootOccurrence].Add(edge.Id);
         }
+        Dictionary<int, int> rootPackageProjections =
+            graph.PackageProjections
+                .Where(static projection =>
+                    projection.RootOccurrence is not null)
+                .ToDictionary(
+                    static projection => projection.RootOccurrence!.Value,
+                    static projection => projection.Id);
 
         var roots =
             ImmutableArray.CreateBuilder<DependencyHierarchyRootOccurrence>(
@@ -94,84 +101,89 @@ public sealed record DependencyHierarchyDocument(
                     root.NodeId,
                     Depth: 0));
 
-            var expandedNodes = new HashSet<int> { root.NodeId };
-            var ancestorNodes = new HashSet<int> { root.NodeId };
             var emittedEdgeIds = new HashSet<int>();
             HashSet<int> admittedEdgeIds =
                 admittedEdgeIdsByRoot[root.OccurrenceIndex];
-            var stack = new Stack<ExpansionFrame>();
-            stack.Push(
+            int? rootPackageProjectionId =
+                rootPackageProjections.TryGetValue(
+                    root.OccurrenceIndex,
+                    out int projectionId)
+                    ? projectionId
+                    : null;
+            var rootContext = new ExpansionContext(
+                root.NodeId,
+                rootPackageProjectionId);
+            var expandedContexts = new HashSet<ExpansionContext>
+            {
+                rootContext,
+            };
+            var queue = new Queue<ExpansionFrame>();
+            queue.Enqueue(
                 new ExpansionFrame(
-                    root.NodeId,
+                    rootContext,
                     rootIdentity,
                     Depth: 0,
-                    Outgoing(root.NodeId),
-                    NextEdgeIndex: 0));
+                    ImmutableHashSet.Create(rootContext)));
             int nextOccurrence = 1;
 
-            while (stack.TryPop(out ExpansionFrame frame))
+            while (queue.TryDequeue(out ExpansionFrame frame))
             {
-                if (frame.NextEdgeIndex >= frame.Outgoing.Count)
+                foreach (DependencyGraphEdge edge in Outgoing(
+                    frame.Context.NodeId))
                 {
-                    ancestorNodes.Remove(frame.NodeId);
-                    continue;
-                }
-
-                DependencyGraphEdge edge =
-                    frame.Outgoing[frame.NextEdgeIndex];
-                stack.Push(
-                    frame with
+                    if (!admittedEdgeIds.Contains(edge.Id)
+                        || edge.SourcePackageProjectionId
+                            != frame.Context.PackageProjectionId)
                     {
-                        NextEdgeIndex = frame.NextEdgeIndex + 1,
-                    });
-                if (!admittedEdgeIds.Contains(edge.Id))
-                    continue;
+                        continue;
+                    }
 
-                emittedEdgeIds.Add(edge.Id);
-                var identity = new DependencyHierarchyOccurrenceIdentity(
-                    rootOccurrence,
-                    nextOccurrence++);
-                DependencyHierarchyOccurrenceDisposition disposition;
-                if (ancestorNodes.Contains(edge.TargetNodeId))
-                {
-                    disposition =
-                        DependencyHierarchyOccurrenceDisposition.Cycle;
-                }
-                else if (!expandedNodes.Add(edge.TargetNodeId))
-                {
-                    disposition =
-                        DependencyHierarchyOccurrenceDisposition.Revisit;
-                }
-                else
-                {
-                    disposition =
-                        DependencyHierarchyOccurrenceDisposition.Expanded;
-                }
-
-                int depth = frame.Depth + 1;
-                occurrences.Add(
-                    new DependencyHierarchyOccurrence(
-                        identity,
-                        frame.OccurrenceIdentity,
+                    emittedEdgeIds.Add(edge.Id);
+                    var identity =
+                        new DependencyHierarchyOccurrenceIdentity(
+                            rootOccurrence,
+                            nextOccurrence++);
+                    var targetContext = new ExpansionContext(
                         edge.TargetNodeId,
-                        edge.Id,
-                        depth,
-                        disposition));
+                        edge.TargetPackageProjectionId);
+                    DependencyHierarchyOccurrenceDisposition disposition;
+                    if (frame.Ancestors.Contains(targetContext))
+                    {
+                        disposition =
+                            DependencyHierarchyOccurrenceDisposition.Cycle;
+                    }
+                    else if (!expandedContexts.Add(targetContext))
+                    {
+                        disposition =
+                            DependencyHierarchyOccurrenceDisposition.Revisit;
+                    }
+                    else
+                    {
+                        disposition =
+                            DependencyHierarchyOccurrenceDisposition.Expanded;
+                    }
 
-                if (disposition
-                    != DependencyHierarchyOccurrenceDisposition.Expanded)
-                {
-                    continue;
+                    int depth = frame.Depth + 1;
+                    occurrences.Add(
+                        new DependencyHierarchyOccurrence(
+                            identity,
+                            frame.OccurrenceIdentity,
+                            edge.TargetNodeId,
+                            edge.Id,
+                            depth,
+                            disposition));
+
+                    if (disposition
+                        == DependencyHierarchyOccurrenceDisposition.Expanded)
+                    {
+                        queue.Enqueue(
+                            new ExpansionFrame(
+                                targetContext,
+                                identity,
+                                depth,
+                                frame.Ancestors.Add(targetContext)));
+                    }
                 }
-
-                ancestorNodes.Add(edge.TargetNodeId);
-                stack.Push(
-                    new ExpansionFrame(
-                        edge.TargetNodeId,
-                        identity,
-                        depth,
-                        Outgoing(edge.TargetNodeId),
-                        NextEdgeIndex: 0));
             }
 
             int[] unreachableEdgeIds =
@@ -242,6 +254,8 @@ public sealed record DependencyHierarchyDocument(
         }
 
         var rootOccurrences = new HashSet<int>();
+        var rootsByOccurrence =
+            new Dictionary<int, DependencyGraphRootOccurrence>();
         foreach (DependencyGraphRootOccurrence root in graph.Roots)
         {
             ValidateNodeId(graph, root.NodeId, "root");
@@ -249,6 +263,46 @@ public sealed record DependencyHierarchyDocument(
             {
                 throw new InvalidOperationException(
                     $"Dependency graph root occurrence {root.OccurrenceIndex} is duplicated.");
+            }
+            rootsByOccurrence.Add(root.OccurrenceIndex, root);
+        }
+
+        var packageProjectionIds = new HashSet<int>();
+        var projectedRootOccurrences = new HashSet<int>();
+        for (int index = 0; index < graph.PackageProjections.Length; index++)
+        {
+            DependencyGraphPackageProjection projection =
+                graph.PackageProjections[index];
+            if (!packageProjectionIds.Add(projection.Id))
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph package projection {projection.Id} is duplicated.");
+            }
+            if (projection.Id != index)
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph package projection {projection.Id} does not match its document position {index}.");
+            }
+            ValidateNodeId(graph, projection.NodeId, "package projection");
+            if (projection.RootOccurrence is not { } rootOccurrence)
+                continue;
+
+            if (!rootsByOccurrence.TryGetValue(
+                rootOccurrence,
+                out DependencyGraphRootOccurrence? root))
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph package projection {projection.Id} names unknown root occurrence {rootOccurrence}.");
+            }
+            if (!projectedRootOccurrences.Add(rootOccurrence))
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph root occurrence {rootOccurrence} has more than one package projection.");
+            }
+            if (projection.NodeId != root.NodeId)
+            {
+                throw new InvalidOperationException(
+                    $"Dependency graph package projection {projection.Id} does not match root occurrence {rootOccurrence}'s node.");
             }
         }
 
@@ -262,6 +316,18 @@ public sealed record DependencyHierarchyDocument(
             }
             ValidateNodeId(graph, edge.SourceNodeId, "edge source");
             ValidateNodeId(graph, edge.TargetNodeId, "edge target");
+            ValidatePackageProjection(
+                graph,
+                edge.SourcePackageProjectionId,
+                edge.SourceNodeId,
+                edge.Id,
+                "source");
+            ValidatePackageProjection(
+                graph,
+                edge.TargetPackageProjectionId,
+                edge.TargetNodeId,
+                edge.Id,
+                "target");
             if (edge.RootOccurrences.IsDefault)
             {
                 throw new InvalidOperationException(
@@ -290,6 +356,28 @@ public sealed record DependencyHierarchyDocument(
         }
     }
 
+    private static void ValidatePackageProjection(
+        DependencyGraphDocument graph,
+        int? packageProjectionId,
+        int nodeId,
+        int edgeId,
+        string role)
+    {
+        if (packageProjectionId is not { } projectionId)
+            return;
+
+        if ((uint)projectionId >= (uint)graph.PackageProjections.Length)
+        {
+            throw new InvalidOperationException(
+                $"Dependency graph edge {edgeId} {role} package projection {projectionId} is outside the package projection table.");
+        }
+        if (graph.PackageProjections[projectionId].NodeId != nodeId)
+        {
+            throw new InvalidOperationException(
+                $"Dependency graph edge {edgeId} {role} package projection {projectionId} does not match node {nodeId}.");
+        }
+    }
+
     private static void ValidateNodeId(
         DependencyGraphDocument graph,
         int nodeId,
@@ -302,10 +390,13 @@ public sealed record DependencyHierarchyDocument(
         }
     }
 
-    private readonly record struct ExpansionFrame(
+    private readonly record struct ExpansionContext(
         int NodeId,
+        int? PackageProjectionId);
+
+    private readonly record struct ExpansionFrame(
+        ExpansionContext Context,
         DependencyHierarchyOccurrenceIdentity OccurrenceIdentity,
         int Depth,
-        IReadOnlyList<DependencyGraphEdge> Outgoing,
-        int NextEdgeIndex);
+        ImmutableHashSet<ExpansionContext> Ancestors);
 }

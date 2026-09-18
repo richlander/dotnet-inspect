@@ -97,7 +97,8 @@ public sealed class DependencyHierarchyOutputAdapterTests
         DependencyHierarchyDocument document =
             DependencyHierarchyDocument.Create(SharedDag());
         DependencyHierarchyOccurrenceRow selected =
-            DependencyHierarchyOutputAdapter.Rows(document)[2];
+            DependencyHierarchyOutputAdapter.Rows(document)
+                .Single(static row => row.EdgeId == 4);
 
         string tree = await RenderAsync(
             document,

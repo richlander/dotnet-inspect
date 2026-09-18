@@ -560,14 +560,23 @@ The immutable hierarchy contains:
 - root-relative depth; and
 - one of `Expanded`, `Revisit`, or `Cycle` for a non-root occurrence.
 
-Projection is deterministic in explicit-root order and producer-issued
-relationship order. For each root, the first occurrence of a canonical node is
-expanded. A later occurrence of the same node under that root is retained as a
-`Revisit` boundary and is not expanded again. An occurrence whose target is
-already in its ancestor chain is retained as a `Cycle` boundary and is not
-expanded. The same canonical target reached from two parents therefore
-produces two hierarchy occurrences even though the backing topology contains
-one canonical node.
+Projection is deterministic in explicit-root order, root-relative breadth, and
+producer-issued relationship order. Expansion belongs to a root-relative
+expansion context: the canonical node plus its source-relative package
+projection when package evidence supplies one, or the canonical node alone
+otherwise. The minimum-depth occurrence of each expansion context is expanded;
+producer relationship order breaks equal-depth ties. Another occurrence of
+the same context under that root is retained as a `Revisit` boundary and is not
+expanded again. An occurrence whose target context is already in its ancestor
+chain is retained as a `Cycle` boundary and is not expanded.
+
+The same canonical target reached from two parents therefore produces two
+hierarchy occurrences even though the backing topology contains one canonical
+node. Distinct source-relative package projections of that canonical node are
+distinct expansion contexts: each may expand once, and each consumes only the
+outgoing relationships issued for that projection. This prevents a
+longer-path occurrence or one package authority's projection from owning
+another occurrence's descendants.
 
 This bounded expansion emits each root-admitted backing relationship once per
 root. It cannot recurse indefinitely, and it preserves the source relationship
