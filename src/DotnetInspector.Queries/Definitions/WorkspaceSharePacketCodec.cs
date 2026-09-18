@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -45,6 +46,7 @@ public static class WorkspaceSharePacketCodec
     public const int MaxTabs = 12;
     public const int MaxContexts = 24;
     public const int MaxRegistrations = 24;
+    public const int MaxQueries = 24;
 
     private static readonly UTF8Encoding s_utf8Strict = new(
         encoderShouldEmitUTF8Identifier: false,
@@ -424,17 +426,12 @@ public static class WorkspaceSharePacketCodec
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
     {
         ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
-        if (root.TryGetProperty("q", out _))
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.UnsupportedFormat,
-                "Query-bearing workspace share format 2 requires #6971.");
-        }
 
         WorkspaceShareTab[] tabs = ReadTabs(Required(root, "t"));
         WorkspaceShareContext[] contexts = ReadContexts(
             Required(root, "g"),
             tabs);
+        PortableQueryIdentity[] queries = ReadQueries(root);
         int? focusedTab = ReadNullableIndex(
             Required(root, "a"),
             "a",
@@ -453,25 +450,22 @@ public static class WorkspaceSharePacketCodec
         WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
             Required(root, "v"),
             tabs,
+            queries,
             Format2Version);
+        ValidateReferencedQueries(queries, viewStates);
 
         return new WorkspaceSharePacket(
             tabs,
             contexts,
             focusedTab,
             selectedContext,
-            viewStates);
+            viewStates,
+            queries);
     }
 
     private static WorkspaceSharePacket BindFormat3(JsonElement root)
     {
         ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
-        if (root.TryGetProperty("q", out _))
-        {
-            throw Failure(
-                WorkspaceSharePacketFailureKind.UnsupportedFormat,
-                "Query-bearing workspace share format 3 requires #6971.");
-        }
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -482,11 +476,7 @@ public static class WorkspaceSharePacketCodec
             allowEmpty: true);
         WorkspaceRegistration[] registrations = ReadRegistrations(
             Required(root, "r"));
-        if (contexts.Length == 0 && registrations.Length == 0)
-        {
-            throw InvalidShape(
-                "Workspace share format 3 requires at least one context or registration.");
-        }
+        PortableQueryIdentity[] queries = ReadQueries(root);
 
         int? focusedTab = ReadNullableIndex(
             Required(root, "a"),
@@ -512,7 +502,22 @@ public static class WorkspaceSharePacketCodec
         WorkspaceShareViewState[] viewStates = ReadFormat2ViewStates(
             Required(root, "v"),
             tabs,
+            queries,
             CurrentFormatVersion);
+        ValidateReferencedQueries(queries, viewStates);
+        if (contexts.Length == 0
+            && registrations.Length == 0
+            && !IsQueryOnlyPacket(
+                tabs,
+                focusedTab,
+                selectedContext,
+                queries,
+                viewStates))
+        {
+            throw InvalidShape(
+                "Workspace share format 3 with no contexts or registrations "
+                    + "requires the exact query-only composition.");
+        }
 
         return new WorkspaceSharePacket(
             tabs,
@@ -520,7 +525,8 @@ public static class WorkspaceSharePacketCodec
             registrations,
             focusedTab,
             selectedContext,
-            viewStates);
+            viewStates,
+            queries);
     }
 
     private static void ValidateProperties(
@@ -799,6 +805,72 @@ public static class WorkspaceSharePacketCodec
         return registrations;
     }
 
+    private static PortableQueryIdentity[] ReadQueries(JsonElement root)
+    {
+        if (!root.TryGetProperty("q", out JsonElement element))
+            return [];
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() == 0)
+        {
+            throw InvalidShape(
+                "Workspace share field 'q' must be a nonempty array when present.");
+        }
+        if (element.GetArrayLength() > MaxQueries)
+        {
+            throw InvalidShape(
+                $"Workspace share field 'q' permits at most {MaxQueries} entries.");
+        }
+
+        PortableQueryIdentity[] queries =
+            new PortableQueryIdentity[element.GetArrayLength()];
+        int index = 0;
+        foreach (JsonElement tuple in element.EnumerateArray())
+        {
+            if (tuple.ValueKind != JsonValueKind.Array
+                || tuple.GetArrayLength() != 2)
+            {
+                throw InvalidShape(
+                    "Every workspace share query must be a [queryId, payload] tuple.");
+            }
+
+            JsonElement.ArrayEnumerator values = tuple.EnumerateArray();
+            string queryId = RequiredString(
+                Next(ref values),
+                $"query {index} identity");
+            JsonElement payloadElement = Next(ref values);
+            if (payloadElement.ValueKind != JsonValueKind.Object)
+            {
+                throw InvalidShape(
+                    $"Workspace share query {index} payload must be an object.");
+            }
+            string payload = payloadElement.GetRawText();
+            try
+            {
+                queries[index] = PortableQueryIdentity.FromCanonicalPayload(
+                    queryId,
+                    payload);
+            }
+            catch (PortableQueryPayloadException ex)
+            {
+                throw InvalidShape(
+                    $"Workspace share query {index} payload is not canonical.",
+                    ex);
+            }
+
+            if (index > 0
+                && CompareQueries(queries[index - 1], queries[index]) >= 0)
+            {
+                throw InvalidShape(
+                    "Workspace share field 'q' must be strictly ordered by "
+                        + "query identity and canonical payload.");
+            }
+
+            index++;
+        }
+
+        return queries;
+    }
+
     private static WorkspaceEcosystemRegistrationDeclaration
         ReadEcosystemDeclaration(ref JsonElement.ArrayEnumerator values)
     {
@@ -1010,6 +1082,7 @@ public static class WorkspaceSharePacketCodec
     private static WorkspaceShareViewState[] ReadFormat2ViewStates(
         JsonElement element,
         WorkspaceShareTab[] tabs,
+        PortableQueryIdentity[] queries,
         int formatVersion)
     {
         if (element.ValueKind != JsonValueKind.Array
@@ -1031,13 +1104,6 @@ public static class WorkspaceSharePacketCodec
             }
 
             ValidateProperties(state, "t", "r", "u", "f", "q", "l");
-            if (state.TryGetProperty("q", out _)
-                || state.TryGetProperty("l", out _))
-            {
-                throw Failure(
-                    WorkspaceSharePacketFailureKind.UnsupportedFormat,
-                    $"Query-bearing workspace share format {formatVersion} requires #6971.");
-            }
 
             int? tabIndex = ReadNullableIndex(
                 Required(state, "t"),
@@ -1060,10 +1126,16 @@ public static class WorkspaceSharePacketCodec
                     ? ReadSubject(requestedSubject)
                     : null;
             string? facet = OptionalString(state, "f");
+            int[] queryIndexes = ReadQueryIndexes(state, queries.Length);
+            PortableLibraryIdentity[] libraries = ReadStateLibraries(state);
 
             if (tabIndex is int index
                 && tabs[index].SourceKind != WorkspaceShareSourceKind.Package
-                && (subject is not null || context is not null || facet is not null))
+                && (subject is not null
+                    || context is not null
+                    || facet is not null
+                    || queryIndexes.Length != 0
+                    || libraries.Length != 0))
             {
                 throw InvalidShape(
                     $"A format-{formatVersion} group tuple view row must remain "
@@ -1083,6 +1155,12 @@ public static class WorkspaceSharePacketCodec
                     $"The leading format-{formatVersion} Workspace row cannot "
                         + "retain Package context.");
             }
+            if (stateIndex == 0 && libraries.Length != 0)
+            {
+                throw InvalidShape(
+                    $"The leading format-{formatVersion} Workspace row cannot "
+                        + "carry state-level Library scope.");
+            }
 
             try
             {
@@ -1090,7 +1168,13 @@ public static class WorkspaceSharePacketCodec
                     tabIndex is null ? null : $"t{tabIndex}",
                     subject,
                     context,
-                    facet);
+                    facet,
+                    [
+                        .. queryIndexes
+                            .Select(index => $"q{index}")
+                            .Order(StringComparer.Ordinal)
+                    ],
+                    libraries);
             }
             catch (ArgumentException ex)
             {
@@ -1103,10 +1187,135 @@ public static class WorkspaceSharePacketCodec
                 tabIndex,
                 subject,
                 context,
-                facet);
+                facet,
+                queryIndexes,
+                libraries);
         }
 
         return states;
+    }
+
+    private static int[] ReadQueryIndexes(
+        JsonElement state,
+        int queryCount)
+    {
+        if (!state.TryGetProperty("q", out JsonElement element))
+            return [];
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() == 0)
+        {
+            throw InvalidShape(
+                "Workspace share view-state field 'q' must be a nonempty array when present.");
+        }
+
+        var indexes = new int[element.GetArrayLength()];
+        int previous = -1;
+        int position = 0;
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            int index = ReadIndex(item, "view-state q", queryCount);
+            if (index <= previous)
+            {
+                throw InvalidShape(
+                    "Workspace share view-state query indexes must be unique "
+                        + "and in ascending order.");
+            }
+
+            indexes[position++] = index;
+            previous = index;
+        }
+
+        return indexes;
+    }
+
+    private static PortableLibraryIdentity[] ReadStateLibraries(
+        JsonElement state)
+    {
+        if (!state.TryGetProperty("l", out JsonElement element))
+            return [];
+        if (element.ValueKind != JsonValueKind.Array
+            || element.GetArrayLength() == 0)
+        {
+            throw InvalidShape(
+                "Workspace share view-state field 'l' must be a nonempty array when present.");
+        }
+
+        var libraries =
+            new PortableLibraryIdentity[element.GetArrayLength()];
+        PortableLibraryIdentity? previous = null;
+        int index = 0;
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            PortableLibraryIdentity library =
+                ReadPortableLibraryIdentity(item);
+            if (previous is not null
+                && PortableLibraryIdentityComparer.Instance.Compare(
+                    previous,
+                    library) >= 0)
+            {
+                throw InvalidShape(
+                    "Workspace share view-state Library identities must be unique "
+                        + "and in canonical order.");
+            }
+
+            libraries[index++] = library;
+            previous = library;
+        }
+
+        return libraries;
+    }
+
+    private static void ValidateReferencedQueries(
+        PortableQueryIdentity[] queries,
+        WorkspaceShareViewState[] states)
+    {
+        if (queries.Length == 0)
+            return;
+
+        var referenced = new bool[queries.Length];
+        foreach (WorkspaceShareViewState state in states)
+        {
+            foreach (int queryIndex in state.QueryIndexes)
+                referenced[queryIndex] = true;
+        }
+
+        if (referenced.Any(value => !value))
+        {
+            throw InvalidShape(
+                "Every workspace share query-table entry must be referenced by a view state.");
+        }
+    }
+
+    private static bool IsQueryOnlyPacket(
+        WorkspaceShareTab[] tabs,
+        int? focusedTab,
+        int? selectedContext,
+        PortableQueryIdentity[] queries,
+        WorkspaceShareViewState[] viewStates) =>
+        tabs.Length == 0
+        && focusedTab is null
+        && selectedContext is null
+        && queries.Length == 1
+        && viewStates.Length == 1
+        && viewStates[0].TabIndex is null
+        && viewStates[0].Subject is PortableSubjectRequest.Workspace
+        && viewStates[0].Context is null
+        && viewStates[0].Facet is null
+        && viewStates[0].QueryIndexes is [0]
+        && viewStates[0].Libraries.Count == 0;
+
+    private static int CompareQueries(
+        PortableQueryIdentity left,
+        PortableQueryIdentity right)
+    {
+        int result = string.CompareOrdinal(
+            left.Vocabulary,
+            right.Vocabulary);
+        return result != 0
+            ? result
+            : PortableQueryModel.ScalarOrder.Compare(
+                left.Payload,
+                right.Payload);
     }
 
     private static PortableSubjectRequest ReadSubject(JsonElement element)
@@ -1490,6 +1699,7 @@ public static class WorkspaceSharePacketCodec
                 "Workspace share format 2 requires one leading Workspace view "
                     + "row and one row for every tuple.");
         }
+        ValidateQueriesForWrite(packet);
 
         var writer = new CanonicalWriter();
         writer.WriteAscii("{\"f\":2,\"t\":["u8);
@@ -1506,6 +1716,7 @@ public static class WorkspaceSharePacketCodec
             packet.SelectedContextIndex
                 ?? throw InvalidShape(
                     "Workspace share format 2 requires a selected context."));
+        WriteQueryTableProperty(writer, packet.Queries);
         writer.WriteAscii(",\"v\":["u8);
         for (int index = 0; index < packet.ViewStates.Count; index++)
         {
@@ -1526,10 +1737,19 @@ public static class WorkspaceSharePacketCodec
                 "Workspace share format 3 requires one leading Workspace view "
                     + "row and one row for every tuple.");
         }
-        if (packet.Contexts.Count == 0 && packet.Registrations.Count == 0)
+        ValidateQueriesForWrite(packet);
+        if (packet.Contexts.Count == 0
+            && packet.Registrations.Count == 0
+            && !IsQueryOnlyPacket(
+                [.. packet.Tabs],
+                packet.FocusedTabIndex,
+                packet.SelectedContextIndex,
+                [.. packet.Queries],
+                [.. packet.ViewStates]))
         {
             throw InvalidShape(
-                "Workspace share format 3 requires at least one context or registration.");
+                "Workspace share format 3 with no contexts or registrations "
+                    + "requires the exact query-only composition.");
         }
         if ((packet.Contexts.Count == 0)
             != (packet.SelectedContextIndex is null))
@@ -1565,6 +1785,7 @@ public static class WorkspaceSharePacketCodec
             writer.WriteInteger(selected);
         else
             writer.WriteAscii("null"u8);
+        WriteQueryTableProperty(writer, packet.Queries);
         writer.WriteAscii(",\"v\":["u8);
         for (int index = 0; index < packet.ViewStates.Count; index++)
         {
@@ -1575,6 +1796,88 @@ public static class WorkspaceSharePacketCodec
 
         writer.WriteAscii("]}"u8);
         return writer.ToArray();
+    }
+
+    private static void ValidateQueriesForWrite(
+        WorkspaceSharePacket packet)
+    {
+        if (packet.Queries.Count > MaxQueries)
+        {
+            throw InvalidShape(
+                $"Workspace share field 'q' permits at most {MaxQueries} entries.");
+        }
+
+        for (int index = 1; index < packet.Queries.Count; index++)
+        {
+            if (CompareQueries(
+                    packet.Queries[index - 1],
+                    packet.Queries[index]) >= 0)
+            {
+                throw InvalidShape(
+                    "Workspace share field 'q' must be strictly ordered by "
+                        + "query identity and canonical payload.");
+            }
+        }
+
+        var referenced = new bool[packet.Queries.Count];
+        for (int stateIndex = 0;
+            stateIndex < packet.ViewStates.Count;
+            stateIndex++)
+        {
+            WorkspaceShareViewState state = packet.ViewStates[stateIndex];
+            int previous = -1;
+            foreach (int queryIndex in state.QueryIndexes)
+            {
+                if (queryIndex < 0
+                    || queryIndex >= packet.Queries.Count
+                    || queryIndex <= previous)
+                {
+                    throw InvalidShape(
+                        "Workspace share view-state query indexes must be valid, "
+                            + "unique, and in ascending order.");
+                }
+                referenced[queryIndex] = true;
+                previous = queryIndex;
+            }
+
+            PortableLibraryIdentity? previousLibrary = null;
+            foreach (PortableLibraryIdentity library in state.Libraries)
+            {
+                if (previousLibrary is not null
+                    && PortableLibraryIdentityComparer.Instance.Compare(
+                        previousLibrary,
+                        library) >= 0)
+                {
+                    throw InvalidShape(
+                        "Workspace share view-state Library identities must be "
+                            + "unique and in canonical order.");
+                }
+                previousLibrary = library;
+            }
+
+            if (stateIndex == 0 && state.Libraries.Count != 0)
+            {
+                throw InvalidShape(
+                    "The leading Workspace row cannot carry state-level Library scope.");
+            }
+            if (state.Libraries.Count != 0
+                && (state.TabIndex is not int tabIndex
+                    || tabIndex < 0
+                    || tabIndex >= packet.Tabs.Count
+                    || packet.Tabs[tabIndex].SourceKind
+                        != WorkspaceShareSourceKind.Package))
+            {
+                throw InvalidShape(
+                    "Workspace share state-level Library scope requires a "
+                        + "direct Package coordinate.");
+            }
+        }
+
+        if (referenced.Any(value => !value))
+        {
+            throw InvalidShape(
+                "Every workspace share query-table entry must be referenced by a view state.");
+        }
     }
 
     private static void WriteRegistration(
@@ -1800,7 +2103,50 @@ public static class WorkspaceSharePacketCodec
         }
 
         writer.WriteOptionalProperty("f"u8, state.Facet);
+        if (state.QueryIndexes.Count != 0)
+        {
+            writer.WriteAscii(",\"q\":["u8);
+            for (int index = 0; index < state.QueryIndexes.Count; index++)
+            {
+                if (index > 0)
+                    writer.WriteByte((byte)',');
+                writer.WriteInteger(state.QueryIndexes[index]);
+            }
+            writer.WriteByte((byte)']');
+        }
+        if (state.Libraries.Count != 0)
+        {
+            writer.WriteAscii(",\"l\":["u8);
+            for (int index = 0; index < state.Libraries.Count; index++)
+            {
+                if (index > 0)
+                    writer.WriteByte((byte)',');
+                WritePortableLibraryIdentityTuple(writer, state.Libraries[index]);
+            }
+            writer.WriteByte((byte)']');
+        }
         writer.WriteByte((byte)'}');
+    }
+
+    private static void WriteQueryTableProperty(
+        CanonicalWriter writer,
+        IReadOnlyList<PortableQueryIdentity> queries)
+    {
+        if (queries.Count == 0)
+            return;
+
+        writer.WriteAscii(",\"q\":["u8);
+        for (int index = 0; index < queries.Count; index++)
+        {
+            if (index > 0)
+                writer.WriteByte((byte)',');
+            writer.WriteByte((byte)'[');
+            writer.WriteString(queries[index].Vocabulary);
+            writer.WriteByte((byte)',');
+            writer.WriteRawJson(queries[index].Payload);
+            writer.WriteByte((byte)']');
+        }
+        writer.WriteByte((byte)']');
     }
 
     private static void WriteRetainedContext(
@@ -2034,6 +2380,14 @@ public static class WorkspaceSharePacketCodec
             }
 
             WriteByte((byte)'"');
+        }
+
+        public void WriteRawJson(string value)
+        {
+            int byteCount = s_utf8Strict.GetByteCount(value);
+            Span<byte> destination = _buffer.GetSpan(byteCount);
+            int written = s_utf8Strict.GetBytes(value, destination);
+            _buffer.Advance(written);
         }
 
         public byte[] ToArray() => _buffer.WrittenSpan.ToArray();

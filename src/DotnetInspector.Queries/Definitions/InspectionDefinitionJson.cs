@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -257,6 +258,11 @@ public static class InspectionDefinitionJson
             case QueryDefinition query:
                 EnsureUtf16(query.Id, "id");
                 EnsureUtf16(query.QueryId, "queryId");
+                break;
+            case CommittedQueryDefinition query:
+                EnsureUtf16(query.Id, "id");
+                EnsureUtf16(query.QueryId, "queryId");
+                EnsureUtf16(query.Payload, "payload");
                 break;
             case ViewDefinition view:
                 EnsureUtf16(view.Id, "id");
@@ -619,6 +625,9 @@ public static class InspectionDefinitionJson
                 ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
             (InspectionDefinitionSchema.Version1, "query") =>
                 ["schemaVersion", "kind", "id", "queryId"],
+            (InspectionDefinitionSchema.Version2
+                or InspectionDefinitionSchema.Version3, "query") =>
+                ["schemaVersion", "kind", "id", "queryId", "payload"],
             (InspectionDefinitionSchema.Version1, "view") =>
             [
                 "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
@@ -637,10 +646,6 @@ public static class InspectionDefinitionJson
                 "schemaVersion", "kind", "id", "title", "description", "workspace", "context",
                 "input", "query", "view", "navigation",
             ],
-            (InspectionDefinitionSchema.Version2
-                or InspectionDefinitionSchema.Version3, "query") =>
-                throw new InspectionDefinitionException(
-                    $"Schema-version-{schemaVersion} query records require query-owner codecs from #6971."),
             _ => throw new InspectionDefinitionException($"Unknown definition kind '{kind}'."),
         };
 
@@ -674,6 +679,23 @@ public static class InspectionDefinitionJson
             }
 
             ValidateRegistrations(registrations);
+        }
+        if (schemaVersion is InspectionDefinitionSchema.Version2
+                or InspectionDefinitionSchema.Version3
+            && kind == "query")
+        {
+            if (!TryGetExactString(root, "queryId", out string queryId)
+                || string.IsNullOrWhiteSpace(queryId))
+            {
+                throw new InspectionDefinitionException(
+                    $"Schema-version-{schemaVersion} query requires a nonblank queryId.");
+            }
+            if (!root.TryGetProperty("payload", out JsonElement payload)
+                || payload.ValueKind != JsonValueKind.Object)
+            {
+                throw new InspectionDefinitionException(
+                    $"Schema-version-{schemaVersion} query requires a payload object.");
+            }
         }
         if (root.TryGetProperty("tabs", out var tabs))
             ValidateTabs(tabs);
@@ -1252,6 +1274,9 @@ public static class InspectionDefinitionJson
                 (_, "workspace") => CreateWorkspace(dto, ref coordinateCount),
                 (InspectionDefinitionSchema.Version1, "query") =>
                     CreateQuery(dto),
+                (InspectionDefinitionSchema.Version2
+                    or InspectionDefinitionSchema.Version3, "query") =>
+                    CreateCommittedQuery(dto),
                 (InspectionDefinitionSchema.Version1, "view") =>
                     CreateView(dto),
                 (InspectionDefinitionSchema.Version1, "navigation") =>
@@ -1370,6 +1395,59 @@ public static class InspectionDefinitionJson
             navigation: true,
             states: true);
         return new QueryDefinition(dto.SchemaVersion, dto.Id!, dto.QueryId);
+    }
+
+    private static CommittedQueryDefinition CreateCommittedQuery(
+        InspectionDefinitionDto dto)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "query",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            queryId: false,
+            payload: false,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            libraries: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true,
+            states: true);
+        if (string.IsNullOrWhiteSpace(dto.QueryId)
+            || dto.Payload is not JsonElement payload)
+        {
+            throw new InspectionDefinitionException(
+                $"Schema-version-{dto.SchemaVersion} query requires queryId and payload.");
+        }
+
+        try
+        {
+            PortableQueryIntent intent =
+                PortableQueryPayloadCodec.ParseJson(payload.GetRawText());
+            return new CommittedQueryDefinition(
+                dto.SchemaVersion,
+                dto.Id!,
+                PortableQueryIdentity.Create(dto.QueryId, intent));
+        }
+        catch (PortableQueryPayloadException ex)
+        {
+            throw new InspectionDefinitionException(
+                $"Query '{dto.Id}' payload is invalid: {ex.Message}",
+                ex);
+        }
     }
 
     private static ViewDefinition CreateView(InspectionDefinitionDto dto)
@@ -1555,6 +1633,7 @@ public static class InspectionDefinitionJson
         bool groups = false,
         bool contexts = false,
         bool queryId = false,
+        bool payload = true,
         bool lens = false,
         bool type = false,
         bool memberAnchor = false,
@@ -1588,6 +1667,7 @@ public static class InspectionDefinitionJson
         Check(groups, "groups", dto.Groups);
         Check(contexts, "contexts", dto.Contexts);
         Check(queryId, "queryId", dto.QueryId);
+        Check(payload, "payload", dto.Payload);
         Check(lens, "lens", dto.Lens);
         Check(type, "type", dto.Type);
         Check(memberAnchor, "memberAnchor", dto.MemberAnchor);
@@ -1640,6 +1720,14 @@ public static class InspectionDefinitionJson
                 Kind = "query",
                 Id = query.Id,
                 QueryId = query.QueryId,
+            },
+            CommittedQueryDefinition query => new InspectionDefinitionDto
+            {
+                SchemaVersion = query.SchemaVersion,
+                Kind = "query",
+                Id = query.Id,
+                QueryId = query.QueryId,
+                Payload = ToPayloadElement(query.Payload),
             },
             ViewDefinition view => new InspectionDefinitionDto
             {
@@ -1694,6 +1782,12 @@ public static class InspectionDefinitionJson
             },
             _ => throw new InspectionDefinitionException($"Unsupported record type {record.GetType().Name}."),
         };
+
+    private static JsonElement ToPayloadElement(string payload)
+    {
+        using JsonDocument document = JsonDocument.Parse(payload);
+        return document.RootElement.Clone();
+    }
 
     private static IReadOnlyList<CommittedViewStateDefinition>
         MapCommittedStates(List<CommittedViewStateDto>? states)
@@ -2614,6 +2708,8 @@ internal sealed class InspectionDefinitionDto
     public List<WorkspaceRegistrationDto>? Registrations { get; set; }
 
     public string? QueryId { get; set; }
+
+    public JsonElement? Payload { get; set; }
 
     public string? Lens { get; set; }
 

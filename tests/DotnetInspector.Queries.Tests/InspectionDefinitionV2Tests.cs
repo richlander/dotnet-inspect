@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.QueriesConsumer;
 using ILInspector.Metadata;
@@ -361,7 +362,7 @@ public sealed class InspectionDefinitionV2Tests
         var queryException = Assert.Throws<InspectionDefinitionException>(
             () => queries.PrepareScenario("scenario"));
         Assert.Contains(
-            "cannot reference queries",
+            "references unknown query 'package-query'",
             queryException.Message,
             StringComparison.Ordinal);
     }
@@ -687,11 +688,87 @@ public sealed class InspectionDefinitionV2Tests
     }
 
     [Fact]
-    public void Version2Projection_QueryStateIsNonProjectable()
+    public void QueryDescriptorInputs_RejectUndefinedEnums()
     {
+        PortableSubjectRequestKind invalidSubject = (PortableSubjectRequestKind)99;
+        PortableQueryInputRequirement invalidRequirement =
+            (PortableQueryInputRequirement)99;
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PortableQueryDefinitionInputs.StateBound(
+                [invalidSubject],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                invalidRequirement,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                invalidRequirement,
+                PortableQueryInputRequirement.Required));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                invalidRequirement));
+    }
+
+    [Fact]
+    public void Version2Projection_QueryAndLibraryScope_RoundTrip()
+    {
+        var descriptor = new PortableQueryDefinitionDescriptor<string>(
+            "test-query/v1",
+            "test-query",
+            PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required),
+            static (_, _) =>
+                new PortableQueryDefinitionResolution<string>.Accepted(
+                    "bound"));
+        var nonLibraryDescriptor =
+            new PortableQueryDefinitionDescriptor<string>(
+                "test-presentation-query/v1",
+                "test-presentation-query",
+                PortableQueryDefinitionInputs.StateBound(
+                    [PortableSubjectRequestKind.Package],
+                    ["package.overview"],
+                    PortableQueryInputRequirement.Required,
+                    PortableQueryInputRequirement.Required,
+                    PortableQueryInputRequirement.Forbidden),
+                static (_, _) =>
+                    new PortableQueryDefinitionResolution<string>.Accepted(
+                        "bound"));
         WorkspaceDefinition workspace =
             Workspace(InspectionDefinitionSchema.Version2);
         CommittedNavigationDefinition navigation = Navigation();
+        var query = new CommittedQueryDefinition(
+            InspectionDefinitionSchema.Version2,
+            "package-query",
+            PortableQueryIdentity.Create(
+                descriptor.QueryId,
+                PortableQueryIntent.Create([], [], [], []),
+                TestContext.Current.CancellationToken));
+        var nonLibraryQuery = new CommittedQueryDefinition(
+            InspectionDefinitionSchema.Version2,
+            "presentation-query",
+            PortableQueryIdentity.Create(
+                nonLibraryDescriptor.QueryId,
+                PortableQueryIntent.Create([], [], [], []),
+                TestContext.Current.CancellationToken));
         var view = new CommittedViewDefinition(
             InspectionDefinitionSchema.Version2,
             "view",
@@ -704,26 +781,300 @@ public sealed class InspectionDefinitionV2Tests
                     new PortableSubjectRequest.Package(),
                     new PortableRetainedSubjectContext.Package(),
                     facet: "package.overview",
-                    queries: ["package-query"]),
+                    queries: ["package-query", "presentation-query"],
+                    libraries: [Library()]),
             ]);
         ScenarioDefinition scenario = Scenario();
-        var definitions = new CommittedScenarioDefinitionSet(
-            scenario,
-            workspace,
-            navigation,
-            view,
-            []);
+        var registry = new InspectionDefinitionRegistry();
+        registry.AddQueryDescriptor(descriptor);
+        registry.AddQueryDescriptor(nonLibraryDescriptor);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(query);
+        registry.Add(nonLibraryQuery);
+        registry.Add(view);
+        registry.Add(scenario);
+        CommittedScenarioDefinitionSet definitions =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
+                registry.PreparePacketScenarioWithCancellation(
+                    scenario.Id,
+                    TestContext.Current.CancellationToken)).Definitions;
 
         WorkspaceSharePacketProjectionResult result =
             WorkspaceSharePacketTransposer.ToPacket(
                 definitions,
                 TestContext.Current.CancellationToken);
 
-        Assert.False(result.Succeeded);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(result.Packet);
         Assert.Equal(
-            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
-            result.Failure?.Kind);
-        Assert.Equal("view.states[1]", result.Failure?.Path);
+            ["test-presentation-query/v1", "test-query/v1"],
+            packet.Queries.Select(identity => identity.Vocabulary));
+        Assert.Equal([0, 1], packet.ViewStates[1].QueryIndexes);
+        Assert.Equal(Library(), Assert.Single(packet.ViewStates[1].Libraries));
+
+        CommittedScenarioDefinitionSet roundTripped =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet,
+                [descriptor, nonLibraryDescriptor],
+                TestContext.Current.CancellationToken);
+        Assert.Equal(2, roundTripped.QueryBindings.Count);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.SerializeJson(packet),
+            WorkspaceSharePacketCodec.SerializeJson(
+                Assert.IsType<WorkspaceSharePacket>(
+                    WorkspaceSharePacketTransposer.ToPacket(
+                        roundTripped,
+                        TestContext.Current.CancellationToken).Packet)));
+    }
+
+    [Fact]
+    public void PrepareScenario_ChecksCancellationBeforeEachQueryBind()
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        int bindCount = 0;
+        var descriptor = new PortableQueryDefinitionDescriptor<int>(
+            "test-query/v1",
+            "test-query",
+            PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Forbidden),
+            (_, _) =>
+            {
+                bindCount++;
+                cancellation.Cancel();
+                return new PortableQueryDefinitionResolution<int>.Accepted(
+                    bindCount);
+            });
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version2,
+            "workspace",
+            [
+                new WorkspaceContextDefinition(
+                    "context",
+                    members:
+                    [
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "P",
+                            "1.0.0",
+                            "net11.0"),
+                        new DefinitionMemberCoordinate.PackageCoordinate(
+                            "Q",
+                            "1.0.0",
+                            "net11.0"),
+                    ]),
+            ]);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version2,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "p",
+                    coordinate: new DefinitionMemberCoordinate.PackageCoordinate(
+                        "P",
+                        "1.0.0",
+                        "net11.0")),
+                new NavigationTabDefinition(
+                    "q",
+                    coordinate: new DefinitionMemberCoordinate.PackageCoordinate(
+                        "Q",
+                        "1.0.0",
+                        "net11.0")),
+            ],
+            focus: "p");
+        var query1 = new CommittedQueryDefinition(
+            InspectionDefinitionSchema.Version2,
+            "q1",
+            PortableQueryIdentity.Create(
+                descriptor.QueryId,
+                PortableQueryIntent.Create([], [], [], []),
+                TestContext.Current.CancellationToken));
+        var query2 = new CommittedQueryDefinition(
+            InspectionDefinitionSchema.Version2,
+            "q2",
+            PortableQueryIdentity.Create(
+                descriptor.QueryId,
+                PortableQueryIntent.Create(
+                    [new("x", PortableQueryOperator.Equal, "1")],
+                    [],
+                    [],
+                    []),
+                TestContext.Current.CancellationToken));
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "p",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    ["q1"]),
+                new CommittedViewStateDefinition(
+                    "q",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    ["q2"]),
+            ]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: workspace.Id,
+            context: "context",
+            view: view.Id,
+            navigation: navigation.Id);
+        var registry = new InspectionDefinitionRegistry();
+        registry.AddQueryDescriptor(descriptor);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(query1);
+        registry.Add(query2);
+        registry.Add(view);
+        registry.Add(scenario);
+
+        Assert.Throws<OperationCanceledException>(
+            () => registry.PrepareScenarioWithCancellation(
+                scenario.Id,
+                cancellation.Token));
+        Assert.Equal(1, bindCount);
+    }
+
+    [Fact]
+    public void PrepareScenario_RequiredContextAcceptsOmittedSoleContext()
+    {
+        var descriptor = new PortableQueryDefinitionDescriptor<string>(
+            "test-query/v1",
+            "test-query",
+            PortableQueryDefinitionInputs.StateBound(
+                [PortableSubjectRequestKind.Package],
+                ["package.overview"],
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Required,
+                PortableQueryInputRequirement.Forbidden),
+            static (_, _) =>
+                new PortableQueryDefinitionResolution<string>.Accepted(
+                    "bound"));
+        WorkspaceDefinition workspace =
+            Workspace(InspectionDefinitionSchema.Version2);
+        CommittedNavigationDefinition navigation = Navigation();
+        var query = new CommittedQueryDefinition(
+            InspectionDefinitionSchema.Version2,
+            "query",
+            PortableQueryIdentity.Create(
+                descriptor.QueryId,
+                PortableQueryIntent.Create([], [], [], []),
+                TestContext.Current.CancellationToken));
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version2,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null,
+                    new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition(
+                    "stj",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    ["query"]),
+            ]);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version2,
+            "scenario",
+            workspace: workspace.Id,
+            context: null,
+            view: view.Id,
+            navigation: navigation.Id);
+        var registry = new InspectionDefinitionRegistry();
+        registry.AddQueryDescriptor(descriptor);
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(query);
+        registry.Add(view);
+        registry.Add(scenario);
+
+        CommittedScenarioDefinitionSet definitions =
+            Assert.IsType<InspectionDefinitionScenarioPreparationResult.Version2>(
+                registry.PrepareScenario(scenario.Id)).Definitions;
+
+        Assert.Single(definitions.QueryBindings);
+    }
+
+    [Fact]
+    public void PacketTransposition_QueryIdsRemainCanonicalPastNine()
+    {
+        PortableQueryDefinitionDescriptor<string>[] descriptors =
+        [
+            .. Enumerable.Range(0, 11).Select(index =>
+                new PortableQueryDefinitionDescriptor<string>(
+                    $"test-query/{index:D2}",
+                    $"test-purpose-{index:D2}",
+                    PortableQueryDefinitionInputs.StateBound(
+                        [PortableSubjectRequestKind.Package],
+                        ["package.overview"],
+                        PortableQueryInputRequirement.Required,
+                        PortableQueryInputRequirement.Required,
+                        PortableQueryInputRequirement.Forbidden),
+                    static (_, _) =>
+                        new PortableQueryDefinitionResolution<string>.Accepted(
+                            "bound"))),
+        ];
+        PortableQueryIdentity[] queries =
+        [
+            .. descriptors.Select(descriptor =>
+                PortableQueryIdentity.Create(
+                    descriptor.QueryId,
+                    PortableQueryIntent.Create([], [], [], []),
+                    TestContext.Current.CancellationToken)),
+        ];
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "P",
+                    "1.0.0",
+                    "net11.0",
+                    null),
+            ],
+            [new WorkspaceShareContext([0])],
+            focusedTabIndex: 0,
+            selectedContextIndex: 0,
+            [
+                new WorkspaceShareViewState(
+                    null,
+                    new PortableSubjectRequest.Workspace(),
+                    null,
+                    null),
+                new WorkspaceShareViewState(
+                    0,
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    [.. Enumerable.Range(0, 11)]),
+            ],
+            queries);
+
+        CommittedScenarioDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                packet,
+                descriptors,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["q0", "q1", "q10", "q2"],
+            definitions.View!.States[1].Queries.Take(4));
+        Assert.True(
+            WorkspaceSharePacketTransposer.ToPacket(
+                definitions,
+                TestContext.Current.CancellationToken).Succeeded);
     }
 
     [Fact]

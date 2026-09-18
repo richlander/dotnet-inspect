@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DotnetInspector.PortableQueries;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -63,7 +64,7 @@ public sealed class WorkspaceShareContext
 }
 
 /// <summary>
-/// One query-free committed view row in a format-2-or-3 workspace share packet.
+/// One committed view row in a format-2-or-3 workspace share packet.
 /// </summary>
 public sealed class WorkspaceShareViewState
 {
@@ -71,12 +72,20 @@ public sealed class WorkspaceShareViewState
         int? tabIndex,
         PortableSubjectRequest? subject,
         PortableRetainedSubjectContext? context,
-        string? facet)
+        string? facet,
+        int[]? queryIndexes = null,
+        PortableLibraryIdentity[]? libraries = null)
     {
         TabIndex = tabIndex;
         Subject = subject;
         Context = context;
         Facet = facet;
+        QueryIndexes = new ReadOnlyCollection<int>(
+            queryIndexes is null ? [] : (int[])queryIndexes.Clone());
+        Libraries = new ReadOnlyCollection<PortableLibraryIdentity>(
+            libraries is null
+                ? []
+                : (PortableLibraryIdentity[])libraries.Clone());
     }
 
     /// <summary>
@@ -90,6 +99,10 @@ public sealed class WorkspaceShareViewState
     public PortableRetainedSubjectContext? Context { get; }
 
     public string? Facet { get; }
+
+    public IReadOnlyList<int> QueryIndexes { get; }
+
+    public IReadOnlyList<PortableLibraryIdentity> Libraries { get; }
 }
 
 /// <summary>
@@ -119,6 +132,7 @@ public sealed class WorkspaceSharePacket
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = Array.Empty<WorkspaceRegistration>();
+        Queries = Array.Empty<PortableQueryIdentity>();
         FocusedTabIndex = activeTabIndex;
         ActiveTabIndex = activeTabIndex;
         SelectedContextIndex = selectedContextIndex;
@@ -136,7 +150,8 @@ public sealed class WorkspaceSharePacket
         WorkspaceShareContext[] contexts,
         int? focusedTabIndex,
         int selectedContextIndex,
-        WorkspaceShareViewState[] viewStates)
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.Format2Version;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -144,6 +159,10 @@ public sealed class WorkspaceSharePacket
         Contexts = new ReadOnlyCollection<WorkspaceShareContext>(
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = Array.Empty<WorkspaceRegistration>();
+        Queries = new ReadOnlyCollection<PortableQueryIdentity>(
+            queries is null
+                ? []
+                : (PortableQueryIdentity[])queries.Clone());
         FocusedTabIndex = focusedTabIndex;
         ActiveTabIndex = focusedTabIndex ?? -1;
         SelectedContextIndex = selectedContextIndex;
@@ -163,7 +182,8 @@ public sealed class WorkspaceSharePacket
         WorkspaceRegistration[] registrations,
         int? focusedTabIndex,
         int? selectedContextIndex,
-        WorkspaceShareViewState[] viewStates)
+        WorkspaceShareViewState[] viewStates,
+        PortableQueryIdentity[]? queries = null)
     {
         FormatVersion = WorkspaceSharePacketCodec.CurrentFormatVersion;
         Tabs = new ReadOnlyCollection<WorkspaceShareTab>(
@@ -172,6 +192,10 @@ public sealed class WorkspaceSharePacket
             (WorkspaceShareContext[])contexts.Clone());
         Registrations = new ReadOnlyCollection<WorkspaceRegistration>(
             (WorkspaceRegistration[])registrations.Clone());
+        Queries = new ReadOnlyCollection<PortableQueryIdentity>(
+            queries is null
+                ? []
+                : (PortableQueryIdentity[])queries.Clone());
         FocusedTabIndex = focusedTabIndex;
         ActiveTabIndex = focusedTabIndex ?? -1;
         SelectedContextIndex = selectedContextIndex;
@@ -193,6 +217,9 @@ public sealed class WorkspaceSharePacket
 
     /// <summary>Format-3 ordered portable Workspace registrations.</summary>
     public IReadOnlyList<WorkspaceRegistration> Registrations { get; }
+
+    /// <summary>Format-2-or-3 canonical packet-local query identities.</summary>
+    public IReadOnlyList<PortableQueryIdentity> Queries { get; }
 
     /// <summary>
     /// The focused direct-Package tab, or null when a committed packet selects

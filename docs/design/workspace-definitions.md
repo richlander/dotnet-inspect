@@ -35,15 +35,18 @@ host-neutral portable query intent and canonical payload codec are implemented
 by [#7093](https://github.com/richlander/dotnet-inspect/pull/7093), and Package
 Query vocabulary resolution is implemented by
 [#7359](https://github.com/richlander/dotnet-inspect/pull/7359). Definitions
-query adoption, query-bearing packet projection, and complete view binding
-remain follow-up work.
+query records, typed binding, and query-bearing packet projection are
+implemented under
+[#6971](https://github.com/richlander/dotnet-inspect/issues/6971); production
+host adoption remains follow-up work.
 The query-free packet-format-2 codec and transposition are implemented under
 [#7087](https://github.com/richlander/dotnet-inspect/issues/7087), preserving
 the leading Workspace row, nullable focus, complete direct-Package state, and
-dormant non-Package inventory while leaving query-bearing packets visibly
-unsupported until #6971. Schema-version-3 registration records, packet format
-3, registration-only complete restoration, and the shared managed Browser
-boundary are implemented under
+dormant non-Package inventory. The #6971 slice extends that substrate with
+state-bound query and Library-scope projection in formats 2 and 3 and the exact
+format-3 coordinate-free query-only composition. Schema-version-3 registration
+records, packet format 3, registration-only complete restoration, and the
+shared managed Browser boundary are implemented under
 [#7385](https://github.com/richlander/dotnet-inspect/issues/7385). Issue
 [#7027](https://github.com/richlander/dotnet-inspect/issues/7027) owns the
 host-neutral complete-restoration coordinator that consumes #7047's typed
@@ -670,8 +673,9 @@ Query-bearing sharing follows a separate five-step path under
 3. **Definitions contract.** Define the common schema-version-2/3 query record,
    state-bound packet projection, and the format-3 query-only composition. This
    design slice.
-4. **Definitions implementation.** Implement record parsing, public query
-   descriptors, composition binding, format-3 query-table
+4. **Definitions implementation.** This implementation slice adds record
+   parsing, public query
+   descriptors, composition binding, format-2/3 query-table
    encoding/transposition, and the fixed-vector gates below through one
    host-neutral Definitions API.
 5. **Production-host adoption.** Have the CLI emit and replay the query-only
@@ -3096,9 +3100,10 @@ Definition records and product demos (this slice):
   `CommittedViewDefinition` records implement the required nullable focus,
   leading Workspace row, ordered per-tab state, Workspace/Package subject
   requests, and independent retained Package/Library/Type/Member context.
-  Non-Package rows remain undecorated, nonempty query references fail until
-  #6971, and canonical packet-format-2 projection preserves the complete
-  query-free composition;
+  Non-Package rows remain undecorated. Canonical packet-format-2/3 projection
+  preserves state-bound query references and Library scope, while schema
+  version 3 additionally admits the exact coordinate-free query-only
+  composition;
 - `CommittedScenarioSelectorResolver` consumes one exact fresh Workspace,
   its exact `WorkspaceScopeSnapshot`, and one
   `NavigationPackageEvaluation` per direct-Package row. It resolves portable
@@ -3359,10 +3364,16 @@ Definition records and product demos (this slice):
   `workspace-definitions-complete-restoration` TLA+ model checks exact
   request/plan/Workspace association, pre-construction rejection, evidence
   order, current-intent activation, and one-shot cleanup; and
+- Definitions accepts schema-version-2/3 portable query records, binds them
+  through owner-issued typed descriptors, preserves state-bound query and
+  multi-Library scope through packet formats 2 and 3, and admits the exact
+  format-3 coordinate-free Package Query composition. Codec and transposer
+  gates cover canonical query-table ordering, payload identity, references,
+  malformed and orphan state, query-only mixtures, typed Package Query
+  binding, and cancellation between query binds; and
 - **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, query-bearing packet projection, per-coordinate view/query
-  binding, Inspect Web adoption of complete restoration, CLI use of the
-  codec/transposer for executable `-W`
+  Registry, Inspect Web adoption of complete restoration and query-bearing
+  sharing, CLI use of the codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
