@@ -66,6 +66,40 @@ public sealed record ExactTypeInspectionRequest
     public ExactTypeSelectionKind SelectionKind { get; }
 }
 
+/// <summary>
+/// One exact Type selection over every participant in an already realized
+/// Workspace context.
+/// </summary>
+public sealed record SelectedContextExactTypeInspectionRequest
+{
+    public SelectedContextExactTypeInspectionRequest(
+        string type,
+        ExactTypeSelectionKind selectionKind =
+            ExactTypeSelectionKind.Query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (!Enum.IsDefined(selectionKind))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selectionKind));
+        }
+        if (selectionKind == ExactTypeSelectionKind.Query
+            && TypeMatcher.IsTypeGlobPattern(type))
+        {
+            throw new ArgumentException(
+                "Exact Type inspection does not accept a Type glob.",
+                nameof(type));
+        }
+
+        Type = type;
+        SelectionKind = selectionKind;
+    }
+
+    public string Type { get; }
+
+    public ExactTypeSelectionKind SelectionKind { get; }
+}
+
 public enum ExactTypeSelectionKind
 {
     Query,
@@ -88,6 +122,7 @@ public enum ExactTypeInspectionFailureKind
     BindingPolicyUnsupported,
     TypeResolutionUnavailable,
     SupplierUnavailable,
+    DefiningSourceUnavailable,
     InspectionIncomplete,
     ProjectionTruncated,
 }
@@ -276,9 +311,14 @@ public sealed record ExactTypeInspectionResult(
     internal static ExactTypeInspectionResult RuntimeUnavailable(
         ExactTypeInspectionRequest request,
         string detail) =>
+        RuntimeUnavailable(request.Type, detail);
+
+    internal static ExactTypeInspectionResult RuntimeUnavailable(
+        string requestedType,
+        string detail) =>
         new(
             ExactTypeInspectionOutcome.Unavailable,
-            request.Type,
+            requestedType,
             MatchedType: null,
             Type: null,
             RequestedAssembly: null,
@@ -311,6 +351,14 @@ internal sealed class ExactTypeInspectionContext
     internal WorkspaceContextLoadOutcome.Loaded Context { get; }
 }
 
+internal sealed record ExactTypeDefiningSource(
+    MetadataTypeDefinitionName Type,
+    WorkspaceDeclarationMember Member);
+
+internal sealed record ExactTypeInspectionExecution(
+    ExactTypeInspectionResult Result,
+    ImmutableArray<ExactTypeDefiningSource> DefiningSources);
+
 /// <summary>
 /// Resolves and projects one exact Type through an admitted Workspace
 /// realization operation.
@@ -338,9 +386,109 @@ internal static class ExactTypeInspectionQuery
         ExactTypeInspectionRequest request,
         ApiSurfaceProjectionLimits? projectionLimits = null)
     {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
+        ImmutableArray<AssemblyContextParticipant> participants =
+            PackageParticipants(loaded, request);
+        if (participants.IsEmpty)
+        {
+            return ExactTypeInspectionResult.RuntimeUnavailable(
+                request,
+                "The admitted realization does not contain the requested package coordinate.");
+        }
+
+        return ExecuteCore(
+            authority,
+            context,
+            request.Type,
+            request.SelectionKind,
+            participants,
+            definingSource: null,
+            definingSources: null,
+            projectionLimits);
+    }
+
+    internal static ExactTypeInspectionExecution ExecuteSelectedContext(
+        WorkspaceRealizationOperationLease authority,
+        WorkspaceDeclarationContext context,
+        SelectedContextExactTypeInspectionRequest request,
+        ApiSurfaceProjectionLimits? projectionLimits = null)
+    {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
+        if (context.ContextLoadOutcome
+            is not WorkspaceContextLoadOutcome.Loaded loaded)
+        {
+            return new(
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request.Type,
+                    "The selected Workspace context was not realized."),
+                []);
+        }
+        if (!ReferenceEquals(
+                context.Receipt.Workspace,
+                loaded.Workspace))
+        {
+            throw new ArgumentException(
+                "The selected Workspace context receipt does not belong to "
+                    + "its loaded context.",
+                nameof(context));
+        }
+
+        WorkspaceDeclarationMember? DefiningSource(
+            AssemblyContextParticipant participant)
+        {
+            for (int index = 0; index < loaded.Members.Length; index++)
+            {
+                if (ReferenceEquals(
+                        loaded.Members[index].Participant,
+                        participant))
+                {
+                    return index < context.Receipt.Members.Length
+                        ? context.Receipt.Members[index]
+                        : null;
+                }
+            }
+
+            return null;
+        }
+
+        var definingSources =
+            ImmutableArray.CreateBuilder<ExactTypeDefiningSource>();
+        ExactTypeInspectionResult result = ExecuteCore(
+            authority,
+            new ExactTypeInspectionContext(loaded),
+            request.Type,
+            request.SelectionKind,
+            loaded.Group.Participants,
+            DefiningSource,
+            definingSources,
+            projectionLimits);
+        return new(
+            result,
+            result.Outcome
+                is ExactTypeInspectionOutcome.Available
+                or ExactTypeInspectionOutcome.Ambiguous
+                    ? DistinctSources(definingSources)
+                    : []);
+    }
+
+    static ExactTypeInspectionResult ExecuteCore(
+        WorkspaceRealizationOperationLease authority,
+        ExactTypeInspectionContext context,
+        string requestedType,
+        ExactTypeSelectionKind selectionKind,
+        ImmutableArray<AssemblyContextParticipant> participants,
+        Func<AssemblyContextParticipant, WorkspaceDeclarationMember?>?
+            definingSource,
+        ImmutableArray<ExactTypeDefiningSource>.Builder? definingSources,
+        ApiSurfaceProjectionLimits? projectionLimits)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedType);
         using WorkspaceRealizationOperationUse operation =
             authority.EnterUse();
         if (!ReferenceEquals(operation.Realization, context.Realization)
@@ -354,14 +502,6 @@ internal static class ExactTypeInspectionQuery
         }
 
         WorkspaceContextLoadOutcome.Loaded loaded = context.Context;
-        ImmutableArray<AssemblyContextParticipant> participants =
-            PackageParticipants(loaded, request);
-        if (participants.IsEmpty)
-        {
-            return ExactTypeInspectionResult.RuntimeUnavailable(
-                request,
-                "The admitted realization does not contain the requested package coordinate.");
-        }
 
         AssemblyContextApiSurfaceResult? boundedProjection =
             projectionLimits is null
@@ -424,7 +564,7 @@ internal static class ExactTypeInspectionQuery
         ImmutableArray<Candidate> declarations =
             Declarations(projections);
         StringComparer declarationComparer =
-            request.SelectionKind
+            selectionKind
                 == ExactTypeSelectionKind.DefinitionIdentity
             ? StringComparer.Ordinal
             : StringComparer.OrdinalIgnoreCase;
@@ -437,32 +577,32 @@ internal static class ExactTypeInspectionQuery
         ];
         ImmutableArray<Candidate> matching;
         string? matchedType;
-        if (request.SelectionKind
+        if (selectionKind
             == ExactTypeSelectionKind.DefinitionIdentity)
         {
             matching =
             [
                 .. declarations.Where(candidate =>
                     candidate.Definition.ToEscapedFullName().Equals(
-                        request.Type,
+                        requestedType,
                         StringComparison.Ordinal)),
             ];
             matchedType = matching.IsEmpty
                 ? null
-                : request.Type;
+                : requestedType;
         }
         else
         {
             string? exactName = declarationNames.FirstOrDefault(name =>
                 name.Equals(
-                    request.Type,
+                    requestedType,
                     StringComparison.OrdinalIgnoreCase));
             string[] exactShortNames = exactName is null
                 ? [
                     .. declarationNames.Where(name =>
                         TypeMatcher.MatchesExactTypeName(
                             name,
-                            request.Type)),
+                            requestedType)),
                 ]
                 : [];
             string[] matchingNames =
@@ -475,7 +615,7 @@ internal static class ExactTypeInspectionQuery
                     .. declarationNames.Where(name =>
                         TypeMatcher.MatchesTypeFilter(
                             name,
-                            request.Type)),
+                            requestedType)),
                 ];
             matching =
             [
@@ -494,14 +634,15 @@ internal static class ExactTypeInspectionQuery
             || lookupFailures.Any(failure =>
                 MayAffectTypeLookup(
                     failure,
-                    request));
+                    requestedType,
+                    selectionKind));
         if (matching.IsEmpty)
         {
             if (lookupIncomplete)
             {
                 return new ExactTypeInspectionResult(
                     ExactTypeInspectionOutcome.Unavailable,
-                    request.Type,
+                    requestedType,
                     MatchedType: null,
                     Type: null,
                     RequestedAssembly: null,
@@ -517,14 +658,14 @@ internal static class ExactTypeInspectionQuery
             }
 
             ImmutableArray<string> suggestions =
-                request.SelectionKind == ExactTypeSelectionKind.Query
+                selectionKind == ExactTypeSelectionKind.Query
                 ? [.. TypeMatcher.Lookup(
                     declarationNames,
-                    request.Type).Suggestions]
+                    requestedType).Suggestions]
                 : [];
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.NotFound,
-                request.Type,
+                requestedType,
                 MatchedType: null,
                 Type: null,
                 RequestedAssembly: null,
@@ -543,7 +684,7 @@ internal static class ExactTypeInspectionQuery
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly: null,
@@ -583,10 +724,21 @@ internal static class ExactTypeInspectionQuery
                     Outcome: TypeResolutionOutcome.Ambiguous
                     {
                         Ambiguity:
-                            TypeResolutionAmbiguity.TypeDeclaration,
+                            TypeResolutionAmbiguity.TypeDeclaration ambiguity,
                     },
                 }:
                     declarationAmbiguous = true;
+                    Projection? ambiguousSupplier =
+                        projections.FirstOrDefault(projection =>
+                            ReferenceEquals(
+                                projection.Participant.Assembly.Registration,
+                                ambiguity.Assembly.Assembly.Registration));
+                    if (ambiguousSupplier is not null)
+                    {
+                        AddDefiningSource(
+                            ambiguousSupplier.Participant,
+                            ambiguity.Type);
+                    }
                     break;
                 case AssemblyContextTypeResolutionResult.Available
                 {
@@ -633,7 +785,7 @@ internal static class ExactTypeInspectionQuery
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly: null,
@@ -650,9 +802,22 @@ internal static class ExactTypeInspectionQuery
         }
         if (declarationAmbiguous || DistinctTerminalCount(resolved) > 1)
         {
+            foreach (ResolvedCandidate candidate in resolved)
+            {
+                Projection? ambiguousSupplier = Supplier(
+                    projections,
+                    candidate.Resolution.Definition);
+                if (ambiguousSupplier is not null)
+                {
+                    AddDefiningSource(
+                        ambiguousSupplier.Participant,
+                        candidate.Resolution.Definition.Type);
+                }
+            }
+
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Ambiguous,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly: null,
@@ -671,7 +836,7 @@ internal static class ExactTypeInspectionQuery
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly: null,
@@ -692,17 +857,14 @@ internal static class ExactTypeInspectionQuery
             .First();
         ResolvedTypeDefinition terminal =
             selected.Resolution.Definition;
-        Projection? supplier = projections.FirstOrDefault(projection =>
-            ReferenceEquals(
-                projection.Participant.Assembly.Registration,
-                terminal.Assembly.Assembly.Registration));
+        Projection? supplier = Supplier(projections, terminal);
         if (supplier?.Entry
             is not AssemblyContextEntry<AssemblyApiSurface>.Available
                 supplierSurface)
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly:
@@ -732,7 +894,7 @@ internal static class ExactTypeInspectionQuery
         {
             return new ExactTypeInspectionResult(
                 ExactTypeInspectionOutcome.Unavailable,
-                request.Type,
+                requestedType,
                 matchedType,
                 Type: null,
                 RequestedAssembly:
@@ -765,9 +927,12 @@ internal static class ExactTypeInspectionQuery
                     inspectionFailures,
                     supplierSurface.Value.Surface,
                     type);
+        AddDefiningSource(
+            supplier.Participant,
+            terminal.Type);
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
-            request.Type,
+            requestedType,
             selected.Candidate.Definition.ToEscapedFullName(),
             ExactTypeApi.From(type),
             AssemblyIdentity(
@@ -787,6 +952,16 @@ internal static class ExactTypeInspectionQuery
                 .. resolutionFailures,
                 .. incompleteness,
             ]);
+
+        void AddDefiningSource(
+            AssemblyContextParticipant participant,
+            MetadataTypeDefinitionName type)
+        {
+            WorkspaceDeclarationMember? source =
+                definingSource?.Invoke(participant);
+            if (source is not null && definingSources is not null)
+                definingSources.Add(new(type, source));
+        }
     }
 
     static ImmutableArray<AssemblyContextParticipant> PackageParticipants(
@@ -905,7 +1080,8 @@ internal static class ExactTypeInspectionQuery
 
     static bool MayAffectTypeLookup(
         ApiSurfaceInspectionFailure failure,
-        ExactTypeInspectionRequest request)
+        string requestedType,
+        ExactTypeSelectionKind selectionKind)
     {
         if (failure.OwningTypeDefinition is { } owner)
         {
@@ -923,14 +1099,14 @@ internal static class ExactTypeInspectionQuery
             MetadataTypeDefinitionName definition)
         {
             string name = definition.ToEscapedFullName();
-            return request.SelectionKind
+            return selectionKind
                     == ExactTypeSelectionKind.DefinitionIdentity
                 ? name.Equals(
-                    request.Type,
+                    requestedType,
                     StringComparison.Ordinal)
                 : TypeMatcher.MatchesTypeFilter(
                     name,
-                    request.Type);
+                    requestedType);
         }
     }
 
@@ -993,6 +1169,29 @@ internal static class ExactTypeInspectionQuery
                 candidate.Resolution.Definition.Assembly.Assembly.Identity))
             .Distinct()
             .Count();
+
+    static Projection? Supplier(
+        ImmutableArray<Projection> projections,
+        ResolvedTypeDefinition terminal) =>
+        projections.FirstOrDefault(projection =>
+            ReferenceEquals(
+                projection.Participant.Assembly.Registration,
+                terminal.Assembly.Assembly.Registration));
+
+    static ImmutableArray<ExactTypeDefiningSource> DistinctSources(
+        ImmutableArray<ExactTypeDefiningSource>.Builder sources)
+    {
+        var seen = new HashSet<(
+            WorkspaceDeclarationOccurrence Occurrence,
+            MetadataTypeDefinitionName Type)>();
+        return
+        [
+            .. sources.Where(source =>
+                seen.Add((
+                    source.Member.Occurrence,
+                    source.Type))),
+        ];
+    }
 
     static ExactTypeAssemblyIdentity AssemblyIdentity(
         AssemblyContextGroup group,

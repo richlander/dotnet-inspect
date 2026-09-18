@@ -267,6 +267,12 @@ public class ReferenceEqualityMetadataFactsTests
 
             Assert.Equal(new Version(1, 0, 0, 0), type.ResolutionAssembly?.Version);
             Assert.Equal(TypeShapeKind.Enum, source.ClassifyResolvedType(type));
+            var members = source.ResolveEnumMembers(type);
+            Assert.NotNull(members);
+            Assert.Equal("Named", members![7]);
+            Assert.Equal(
+                "Int32",
+                source.ResolveEnumUnderlyingType(type)?.Name);
             Assert.True(function.TypeShapes.TryGetValue(type, out var shape));
             Assert.Equal(TypeShape.Unknown, shape);
             Assert.Equal(
@@ -275,6 +281,229 @@ public class ReferenceEqualityMetadataFactsTests
             string output = CSharpPrinter.Print(function).Output!;
             Assert.Contains("return left == right;", output);
             Assert.DoesNotContain("(object)", output);
+
+            var wrongResolver = TestAssemblyReferenceResolvers.SingleAssembly(v2);
+            using var wrongContext = new MetadataContext(wrongResolver);
+            using var wrongSource = MetadataSource.OpenWithoutSymbols(
+                v2,
+                wrongResolver,
+                wrongContext);
+            var wrongFunction = IrImporter.Import(
+                wrongSource,
+                "Collision.Cases",
+                "Compare");
+            Assert.NotNull(wrongFunction);
+            var unresolvedType = Assert.Single(
+                wrongFunction!.Descendants.OfType<Comparison>()).Left.ResultType!;
+            Assert.Null(wrongSource.ResolveEnumMembers(unresolvedType));
+            Assert.Null(wrongSource.ResolveEnumUnderlyingType(unresolvedType));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SameNameLocalEnum_DoesNotOverrideExternalEnumFacts()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "external-enum-fact-identities-").FullName;
+        try
+        {
+            string v1 = Path.Combine(directory, "v1", "Twin.dll");
+            string v2 = Path.Combine(directory, "v2", "Twin.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(v1)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(v2)!);
+            File.WriteAllBytes(
+                v1,
+                BuildTwinEnum(
+                    new Version(1, 0, 0, 0),
+                    SignatureTypeCode.Int32,
+                    "Named"));
+            File.WriteAllBytes(
+                v2,
+                BuildTwinEnum(
+                    new Version(2, 0, 0, 0),
+                    SignatureTypeCode.Int64,
+                    "Wrong"));
+
+            var resolver = new VersionResolver(v1, v2);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                v2,
+                resolver,
+                context);
+            var external = TypeRef.DefinitionWithResolution(
+                "Twin",
+                "N",
+                "E",
+                ValueTypeHint.ValueType,
+                MetadataFactState.Unknown,
+                null,
+                MetadataTypeDefinitionName.Create("N", ["E"]) is
+                    MetadataTypeDefinitionNameResult.Valid valid
+                        ? valid.Name
+                        : throw new InvalidOperationException(
+                            "E metadata name is invalid"),
+                new AssemblyReferenceIdentity(
+                    "Twin",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null));
+
+            var members = source.ResolveEnumMembers(external);
+
+            Assert.NotNull(members);
+            Assert.Equal("Named", members![7]);
+            Assert.DoesNotContain("Wrong", members.Values);
+            Assert.Equal(
+                "Int32",
+                source.ResolveEnumUnderlyingType(external)?.Name);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExternalUnspellableEnumMember_RendersCompilableCast()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "external-enum-unspellable-member-").FullName;
+        try
+        {
+            string enumPath = Path.Combine(directory, "enum", "Twin.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(enumPath)!);
+            File.WriteAllBytes(
+                enumPath,
+                BuildTwinEnum(
+                    new Version(1, 0, 0, 0),
+                    memberName: "Bad-Name"));
+            string consumerPath = Emit(
+                directory,
+                "consumer",
+                "Consumer",
+                """
+                namespace Consumer;
+                public static class Cases
+                {
+                    public static N.E Return() => (N.E)7;
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
+
+            var resolver =
+                TestAssemblyReferenceResolvers.SingleAssembly(enumPath);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                consumerPath,
+                resolver,
+                context);
+            var function = IrImporter.Import(
+                source,
+                "Consumer.Cases",
+                "Return");
+            Assert.NotNull(function);
+
+            string body = CSharpPrinter.PrintRaised(
+                function!,
+                method => IrImporter.Import(source, method)).Output!;
+
+            Assert.Contains("return (E)7;", body);
+            Assert.DoesNotContain("Bad-Name", body);
+            Emit(
+                directory,
+                "recompiled",
+                "Recompiled",
+                $$"""
+                using N;
+                namespace Recompiled;
+                public static class Cases
+                {
+                    public static N.E Return()
+                    {
+                {{body}}
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExternalErrorObsoleteEnumMember_RendersCompilableCast()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "external-enum-error-obsolete-member-").FullName;
+        try
+        {
+            string enumPath = Emit(
+                directory,
+                "enum",
+                "Twin",
+                """
+                namespace N;
+                public enum E
+                {
+                    [System.Obsolete("removed", true)]
+                    Old = 1,
+                    Current = 2,
+                }
+                """);
+            string consumerPath = Emit(
+                directory,
+                "consumer",
+                "Consumer",
+                """
+                namespace Consumer;
+                public static class Cases
+                {
+                    public static N.E Return() => (N.E)1;
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
+
+            var resolver =
+                TestAssemblyReferenceResolvers.SingleAssembly(enumPath);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                consumerPath,
+                resolver,
+                context);
+            var function = IrImporter.Import(
+                source,
+                "Consumer.Cases",
+                "Return");
+            Assert.NotNull(function);
+
+            string body = CSharpPrinter.PrintRaised(
+                function!,
+                method => IrImporter.Import(source, method)).Output!;
+
+            Assert.Contains("return (E)1;", body);
+            Assert.DoesNotContain("E.Old", body);
+            Emit(
+                directory,
+                "recompiled",
+                "Recompiled",
+                $$"""
+                using N;
+                namespace Recompiled;
+                public static class Cases
+                {
+                    public static N.E Return()
+                    {
+                {{body}}
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(enumPath)]);
         }
         finally
         {
@@ -1342,7 +1571,10 @@ public class ReferenceEqualityMetadataFactsTests
         return Serialize(metadata, new BlobBuilder());
     }
 
-    static byte[] BuildTwinEnum(Version version)
+    static byte[] BuildTwinEnum(
+        Version version,
+        SignatureTypeCode underlyingType = SignatureTypeCode.Int32,
+        string memberName = "Named")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1383,6 +1615,26 @@ public class ReferenceEqualityMetadataFactsTests
             enumType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        fieldSignature.WriteByte((byte)underlyingType);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.SpecialName
+                | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        var literal = metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.Static
+                | FieldAttributes.Literal
+                | FieldAttributes.HasDefault,
+            metadata.GetOrAddString(memberName),
+            metadata.GetOrAddBlob(fieldSignature));
+        if (underlyingType == SignatureTypeCode.Int64)
+            metadata.AddConstant(literal, 7L);
+        else
+            metadata.AddConstant(literal, 7);
         return Serialize(metadata, new BlobBuilder());
     }
 
