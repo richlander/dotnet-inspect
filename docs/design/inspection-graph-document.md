@@ -14,6 +14,10 @@ Related documents:
 - [Inspection-graph modes](inspection-graph-modes.md) owns single-seed,
   peer-seed, and induced-set requests across member, type, assembly, and package
   subjects.
+- [External-focused Inspection Graph
+  composition](external-focused-inspection-graph.md) owns exact
+  assembly-generation classification and the cross-library member-neighborhood
+  default.
 - [Member body substrate](member-body-substrate.md) owns
   `AnnotatedSourceDocument` and the fact-to-target join that motivates this
   design.

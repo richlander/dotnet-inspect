@@ -559,6 +559,8 @@ public class UnraisedLocalFunctionCallTests
         // accessor (`get_`/`set_`/`add_`/`remove_`), never a user-defined operator
         // (`op_Increment`/`op_Decrement`), and never bindable as `Deconstruct`, which C#
         // resolves only against members and extension methods. None can be `<M>g__F|0_0`.
+        // PointerCompoundAssignment retains StoreProperty's setter as evidence;
+        // calls in its target and index remain ordinary descendant Call nodes.
         //
         // Seven reach here through `ImmutableArray<MethodRef>` evidence collections
         // (`ConsumedMemberRefs`/`ConsumedMethods`) rather than a callee property. Those
@@ -584,6 +586,7 @@ public class UnraisedLocalFunctionCallTests
             nameof(NewObject),
             nameof(LoadProperty),
             nameof(StoreProperty),
+            nameof(PointerCompoundAssignment),
             nameof(NullCoalescingPropertyAssignment),
             nameof(EventSubscription),
             nameof(RecursivePropertyDeclarationPattern),
