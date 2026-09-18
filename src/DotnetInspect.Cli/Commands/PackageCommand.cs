@@ -76,11 +76,24 @@ public partial class PackageCommand
                 return 1;
             }
 
-            return StructuralViewRegistry.Execute(
-                StructuralViewRegistry.Route(
+            StructuralRoute route = options.AllLibraries
+                ? StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate)
+                : StructuralViewRegistry.Route(
                     StructuralViewIdentity.PackageSingleLibrary,
-                    InspectionCatalogIdentity.Library),
-                StructuralDiscoveryRequest.From(options));
+                    InspectionCatalogIdentity.Library);
+            StructuralOutputShape shape = options.AllLibraries
+                ? options.Count
+                    ? StructuralOutputShape.Count
+                    : options.TabularExplicitlySet
+                        ? StructuralOutputShape.Rows
+                        : StructuralOutputShape.Document
+                : StructuralOutputShape.Document;
+            return StructuralViewRegistry.Execute(
+                route,
+                StructuralDiscoveryRequest.From(options),
+                shape);
         }
 
         if (!packageLibraryMode

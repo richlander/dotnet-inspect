@@ -18,6 +18,7 @@ public enum StructuralViewIdentity
 {
     Package,
     PackageSingleLibrary,
+    PackageAllLibraries,
     DirectLibrary,
     LibraryCoordinate,
     Type,
@@ -63,6 +64,7 @@ public enum StructuralOutputShape
 {
     Document,
     Rows,
+    Count,
 }
 
 public sealed record StructuralViewDescriptor(
@@ -255,6 +257,14 @@ public static class StructuralViewRegistry
                 SharedProjectionCapabilities
                 | StructuralParserCapabilities.TypeFilter),
             new(
+                StructuralViewIdentity.PackageAllLibraries,
+                30,
+                PackageCommand.Name,
+                "all-libraries",
+                [InspectionCatalogIdentity.LibraryAggregate],
+                SharedProjectionCapabilities
+                | StructuralParserCapabilities.TypeFilter),
+            new(
                 StructuralViewIdentity.DirectLibrary,
                 40,
                 "library",
@@ -348,8 +358,8 @@ public static class StructuralViewRegistry
         {
             classification = new CommandlessStructuralRoute(
                 Route(
-                    StructuralViewIdentity.PackageSingleLibrary,
-                    InspectionCatalogIdentity.Library),
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate),
                 [PackageCommand.Name, .. tokens]);
             return true;
         }
@@ -869,6 +879,22 @@ public static class StructuralViewRegistry
             {
                 var catalog = LibrarySections.CreateCatalog();
                 schema = LibraryCommand.CreateStructuralSchema();
+                selectableSections =
+                    catalog.Sections.SelectableSectionNames;
+                defaultSections = catalog.Sections.InfoSectionNames;
+                annotations = catalog.Pipeline.GetCostAnnotations();
+                categories = catalog.Sections.SelectionCategoryMap;
+                listedCategoryDoors =
+                    catalog.Pipeline.GetListedCategoryDoors();
+                catalogHiddenSections =
+                    catalog.Pipeline.GetCatalogHiddenSections();
+                break;
+            }
+            case InspectionCatalogIdentity.LibraryAggregate:
+            {
+                var catalog = LibrarySections.CreateCatalog();
+                schema = PackageCommand.PackageAllLibrariesDiscoverySchema(
+                    outputShape);
                 selectableSections =
                     catalog.Sections.SelectableSectionNames;
                 defaultSections = catalog.Sections.InfoSectionNames;
@@ -1417,7 +1443,9 @@ public static class StructuralViewRegistry
         IEnumerable<StructuralRoute> routes)
     {
         if (!routes.Any(route =>
-                route.Catalog is InspectionCatalogIdentity.Library))
+                route.Catalog is
+                    InspectionCatalogIdentity.Library
+                    or InspectionCatalogIdentity.LibraryAggregate))
         {
             return (request, null);
         }
@@ -1447,7 +1475,9 @@ public static class StructuralViewRegistry
         foreach (string section in schema.SectionNames)
         {
             StructuralSectionInput input =
-                route.Catalog is InspectionCatalogIdentity.Library
+                route.Catalog is
+                    InspectionCatalogIdentity.Library
+                    or InspectionCatalogIdentity.LibraryAggregate
                     ? LibraryCommand.GetStructuralSectionInput(
                         section)
                     : StructuralSectionInput.None;

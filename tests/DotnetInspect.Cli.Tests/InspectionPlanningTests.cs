@@ -44,6 +44,12 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
+                    StructuralViewIdentity.PackageAllLibraries,
+                    PackageCommand.Name,
+                    "all-libraries",
+                    ImmutableArray.Create(
+                        InspectionCatalogIdentity.LibraryAggregate)),
+                (
                     StructuralViewIdentity.DirectLibrary,
                     "library",
                     "library",
@@ -82,6 +88,89 @@ public sealed class InspectionPlanningTests
                     view.DestinationCommand,
                     view.ViewMode,
                     view.Catalogs)));
+    }
+
+    [Fact]
+    public void PackageAllLibrariesRowSchema_DerivesSharedLibraryShape()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate),
+                StructuralOutputShape.Rows);
+
+        Assert.Equal(
+            ["Library", "Name", "Version", "Public Key Token"],
+            projection.Schema
+                .GetSection(SectionNames.References)!
+                .Items
+                .Select(item => item.Name));
+        Assert.Equal(
+            ["Library", "Field", "Value"],
+            projection.Schema
+                .GetSection(SectionNames.LibraryInfo)!
+                .Items
+                .Select(item => item.Name));
+        Assert.DoesNotContain(
+            projection.Schema.SectionNames,
+            MetadataSectionNames.IsMetadataSection);
+        Assert.DoesNotContain(
+            SectionNames.CloneCandidates,
+            projection.Schema.SectionNames);
+    }
+
+    [Fact]
+    public async Task PackageAllLibraries_StaticSchemaMatchesAggregateRows()
+    {
+        string target =
+            $"Missing.Package.{Guid.NewGuid():N}";
+        var references = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            SectionNames.References,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+        var metadata = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            "Metadata: TypeDef",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, references.Exit);
+        Assert.Equal(
+            [
+                "Library column",
+                "Name column",
+                "Version column",
+                "Public Key Token column",
+            ],
+            references.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => string.Join(
+                    ' ',
+                    line.Split(
+                        ' ',
+                        StringSplitOptions.RemoveEmptyEntries))));
+        Assert.Empty(references.Error);
+
+        Assert.Equal(1, metadata.Exit);
+        Assert.Empty(metadata.Output);
+        Assert.Contains(
+            "Section 'Metadata: TypeDef' not found.",
+            metadata.Error);
+        Assert.DoesNotContain(target, metadata.Error);
     }
 
     [Fact]
