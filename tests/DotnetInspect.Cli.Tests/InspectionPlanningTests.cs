@@ -3417,29 +3417,6 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("--latest-version=false")]
-    [InlineData("--latest-version:false")]
-    public async Task CommandlessDisabledLatestVersionRetainsAlternatives(
-        string option)
-    {
-        var result = await RunAppAsync(
-            "Missing.Type.Run",
-            option,
-            "-D",
-            SectionNames.Signature,
-            "--schema",
-            "--table",
-            "--tips",
-            "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Contains("[package/", result.Output);
-        Assert.Contains("[type/", result.Output);
-        Assert.Contains("[member/", result.Output);
-        Assert.Empty(result.Error);
-    }
-
-    [Theory]
     [InlineData("type")]
     [InlineData("member")]
     public async Task TargetFreeStaticSchemaRetainsTableDefault(

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Tests for package subcommand --version, --latest-version, and --versions behavior.
+/// Tests for package subcommand --version and --versions behavior.
 /// Mirrors RouterVersionTests to validate parity between router and package paths.
 /// </summary>
 [Collection("Console")]
@@ -53,10 +53,10 @@ public class PackageVersionTests
     }
 
     [Fact]
-    public async Task LatestVersion_AlwaysQueriesNuGet()
+    public async Task AtLatestVersion_AlwaysQueriesNuGet()
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine", "--latest-version" };
+        var args = new[] { "package", "System.CommandLine@latest", "--version" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
@@ -64,6 +64,35 @@ public class PackageVersionTests
         Assert.Equal(0, exit);
         var version = output.Trim();
         Assert.Matches(@"^\d+\.\d+\.\d+", version);
+    }
+
+    [Theory]
+    [InlineData("--latest-version")]
+    [InlineData("--latest-version=true")]
+    [InlineData("--latest-version:false")]
+    public async Task LatestVersionOption_ReturnsReplacementGuidanceBeforeAcquisition(
+        string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            option);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("'--latest-version' is no longer valid", error);
+        Assert.Contains("Package@latest --version", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageHelp_DoesNotAdvertiseLatestVersionOption()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("--latest-version", output);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -553,9 +582,7 @@ public class PackageVersionTests
 
     [Theory]
     [InlineData("--versions", "--version")]
-    [InlineData("--versions", "--latest-version")]
     [InlineData("--versions-with-feed", "--version")]
-    [InlineData("--versions-with-feed", "--latest-version")]
     [InlineData("--versions", "--versions-with-feed")]
     public async Task Versions_ConflictingSelectorsRejectBeforeAcquisition(
         string pluralSelector,
@@ -584,7 +611,6 @@ public class PackageVersionTests
     [Theory]
     [InlineData("--version", null)]
     [InlineData("--version", "1.0.0")]
-    [InlineData("--latest-version", null)]
     public async Task RangeCount_ExactSelectorRejectsBeforeAcquisition(
         string exactSelector,
         string? exactValue)
@@ -801,7 +827,6 @@ public class PackageVersionTests
     [InlineData("--json")]
     [InlineData("--table")]
     [InlineData("--rows")]
-    [InlineData("--latest-version")]
     public async Task RangeEnvelope_RejectsIncompatibleShapeBeforeExecution(
         string incompatible)
     {

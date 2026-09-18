@@ -543,9 +543,6 @@ public static class StructuralViewRegistry
         }
 
         if (ContainsOption(tokens, "--version")
-            || CommandLineHelpers.IsBooleanOptionEnabled(
-                tokens,
-                "--latest-version")
             || ContainsOption(tokens, "--versions")
             || ContainsOption(tokens, "--versions-with-feed")
             || target.Contains('@'))

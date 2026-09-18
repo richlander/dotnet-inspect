@@ -243,6 +243,9 @@ implementation-ready syntax.
 | `Name@latest` | **Always check** — resolve the latest version every time | Fresh eligible-source discovery |
 | `Name@A..B` | **Addressable vector** — enumerate the inclusive published-version range with `--versions`, without payload acquisition | Fresh eligible-source discovery |
 
+To print the freshly discovered coordinate, compose the existing operations as
+`Name@latest --version`. There is no separate latest-version option.
+
 ### Pinned (`Name@version`)
 
 Online single-package and API caller-pinned CLI extraction follows the
@@ -696,11 +699,11 @@ eligible sources.
 
 | Operation | Combination | Order sensitive |
 | --- | --- | --- |
-| `--latest-version` | Highest semantic version carried by any eligible source. | No |
+| `Name@latest --version` | Highest semantic version carried by any eligible source. | No |
 | `--versions` | Union across all sources, deduplicated. | No |
 | `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
 
-An added private or nightly feed can therefore raise the latest-version answer
+An added private or nightly feed can therefore raise the latest answer
 even when NuGet.org also carries the package. Source declaration order cannot
 make one feed shadow another. Use package source mapping, or select a single
 source, when only one feed may answer for an id.

@@ -111,6 +111,8 @@ internal static class NativePasses
     public static SwapIdiomPass SwapIdiom => new();
     [Native(NativeCategory.EmitArtifact, "an exclusive dup-based pointer-element address spill consumed by a typed compound update, preserving pointer/index evaluation and the read/RHS/write sequence")]
     public static PointerElementCompoundAssignmentPass PointerElementCompoundAssignment => new();
+    [Native(NativeCategory.EmitArtifact, "a same-pointer-place read and canonically scaled add/subtract decided as a typed compound update before emission")]
+    public static PointerCompoundAssignmentPass PointerCompoundAssignment => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

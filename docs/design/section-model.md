@@ -655,21 +655,20 @@ operand chooses the available section set:
 
 | Route | `@Ecosystem` members |
 | --- | --- |
-| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos` |
-| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos` |
-| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Known Integrations`, `Demos`, `Pruning` |
+| Catalog-wide | `Ecosystems`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused pack | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos` |
+| Focused Platform | `Ecosystem Info`, `Namespace Hints`, `Core Packages`, `Tool Packages`, `Integrations`, `Demos`, `Pruning` |
 
 `@Ecosystem` is the base category and always means every section available on
-the already-selected route. `@Integrations` is a domain category containing
-`Known Integrations`; it describes product-configured bindings rather than
-observations from a library. Focus remains the only operation that changes the
-available section set.
+the already-selected route. Exact `Integrations` describes product-configured
+bindings rather than observations from a library. Ecosystem does not publish a
+single-member `@Integrations` category. Focus remains the only operation that
+changes the available section set.
 
 Ordinary output remains the route's `Ecosystems` or `Ecosystem Info` identity
 section. Bare `-S` and explicit `@Ecosystem` compose the route's full authored
-set in alphabetical order. The former unprefixed `Integrations` alias is not
-part of the authored catalog; use `@Integrations` or exact
-`Known Integrations`.
+set in alphabetical order. Select `Integrations` directly for configured
+bindings.
 
 ## Registration invariants
 
@@ -688,8 +687,8 @@ The section pipeline and derived catalog gates enforce these invariants:
    Transitions` is its only standalone section. Every project section belongs
    to `@Project`. Every vocabulary section belongs to `@Vocabulary`, with API
    and decompiler vocabularies cross-listed in their domain categories. Every
-   ecosystem route places all its available sections in `@Ecosystem` and
-   cross-lists `Known Integrations` in `@Integrations`. Gates:
+   ecosystem route places all its available sections, including exact
+   `Integrations`, in `@Ecosystem`. Gates:
    `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `ApiMemberPipelines_UseAuthoredCategoriesWithoutComputedPoles` and
