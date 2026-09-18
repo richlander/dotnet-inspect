@@ -578,6 +578,13 @@ public sealed partial class NavigationSessionTests
         ApiType secondRow = Row();
         secondRow.Documentation.Parameters = new() { ["second"] = "two", ["first"] = "one" };
         Assert.True(NavigationWorkspaceSnapshotEquality.Type(firstRow, secondRow));
+        ApiType changedConstraintIdentity = Row();
+        changedConstraintIdentity.TypeParameters[0].ConstraintTypeDefinitionNames =
+            [DefinitionName("OtherBase")];
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Type(
+                firstRow,
+                changedConstraintIdentity));
         fixture.SetTypes(0, [firstRow], []);
         NavigationConsumerResult first = await fixture.Session.RefreshAsync(TestContext.Current.CancellationToken);
         fixture.Acknowledge(first);
@@ -642,10 +649,17 @@ public sealed partial class NavigationSessionTests
         static TypeParameter Parameter() => new()
         {
             Name = "T",
-            Constraints = ["class"],
-            StructuredConstraints = [new("class", false)],
+            Constraints = ["Sample.Base"],
+            StructuredConstraints = [new("Sample.Base", true)],
+            ConstraintTypeDefinitionNames = [DefinitionName("Base")],
             TypeKind = TypeParameterTypeKind.ReferenceType,
         };
+
+        static MetadataTypeDefinitionName DefinitionName(string name) =>
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    [name])).Name;
     }
 
     [Theory]
