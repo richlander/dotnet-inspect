@@ -72,13 +72,11 @@ public sealed class PlatformLibraryContentSelection
                 "Selected Library content requires an exact assembly version.",
                 nameof(assemblyIdentity));
         }
-        if (contribution.Request.Operation
-                is not PlatformHouseOperationSnapshot.Realize operation
-            || operation.Population
+        if (contribution.Population
                 is not PlatformPopulationDemand.Library population
-            || !ReferenceEquals(
-                contribution.Population,
-                operation.Population))
+            || !OperationAcceptsSelection(
+                contribution,
+                population))
         {
             throw new ArgumentException(
                 "Selected Library content must retain one exact one-Library realization demand.",
@@ -103,6 +101,22 @@ public sealed class PlatformLibraryContentSelection
     public ArtifactContentReference Content { get; }
     public ArtifactAssemblyProjection Projection { get; }
     public ManagedMetadataIdentity.Assembly AssemblyIdentity { get; }
+
+    static bool OperationAcceptsSelection(
+        PlatformSourceContribution.Realization contribution,
+        PlatformPopulationDemand.Library population) =>
+        contribution.Request.Operation switch
+        {
+            PlatformHouseOperationSnapshot.Realize operation =>
+                ReferenceEquals(
+                    contribution.Population,
+                    operation.Population),
+            PlatformHouseOperationSnapshot.ResolveAssemblyReference operation =>
+                operation.RequiredView == PlatformViewDemand.Reference
+                && contribution.Facet == PlatformSourceFacet.Reference
+                && population.Value is PlatformLibraryDemand.Assembly,
+            _ => false,
+        };
 
     static bool DemandMatches(
         PlatformLibraryDemand demand,
