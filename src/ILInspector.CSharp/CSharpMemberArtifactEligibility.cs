@@ -24,6 +24,7 @@ public static class CSharpMemberArtifactEligibility
             || !IsMethodSemanticsRepresentable(member)
             || member.SignatureModel is not { } signature
             || !IsMethodDeclarationHeaderRepresentable(member, signature)
+            || !IsMethodDeclarationRepresentableOnType(type, member)
             || !IsFinalizerDeclarationRepresentable(member, signature)
             || !IsConstructorDeclarationRepresentable(member, signature)
             || !IsOperatorDeclarationRepresentable(type, member, signature)
@@ -107,6 +108,83 @@ public static class CSharpMemberArtifactEligibility
         ApiSignature signature) =>
         !IsMethodLike(member)
         || signature.MethodDeclarationHeaderIsRepresentable == true;
+
+    static bool IsMethodDeclarationRepresentableOnType(
+        ApiType type,
+        ApiMember member)
+    {
+        if (!IsMethodLike(member)
+            || type.Kind is not ("class" or "struct"))
+        {
+            return true;
+        }
+
+        bool hasProtectedAccessibility = member.Accessibility is
+            "protected" or "protected internal" or "private protected";
+        if ((type.IsStatic
+                && (type.Kind != "class"
+                    || !member.IsStatic
+                    || hasProtectedAccessibility))
+            || (type.Kind == "struct" && hasProtectedAccessibility))
+        {
+            return false;
+        }
+
+        if (member.Kind == "constructor")
+            return !type.IsStatic || member.IsStatic;
+
+        if (member.Kind == "finalizer")
+            return type.Kind == "class" && !type.IsStatic;
+
+        if (member.Kind == "operator")
+            return true;
+
+        if (member.Kind == "explicit-interface-implementation")
+        {
+            return !type.IsStatic
+                && !member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed;
+        }
+
+        if (member.IsStatic)
+        {
+            return !member.IsVirtual
+                && !member.IsAbstract
+                && !member.IsOverride
+                && !member.IsSealed;
+        }
+
+        if (member.Accessibility == "private"
+            && (member.IsVirtual
+                || member.IsAbstract
+                || member.IsOverride))
+        {
+            return false;
+        }
+
+        if (member.IsAbstract)
+        {
+            return type.Kind == "class"
+                && type.IsAbstract
+                && !type.IsSealed
+                && member.IsVirtual
+                && !member.IsSealed
+                && member.HasMethodBody != true;
+        }
+
+        if (member.IsOverride)
+        {
+            return member.IsVirtual
+                && (type.Kind == "class" || !member.IsSealed);
+        }
+
+        if (member.IsSealed)
+            return false;
+
+        return !member.IsVirtual
+            || (type.Kind == "class" && !type.IsSealed);
+    }
 
     static bool IsFinalizerDeclarationRepresentable(
         ApiMember member,

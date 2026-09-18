@@ -226,15 +226,18 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void SelectReturnToSenderTargets_RejectsMalformedConstructorsBeforeSampling()
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableMethodDeclarationsBeforeSampling()
     {
-        string assemblyPath = CreateMalformedConstructorFixture();
+        string assemblyPath = CreateUnrepresentableMethodDeclarationFixture();
         try
         {
-            Assert.Empty(
+            var target = Assert.Single(
                 FidelityCheck.SelectReturnToSenderTargets(
                     [assemblyPath],
                     cap: int.MaxValue));
+
+            Assert.Equal("MethodDeclarationNeighborFixture", target.Type);
+            Assert.Equal("Good", target.Method);
         }
         finally
         {
@@ -3300,24 +3303,26 @@ public class FidelityCheckGeneratedFilterTests
         return path;
     }
 
-    static string CreateMalformedConstructorFixture()
+    static string CreateUnrepresentableMethodDeclarationFixture()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
             $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, "MalformedConstructors.dll");
+        string path = Path.Combine(
+            directory,
+            "UnrepresentableMethodDeclarations.dll");
 
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString(
-                "MalformedConstructors.dll"),
+                "UnrepresentableMethodDeclarations.dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("MalformedConstructors"),
+            metadata.GetOrAddString("UnrepresentableMethodDeclarations"),
             new Version(1, 0, 0, 0),
             culture: default,
             publicKey: default,
@@ -3337,6 +3342,33 @@ public class FidelityCheckGeneratedFilterTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("StaticConstructorFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(7));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("StaticAbstractMethodFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(8));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("MethodDeclarationNeighborFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(9));
 
         var methodBodies = new BlobBuilder();
         var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
@@ -3411,6 +3443,38 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString(".ctor"),
             metadata.GetOrAddBlob(
                 (byte[])[0x20, 0x00, 0x01]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x20, 0x00, 0x01]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.Abstract
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x00, 0x00, 0x08]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Good"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x00, 0x00, 0x08]),
             AddBody(),
             MetadataTokens.ParameterHandle(2));
         metadata.AddParameter(

@@ -803,16 +803,39 @@ public static partial class ApiSurfaceExtractor
                         beforeDecodeWork),
                     DecodeString(reader, method.Name, beforeDecodeWork),
                     StringComparison.Ordinal)
-                && reader.GetBlobBytes(memberReference.Signature)
-                    .AsSpan()
-                    .SequenceEqual(
-                        reader.GetBlobBytes(method.Signature)))
+                && BlobContentsEqual(
+                    reader,
+                    memberReference.Signature,
+                    method.Signature,
+                    beforeDecodeWork))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private static bool BlobContentsEqual(
+        MetadataReader reader,
+        BlobHandle leftHandle,
+        BlobHandle rightHandle,
+        Action<int>? beforeDecodeWork)
+    {
+        BlobReader left = reader.GetBlobReader(leftHandle);
+        BlobReader right = reader.GetBlobReader(rightHandle);
+        if (left.Length != right.Length)
+            return false;
+
+        beforeDecodeWork?.Invoke(left.Length);
+        beforeDecodeWork?.Invoke(right.Length);
+        while (left.RemainingBytes > 0)
+        {
+            if (left.ReadByte() != right.ReadByte())
+                return false;
+        }
+
+        return true;
     }
 
     // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set

@@ -195,6 +195,47 @@ public class ImplicitFinalizerDetectionTests
     }
 
     [Fact]
+    public void MemberReferenceBodySignatureComparison_DoesNotMaterializeOversizedBlob()
+    {
+        byte[] oversizedSignature = new byte[8_000_000];
+        using var stream = new MemoryStream(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true,
+                        ExplicitObjectFinalizeSignature: IntNullary,
+                        UseMemberReferenceBody: true,
+                        MemberReferenceBodySignature: oversizedSignature))));
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result =
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 1,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: 100,
+                    maxRetainedTextCharacters: 1_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            result);
+        Assert.Single(Assert.Single(extracted.Surface.Types).Members);
+        Assert.True(
+            allocated < 4L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void OrdinaryMethods_DoNotRescanMethodImplementationsForFinalizerDetection()
     {
         const int methodCount = 64;
@@ -356,7 +397,8 @@ public class ImplicitFinalizerDetectionTests
         byte[] Signature,
         bool ExplicitObjectFinalizeOverride = false,
         byte[]? ExplicitObjectFinalizeSignature = null,
-        bool UseMemberReferenceBody = false);
+        bool UseMemberReferenceBody = false,
+        byte[]? MemberReferenceBodySignature = null);
 
     sealed record TypeSpec(
         string Name,
@@ -480,7 +522,9 @@ public class ImplicitFinalizerDetectionTests
                         implementationBody = metadata.AddMemberReference(
                             defHandles[type.Name],
                             metadata.GetOrAddString(spec.Name),
-                            metadata.GetOrAddBlob(spec.Signature));
+                            metadata.GetOrAddBlob(
+                                spec.MemberReferenceBodySignature
+                                    ?? spec.Signature));
                     }
                     metadata.AddMethodImplementation(
                         defHandles[type.Name],
