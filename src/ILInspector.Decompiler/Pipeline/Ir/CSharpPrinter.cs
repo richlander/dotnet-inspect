@@ -2698,7 +2698,9 @@ public sealed partial class CSharpPrinter
         }
         if (node is ForLoop forLoop)
         {
-            string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
+            string initializer = forLoop.Initializer is PointerCompoundAssignment update
+                ? PointerUpdateText(update, statement: false)
+                : Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
             sb.Append(pad);
             int headerStart = sb.Length;
@@ -4123,6 +4125,13 @@ public sealed partial class CSharpPrinter
                 LoadProperty load => PropertyTarget(update.Setter!, load.Instance, load.IndexArguments, load.PropertyName, load.IsVirtual),
                 _ => Expression(update.Target),
             };
+            string? context = update.IsChecked ? "checked" : enclosingChecked ? "unchecked" : null;
+            if (!statement && context is not null)
+            {
+                string op = update.Kind is PointerUpdateKind.Add or PointerUpdateKind.Increment ? "+" : "-";
+                _printedRangeMetadata?.SetNodeKind(update, "AssignmentStatement");
+                return $"{target} = {context}({target} {op} {Operand(update.Index)})";
+            }
             string incrementTarget = update.Target is LoadIndirect indirect && RendersAsPointerDeref(indirect.Address)
                 ? $"({target})" : target;
             string text = update.Kind switch
@@ -4133,12 +4142,10 @@ public sealed partial class CSharpPrinter
                 PointerUpdateKind.Subtract => $"{target} -= {Expression(update.Index)}",
                 _ => throw new InvalidOperationException($"Unknown pointer update: {update.Kind}"),
             };
-            string? context = update.IsChecked ? "checked" : enclosingChecked ? "unchecked" : null;
             if (context is null)
                 return statement ? $"{text};" : text;
-            if (statement)
-                _printedRangeMetadata?.SetNodeKind(update, "CheckedStatement");
-            return statement ? $"{context} {{ {text}; }}" : $"{context}({text})";
+            _printedRangeMetadata?.SetNodeKind(update, "CheckedStatement");
+            return $"{context} {{ {text}; }}";
         }
         finally
         {

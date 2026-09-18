@@ -83,6 +83,10 @@ and before coercion insertion. CLI and Browser/Wasm adopt the same node and
 renderer without a flag. Lowered mode leaves explicit stores. Checked blocks,
 loop increment positions, unsafe operation classification, accessor evidence,
 and annotated-source kinds are part of adoption, not later follow-ups.
+In `for` headers, checked updates use explicit assignments with checked
+arithmetic on the right: a checked expression or block is not itself a legal
+statement expression there. The admitted re-evaluable place grammar permits
+that spelling without changing target capture or right-operand evaluation.
 The existing [operation-context contract](memory-safety-modes.md) remains
 authoritative: pointer-value arithmetic has a legacy lexical-unsafe
 requirement, but is not intrinsically unsafe under updated rules. Target
@@ -99,6 +103,10 @@ compiler-produced memory-safety modes, the real Roslyn witness, and
 identity/scaling/scope/entry boundaries. Its native ProductArtifact gate runs
 without the compile-back floor. These gates must pass before publication;
 this design alone is not validation evidence.
+`CheckedLoopHeadersRecompileExactlyWithoutTheFloor` covers both header
+positions, forward and reverse updates, and mixed overflow contexts.
+It compiles the unmodified product artifact
+in both memory-safety modes rather than accepting plausible-looking text.
 
 Publication retains exact-base/head same-input Render A/B with all changed
 methods classified, paired actual CLI and annotated-source documents, native

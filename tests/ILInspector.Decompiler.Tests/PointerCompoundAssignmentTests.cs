@@ -34,6 +34,9 @@ public sealed class PointerCompoundAssignmentTests
     [InlineData("CheckedBytes", 1)]
     [InlineData("CheckedIndex", 1)]
     [InlineData("Loop", 1)]
+    [InlineData("CheckedLoop", 1)]
+    [InlineData("CheckedInitializer", 2)]
+    [InlineData("CheckedReverseLoop", 2)]
     [InlineData("MutatingPointer", 1)]
     [InlineData("MutatingField", 1)]
     [InlineData("UnsignedCount", 0)]
@@ -229,9 +232,11 @@ public sealed class PointerCompoundAssignmentTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void CheckedLoopHeaderUsesAnExpressionRatherThanACheckedBlock(bool isChecked)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void LoopHeaderUsesAStatementExpression(bool isChecked, bool initializer)
     {
         var function = Synthetic("call");
         var block = Assert.Single(function.Body.Children.OfType<Block>());
@@ -241,15 +246,43 @@ public sealed class PointerCompoundAssignmentTests
             new LoadArgument(0, "cursor", Pointer), new Constant(8, Int32)));
         var loopBody = new Block(1);
         loopBody.Add(new Break());
-        block.Add(new ForLoop(new LabelAnchor(), new Constant(true, TypeRef.CoreLib("System", "Boolean")), store, loopBody));
+        block.Add(new ForLoop(initializer ? store : new LabelAnchor(),
+            new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+            initializer ? new LabelAnchor() : store, loopBody));
 
         new PointerCompoundAssignmentPass().Run(function, PassContext.None);
 
-        Assert.Single(function.Descendants.OfType<PointerCompoundAssignment>());
-        string output = Assert.IsType<string>(CSharpPrinter.Print(function).Output);
-        Assert.Contains(isChecked ? "checked(cursor++))" : "cursor++)", output);
+        var update = Assert.Single(function.Descendants.OfType<PointerCompoundAssignment>());
+        string output = Assert.IsType<string>(CSharpPrinter.Print(function, out var ranges).Output);
+        Assert.Contains(isChecked ? "cursor = checked(cursor + 1)" : "cursor++", output);
         Assert.DoesNotContain("checked {", output);
+        if (isChecked)
+        {
+            Assert.True(ranges.TryGetNodeKind(update, out string? kind));
+            Assert.Equal("AssignmentStatement", kind);
+        }
         function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Area", "Fidelity")]
+    public async Task CheckedLoopHeadersRecompileExactlyWithoutTheFloor(bool updated)
+    {
+        string[] methods = ["CheckedLoop", "CheckedInitializer", "CheckedReverseLoop"];
+        var targets = methods.Select(method => new ReturnToSender.RequestedTarget(FixtureType, method, 0)).ToArray();
+        var results = await ReturnToSender.CompileBackTargets(
+            FixturePath(updated), targets, sourceIndex: null, applyCompileBackFloor: false);
+
+        Assert.Equal(targets.Length, results.Count);
+        Assert.All(results, result =>
+        {
+            Assert.False(result.UsedCompileBackFloor);
+            Assert.Contains("for (", result.Source);
+            Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.MemberAnchor}: {result.Status}: {result.Detail}");
+        });
     }
 
     [Theory]

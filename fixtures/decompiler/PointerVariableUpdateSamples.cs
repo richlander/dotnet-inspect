@@ -122,6 +122,48 @@ internal static class PointerVariableUpdateSamples
         }
     }
 
+    public static unsafe ulong CheckedLoop(ulong* start, ulong* end)
+    {
+        unsafe
+        {
+            ulong total = 0;
+            checked
+            {
+                for (ulong* cursor = start; cursor < end; cursor++)
+                    total = unchecked(total + *cursor);
+            }
+            return total;
+        }
+    }
+
+    public static unsafe ulong CheckedInitializer(ulong* start, ulong* end, int count)
+    {
+        unsafe
+        {
+            ulong total = 0;
+            ulong* cursor = start;
+            checked
+            {
+                for (cursor += count; cursor < end; cursor++)
+                    total = unchecked(total + *cursor);
+            }
+            return total;
+        }
+    }
+
+    public static unsafe void CheckedReverseLoop(ulong* start, ulong* end, int count)
+    {
+        unsafe
+        {
+            ulong* cursor = start;
+            checked
+            {
+                for (cursor -= unchecked(count + 1); cursor > end; cursor--)
+                    *cursor = 0;
+            }
+        }
+    }
+
     public static unsafe ulong* MutatingPointer(ulong* cursor, ulong* replacement)
     {
         unsafe { cursor += Replace(ref cursor, replacement); return cursor; }
