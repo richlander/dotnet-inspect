@@ -199,6 +199,50 @@ public sealed class DependencyInspectionOperationTests
     }
 
     [Fact]
+    public void FailedLibraryDoesNotDegradePackageEvidenceCompletion()
+    {
+        DependencyInspectionOperationRequest request = Request(
+            PackageOutcome(),
+            plan: new DependencyInspectionPlan(
+                Declarations: true,
+                RestoredRelationships: false,
+                Traversal: false,
+                Pruning: false,
+                RequestedFramework: null,
+                RequestedDepth: null),
+            roots:
+            [
+                FailedLibraryRoot(1),
+                PackageRoot(2),
+            ],
+            admittedAssociations:
+            [
+                new DependencyRootOccurrenceIdentity(2),
+            ]);
+
+        DependencyInspectionContent content =
+            DependencyInspectionOperation.Execute(request).Content;
+
+        DependencyInspectionRoot failedLibrary = content.Roots[0];
+        Assert.Equal(
+            DependencyInspectionRootState.Failed,
+            failedLibrary.State);
+        Assert.Equal(
+            DependencyInspectionEvidenceAvailability.NotApplicable,
+            failedLibrary.DeclarationState);
+        Assert.Equal(
+            DependencyInspectionEvidencePhaseCompletion.NotApplicable,
+            failedLibrary.DeclarationCompletion);
+        Assert.Equal(
+            DependencyInspectionSelectionStatus.NotApplicable,
+            failedLibrary.Selection);
+        Assert.Equal(
+            DependencyInspectionEvidencePhaseCompletion.Complete,
+            content.Summary.DeclarationCompletion);
+        Assert.Single(content.Dependencies);
+    }
+
+    [Fact]
     public void AssociationValidationRejectsMissingDuplicateAndWrongStateRoots()
     {
         PackageDependencyEvidenceOutcome onePackage = PackageOutcome();
@@ -620,6 +664,16 @@ public sealed class DependencyInspectionOperationTests
                 new ManagedMetadataIdentity.Module(
                     "example.dll",
                     Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))),
+            DependencyInspectionTraversalCompletion.NotRequested);
+
+    private static DependencyInspectionRootInput FailedLibraryRoot(
+        int occurrence) =>
+        new(
+            new DependencyRootOccurrenceIdentity(occurrence),
+            DependencyInspectionRootKind.Library,
+            new InertString(TextPolicy.Field, "missing.dll"),
+            DependencyInspectionRootState.Failed,
+            GraphIdentity: null,
             DependencyInspectionTraversalCompletion.NotRequested);
 
     private static DependencyInspectionRootInput PackageRoot(int occurrence) =>

@@ -280,41 +280,6 @@ public static class DependencyInspectionOperation
         foreach (DependencyInspectionRootInput input in
                  request.Roots.OrderBy(static root => root.Identity.Value))
         {
-            if (input.State == DependencyInspectionRootState.Failed)
-            {
-                roots.Add(
-                    new DependencyInspectionRoot(
-                        input.Identity,
-                        input.Kind,
-                        input.Input,
-                        input.State,
-                        GraphIdentity: null,
-                        request.Plan.Traversal
-                            ? input.Traversal
-                            : DependencyInspectionTraversalCompletion
-                                .NotRequested,
-                        request.Plan.Declarations
-                            ? DependencyInspectionEvidenceAvailability.Failed
-                            : DependencyInspectionEvidenceAvailability
-                                .NotRequested,
-                        request.Plan.Declarations
-                            ? DependencyInspectionEvidencePhaseCompletion.Failed
-                            : DependencyInspectionEvidencePhaseCompletion
-                                .NotRequested,
-                        selectionRequested
-                            ? DependencyInspectionSelectionStatus.Unavailable
-                            : DependencyInspectionSelectionStatus.NotRequested,
-                        request.Plan.RestoredRelationships
-                            ? DependencyInspectionEvidenceAvailability.Failed
-                            : DependencyInspectionEvidenceAvailability
-                                .NotRequested,
-                        request.Plan.RestoredRelationships
-                            ? DependencyInspectionEvidencePhaseCompletion.Failed
-                            : DependencyInspectionEvidencePhaseCompletion
-                                .NotRequested));
-                continue;
-            }
-
             if (input.Kind == DependencyInspectionRootKind.Library)
             {
                 roots.Add(
@@ -349,6 +314,41 @@ public static class DependencyInspectionOperation
                         request.Plan.RestoredRelationships
                             ? DependencyInspectionEvidencePhaseCompletion
                                 .NotApplicable
+                            : DependencyInspectionEvidencePhaseCompletion
+                                .NotRequested));
+                continue;
+            }
+
+            if (input.State == DependencyInspectionRootState.Failed)
+            {
+                roots.Add(
+                    new DependencyInspectionRoot(
+                        input.Identity,
+                        input.Kind,
+                        input.Input,
+                        input.State,
+                        GraphIdentity: null,
+                        request.Plan.Traversal
+                            ? input.Traversal
+                            : DependencyInspectionTraversalCompletion
+                                .NotRequested,
+                        request.Plan.Declarations
+                            ? DependencyInspectionEvidenceAvailability.Failed
+                            : DependencyInspectionEvidenceAvailability
+                                .NotRequested,
+                        request.Plan.Declarations
+                            ? DependencyInspectionEvidencePhaseCompletion.Failed
+                            : DependencyInspectionEvidencePhaseCompletion
+                                .NotRequested,
+                        selectionRequested
+                            ? DependencyInspectionSelectionStatus.Unavailable
+                            : DependencyInspectionSelectionStatus.NotRequested,
+                        request.Plan.RestoredRelationships
+                            ? DependencyInspectionEvidenceAvailability.Failed
+                            : DependencyInspectionEvidenceAvailability
+                                .NotRequested,
+                        request.Plan.RestoredRelationships
+                            ? DependencyInspectionEvidencePhaseCompletion.Failed
                             : DependencyInspectionEvidencePhaseCompletion
                                 .NotRequested));
                 continue;

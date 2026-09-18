@@ -1488,8 +1488,33 @@ public sealed class DependsAssetCommandTests
         Assert.True(
             document.RootElement.GetProperty("dependencies")
                 .GetArrayLength() > 0);
+        int expectedCount =
+            document.RootElement.GetProperty("dependencies").GetArrayLength();
         Assert.Single(
             document.RootElement.GetProperty("failures").EnumerateArray());
+
+        (int countExit, string countOutput, string countError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--library",
+                malformed,
+                "--project",
+                AssetsFixture,
+                "-S",
+                "Dependencies",
+                "--count",
+            ]);
+
+        Assert.Equal(1, countExit);
+        Assert.Equal(
+            expectedCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            countOutput.Trim());
+        Assert.Contains(
+            "typed failure",
+            countError,
+            StringComparison.Ordinal);
     }
 
     [Fact]
