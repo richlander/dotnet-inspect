@@ -161,7 +161,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace inventory and navigation | `workspace --package X --tfm TFM` | Render one typed top-level inventory over committed Packages and inert Exact Library, Package Prefix, and Ecosystem registrations. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent, or restore one canonical packet with `--packet`. Add `--active-package N` on the direct route for structural Library, Type, Member, and lens descriptors. |
+| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical packet or its exact Inspect Web URL. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -314,7 +314,13 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Fidelity Causes"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
+dotnet-inspect library coordinate --file coordinates.txt \
+  --library ./MyLibrary.dll
 ```
+
+Coordinate files accept up to 1,024 significant records. Blank and comment
+lines are ignored; valid and malformed records remain interleaved in source-file
+order so row windows select the same records the producer supplied.
 
 ### ReadyToRun and raw metadata
 
@@ -550,6 +556,36 @@ share the package id and version.
 
 ### Workspace inventory and structural navigation
 
+Append `--share packet` or `--share url` to author the complete durable
+Workspace definition without Package acquisition or live Workspace
+construction. The selected scalar is the `workspace` command's result on
+stdout, rather than the additive stderr side output used by noun commands:
+
+```bash
+dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --register-package-prefix Microsoft.Extensions. \
+  --share packet
+```
+
+Direct Package and registration inputs become one schema-version-3 definition
+and canonical format-3 packet. Registration-only authoring also remains
+resource-free. Normalized-equivalent Package coordinates are emitted once,
+while registration options retain their authored cross-kind order. A
+scanner-bearing Ecosystem fails visibly as non-projectable; the command never
+drops its scanner to manufacture a packet.
+
+`--packet` accepts either canonical packet text or the exact
+`https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
+re-emits the canonical packet or selected URL without complete restoration.
+The `--share` selection governs this scalar; inventory output formats apply
+only when `--share` is absent.
+Durable definition output cannot be combined with `--kind`, inventory row
+controls, `--root-request`, `--preview`, explicit NuGet source policy, or
+Package Navigation selectors because those options request runtime acquisition
+or observation rather than a definition transformation.
+
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
 in declaration order. Overlap is preserved because committed content and
@@ -571,11 +607,11 @@ JSONL retain the typed entry arms and their portable details. `--verbose`
 adds each Package producer, requested/selected/effective target, runtime
 identifier, and asset-selection status to human output.
 
-Restore one current-format canonical Workspace packet instead of supplying
-direct construction options:
+Restore one current-format canonical Workspace packet or exact Inspect Web URL
+for inventory instead of supplying direct construction options:
 
 ```bash
-dotnet-inspect workspace --packet PACKET --share packet
+dotnet-inspect workspace --packet PACKET
 ```
 
 Packet input is mutually exclusive with direct Package and registration
@@ -583,11 +619,7 @@ construction. Workspace Definitions performs complete restoration, including
 group and non-Package context intent and retained Navigation state, before the
 CLI enters the inventory operation. CLI refinement of that restored Navigation
 state is intentionally deferred, so `--packet` currently combines only with
-inventory controls. Unfiltered `--share` re-emits the exact canonical packet.
-A directly constructed Workspace remains inspectable but reports that no
-retained Definitions projection is available when Share output is requested.
-Share reports the top-level inventory and cannot be combined with
-`--active-package` or descendant Navigation selectors.
+inventory controls when `--share` is absent.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.

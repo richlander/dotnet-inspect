@@ -13,6 +13,9 @@ Related docs:
   Finding, and other relationship evidence
 - [Call-graph characteristics](call-graph-characteristics.md) — the
   call-specific adapter from current nodes, edges, occurrences, and signals
+- [External-focused call topology](external-focused-call-topology.md) —
+  boundary-only and seeded shortest-connector views over an existing
+  projection
 - [Inspection-graph modes](inspection-graph-modes.md) — member, type, assembly,
   and package seeds plus peer-seed and induced-set requests
 - [Graph signal annotations](graph-signal-annotations.md) — the per-node
