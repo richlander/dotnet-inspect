@@ -121,27 +121,18 @@ internal sealed record DependsRootRow
 /// </summary>
 internal sealed record DependsAssetProjection(
     InspectionEnvelope<DependencyInspectionContent> Inspection,
+    DependencyInspectionSummary Summary,
+    DependencyGraphDocument Graph,
+    DependencyHierarchyDocument Hierarchy,
     ImmutableArray<DependencyHierarchyOccurrenceRow> HierarchyRows,
     ImmutableArray<DependsRootRow> Roots,
+    ImmutableArray<DependencyInspectionDependency> Dependencies,
+    ImmutableArray<DependencyInspectionPruning> Pruning,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
+    ImmutableArray<DependencyInspectionFailure> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
     DependencyInspectionEvidenceDocument? Evidence)
 {
     internal DependencyInspectionContent Content => Inspection.Content;
-
-    internal DependencyInspectionSummary Summary => Content.Summary;
-
-    internal DependencyHierarchyDocument Hierarchy => Content.Hierarchy;
-
-    internal DependencyGraphDocument Graph => Hierarchy.BackingGraph;
-
-    internal ImmutableArray<DependencyInspectionDependency> Dependencies =>
-        Content.Dependencies;
-
-    internal ImmutableArray<DependencyInspectionPruning> Pruning =>
-        Content.Pruning;
-
-    internal ImmutableArray<DependencyInspectionFailure> Failures =>
-        Content.Failures;
 }

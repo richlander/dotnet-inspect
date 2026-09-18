@@ -101,6 +101,73 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_SerializesAuthenticatedJsonInputsWithoutChangingRawAbi()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(typeof(FixtureExports).Assembly.Location);
+        JsExportFunction rename = surface.Functions.Single(
+            function => function.Name == "RenameWidgetForOwner");
+        JsExportFunction compare = surface.Functions.Single(
+            function => function.Name == "WidgetMatchesAudit");
+        JsExportFunction transformed = surface.Functions.Single(
+            function => function.Name == "RenameNormalizedWidget");
+        JsExportFunction conflicted = surface.Functions.Single(
+            function => function.Name == "ReadWidgetOrAudit");
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            $"readonly \"{rename.RuntimeDispatchKey}\": "
+                + "(owner: string, widgetJson: string, "
+                + "newName: string) => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function renameWidgetForOwner("
+                + "owner: string, widgetJson: WidgetDto, "
+                + "newName: string): WidgetDto",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{rename.RuntimeDispatchKey}\"]("
+                + "owner, $serializeJsonInput(widgetJson, "
+                + $"\"{rename.DeclaringType}.{rename.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), newName);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[\"{compare.RuntimeDispatchKey}\"]("
+                + "$serializeJsonInput(widgetJson, "
+                + $"\"{compare.DeclaringType}.{compare.RuntimeDispatchKey}\", "
+                + "\"widgetJson\"), $serializeJsonInput(auditJson, "
+                + $"\"{compare.DeclaringType}.{compare.RuntimeDispatchKey}\", "
+                + "\"auditJson\"));",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function renameNormalizedWidget("
+                + "widgetJson: string, newName: string): WidgetDto",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function readWidgetOrAudit("
+                + "payload: string, summaryJson: string, "
+                + "readAudit: boolean): string",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const json = JSON.stringify(value);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "if (json === undefined)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_ProjectsAuthenticatedSynchronousDelegateFacts()
     {
         var function = new JsExportFunction

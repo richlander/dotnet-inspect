@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using UntrustedDocuments;
 using DotnetInspector.Packages;
 using InertText;
@@ -92,6 +93,9 @@ public readonly record struct RuntimeDependencyLibraryNodeIdentity(
     string SourceIdentity);
 
 /// <summary>The closed parent identity for one runtime package relationship.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(RuntimeDependencyGraphParentIdentity.Package), "package")]
+[JsonDerivedType(typeof(RuntimeDependencyGraphParentIdentity.Library), "library")]
 public abstract record RuntimeDependencyGraphParentIdentity
 {
     private RuntimeDependencyGraphParentIdentity()

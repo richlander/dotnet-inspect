@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Xml;
 using System.Xml.Linq;
 using UntrustedDocuments;
@@ -62,6 +63,7 @@ public enum AuthoredProjectTargetFrameworkKind
 }
 
 /// <summary>Stable identity for one literal or unresolved authored target observation.</summary>
+[JsonConverter(typeof(AuthoredProjectTargetFrameworkIdentityJsonConverter))]
 public sealed record AuthoredProjectTargetFrameworkIdentity
 {
     private AuthoredProjectTargetFrameworkIdentity(
@@ -100,6 +102,29 @@ public sealed record AuthoredProjectTargetFrameworkIdentity
             AuthoredProjectTargetFrameworkKind.Unresolved,
             canonicalFramework: null,
             RestoredProjectIdentityText.Opaque(source));
+
+    internal static AuthoredProjectTargetFrameworkIdentity FromOpaqueIdentity(
+        AuthoredProjectTargetFrameworkKind kind,
+        string comparisonIdentity)
+    {
+        if (kind is not (
+                AuthoredProjectTargetFrameworkKind.Unrecognized
+                or AuthoredProjectTargetFrameworkKind.Unresolved))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "An opaque authored framework identity requires an opaque kind.");
+        }
+        if (!RestoredProjectIdentityText.IsOpaque(comparisonIdentity))
+        {
+            throw new ArgumentException(
+                "An opaque authored framework identity must be a sha256-prefixed lowercase SHA-256 identity.",
+                nameof(comparisonIdentity));
+        }
+
+        return new(kind, canonicalFramework: null, comparisonIdentity);
+    }
 }
 
 /// <summary>One target-framework spelling observed directly in project syntax.</summary>
@@ -303,7 +328,8 @@ public static class AuthoredProjectDependencyFactsQuery
     private const string TargetFrameworkProperty = "$(TargetFramework)";
 
     public static InspectionQuery<AuthoredProjectDependencyFactsResult>
-        Definition { get; } =
+        Definition
+    { get; } =
         new("Authored project dependency facts", InspectionCost.NetworkFree);
 
     public static AuthoredProjectDependencyFactsResult Execute(
@@ -1114,11 +1140,11 @@ public static class AuthoredProjectDependencyFactsQuery
         string? canonicalVersion = null;
         if (versions is
             [
-                {
-                    Value: { Length: > 0 } projectedValue,
-                    Condition: null,
-                    ShapeIdentity: null,
-                },
+            {
+                Value: { Length: > 0 } projectedValue,
+                Condition: null,
+                ShapeIdentity: null,
+            },
             ]
             && overrides.Count == 0
             && !ContainsMsbuildExpression(projectedValue)

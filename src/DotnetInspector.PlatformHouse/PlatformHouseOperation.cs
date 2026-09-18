@@ -11,6 +11,13 @@ public enum PlatformHouseOperationKind
     ResolveDocumentationEvidence,
 }
 
+[Flags]
+public enum PlatformLibraryContentDemand
+{
+    None = 0,
+    CompiledXmlDocumentation = 1,
+}
+
 /// <summary>Resource-free evidence for one operation shape.</summary>
 public abstract class PlatformHouseOperationSnapshot
 {
@@ -28,15 +35,18 @@ public abstract class PlatformHouseOperationSnapshot
     {
         internal Realize(
             PlatformPopulationDemand population,
-            PlatformViewDemand view)
+            PlatformViewDemand view,
+            PlatformLibraryContentDemand contentDemand)
             : base(PlatformHouseOperationKind.Realize)
         {
             Population = population;
             View = view;
+            ContentDemand = contentDemand;
         }
 
         public PlatformPopulationDemand Population { get; }
         public PlatformViewDemand View { get; }
+        public PlatformLibraryContentDemand ContentDemand { get; }
     }
 
     public sealed class ResolveAssemblyReference : PlatformHouseOperationSnapshot
@@ -121,24 +131,51 @@ public abstract class PlatformHouseOperation
     {
         public Realize(
             PlatformPopulationDemand population,
-            PlatformViewDemand view)
-            : base(CreateSnapshot(population, view))
+            PlatformViewDemand view,
+            PlatformLibraryContentDemand contentDemand =
+                PlatformLibraryContentDemand.None)
+            : base(CreateSnapshot(population, view, contentDemand))
         {
             Population = population;
             View = view;
+            ContentDemand = contentDemand;
         }
 
         public PlatformPopulationDemand Population { get; }
         public PlatformViewDemand View { get; }
+        public PlatformLibraryContentDemand ContentDemand { get; }
 
         static PlatformHouseOperationSnapshot CreateSnapshot(
             PlatformPopulationDemand population,
-            PlatformViewDemand view)
+            PlatformViewDemand view,
+            PlatformLibraryContentDemand contentDemand)
         {
             ArgumentNullException.ThrowIfNull(population);
             if (!Enum.IsDefined(view))
                 throw new ArgumentOutOfRangeException(nameof(view));
-            return new PlatformHouseOperationSnapshot.Realize(population, view);
+            if ((contentDemand
+                    & ~PlatformLibraryContentDemand
+                        .CompiledXmlDocumentation) != 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(contentDemand));
+            }
+            if (contentDemand
+                    .HasFlag(
+                        PlatformLibraryContentDemand
+                            .CompiledXmlDocumentation)
+                && (view == PlatformViewDemand.Implementation
+                    || population
+                        is not PlatformPopulationDemand.Library))
+            {
+                throw new ArgumentException(
+                    "Compiled XML documentation requires one Library realization with a reference view.",
+                    nameof(contentDemand));
+            }
+            return new PlatformHouseOperationSnapshot.Realize(
+                population,
+                view,
+                contentDemand);
         }
     }
 

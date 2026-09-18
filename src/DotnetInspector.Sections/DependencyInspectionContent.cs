@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -130,8 +131,16 @@ public sealed record DependencyInspectionPruning(
     DependencyInspectionPruningDisposition Disposition,
     string Reason,
     PackageHouseDependencyPruningApplicability Applicability,
-    PackageDependencyCandidateResult? CandidateOutcome,
-    PackageHouseDependencyPruningResult? Result);
+    DependencyInspectionPackageCandidateOutcome? CandidateOutcome,
+    DependencyInspectionPruningResult? Result)
+{
+    [JsonIgnore]
+    public PackageDependencyCandidateResult? RuntimeCandidateOutcome
+    { get; init; }
+
+    [JsonIgnore]
+    public PackageHouseDependencyPruningResult? RuntimeResult { get; init; }
+}
 
 public sealed record DependencyInspectionPruningSummary(
     DependencyInspectionPruningCompletion Completion,
@@ -157,6 +166,13 @@ public sealed record DependencyInspectionPruningSummary(
             Failed: 0);
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(DependencyInspectionRestoredTraversalFailure.Outcome),
+    "outcome")]
+[JsonDerivedType(
+    typeof(DependencyInspectionRestoredTraversalFailure.Graph),
+    "graph")]
 public abstract record DependencyInspectionRestoredTraversalFailure
 {
     private DependencyInspectionRestoredTraversalFailure()
@@ -164,7 +180,7 @@ public abstract record DependencyInspectionRestoredTraversalFailure
     }
 
     public sealed record Outcome(
-        RestoredProjectDependencyTraversalFailure Value) :
+        DependencyInspectionRestoredTraversalOutcomeFailure Value) :
         DependencyInspectionRestoredTraversalFailure;
 
     public sealed record Graph(RestoredProjectGraphFailure Value) :
@@ -183,14 +199,31 @@ public sealed record DependencyInspectionTraversalFailure(
     PackageDependencyEvidenceDeclarationIdentity? DeclarationIdentity,
     string? PackageId,
     string? VersionConstraint,
-    PackageDependencyTraversalCandidateResult? CandidateOutcome,
-    PackageDependencyTraversalManifestFailureDetail? ManifestFailure,
+    DependencyInspectionPackageCandidateOutcome? CandidateOutcome,
+    DependencyInspectionPackageManifestFailure? ManifestFailure,
     PackageDependencyTraversalWorkBudgetKind? BudgetKind,
     int? BudgetLimit,
     DependencyInspectionRestoredTraversalFailure? RestoredFailure,
     ImmutableArray<int> AffectedRootOccurrences,
-    DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null);
+    DependencyInspectionAssemblyBindingFailure? AssemblyBindingFailure = null)
+{
+    public ImmutableArray<int> AffectedRootOccurrences { get; init; } =
+        AffectedRootOccurrences.IsDefault ? [] : AffectedRootOccurrences;
 
+    [JsonIgnore]
+    public PackageDependencyTraversalCandidateResult? RuntimeCandidateOutcome
+    { get; init; }
+
+    [JsonIgnore]
+    public PackageDependencyTraversalManifestFailureDetail?
+        RuntimeManifestFailure
+    { get; init; }
+}
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Evidence), "evidence")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Traversal), "traversal")]
+[JsonDerivedType(typeof(DependencyInspectionFailure.Pruning), "pruning")]
 public abstract record DependencyInspectionFailure
 {
     private DependencyInspectionFailure()
@@ -207,6 +240,16 @@ public abstract record DependencyInspectionFailure
         DependencyInspectionFailure;
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Inventory),
+    "inventory")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Prerequisite),
+    "prerequisite")]
+[JsonDerivedType(
+    typeof(DependencyInspectionPruningFailure.Candidate),
+    "candidate")]
 public abstract record DependencyInspectionPruningFailure
 {
     private DependencyInspectionPruningFailure()
@@ -216,15 +259,21 @@ public abstract record DependencyInspectionPruningFailure
     public sealed record Inventory(
         string PlatformFamily,
         string TargetFramework,
+        [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
         InertString Message,
         ImmutableArray<int> AffectedRootOccurrences,
-        int AffectedDeclarations) : DependencyInspectionPruningFailure;
+        int AffectedDeclarations) : DependencyInspectionPruningFailure
+    {
+        public ImmutableArray<int> AffectedRootOccurrences { get; init; } =
+            AffectedRootOccurrences.IsDefault ? [] : AffectedRootOccurrences;
+    }
 
     public sealed record Prerequisite(
         int RootOccurrence,
         PackageDependencyEvidenceRootIdentity RootIdentity,
         InertString RootDisplay,
         DependencyEvidenceDeclarationState DeclarationState,
+        [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
         InertString Message) : DependencyInspectionPruningFailure;
 
     public sealed record Candidate(
@@ -233,8 +282,12 @@ public abstract record DependencyInspectionPruningFailure
         PackageDependencyEvidenceDeclarationIdentity DeclarationIdentity,
         string PackageId,
         string VersionConstraint,
-        PackageDependencyCandidateResult Outcome) :
-        DependencyInspectionPruningFailure;
+        DependencyInspectionPackageCandidateOutcome Outcome) :
+        DependencyInspectionPruningFailure
+    {
+        [JsonIgnore]
+        public PackageDependencyCandidateResult? RuntimeOutcome { get; init; }
+    }
 }
 
 public sealed record DependencyInspectionSummary(
@@ -262,6 +315,18 @@ public sealed record DependencyInspectionContent(
     ImmutableArray<DependencyInspectionPruning> Pruning,
     ImmutableArray<DependencyInspectionFailure> Failures)
 {
+    public ImmutableArray<DependencyInspectionRoot> Roots { get; init; } =
+        Roots.IsDefault ? [] : Roots;
+
+    public ImmutableArray<DependencyInspectionDependency> Dependencies
+    { get; init; } = Dependencies.IsDefault ? [] : Dependencies;
+
+    public ImmutableArray<DependencyInspectionPruning> Pruning { get; init; } =
+        Pruning.IsDefault ? [] : Pruning;
+
+    public ImmutableArray<DependencyInspectionFailure> Failures { get; init; } =
+        Failures.IsDefault ? [] : Failures;
+
     public bool Equals(DependencyInspectionContent? other) =>
         ReferenceEquals(this, other)
         || other is not null

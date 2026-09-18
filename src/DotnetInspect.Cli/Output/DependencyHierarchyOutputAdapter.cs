@@ -446,10 +446,10 @@ internal static class DependencyHierarchyOutputAdapter
                         edge.SourcePackageProjectionId,
                         edge.TargetPackageProjectionId,
                         edge.PackageEmissionAuthority,
-                        edge.PackageDiagnostics.IsDefaultOrEmpty
+                        edge.RuntimePackageDiagnostics.IsDefaultOrEmpty
                             ? null
                             : [
-                                .. edge.PackageDiagnostics.Select(
+                                .. edge.RuntimePackageDiagnostics.Select(
                                     diagnostic =>
                                         DependsPackageAuthorityFailureJson
                                             .Create(diagnostic, tokens)),
