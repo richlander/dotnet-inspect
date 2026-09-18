@@ -8,6 +8,12 @@
   `--lines` remains an explicit unit override, and numeric `-t` on
   `implements` and `extensions` is treated as type-filter input rather than a
   legacy count or migration diagnostic (#4677).
+- Adds complete service `--envelope` output to `package activity` with result
+  kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
+  emits the same owner-issued report Content without the service frame.
+  Report request controls remain admitted while projection, Count, discovery,
+  section selection, row shaping, and competing formats are rejected. Typed
+  incomplete and failed Content remains visible before a nonzero exit (#7126).
 - **Breaking:** Modernizes `ecosystem` with route-specific `@Ecosystem` and
   `@Integrations` categories, category-first alphabetical discovery, and
   alphabetical multi-section output. Replace the former unprefixed

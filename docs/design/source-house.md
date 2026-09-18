@@ -25,18 +25,20 @@ SourceLink interpretation, source-fetch transport, or decompiler internals.
 Their adoption remains separately reviewed through the tracker.
 
 The first production consumer is the shared selected-member source pair for
-CLI and Browser/Wasm, adopted under #7448. Ordinary Inspect Web package
-type/member Source remains a later consumer of the full SourceHouse contract.
+CLI and Browser/Wasm, adopted under #7448. Shared
+[member acquisition](member-source-acquisition.md) now also supplies browser
+member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
+Type Source and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
 The current production implementation is `AssemblyContextSourceQuery`, which
 resolves an exact member or type, attempts PDB-mapped source, and falls back to
-`CSharpDecompilerService`. `PdbSourceHouse` currently owns PDB-specific source
-candidate ordering; SourceLinkService owns checksum verification and decoding.
-These ordinary-query paths are migration evidence, not the target public
-composition boundary. The selected-member source pair now uses the authored
-House operation through its existing shared envelope.
+`CSharpDecompilerService`. Member authored acquisition and selected-member pairs
+use SourceHouse; `PdbSourceHouse` retains type-source and broader enrichment
+ordering. SourceLinkService owns checksum verification and decoding.
+The ordinary query's fallback remains migration evidence, not the target public
+House policy boundary.
 
 ### Authored settlement delivery
 
@@ -112,10 +114,18 @@ settlement.
 
 This is the settlement-core portion of step 5. The public `PdbSourceHouse`
 retirement obligation remains open until shared source-query adoption replaces
-its callers. The four-delivery adapter-first path and overall twelve-step
-plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
+its callers. The [five-delivery adapter-first path](member-source-acquisition.md#production-adoption-and-retirement)
+and overall twelve-step plan below retain both CLI and Browser/Wasm consumers. The member-source-pair
 cutover in #7448 supplies the first shared completed
-`InspectionEnvelope<TContent>` adoption, not full source-policy retirement.
+`InspectionEnvelope<TContent>` adoption, extended to member Source and same-member comparison in #7497;
+neither delivery claims full source-policy retirement.
+
+The member cutover also corrects exact-target lookup for explicit-interface
+accessors: their physical and property/event projections can repeat the same
+method token and anchor without introducing a second target. The PR-fast
+`RealPlatformExplicitAccessor_RecognizesOnePhysicalTarget` cases retain the
+real `System.Data.DataView` getter/setter regression; existing CLI Source Diff
+accessor cases gate authored/decompiled comparison behavior.
 
 The motivating real repository input for this delivery is
 [`richlander/dotnet-inspect`](https://github.com/richlander/dotnet-inspect):

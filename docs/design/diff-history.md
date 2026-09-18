@@ -2,12 +2,19 @@
 
 ## Status, owner, and claim
 
-Status: **proposed; not implemented**. This specification is tracked by
+Status: **partially implemented**. This specification is tracked by
 [#6987](https://github.com/richlander/dotnet-inspect/issues/6987), with the
 subject-specific Count revision in
 [#7229](https://github.com/richlander/dotnet-inspect/issues/7229), under
 [Compare delivery #7213](https://github.com/richlander/dotnet-inspect/issues/7213)
 and [multi-part document adoption #6980](https://github.com/richlander/dotnet-inspect/issues/6980).
+The first shared terminal slice is tracked by
+[#7472](https://github.com/richlander/dotnet-inspect/issues/7472): it accepts an
+already-settled package population and exact full or sparse evaluation
+selection, evaluates Count-free whole-Type `api.member` censuses, and returns
+the typed resource-free Document through `InspectionEnvelope<DiffHistoryOutcome>`.
+Population discovery, Count, exact-Member Analysis, serializer/output
+lowering, and host adoption remain later slices.
 
 The **Diff History inspection** owner defines temporal inspection and the
 related metadata-only version-population reduction:
