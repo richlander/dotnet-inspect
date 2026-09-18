@@ -375,6 +375,193 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        SelectedByteLimitEvidencePrecedesBoundedContext()
+    {
+        byte[] xml = Encoding.UTF8.GetBytes(
+            """
+            <doc><members>
+              <member name="M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)">
+                <summary>documentation larger than one byte</summary>
+              </member>
+            </members></doc>
+            """);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution selected =
+            Assert.Single(
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(
+                        library.Reference,
+                        subject));
+        CompiledXmlContribution[] precedingUnavailable =
+            Enumerable.Range(0, 8)
+                .Select(
+                    index =>
+                        CompiledXmlContribution.Unavailable(
+                            subject,
+                            library.Reference,
+                            library.Reference.ApiAssembly,
+                            DocumentationSourceReference.Create(
+                                DocumentationSourceKind.DirectLibrary,
+                                $"u{index}")))
+                .ToArray();
+
+        CompiledDocumentationQueryResult result =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(
+                    subject,
+                    [.. precedingUnavailable, selected],
+                    maximumContributions: 9,
+                    maximumCompiledXmlBytes: 1),
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        DocumentationHouseOutcome.Completed completed =
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                result.Outcome);
+        DocumentationCompiledXmlAttempt.Incomplete houseIncomplete =
+            Assert.IsType<DocumentationCompiledXmlAttempt.Incomplete>(
+                completed.CompiledXmlAttempt);
+        Assert.Same(selected, houseIncomplete.Selected);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.CompiledXmlByteLimit,
+            houseIncomplete.Boundary);
+
+        CompiledDocumentationOutcome.Incomplete content =
+            Assert.IsType<CompiledDocumentationOutcome.Incomplete>(
+                result.Content);
+        Assert.Equal(
+            CompiledDocumentationIncompleteReason.CompiledXmlByteLimit,
+            content.Reason);
+        Assert.Equal(8, content.Sources.Length);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Candidate,
+            content.Sources[0].Kind);
+        Assert.Equal(
+            "direct-library:System.Text.Json",
+            content.Sources[0].Source.Name);
+        Assert.Equal(
+            7,
+            content.Sources.Count(
+                static source =>
+                    source.Kind
+                        == CompiledDocumentationSourceEvidenceKind
+                            .Unavailable));
+        Assert.True(content.SourcesTruncated);
+
+        await library.RetireAsync();
+        byte[] payload = Serialize(result.Content);
+        Assert.True(
+            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
+            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
+        using JsonDocument document = JsonDocument.Parse(payload);
+        AssertPropertyNames(
+            document.RootElement,
+            "kind",
+            "subject",
+            "reason",
+            "sources",
+            "sourcesTruncated");
+        JsonElement sourceEvidence = document.RootElement
+            .GetProperty("sources")[0];
+        Assert.Equal(
+            nameof(CompiledDocumentationSourceEvidenceKind.Candidate),
+            sourceEvidence.GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task
+        PartialSelectionEvidencePrecedesBoundedContext()
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync();
+        DocumentationSubjectReference subject = Subject(library);
+        CompiledXmlContribution partial =
+            CompiledXmlContribution.Partial(
+                subject,
+                library.Reference,
+                library.Reference.ApiAssembly,
+                DocumentationSourceReference.Create(
+                    DocumentationSourceKind.Package,
+                    "package:System.Text.Json@10.0.0"));
+        CompiledXmlContribution[] precedingUnavailable =
+            Enumerable.Range(0, 8)
+                .Select(
+                    index =>
+                        CompiledXmlContribution.Unavailable(
+                            subject,
+                            library.Reference,
+                            library.Reference.ApiAssembly,
+                            DocumentationSourceReference.Create(
+                                DocumentationSourceKind.DirectLibrary,
+                                $"u{index}")))
+                .ToArray();
+
+        CompiledDocumentationQueryResult result =
+            await CompiledDocumentationQuery.ExecuteAsync(
+                Request(
+                    subject,
+                    [.. precedingUnavailable, partial],
+                    maximumContributions: 9),
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        DocumentationHouseOutcome.Completed completed =
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                result.Outcome);
+        DocumentationCompiledXmlAttempt.Incomplete houseIncomplete =
+            Assert.IsType<DocumentationCompiledXmlAttempt.Incomplete>(
+                completed.CompiledXmlAttempt);
+        Assert.Null(houseIncomplete.Selected);
+        Assert.Equal(
+            DocumentationIncompleteBoundary.CompanionSelectionPartial,
+            houseIncomplete.Boundary);
+
+        CompiledDocumentationOutcome.Incomplete content =
+            Assert.IsType<CompiledDocumentationOutcome.Incomplete>(
+                result.Content);
+        Assert.Equal(
+            CompiledDocumentationIncompleteReason.CompanionSelectionPartial,
+            content.Reason);
+        Assert.Equal(8, content.Sources.Length);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Partial,
+            content.Sources[0].Kind);
+        Assert.Equal(
+            "package:System.Text.Json@10.0.0",
+            content.Sources[0].Source.Name);
+        Assert.Equal(
+            7,
+            content.Sources.Count(
+                static source =>
+                    source.Kind
+                        == CompiledDocumentationSourceEvidenceKind
+                            .Unavailable));
+        Assert.True(content.SourcesTruncated);
+
+        await library.RetireAsync();
+        byte[] payload = Serialize(result.Content);
+        Assert.True(
+            payload.Length <= MaximumBoundedNonAvailablePayloadBytes,
+            $"Incomplete payload was {payload.Length} UTF-8 bytes.");
+        using JsonDocument document = JsonDocument.Parse(payload);
+        AssertPropertyNames(
+            document.RootElement,
+            "kind",
+            "subject",
+            "reason",
+            "sources",
+            "sourcesTruncated");
+        JsonElement sourceEvidence = document.RootElement
+            .GetProperty("sources")[0];
+        Assert.Equal(
+            nameof(CompiledDocumentationSourceEvidenceKind.Partial),
+            sourceEvidence.GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task
         UnavailableAndRejectedContributionsHaveDistinctWireCases()
     {
         await using LibraryFixture selected =
@@ -682,11 +869,12 @@ public sealed class CompiledDocumentationQueryTests
         DocumentationSubjectReference subject,
         IReadOnlyList<CompiledXmlContribution> contributions,
         int maximumContributions = 8,
+        int maximumCompiledXmlBytes = 8 * 1024 * 1024,
         DateTimeOffset? deadline = null)
     {
         var limits = new DocumentationHouseLimits(
             maximumContributions,
-            maximumCompiledXmlBytes: 8 * 1024 * 1024,
+            maximumCompiledXmlBytes,
             XmlDocumentationReadLimits.Default);
         var plan = new DocumentationHouseOperationPlan(
             DocumentationHouseOperationPlanIdentity.Create(

@@ -296,7 +296,8 @@ public static class CompiledDocumentationQuery
                 Incomplete(
                     subject,
                     incomplete.Boundary,
-                    incomplete.Contributions),
+                    incomplete.Contributions,
+                    incomplete.Selected),
             _ => throw new InvalidOperationException(
                 "Unknown compiled-XML attempt."),
         };
@@ -305,23 +306,16 @@ public static class CompiledDocumentationQuery
         CompiledDocumentationSubject subject,
         DocumentationCompiledXmlAttempt.Absent absent)
     {
-        IEnumerable<CompiledXmlContribution> applicableContributions =
-            absent.Selected is { } selected
-                ? [selected]
-                : absent.Contributions
-                    .Where(
-                        static contribution =>
-                            contribution.Kind
-                                == CompiledXmlContributionKind.Absent)
-                    .Concat(
-                        absent.Contributions.Where(
-                            static contribution =>
-                                contribution.Kind
-                                    != CompiledXmlContributionKind.Absent));
         (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
             bool truncated) =
-            TakeDistinct(
-                applicableContributions.Select(SnapshotEvidence));
+            absent.Selected is { } selected
+                ? BoundedSourceEvidence([selected])
+                : BoundedSourceEvidence(
+                    absent.Contributions,
+                    absent.Contributions.Where(
+                        static contribution =>
+                            contribution.Kind
+                                == CompiledXmlContributionKind.Absent));
         return new(subject, sources, truncated);
     }
 
@@ -331,8 +325,7 @@ public static class CompiledDocumentationQuery
     {
         (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
             bool truncated) =
-            TakeDistinct(
-                contributions.Select(SnapshotEvidence));
+            BoundedSourceEvidence(contributions);
         return new(subject, sources, truncated);
     }
 
@@ -365,13 +358,42 @@ public static class CompiledDocumentationQuery
     private static CompiledDocumentationOutcome.Incomplete Incomplete(
         CompiledDocumentationSubject subject,
         DocumentationIncompleteBoundary reason,
-        IEnumerable<CompiledXmlContribution> contributions)
+        IEnumerable<CompiledXmlContribution> contributions,
+        CompiledXmlContribution? selected = null)
     {
+        IEnumerable<CompiledXmlContribution>? decisiveContributions =
+            selected is not null
+                ? [selected]
+                : reason
+                    == DocumentationIncompleteBoundary
+                        .CompanionSelectionPartial
+                            ? contributions.Where(
+                                static contribution =>
+                                    contribution.Kind
+                                        == CompiledXmlContributionKind.Partial)
+                            : null;
         (ImmutableArray<CompiledDocumentationSourceEvidence> sources,
             bool truncated) =
-            TakeDistinct(
-                contributions.Select(SnapshotEvidence));
+            BoundedSourceEvidence(
+                contributions,
+                decisiveContributions);
         return new(subject, Snapshot(reason), sources, truncated);
+    }
+
+    private static (
+        ImmutableArray<CompiledDocumentationSourceEvidence> Sources,
+        bool Truncated)
+        BoundedSourceEvidence(
+            IEnumerable<CompiledXmlContribution> contributions,
+            IEnumerable<CompiledXmlContribution>?
+                decisiveContributions = null)
+    {
+        IEnumerable<CompiledXmlContribution> orderedContributions =
+            decisiveContributions is null
+                ? contributions
+                : decisiveContributions.Concat(contributions);
+        return TakeDistinct(
+            orderedContributions.Select(SnapshotEvidence));
     }
 
     private static (

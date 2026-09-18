@@ -737,12 +737,16 @@ identity and compiler documentation ID needed for correlation. A required
 Available content carries the selected source and documentation. Each
 non-available case carries only its applicable reason and bounded source
 evidence; repeated source arrays retain at most eight distinct values and state
-when more values were omitted. An `absent` result caused by a selected compiled
-XML document that lacks the requested member carries that selected candidate as
-its sole decisive evidence. An `absent` result with no selected candidate
-carries the bounded contribution evidence. Contributions that authoritatively
-report absence take precedence within that bound, so earlier unavailable
-sources cannot displace the evidence that establishes the terminal case.
+when more values were omitted. Within every bounded source-evidence list,
+evidence that establishes the terminal case precedes contextual evidence, so
+the bound cannot retain only evidence for a weaker outcome. An `absent` result
+caused by a selected compiled XML document that lacks the requested member
+carries that selected candidate as its sole decisive evidence. An `absent`
+result with no selected candidate prioritizes contributions that
+authoritatively report absence. An `incomplete` result with a selected
+candidate prioritizes that candidate before the other observed contributions;
+a companion-selection-partial result similarly prioritizes partial
+contributions.
 
 Request, operation-plan, policy-generation, demand, work-charge, lease-consumer,
 duplicate type/member anchors, full contribution history, and nullable
@@ -972,6 +976,12 @@ The absent gates cover both a selected document without the requested member
 and a package-shaped authoritative missing-companion contribution preceded by
 eight distinct unavailable sources; each preserves its applicable source
 provenance after Library retirement.
+The selected-incomplete gate similarly places eight unavailable sources before
+a candidate whose compiled XML exceeds the byte limit and proves that the
+selected candidate remains first in the bounded portable evidence.
+The neighboring companion-selection-partial gate proves the same ordering when
+no candidate was selected and the partial contribution itself establishes
+incompleteness.
 A four-million-contribution input constrained by a nine-entry House limit
 retains eight distinct source, kind, and precedence values plus explicit
 truncation without presenting unfinished work as available documentation. That
