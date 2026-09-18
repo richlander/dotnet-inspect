@@ -1434,6 +1434,8 @@ SourceLink browse mapping, and GitHub's `/owner/repo/raw/ref/path` route can
 select its `/blob/` view. An unknown provider or unsupported URL stays unchanged:
 the presence of `/raw/` elsewhere in a URL does not authorize rewriting it.
 This preference does not add network probes or new provider support.
+Coordinate source-line locators replace any existing fragment on the selected
+URL; composing the locator preserves that URL's path and query.
 
 Package README and skill presentation preserves the existing distinction:
 the default normalizes authored GitHub file links to fetchable form, while
@@ -1451,8 +1453,9 @@ source URL. PR-fast CLI parsing and service URL-conversion tests cover unknown
 providers and literal `/raw/` path segments; focused package/member/library
 source-output tests cover the production preference and unchanged default.
 `CoordinateUrls_ApplyPreferenceAndPreserveLine` covers production coordinate
-output for both GitHub forms, the unchanged default, line suffixes, and unknown
-providers. `RenderedUrlPreference_SourceLocationRetainsUnmappedUrl` also covers
+output for both GitHub forms, the default, replacement of existing fragments
+with line locators, preserved queries, and unknown providers.
+`RenderedUrlPreference_SourceLocationRetainsUnmappedUrl` also covers
 the Research fallback. `TypeSourceFilesPrint_SelectsExactRepositoryDocument`
 proves that preferring rendered URLs does not change selected authored text.
 

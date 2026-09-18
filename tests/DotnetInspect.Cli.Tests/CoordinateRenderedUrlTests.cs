@@ -21,11 +21,16 @@ public sealed class CoordinateRenderedUrlTests
 
     // PR-fast: bounded SourceLink URL matrix through the production coordinate command.
     [Theory]
-    [InlineData(RawOrigin, Rendered)]
-    [InlineData(RawRoute, Rendered)]
-    [InlineData(Unmapped, Unmapped)]
+    [InlineData(RawOrigin, RawOrigin, Rendered)]
+    [InlineData(RawRoute, RawRoute, Rendered)]
+    [InlineData(Unmapped, Unmapped, Unmapped)]
+    [InlineData(RawRoute + "?plain=1#section", RawRoute + "?plain=1", Rendered + "?plain=1")]
+    [InlineData(Unmapped + "?plain=1#section", Unmapped + "?plain=1", Unmapped + "?plain=1")]
+    [InlineData(RawRoute + "#L999", RawRoute, Rendered)]
+    [InlineData(RawRoute + "?path=%23section#old", RawRoute + "?path=%23section", Rendered + "?path=%23section")]
     public async Task CoordinateUrls_ApplyPreferenceAndPreserveLine(
         string sourceUrl,
+        string fetchableUrl,
         string renderedUrl)
     {
         DirectoryInfo directory = Directory.CreateTempSubdirectory("coordinate-url-");
@@ -54,7 +59,7 @@ public sealed class CoordinateRenderedUrlTests
                 Assert.Equal(0, exit);
                 Assert.Empty(error);
                 Assert.Equal(
-                    $"{(preferRendered ? renderedUrl : sourceUrl)}#L{location.Line}",
+                    $"{(preferRendered ? renderedUrl : fetchableUrl)}#L{location.Line}",
                     output.Trim());
             }
         }

@@ -204,7 +204,7 @@ public static class ILOffsetProjectionProducer
         {
             if (request.BrowsableUrls)
                 url = SourceLinkUrlPresentation.PreferRenderedUrl(url);
-            url += $"#L{source!.Line}";
+            url = new UriBuilder(url) { Fragment = $"L{source!.Line}" }.Uri.AbsoluteUri;
         }
 
         return ILOffsetProjectionOutcome.Success(new ILOffsetProjection
