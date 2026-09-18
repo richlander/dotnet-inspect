@@ -88,6 +88,39 @@ image size, MVID, and reserved flag bits are changeable payload facets.
 
 All four families use identity-set matching and leave `Finding.Ordinal` null.
 
+## Type-document mapping
+
+SourceLink returns one homogeneous immutable document collection associated
+with the resolved exact metadata type identity. Each document retains its
+original ordinal PDB path, SourceLink and browse URLs, checksum facts, and
+correlated or inferred resolution method. The collection preserves PDB
+discovery order; its first item is not a preferred document. Multiple documents
+establish multiple mapped documents, not a C# `partial` declaration or complete
+declaration coverage.
+
+No matching type or no unambiguous document mapping retains the existing null
+result. In particular, multiple filename-inference candidates are not a
+successful collection. Metadata decoding failures remain exceptional for the
+consumer's typed failure boundary rather than becoming empty success. Duplicate
+PDB rows with the same original path retain one mapping without selecting an
+arbitrary row's checksum.
+
+Default-document choice is consumer policy, transferred unchanged to
+[SourceHouse](source-house.md#authored-type-document-selection). Metadata's
+per-type document inventory is the analogous model: SourceLink decorates its
+facts rather than imposing a primary/additional representation. The producer
+does not acquire source text, select fallback, or define host output.
+
+The real motivating repository is dotnet-inspect itself: its partial
+`SourceLinkService` maps to several checksummed source files. PR-fast Release
+`MetadataSourceFindingsTests` cases gate that collection, per-document evidence,
+discovery order, ordinal identity, and inferred/ambiguous mapping boundaries.
+`AuthoredSourceHouseTests` and `TypeSourceInspectionTests` gate consumer
+selection and preservation of the native collection. The producer migration
+retires the old primary/additional shape while mechanically adopting the
+collection in CLI and shared Browser/Wasm callers; the completed CLI operation
+remains the separate #7546 adoption slice.
+
 ## Layer boundary
 
 `PdbContext` exposes POCO records and generic raw CDI access:
@@ -148,8 +181,8 @@ inference over the PDB document census only when the type has no
 method-correlated document and exactly one matching document path exists. This
 covers unambiguous bodyless interfaces and other declarations that produce no
 sequence points across C#, Visual Basic, and F# source documents. C# generated
-or partial-document suffixes such as `.g.cs` remain eligible. A correlated
-document remains primary regardless of unrelated filename matches, while
+or partial-document suffixes such as `.g.cs` remain eligible. Correlated
+documents exclude unrelated filename matches, while
 multiple inferred matches decline to decompiler fallback. An inferred mapping
 retains `Inferred` as the resolution method. It does not let a simple-name type
 lookup replace the exact identity, and document paths remain ordinal across

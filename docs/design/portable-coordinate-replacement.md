@@ -11,10 +11,12 @@
 > intent; otherwise return a visible typed refusal rather than a misleading
 > success packet.
 
-This is **design only**. Portable transformation and both host adoptions are
-**unverified**. The shared source-retiring Navigation producer landed in
-[#7404](https://github.com/richlander/dotnet-inspect/pull/7404); it is evidence
-for the consumed replacement policy, not for this portable projection.
+The shared transformation, completed envelope and definition-first CLI route
+are implemented. `WorkspacePortableCoordinateReplacementTests` and
+`WorkspaceCommandTests` own their Release gates below. Browser coordinate
+controls and capture/install adoption remain **unverified**, tracked by
+issues #5510 and #5511. The shared source-retiring Navigation producer landed in
+[#7404](https://github.com/richlander/dotnet-inspect/pull/7404).
 
 The conventional basis is an immutable document transformation: evaluated facts
 may justify a derived declaration, but evaluation state is not the declaration.
@@ -32,7 +34,14 @@ retains an active Type with `type.metadata`, or its exactly corresponding
 constructor with `member.overview`, using the destination's complete Library
 identity and structural selectors.
 
-This is a semantic mockup, not packet JSON or shipped command syntax:
+For a format-4 input `$w` retaining that Type, the CLI operation is:
+
+```bash
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-version 12.1.2 --json --envelope
+```
+
+The following summarizes the semantic before/after rather than the JSON shape:
 
 ```text
 Input scenario
@@ -60,14 +69,14 @@ and explanation, not a same-named overload. An explicitly active Library
 retains the Library-level policy even when a retained descendant could follow
 a forwarder. Definitions projects these results; it does not choose them.
 
-There is a concrete prerequisite: schema/packet versions 2 and 3 encode only
+Schema/packet versions 2 and 3 encode only
 Workspace or Package as the active subject. A retained Type is not an active
-Type. The full demo therefore requires
+Type. The full demo uses
 [#7475](https://github.com/richlander/dotnet-inspect/issues/7475), the focused
-[format-4 active-descendant committed-view adoption](portable-active-descendant-views.md).
-Until then, this active Type or
-Member output is visibly non-projectable. Encoding Package plus retained Type,
-or replacing `type.metadata` with a Package inspector, is not a workaround.
+[format-4 active-descendant committed-view adoption](portable-active-descendant-views.md),
+whose shared implementation landed in #7509. Replacement preserves the input
+schema version; it never silently upgrades formats 2/3 or rewrites an active
+descendant as Package.
 
 ## Immediate boundary
 
@@ -169,7 +178,9 @@ preparation, an unassociated outcome, or a state the portable grammar cannot
 represent produces no derived-success packet. Do not attach the input packet
 as the replacement result's successful Share. A genuine same-coordinate
 `NoEffect` with complete associated state may yield the same canonical packet;
-that is not a failure fallback.
+that is not a failure fallback. The current Scope producer can instead settle
+same-coordinate replacement as `Committed`; Definitions reports that actual
+settlement while retaining the same complete canonical scenario.
 
 Projection refusal does not undo Scope. A replacement may have committed while
 portable derivation failed. The completed result preserves the actual
@@ -208,39 +219,77 @@ its scenario, then transforms that scenario. It adds no duplicate noun grammar
 to `workspace --active-package`. Retirement of that transitional path remains
 under [the existing adoption plan](workspace-definitions.md#adoption-and-evidence).
 
-These completed host call sites are **mockups**; names and CLI spelling belong
-to implementation adoption, not an additional API committed here:
+Steps 1-4 are implemented. The C# completed operation is:
 
 ```csharp
-InspectionEnvelope<PortableCoordinateReplacementOutcome> result =
-    await workspaceCommands.ReplacePackageCoordinateAsync(
-        inputScenario, replacement, cancellationToken);
-WriteReplacement(result.Content);
-WriteShare(result.Share);
-WriteDiagnostics(result.Diagnostics);
+InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome> result =
+    await WorkspacePortableCoordinateReplacementOperation.ExecuteAsync(
+        inputScenario,
+        new WorkspacePackageCoordinateReplacementRequest(
+            "package-0", version: "12.1.2"),
+        restorationOptions,
+        cancellationToken);
 ```
 
+Browser adoption remains planned; this TypeScript call site is a **mockup**,
+not a shipped export or parser:
+
 ```typescript
-const result: InspectionEnvelope<PortableCoordinateReplacementOutcome> =
+const result: InspectionEnvelope<WorkspacePortableCoordinateReplacementOutcome> =
     await workspaceCommands.replacePackageCoordinate(inputScenario, replacement);
 renderReplacement(result.content);
 renderShare(result.share);
 renderDiagnostics(result.diagnostics);
 ```
 
-CLI human-readable summaries lower typed Content through Markout; packet/URL
-output uses the canonical codec. Browser interactive rendering uses the typed
+The CLI selects the source by one-based packet navigation-row order using
+`--replace-package`, and destination intent with `--to-version`, `--to-tfm`,
+or both. It requires either `--share packet|url` or `--json --envelope` so the
+complete durable result, rather than only a summary, is always emitted.
+The JSON registration is `workspace-coordinate-replacement`, schema version 1.
+Sections preserves typed native settlement, correspondence statuses and
+inspector outcome, with display-only subject labels; the canonical Share owns
+portable selectors. It omits live effect/action authority. NuGet source options
+are admitted because replacement explicitly authorizes acquisition.
+
+There is no human summary in this slice. Scalar packet/URL output uses the
+canonical codec, and JSON uses source-generated metadata and the shared
+envelope writer, intentionally bypassing Markout for these machine protocols.
+Any later CLI human-readable summary lowers typed Content through Markout.
+Browser interactive rendering uses the typed
 projection owned by [Navigation Presentation](inspect-web-navigation-presentation.md)
 because focus, accessibility and responsive controls are host concerns.
 Neither host serializes a runtime snapshot as portable state.
 
 ## Gates and non-claims
 
-All new properties remain **unverified** until the corresponding Release
-implementation gates exist. The planned shared gate is
-`WorkspacePortableCoordinateReplacementTests`, with CLI adoption in
-`WorkspaceCommandTests` and Browser adoption through its production
-coordinate-control and restoration paths.
+Run the focused Release gates:
+
+```bash
+dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
+  --filter-class '*WorkspacePortableCoordinateReplacementTests'
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
+  --filter-class '*WorkspaceCommandTests'
+```
+
+The shared gate covers derived Type/constructor restoration, missing-Member
+fallback, active-Library truncation, unavailable exact inspector, unchanged
+coordinates, formats 2/3, unrelated intent and inactive-row focus, target/RID
+preservation, Workspace-active rows with omitted Package-only context or
+preserved deeper context, early refusals and acquisition failure. Its envelope
+cases cover
+typed retention, canonical Share, fallback diagnostics and source-generated
+serialization. The CLI gate adds option admission, packet/URL output, complete
+JSON envelope and restoration of the returned packet. Real-Avalonia cases
+measured above the two-second threshold are `Speed=Slow`; this focused
+pre-merge gate and daily Deep Inspect own them. Early refusal and option cases
+remain PR-fast.
+
+`NavigationCoordinateReplacementTests` continues to gate the consumed
+association, retirement and non-success policy. Dedicated portable
+after-commit projection/cleanup-failure injection and equivalent Browser
+requests remain **unverified**; no alternate lifecycle or trusted-caller
+hardening is introduced to manufacture those cases.
 
 | Boundary | Required outcome |
 | --- | --- |

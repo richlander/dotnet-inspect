@@ -36,8 +36,9 @@ The borrowed assembly-context group remains caller-owned.
 Published results retain native House or terminal Library-admission evidence.
 Fallback does not erase an unsuccessful authored attempt. The projection
 preserves the selected type's primary document, mapping strength, partiality,
-and additional-document references. The native mapping's line, browse URL,
-resolution method, and primary/additional checksum facts survive unchanged;
+and additional-document references. The native mapping's resolved type and
+homogeneous document collection, including each browse URL, resolution method,
+and checksum facts, survive unchanged;
 the query does not reconstruct them from paths. It does not fabricate a
 complete type declaration from a document.
 
