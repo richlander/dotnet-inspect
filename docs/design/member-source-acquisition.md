@@ -51,7 +51,9 @@ categories, 64 MiB source bytes/characters, finite target/mapping admission, and
 five minutes after upstream PDB acquisition. They bound authored acceptance and
 work, not upstream transport, total memory, or the separate decompiler.
 `MemberSourcePairLimits` and `MemberSourcePairTimeout` remain independent.
-Type Source does not consume either member setting.
+Type Source does not consume either member setting. Its
+[type acquisition](type-source-acquisition.md) uses the same internal lifetime
+handoff with independent type bounds and a type-document projection.
 
 ## Production adoption and retirement
 
@@ -75,8 +77,9 @@ The immediate adapter-first adoption path now has five deliveries:
 This is a further partial adoption within the twelve-step #6512 migration,
 not completion of its full source-policy matrix. It retires ordinary member
 queries' `PdbSourceHouse.AcquireMemberAsync` composition and shares the pair's
-previously private adapter/House composition. Type Source, broader CLI
-enrichment, House-owned fallback, and full legacy retirement remain separate.
+previously private adapter/House composition. Broader CLI enrichment, House-owned fallback, and full legacy retirement remain
+separate. Type Source adopts the shared handoff in the following
+[type acquisition delivery](type-source-acquisition.md).
 The user approved this bounded member-only slice; both production hosts adopt
 in this delivery.
 

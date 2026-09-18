@@ -187,20 +187,64 @@ public class CacheCommandTests : IDisposable
                     | StringSplitOptions.TrimEntries));
     }
 
-    [Fact]
-    public async Task Cli_LimitWithoutLinesRejectsRenderedFallback()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cli_BareLimitSelectsRenderedFallback(
+        bool tail)
     {
-        string[] args = ["cache", "-n", "1"];
+        string[] args = tail
+            ? ["cache", "-n", "1", "--tail"]
+            : ["cache", "-n", "1"];
         var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
-        var (result, output, error) = await ConsoleCapture.RunAsync(
+        var inferred = await ConsoleCapture.RunAsync(
             () => CommandLineBuilder.InvokeWithLineWindowAsync(parseResult, args));
+        string[] explicitArgs = tail
+            ? ["cache", "-n", "1", "--tail-lines"]
+            : ["cache", "-n", "1", "--lines"];
+        var explicitParseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(explicitArgs);
+        var explicitResult = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                explicitParseResult,
+                explicitArgs));
 
-        Assert.Equal(1, result);
-        Assert.Empty(output);
-        Assert.Contains(
-            "-n selects semantic rows and is not available for this command; "
-                + "add --lines to select rendered lines.",
-            error);
+        Assert.Equal(0, inferred.ExitCode);
+        Assert.Empty(inferred.Error);
+        Assert.Equal(explicitResult, inferred);
+        Assert.Single(
+            inferred.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Fact]
+    public async Task Cli_BareShorthandSelectsRenderedFallback()
+    {
+        string[] inferredArgs = ["cache", "-1"];
+        var inferredRoot = CommandLineBuilder.CreateRootCommand();
+        inferredArgs =
+            CommandLineBuilder.PreprocessArgs(
+                inferredArgs,
+                inferredRoot);
+        var inferredParseResult =
+            inferredRoot.Parse(inferredArgs);
+        var inferred = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                inferredParseResult,
+                inferredArgs));
+        string[] explicitArgs = ["cache", "-n1", "--lines"];
+        var explicitParseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(explicitArgs);
+        var explicitResult = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                explicitParseResult,
+                explicitArgs));
+
+        Assert.Equal(0, inferred.ExitCode);
+        Assert.Empty(inferred.Error);
+        Assert.Equal(explicitResult, inferred);
     }
 
     [Fact]
@@ -222,7 +266,7 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Cli_EnvironmentJsonRejectsExplicitLineSelection()
+    public async Task Cli_EnvironmentJsonRejectsInferredLineSelection()
     {
         string? original =
             Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
@@ -231,7 +275,7 @@ public class CacheCommandTests : IDisposable
             Environment.SetEnvironmentVariable(
                 "DOTNET_INSPECT_FORMAT",
                 "json");
-            string[] args = ["cache", "-n", "1", "--lines"];
+            string[] args = ["cache", "-n", "1"];
             var parseResult =
                 CommandLineBuilder.CreateRootCommand().Parse(args);
             var (result, output, error) = await ConsoleCapture.RunAsync(
@@ -242,7 +286,7 @@ public class CacheCommandTests : IDisposable
             Assert.Equal(1, result);
             Assert.Empty(output);
             Assert.Contains(
-                "--lines and --tail-lines cannot be combined with JSON output",
+                "Rendered-line selection cannot be combined with JSON output",
                 error);
         }
         finally

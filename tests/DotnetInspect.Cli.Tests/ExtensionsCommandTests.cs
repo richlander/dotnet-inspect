@@ -264,19 +264,22 @@ public class ExtensionsCommandTests
     }
 
     [Fact]
-    public async Task CommandLine_NumericTypeFilterPointsToSemanticLimit()
+    public async Task CommandLine_NumericTypeFilterIsOrdinaryFilterInput()
     {
         var result = await ExecuteCommandLineAsync(
             "extensions",
             "String",
+            "--library",
+            typeof(ExtensionsCommandTests).Assembly.Location,
+            "--all",
+            "--json",
             "-t",
             "1");
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            "-t selects a type filter; use -n N to select extension rows.",
-            result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Empty(document.RootElement.EnumerateArray());
     }
 
     [Theory]
