@@ -78,12 +78,14 @@ public sealed record AssemblyMemberCalleeEvidenceCoordinate(
     CallSiteEvidenceKind Kind);
 
 /// <summary>
-/// One exact Finding instance joined to its physical callee document and source nodes.
+/// One exact Finding instance joined to typed evidence about its physical callee.
 /// </summary>
 public sealed record AssemblyMemberFindingEvidence(
     int FactId,
     FindingInstanceKey InstanceKey,
     MethodIdentity Member,
+    ResearchFindingEvidenceState State,
+    IReadOnlyList<CallSiteCostEvidenceInput> AggregateInputs,
     IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> Coordinates,
     AnnotatedSourceDocument? SourceDocument,
     IReadOnlyList<int> NodeIds,
@@ -339,7 +341,10 @@ public static class AssemblyContextMemberProjectionQuery
         var result = new List<AssemblyMemberFindingEvidence>();
         foreach (ResearchViews.FactRow fact in facts)
         {
-            if (fact.Id is not ("semantics.callee" or "safety.callee")
+            if (fact.Id is not (
+                    "cost.callee"
+                    or "semantics.callee"
+                    or "safety.callee")
                 || fact.InstanceKey is not { } instanceKey
                 || fact.Evidence is not { } evidence)
             {
@@ -350,10 +355,30 @@ public static class AssemblyContextMemberProjectionQuery
                 throw new InvalidOperationException(
                     $"Callee evidence Finding instance {instanceKey} has no Annotated Source fact identity.");
             }
+            if (fact.Id == "cost.callee")
+            {
+                ValidateMethodEvidence(fact.Id, evidence);
+                result.Add(new AssemblyMemberFindingEvidence(
+                    factId,
+                    instanceKey,
+                    evidence.Subject,
+                    evidence.State,
+                    evidence.AggregateInputs,
+                    Coordinates: [],
+                    SourceDocument: null,
+                    NodeIds: [],
+                    UnavailableReason: null));
+                continue;
+            }
             if (evidence.State == ResearchFindingEvidenceState.Method)
             {
                 throw new InvalidOperationException(
                     $"Instruction-level Finding '{fact.Id}' carried method-only evidence.");
+            }
+            if (!evidence.AggregateInputs.IsDefaultOrEmpty)
+            {
+                throw new InvalidOperationException(
+                    $"Instruction-level Finding '{fact.Id}' carried aggregate method evidence.");
             }
 
             IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> coordinates =
@@ -364,6 +389,8 @@ public static class AssemblyContextMemberProjectionQuery
                     factId,
                     instanceKey,
                     evidence.Subject,
+                    evidence.State,
+                    evidence.AggregateInputs,
                     coordinates,
                     SourceDocument: null,
                     NodeIds: [],
@@ -383,6 +410,8 @@ public static class AssemblyContextMemberProjectionQuery
                     factId,
                     instanceKey,
                     evidence.Subject,
+                    evidence.State,
+                    evidence.AggregateInputs,
                     coordinates,
                     SourceDocument: null,
                     NodeIds: [],
@@ -397,6 +426,8 @@ public static class AssemblyContextMemberProjectionQuery
                 factId,
                 instanceKey,
                 evidence.Subject,
+                evidence.State,
+                evidence.AggregateInputs,
                 coordinates,
                 callee.Document,
                 correspondence.Failure is null
@@ -405,6 +436,34 @@ public static class AssemblyContextMemberProjectionQuery
                 correspondence.Failure));
         }
         return result;
+    }
+
+    static void ValidateMethodEvidence(
+        string descriptor,
+        ResearchFindingEvidence evidence)
+    {
+        if (evidence.State != ResearchFindingEvidenceState.Method
+            || evidence.Locations.Length != 1
+            || evidence.AggregateInputs.IsDefaultOrEmpty)
+        {
+            throw new InvalidOperationException(
+                $"Method-level Finding '{descriptor}' carried incomplete aggregate evidence.");
+        }
+
+        ResearchEvidenceLocation location = evidence.Locations[0];
+        if (location.Admit(evidence.Subject)
+            is ResearchEvidenceLocationAdmission.Rejected rejected)
+        {
+            throw new InvalidOperationException(
+                $"Callee evidence location for '{descriptor}' names "
+                    + $"'{rejected.Location.Method}' instead of "
+                    + $"'{rejected.ExpectedMethod}'.");
+        }
+        if (location.ILOffset is not null)
+        {
+            throw new InvalidOperationException(
+                $"Method-level Finding '{descriptor}' carried an instruction location.");
+        }
     }
 
     static IReadOnlyList<AssemblyMemberCalleeEvidenceCoordinate> EvidenceCoordinates(

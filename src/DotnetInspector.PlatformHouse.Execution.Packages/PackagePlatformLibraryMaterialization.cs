@@ -281,6 +281,7 @@ public static class PackagePlatformLibraryMaterializer
                 PlatformLibraryArtifactMaterializationItem> references);
         bool implementationPrepared = TryPrepareImplementationPopulation(
             request,
+            PlatformViewDemand.ReferenceAndImplementation,
             implementation,
             out IReadOnlyList<
                 PlatformLibraryArtifactMaterializationItem> implementations);
@@ -290,6 +291,40 @@ public static class PackagePlatformLibraryMaterializer
                     request,
                     referencePrepared ? references : [],
                     implementationPrepared ? implementations : [],
+                    consumedWork,
+                    PopulationIdentityPrefix)
+                .ConfigureAwait(false);
+        return ToPackagePopulationResult(outcome);
+    }
+
+    /// <summary>
+    /// Materializes one authoritative package-backed implementation
+    /// population.
+    /// </summary>
+    public static async ValueTask<
+        PackagePlatformPopulationMaterializationResult>
+        MaterializeImplementationPopulationAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded implementation,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(implementation);
+        ArgumentNullException.ThrowIfNull(consumedWork);
+        request.CancellationToken.ThrowIfCancellationRequested();
+
+        bool prepared = TryPrepareImplementationPopulation(
+            request,
+            PlatformViewDemand.Implementation,
+            implementation,
+            out IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items);
+        PlatformPopulationArtifactMaterializationOutcome outcome =
+            await PlatformHousePopulationArtifactMaterializer
+                .MaterializeImplementationsAsync(
+                    request,
+                    prepared ? items : [],
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
@@ -485,18 +520,22 @@ public static class PackagePlatformLibraryMaterializer
 
     static bool TryPrepareImplementationPopulation(
         PlatformHouseRequest request,
+        PlatformViewDemand expectedView,
         PackagePlatformHouseResult<
             PackageImplementationRealization>.Succeeded implementation,
         out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
     {
         items = [];
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        if (expectedView is not PlatformViewDemand.Implementation
+                and not PlatformViewDemand.ReferenceAndImplementation
+            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
-                View: PlatformViewDemand.ReferenceAndImplementation,
+                View: var view,
                 Population:
                     PlatformPopulationDemand.CompletePopulation,
             }
+            || view != expectedView
             || !ValidContribution(
                 request,
                 exact.Target,
