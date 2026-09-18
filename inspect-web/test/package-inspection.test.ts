@@ -130,6 +130,7 @@ function integrationsResult(): BrowserPackageIntegrations {
     isComplete: true,
     inspectionError: null,
     compileLibrary: selectedCompileLibrary,
+    inspection: null,
   };
 }
 
@@ -175,6 +176,7 @@ function opportunitiesResult(): BrowserPackageOpportunities {
     isComplete: true,
     inspectionError: null,
     compileLibrary: selectedCompileLibrary,
+    inspection: null,
   };
 }
 
