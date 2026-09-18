@@ -693,14 +693,14 @@ public sealed class SourceScopedRoutingTests : IDisposable
     [InlineData(true, false)]
     [InlineData(true, true)]
     public async Task LatestVersionSettlement_PreservesRequestedProgress(
-        bool latestAlias, bool verbose)
+        bool pluralProjection, bool verbose)
     {
         const string PackageName = "System.Text.Json";
         const string Version = "8.0.5";
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             PackageName, Version,
-            ["package", latestAlias ? $"{PackageName}@latest" : PackageName,
-                latestAlias ? "--versions" : "--latest-version", "--source", SecondSource,
+            ["package", $"{PackageName}@latest",
+                pluralProjection ? "--versions" : "--version", "--source", SecondSource,
                 .. verbose ? new[] { "--verbose" } : []]);
 
         Assert.Equal(0, exit);
@@ -728,7 +728,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         const string Version = "9.0.0-preview.7.24405.7";
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             PackageName, Version,
-            ["package", PackageName, "--latest-version", "--source", SecondSource,
+            ["package", $"{PackageName}@latest", "--version", "--source", SecondSource,
                 .. preview ? new[] { "--preview" } : []]);
 
         Assert.Equal(preview ? 0 : 1, exit);
@@ -748,7 +748,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     {
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             packageName, "1.0.0",
-            ["package", packageName, "--latest-version", "--source", SecondSource]);
+            ["package", $"{packageName}@latest", "--version", "--source", SecondSource]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -823,7 +823,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] queryArgs = query switch
         {
             "pinned" => [$"{packageName}@2.0.0", "--version"],
-            "latest" => [packageName, "--latest-version"],
+            "latest" => [$"{packageName}@latest", "--version"],
             "range" => [$"{packageName}@1.0.0..2.0.0", "--versions"],
             _ => [packageName, "--versions"],
         };
@@ -1057,8 +1057,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "2.0.0",
                 [
                     "package",
-                    packageName,
-                    "--latest-version",
+                    $"{packageName}@latest",
+                    "--version",
                     "--source",
                     RefusedSource,
                     "--source",
@@ -2517,7 +2517,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("", "--latest-version", false, "2.0.0")]
+    [InlineData("@latest", "--version", false, "2.0.0")]
     [InlineData("@latest", "--versions", true, "3.0.0-preview.1")]
     [InlineData("@1.0", "--version", false, "1.0.0")]
     [InlineData("@3.0.0-preview.1", "--version", false, "3.0.0-preview.1")]
@@ -2542,11 +2542,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--latest-version", false)]
-    [InlineData("--version", false)]
-    [InlineData("--versions", true)]
+    [InlineData("@latest", "--version")]
+    [InlineData("", "--version")]
+    [InlineData("@1.0.0..2.0.0", "--versions")]
     public async Task CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange(
-        string mode, bool range)
+        string suffix, string mode)
     {
         const string PackageName = "partial-selectors";
         string local = Path.Combine(_testRoot, "partial-selectors");
@@ -2554,7 +2554,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         WriteLocalPackage(local, PackageName, "2.0.0");
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
             PackageName, "9.0.0",
-            ["package", PackageName + (range ? "@1.0.0..2.0.0" : ""), mode,
+            ["package", PackageName + suffix, mode,
                 "--source", local, "--source", RefusedSource],
             refusedStatus: HttpStatusCode.Unauthorized);
         Assert.Equal(1, exit);
@@ -2591,7 +2591,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string[] sources = reverse ? [SecondSource, local] : [local, SecondSource];
         var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
             PackageName, "2.0.0",
-            ["package", PackageName, "--latest-version",
+            ["package", $"{PackageName}@latest", "--version",
                 "--source", sources[0], "--source", sources[1]]);
         Assert.Equal(0, exit);
         Assert.Equal("3.0.0", output.Trim());

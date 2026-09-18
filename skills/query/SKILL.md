@@ -119,7 +119,7 @@ evidence unless a category is named.
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
-| `ecosystem` | `@Ecosystem` | `@Integrations` |
+| `ecosystem` | `@Ecosystem` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -136,8 +136,8 @@ by exact name. Project `@Project` composes restored dependency `Skills` and
 `Package README file` inventories. Vocabulary `@Vocabulary` composes the
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
 the corresponding query family. Ecosystem `@Ecosystem` composes every section
-available after the optional focus operand chooses the route; use
-`@Integrations` for configured Integration bindings. `Switches` is a section.
+available after the optional focus operand chooses the route; select exact
+`Integrations` for configured Integration bindings. `Switches` is a section.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category

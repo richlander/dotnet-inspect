@@ -5023,6 +5023,33 @@ public sealed class PointerElementCompoundAssignment : IrNode
     public override string Describe() => $"PointerElementCompoundAssignment {ElementType.ToDisplayString()} {Operation}";
 }
 
+public enum PointerUpdateKind { Add, Subtract, Increment, Decrement }
+
+/// <summary>A decided pointer-place read, element displacement, and write, in that evaluation order.</summary>
+public sealed class PointerCompoundAssignment : IrNode
+{
+    public PointerCompoundAssignment(
+        TypeRef pointerType, PointerUpdateKind kind, bool isChecked,
+        IrExpression target, IrExpression index, MethodRef? setter = null)
+    {
+        PointerType = pointerType;
+        Kind = kind;
+        IsChecked = isChecked;
+        Setter = setter;
+        AddChild(target);
+        AddChild(index);
+    }
+
+    public TypeRef PointerType { get; }
+    public PointerUpdateKind Kind { get; }
+    public bool IsChecked { get; }
+    public MethodRef? Setter { get; }
+    public IrExpression Target => (IrExpression)Children[0];
+    public IrExpression Index => (IrExpression)Children[1];
+    public override IEnumerable<TypeRef> DirectTypes => [PointerType];
+    public override string Describe() => $"PointerCompoundAssignment {Kind}{(IsChecked ? " checked" : "")}";
+}
+
 /// <summary>initobj: default-initialize the storage at an address.</summary>
 public sealed class CopyBlock : IrNode
 {
