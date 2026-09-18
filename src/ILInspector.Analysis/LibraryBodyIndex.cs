@@ -1,9 +1,6 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
-using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
 using Inspector.Findings;
@@ -84,7 +81,7 @@ public enum LibraryBodyAnalysisFeatures
 /// </summary>
 public sealed class LibraryBodyIndex
 {
-    LibraryBodyIndex(
+    internal LibraryBodyIndex(
         string path,
         LibraryBodyModuleIdentity moduleIdentity,
         string? moduleName,
@@ -431,10 +428,9 @@ public sealed class LibraryBodyIndex
                     .. AllocationFanout.Analyze(
                             Methods,
                             ClassifyExactCallTargets(
-                                Path,
                                 _physicalDirectCalls,
                                 DeclaredMethodMap,
-                                MethodMap),
+                                Methods),
                             _allocationOccurrences,
                             _scopeExcludedOpportunityTokens,
                             DeclaredMethodMap)
@@ -493,14 +489,13 @@ public sealed class LibraryBodyIndex
     }
 
     static ImmutableArray<DirectCall> ClassifyExactCallTargets(
-        string path,
         ImmutableArray<DirectCall> calls,
         MethodDefinitionMap declarationMap,
-        MethodDefinitionMap bodyMap)
+        ImmutableArray<MethodIdentity> methods)
     {
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
+        Dictionary<int, MethodIdentity> methodsByToken =
+            methods.ToDictionary(
+                static method => method.MetadataToken);
         return
         [
             .. calls.Select(call =>
@@ -508,32 +503,15 @@ public sealed class LibraryBodyIndex
                 int targetToken =
                     declarationMap.Resolve(call);
                 bool exact =
-                    bodyMap.ContainsToken(targetToken)
-                    && call.Kind switch
-                {
-                    CallKind.Call or CallKind.NewObject => true,
-                    CallKind.CallVirtual => IsExactVirtualTarget(reader, targetToken),
-                    _ => false,
-                };
+                    methodsByToken.TryGetValue(
+                        targetToken,
+                        out MethodIdentity? target)
+                    && CatalogCallGraphScope.IsResolvedExactTarget(
+                        call.Kind,
+                        target);
                 return call with { ExactTarget = exact };
             }),
         ];
-    }
-
-    static bool IsExactVirtualTarget(MetadataReader reader, int methodToken)
-    {
-        var handle = MetadataTokens.EntityHandle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
-            return false;
-        var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-        if ((method.Attributes & MethodAttributes.Virtual) == 0
-            || (method.Attributes & MethodAttributes.Final) != 0)
-        {
-            return true;
-        }
-
-        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
-        return (declaringType.Attributes & TypeAttributes.Sealed) != 0;
     }
 
     ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
@@ -1229,7 +1207,10 @@ public sealed class LibraryBodyIndex
         => GeneratedFrameworkTypeAnalysis.Contains(generatedFrameworkTypes, type);
 
     public static LibraryBodyIndex Open(string path)
-        => Open(path, resolver: null);
+        => LibraryBodyAnalysisService.AnalyzePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.Default));
 
     internal static LibraryBodyIndex FromEvidence(
         ImmutableArray<MethodIdentity> methods,
@@ -1319,7 +1300,13 @@ public sealed class LibraryBodyIndex
             features |= LibraryBodyAnalysisFeatures.Allocations;
         if (includeOpportunities)
             features |= LibraryBodyAnalysisFeatures.OptimizationOpportunities;
-        return Open(path, features, resolver, bodyScope, bodyTypeScope);
+        return LibraryBodyAnalysisService.AnalyzePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope),
+            resolver);
     }
 
     public static LibraryBodyIndex Open(
@@ -1328,13 +1315,13 @@ public sealed class LibraryBodyIndex
         IAssemblyReferenceResolver? resolver = null,
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null) =>
-        OpenCore(
+        LibraryBodyAnalysisService.AnalyzePath(
             path,
-            features,
-            resolver,
-            bodyScope,
-            bodyTypeScope,
-            resourceEffects: null);
+            LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope),
+            resolver);
 
     internal static LibraryBodyIndex OpenWithResourceEffects(
         string path,
@@ -1345,84 +1332,25 @@ public sealed class LibraryBodyIndex
         Func<TypeRef, bool>? bodyTypeScope = null)
     {
         ArgumentNullException.ThrowIfNull(resourceEffects);
-        return OpenCore(
+        return LibraryBodyAnalysisService.AnalyzePathWithResourceEffects(
             path,
-            features,
+            LibraryBodyAnalysisRequest.Create(
+                features,
+                bodyScope,
+                bodyTypeScope),
             resolver,
-            bodyScope,
-            bodyTypeScope,
             resourceEffects);
     }
 
-    static LibraryBodyIndex OpenCore(
-        string path,
-        LibraryBodyAnalysisFeatures features,
-        IAssemblyReferenceResolver? resolver,
-        IReadOnlySet<int>? bodyScope,
-        Func<TypeRef, bool>? bodyTypeScope,
-        ResourceEffectAdmission? resourceEffects)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
-                features,
-                bodyScope,
-                bodyTypeScope);
-
-        if ((resolver is not null
-                && UsesReferenceResolution(plan))
-            || plan.Includes(
-                LibraryBodyAnalysisFeatures.OwnershipFlow))
-        {
-            LibraryBodyRootSnapshot? rootSnapshot =
-                AcquireRootSnapshot(path);
-            if (rootSnapshot is not null)
-            {
-                using var imageReader =
-                    new PEReader(rootSnapshot.Snapshot.Content);
-                return BuildFromReader(
-                    path,
-                    imageReader,
-                    plan,
-                    resolver,
-                    rootSnapshot,
-                    ownershipAssembly: rootSnapshot.Assembly,
-                    ownershipPolicy: resolver is null
-                        ? null
-                        : new AssemblyReferenceBindingPolicy(resolver),
-                    resourceEffects: resourceEffects);
-            }
-        }
-
-        // Full (unscoped) builds decode every method body in parallel; prefetch the entire image
-        // so concurrent GetMethodBody reads are served from an immutable in-memory block rather
-        // than seeking a shared FileStream (which is not safe for concurrent reads). Scoped builds
-        // decode only a handful of bodies sequentially, so they keep the lazy default.
-        var streamOptions = !plan.IsScoped
-            ? PEStreamOptions.PrefetchEntireImage
-            : PEStreamOptions.Default;
-        using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream, streamOptions);
-        return BuildFromReader(
-            path,
-            peReader,
-            plan,
-            resolver,
-            rootSnapshot: null,
-            ownershipAssembly: null,
-            ownershipPolicy: null,
-            resourceEffects: resourceEffects);
-    }
-
     /// <summary>
-    /// Builds an index over caller-provided immutable PE image content without
-    /// reopening the target file.
+    /// Compatibility facade for immutable-image Analysis execution. New
+    /// consumers should use <see cref="LibraryBodyAnalysisService"/>.
     /// </summary>
     /// <remarks>
-    /// <c>LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage</c> gates shared
-    /// image consumption, and
-    /// <c>LibraryBodyIndex_PrefetchedImageHonorsBodyScope</c> gates scoped
-    /// decoding through this entry point.
+    /// <c>LibraryBodyAnalysisService_ConsumesImageWithoutReopeningSourceName</c>
+    /// gates shared image consumption, and
+    /// <c>LibraryBodyAnalysisService_ImageRequestHonorsBodyScope</c> gates
+    /// scoped decoding through the service.
     /// </remarks>
     public static LibraryBodyIndex OpenFromPrefetchedImage(
         string path,
@@ -1432,39 +1360,14 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (image.IsDefaultOrEmpty)
-            throw new ArgumentException("A prefetched PE image is required.", nameof(image));
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
+        return LibraryBodyAnalysisService.AnalyzeImage(
+            path,
+            image,
+            LibraryBodyAnalysisRequest.Create(
                 features,
                 bodyScope,
-                bodyTypeScope);
-
-        using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
-        LibraryBodyRootSnapshot? rootSnapshot =
-            resolver is not null
-                && reader.IsAssembly
-                && UsesReferenceResolution(plan)
-                ? CreateRootSnapshot(path, reader, image)
-                : null;
-        return BuildFromReader(
-            path,
-            peReader,
-            plan,
-            resolver,
-            rootSnapshot,
-            ownershipAssembly:
-                rootSnapshot?.Assembly
-                ?? (plan.Includes(
-                        LibraryBodyAnalysisFeatures.OwnershipFlow)
-                    ? CreateRootAssembly(path, reader, image)
-                    : null),
-            ownershipPolicy: resolver is null
-                ? null
-                : new AssemblyReferenceBindingPolicy(resolver),
-            resourceEffects: null);
+                bodyTypeScope),
+            resolver);
     }
 
     /// <summary>
@@ -1481,30 +1384,18 @@ public sealed class LibraryBodyIndex
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (image.IsDefaultOrEmpty)
-        {
-            throw new ArgumentException(
-                "A prefetched PE image is required.",
-                nameof(image));
-        }
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
-                features,
-                bodyScope,
-                bodyTypeScope);
-        using var peReader = new PEReader(image);
-        return BuildFromReader(
-            path,
-            peReader,
-            plan,
-            resolver: null,
-            rootSnapshot: null,
-            ownershipAssembly: assembly,
-            ownershipPolicy: bindingPolicy,
-            resourceEffects: null);
+        return LibraryBodyAnalysisService
+            .AnalyzeImageWithOwnershipBinding(
+                path,
+                image,
+                LibraryBodyAnalysisRequest.Create(
+                    features,
+                    bodyScope,
+                    bodyTypeScope),
+                assembly,
+                bindingPolicy);
     }
 
     /// <summary>
@@ -1565,119 +1456,6 @@ public sealed class LibraryBodyIndex
         return builder.HasUnsafeEvidence();
     }
 
-    static LibraryBodyIndex BuildFromReader(
-        string path,
-        PEReader peReader,
-        LibraryBodyAnalysisPlan plan,
-        IAssemblyReferenceResolver? resolver,
-        LibraryBodyRootSnapshot? rootSnapshot,
-        ResolvedAssemblyReference? ownershipAssembly,
-        IAssemblyBindingPolicy? ownershipPolicy,
-        ResourceEffectAdmission? resourceEffects)
-    {
-        if (!peReader.HasMetadata)
-            throw new BadImageFormatException($"No managed metadata: {path}");
-        var reader = peReader.GetMetadataReader();
-        LibraryBodyModuleIdentity moduleIdentity =
-            LibraryBodyModuleIdentity.FromImage(reader);
-        string moduleName =
-            reader.GetString(
-                reader.GetModuleDefinition().Name);
-        IAssemblyReferenceResolver? analysisResolver =
-            UsesReferenceResolution(plan) ? resolver : null;
-        using var builder = new LibraryBodyAnalysisBuilder(
-            path,
-            reader,
-            peReader,
-            analysisResolver,
-            analysisResolver is null
-                ? null
-                : rootSnapshot);
-        LibraryBodyAnalysisResult analysis =
-            builder.Build(plan);
-        if (plan.Includes(
-                LibraryBodyAnalysisFeatures.OwnershipFlow))
-        {
-            ResourceEffectAdmission admission =
-                resourceEffects
-                    ?? ArrayPoolResourceEffectModel.Create();
-            ResourceEffectResolutionOutcome resolved;
-            if (!reader.IsAssembly)
-            {
-                resolved = new ResourceEffectResolutionOutcome.Rejected(
-                    ResourceEffectResolutionRejectionKind
-                        .OccurrencePopulationRejected);
-            }
-            else
-            {
-                ownershipAssembly ??= CreateRootAssembly(
-                    path,
-                    reader);
-                ownershipPolicy ??= resolver is null
-                    ? NoResolverAssemblyBindingPolicy.Instance
-                    : new AssemblyReferenceBindingPolicy(resolver);
-                var provisional = new LibraryBodyIndex(
-                    path,
-                    moduleIdentity,
-                    moduleName,
-                    analysis,
-                    plan.Features,
-                    hasFullMethodEvidenceScope: !plan.IsScoped);
-                resolved = ResourceEffectResolver.Resolve(
-                    ownershipPolicy,
-                    admission,
-                    [
-                        new CatalogCallGraphParticipant(
-                            provisional,
-                            ownershipAssembly),
-                    ]);
-            }
-            ImmutableArray<ResourceOwnershipMethodEvidence> methods =
-                ResourceOwnershipFlow.Analyze(
-                    analysis.OwnershipFlowInputs,
-                    resolved,
-                    admission);
-            analysis = analysis with
-            {
-                OwnershipFlow = new(
-                    methods,
-                    ArrayPoolOwnershipProjection.Project(methods)),
-                OwnershipFlowInputs = [],
-            };
-        }
-        return new LibraryBodyIndex(
-            path,
-            moduleIdentity,
-            moduleName,
-            analysis,
-            plan.Features,
-            hasFullMethodEvidenceScope: !plan.IsScoped);
-    }
-
-    static ResolvedAssemblyReference CreateRootAssembly(
-        string path,
-        MetadataReader reader) =>
-        ResolvedAssemblyReference.Create(
-            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-            System.IO.Path.GetFullPath(path),
-            () => File.OpenRead(System.IO.Path.GetFullPath(path)),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"));
-
-    static ResolvedAssemblyReference CreateRootAssembly(
-        string path,
-        MetadataReader reader,
-        ImmutableArray<byte> image)
-    {
-        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
-        return ResolvedAssemblyReference.Create(
-            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-            System.IO.Path.GetFullPath(path),
-            () => new MemoryStream(bytes, writable: false),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"));
-    }
-
     static void ValidateSyntheticEvidenceIdentity(
         LibraryBodyModuleIdentity moduleIdentity,
         ImmutableArray<MethodIdentity> methods)
@@ -1718,126 +1496,6 @@ public sealed class LibraryBodyIndex
                 PublicKeyToken: null),
             first.ModuleVersionId);
     }
-
-    static bool UsesReferenceResolution(
-        LibraryBodyAnalysisPlan plan) =>
-        plan.Includes(
-            LibraryBodyAnalysisFeatures.OptimizationOpportunities)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow)
-        || plan.Includes(
-            LibraryBodyAnalysisFeatures.LocalThrows);
-
-    static LibraryBodyRootSnapshot? AcquireRootSnapshot(string path)
-    {
-        string fullPath = System.IO.Path.GetFullPath(path);
-        AssemblyReferenceIdentity identity;
-        DateTime lastWriteTimeUtc;
-        using (FileStream stream = File.OpenRead(fullPath))
-        using (var peReader = new PEReader(
-            stream,
-            PEStreamOptions.LeaveOpen
-                | PEStreamOptions.PrefetchMetadata))
-        {
-            if (!peReader.HasMetadata)
-            {
-                throw new BadImageFormatException(
-                    $"No managed metadata: {path}");
-            }
-
-            MetadataReader reader = peReader.GetMetadataReader();
-            if (!reader.IsAssembly)
-                return null;
-            identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader);
-            lastWriteTimeUtc =
-                File.GetLastWriteTimeUtc(stream.SafeFileHandle);
-        }
-
-        var assembly = ResolvedAssemblyReference.Create(
-            identity,
-            fullPath,
-            () => File.OpenRead(fullPath),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"),
-            lastWriteTimeUtc);
-        AssemblyImageSnapshotResult result =
-            AssemblyImageSnapshot.Open(
-                assembly,
-                length => length
-                    <= AssemblyImageSnapshot
-                        .DefaultMaxRetainedImageBytes,
-                _ => { });
-        return result switch
-        {
-            AssemblyImageSnapshotResult.Ready ready =>
-                new LibraryBodyRootSnapshot(
-                    ready.Snapshot.RetainAssemblyReference(
-                        assembly),
-                    ready.Snapshot),
-            AssemblyImageSnapshotResult.Rejected rejected =>
-                throw RootSnapshotFailure(path, rejected.Failure),
-            _ => throw new InvalidOperationException(
-                "Unknown root-image acquisition result."),
-        };
-    }
-
-    static LibraryBodyRootSnapshot CreateRootSnapshot(
-        string path,
-        MetadataReader reader,
-        ImmutableArray<byte> image)
-    {
-        if (image.Length
-            > AssemblyImageSnapshot.DefaultMaxRetainedImageBytes)
-        {
-            throw new InvalidOperationException(
-                "The root assembly exceeds the retained-image budget.");
-        }
-
-        byte[] bytes = ImmutableCollectionsMarshal.AsArray(image)!;
-        var assembly = ResolvedAssemblyReference.Create(
-            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
-            System.IO.Path.GetFullPath(path),
-            () => new MemoryStream(bytes, writable: false),
-            AssemblyResolutionProvenance.Local(
-                "LibraryBodyIndex"));
-        AssemblyImageSnapshotResult result =
-            AssemblyImageSnapshot.FromRetainedContent(
-                assembly,
-                image);
-        return result switch
-        {
-            AssemblyImageSnapshotResult.Ready ready =>
-                new LibraryBodyRootSnapshot(
-                    assembly,
-                    ready.Snapshot),
-            AssemblyImageSnapshotResult.Rejected rejected =>
-                throw RootSnapshotFailure(path, rejected.Failure),
-            _ => throw new InvalidOperationException(
-                "Unknown root-image acquisition result."),
-        };
-    }
-
-    static Exception RootSnapshotFailure(
-        string path,
-        CandidateOpenFailure failure) =>
-        failure.Kind switch
-        {
-            CandidateOpenFailureKind.InvalidImage =>
-                new BadImageFormatException(
-                    $"{failure.Detail} Path: {path}"),
-            CandidateOpenFailureKind.Unreadable =>
-                new IOException(
-                    $"{failure.Detail} Path: {path}"),
-            CandidateOpenFailureKind.ResourceBudget =>
-                new InvalidOperationException(
-                    $"{failure.Detail} Path: {path}"),
-            _ => new InvalidOperationException(
-                $"Unknown root-image failure for {path}."),
-        };
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];
