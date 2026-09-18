@@ -434,7 +434,14 @@ internal static class BrowserPackageWorkspace
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(deadline);
 
-        var coordinateRequest = new PackageCoordinate(packageId, version);
+        string? requestedVersion =
+            string.IsNullOrWhiteSpace(version)
+            || version.Equals("latest", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : version;
+        var coordinateRequest = new PackageCoordinate(
+            packageId.ToLowerInvariant(),
+            requestedVersion);
         InspectionEnvelope<PackageVersionSettlementOutcome> versionSettlement =
             await SettleCoordinateAsync(
                 coordinateRequest,

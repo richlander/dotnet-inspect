@@ -477,6 +477,30 @@ async function installFacades(
             },
             diagnostics: [],
           },
+          packageInfo: {
+            content: {
+              status: "Measured",
+              packageId: id,
+              packageVersion: selectedVersion,
+              compressedPackageBytes: 4096,
+              selectedTargetFramework: framework || surface.activeFramework,
+              availableTargetFrameworkCount: surface.frameworks.length,
+              selectedTargetFrameworkFolders: ["lib", "runtimes"],
+              selectedLibraryPayloadBytes: 2048,
+              selectedLibraryCount: surface.assemblies.length,
+              detail: null,
+              unavailableReason: null,
+              hasSelectedSlice: true,
+            },
+            share: {
+              kind: "NonProjectable",
+              fullUrl: null,
+              packet: null,
+              path: "package-info-measurements/share",
+              reason: "No canonical Workspace share projection.",
+            },
+            diagnostics: [],
+          },
           surface: {
           ...surfaceFor(id, version, framework),
           package: id,
@@ -4382,7 +4406,15 @@ for (const width of [1440, 800, 390]) {
       .toHaveText("Session only. Choosing a target does not run a comparison or change shared links.");
     await expect(overview.locator(
       ".package-overview-resources .section-title h2"))
-      .toHaveText(["Comparison targets"]);
+      .toHaveText(["Package Info", "Comparison targets"]);
+    await expect(overview.locator(".package-info-rows dt")).toHaveText([
+      "Package Size (compressed)",
+      "Selected TFM",
+      "Selected-TFM Folders",
+      "Selected-TFM Library Count",
+      "Selected-TFM Size",
+      "TFM Count",
+    ]);
     if (width === 1440) {
       const inventory = await overview.locator(".package-overview-inventory").boundingBox();
       const resources = await overview.locator(".package-overview-resources").boundingBox();

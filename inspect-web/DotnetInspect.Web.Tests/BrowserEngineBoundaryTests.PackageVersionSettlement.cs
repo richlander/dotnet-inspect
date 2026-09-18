@@ -168,6 +168,37 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageRealization_LatestFailureRetainsNormalizedRequest()
+    {
+        var handler = new GalleryPackageHandler(
+            SettlementPackageId,
+            SettlementPreviewVersion,
+            PackageDocuments(1),
+            discoveryVersions: [(SettlementPreviewVersion, true)]);
+        using IPackageSourceClient source = Gallery(handler);
+
+        var result = Assert.IsType<BrowserPackageRealizationResult.NotSettled>(
+            await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                SettlementPackageId,
+                "latest",
+                "net11.0",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+        var failure = Assert.IsType<PackageVersionSettlementOutcome.NotSettled>(
+            result.VersionSettlement.Content).Failure;
+
+        Assert.Equal(
+            SettlementPackageId.ToLowerInvariant(),
+            failure.Request.PackageId);
+        Assert.Null(failure.Request.Version);
+        Assert.Equal(PackageVersionSettlementFailureKind.NoMatch, failure.Kind);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PackageRealization_SharesOneHouseGenerationWithPackageInfoAndRoot()
     {
         string packageId = $"package.info.browser.{Guid.NewGuid():N}";
@@ -262,7 +293,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(legacy.Content.FromCache);
         Assert.True(realization.Coordinate.Package.Content.FromCache);
         Assert.Equal(
-            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
             legacy.Content.ProducerKey);
         Assert.Equal(
             source.Source.Producer.Key,
@@ -318,7 +349,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(sameSource.Content.FromCache);
         Assert.False(otherSource.Content.FromCache);
         Assert.Equal(
-            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
             sameSource.Content.ProducerKey);
         Assert.Same(
             realization.Coordinate.Package.Content.GenerationIdentity,
