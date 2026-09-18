@@ -1,6 +1,7 @@
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.PlatformHouse.Packages;
 
@@ -137,12 +138,14 @@ public sealed class PackagePlatformHouseAdapter
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
                     "The package-backed reference capability is not authorized."));
-            if (request.Operation is not PlatformHouseOperation.Realize realize
-                || realize.View == PlatformViewDemand.Implementation)
+            if (!TryGetReferencePopulation(
+                    request.Operation,
+                    fromDiscovery,
+                    out PlatformPopulationDemand? housePopulation))
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
                     "The House operation does not request reference realization."));
-            if (realize.Population is PlatformPopulationDemand.Library
+            if (housePopulation is PlatformPopulationDemand.Library
                 { Value: PlatformLibraryDemand.PlatformLibrary })
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
@@ -161,7 +164,7 @@ public sealed class PackagePlatformHouseAdapter
                     request, PlatformSourceFacet.Reference, exact,
                     "Reference realization requires the live source inventory paired with the selected discovery contribution."));
 
-            PackageReferencePopulationDemand population = realize.Population switch
+            PackageReferencePopulationDemand population = housePopulation switch
             {
                 PlatformPopulationDemand.Library { Value: PlatformLibraryDemand.Assembly assembly } =>
                     new PackageReferencePopulationDemand.Assembly(assembly.Identity),
@@ -173,7 +176,11 @@ public sealed class PackagePlatformHouseAdapter
                 ? _source.RealizeAsync(new PackageReferencePackCoordinate(exact), population, work, operation)
                 : _source.RealizeAsync(selection!, population, work, operation);
             transferred = true;
-            return ProjectRealizationAsync(request, exact, pending);
+            return ProjectRealizationAsync(
+                request,
+                exact,
+                housePopulation,
+                pending);
         }
         finally
         {
@@ -324,7 +331,9 @@ public sealed class PackagePlatformHouseAdapter
     }
 
     async Task<PackagePlatformHouseResult<PackageReferenceRealization>> ProjectRealizationAsync(
-        PlatformHouseRequest request, PlatformFamilyTarget target,
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PlatformPopulationDemand population,
         Task<PackagePlatformSourceOutcome<PackageReferenceRealization>> pending)
     {
         PackagePlatformSourceOutcome<PackageReferenceRealization> outcome = await pending.ConfigureAwait(false);
@@ -335,10 +344,38 @@ public sealed class PackagePlatformHouseAdapter
                     PlatformSourceGeneration.Create(outcome.Generation.Name), target,
                     PlatformSourceCoordinateIdentity.Create(
                         $"{success.Value.Coordinate.PackageId}:{target.Version.Value}:ref/{target.TargetFramework}"),
-                    ((PlatformHouseOperationSnapshot.Realize)request.Snapshot.Operation).Population,
+                    population,
                     PlatformSourceContributionCompleteness.Authoritative));
         return ProjectFailure(request, PlatformSourceFacet.Reference, target,
             (PackagePlatformSourceOutcome<PackageReferenceRealization>.NotSucceeded)outcome);
+    }
+
+    static bool TryGetReferencePopulation(
+        PlatformHouseOperation operation,
+        bool fromDiscovery,
+        out PlatformPopulationDemand? population)
+    {
+        switch (operation)
+        {
+            case PlatformHouseOperation.Realize realize
+                when realize.View
+                    is not PlatformViewDemand.Implementation:
+                population = realize.Population;
+                return true;
+            case PlatformHouseOperation.ResolveAssemblyReference
+                {
+                    RequiredView: PlatformViewDemand.Reference,
+                    Request.Target:
+                        AssemblyBindingTarget.AssemblyReference target,
+                } when !fromDiscovery:
+                population = new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(
+                        target.Identity));
+                return true;
+            default:
+                population = null;
+                return false;
+        }
     }
 
     async Task<PackagePlatformHouseResult<PackageImplementationRealization>>
