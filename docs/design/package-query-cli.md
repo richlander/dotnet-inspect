@@ -216,9 +216,10 @@ rejected by a predicate reports one candidate and zero matches.
 Explicit selection is non-adaptive. Bare `-S` requests the command's default
 `Packages` preset regardless of the settled result. `-S Packages` retains the
 package schema even when it has no rows, and `-S "Query Summary"` retains the
-settlement row even when packages matched. Markdown and JSON can select both in
-declared order, with `Packages` first; table, TSV, and JSONL keep their existing
-one-section requirement.
+settlement row even when packages matched. `@Query` composes both sections.
+Markdown and JSON render that composition in alphabetical order, with
+`Packages` first; table, TSV, and JSONL keep their existing one-section
+requirement.
 
 `--count` remains a semantic reduction over matched package rows rather than a
 count of whichever adaptive section rendered. It therefore supports the

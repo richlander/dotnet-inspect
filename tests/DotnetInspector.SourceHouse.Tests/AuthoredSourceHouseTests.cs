@@ -17,7 +17,7 @@ namespace DotnetInspector.SourceHouse.Tests;
 
 // PR-fast unless individually tagged: bounded settlement over this repository's
 // real production assemblies, portable PDBs, and authored source files.
-public sealed class AuthoredSourceHouseTests
+public sealed partial class AuthoredSourceHouseTests
 {
     private static readonly ApiSurfaceExtractionBounds s_targetBounds =
         new(
@@ -204,11 +204,13 @@ public sealed class AuthoredSourceHouseTests
         Assert.Equal(
             SourceHouseMappingStrength.CorrelatedTypeDocument,
             mapping.Strength);
+        var primary = Assert.Single(mapping.SourceMapping.Documents,
+            document => document.FilePath == mapping.Document.OriginalPath);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.SourceLink,
-            mapping.SourceMapping.ResolutionMethod);
-        Assert.NotNull(mapping.SourceMapping.GitHubBrowseUrl);
-        Assert.NotEmpty(mapping.SourceMapping.Checksum!);
+            primary.ResolutionMethod);
+        Assert.NotNull(primary.GitHubBrowseUrl);
+        Assert.NotEmpty(primary.Checksum!);
         Assert.True(mapping.IsPartial);
         Assert.NotEmpty(mapping.AdditionalDocuments);
         Assert.Contains(
@@ -216,8 +218,8 @@ public sealed class AuthoredSourceHouseTests
             document => document.OriginalPath.EndsWith(
                 "SourceLinkService.SourceContent.cs",
                 StringComparison.Ordinal));
-        SourceLinkResolver.PartialSourceFile additional = Assert.Single(
-            mapping.SourceMapping.AdditionalSourceFiles,
+        SourceLinkResolver.TypeSourceDocument additional = Assert.Single(
+            mapping.SourceMapping.Documents,
             document => document.FilePath.EndsWith(
                 "SourceLinkService.SourceContent.cs",
                 StringComparison.Ordinal));

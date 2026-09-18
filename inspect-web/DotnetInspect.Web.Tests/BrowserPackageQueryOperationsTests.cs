@@ -20,6 +20,116 @@ public sealed class PackageQueryOperationCollection;
 public sealed class BrowserPackageQueryOperationsTests
 {
     [Theory]
+    [InlineData("Newtonsoft.Json", 1, false)]
+    [InlineData("Newtonsoft.*", 5, true)]
+    public void AssemblySemanticPlan_UsesExactLatestOrBoundedPrefix(
+        string packageInput,
+        int maximumCandidates,
+        bool prefix)
+    {
+        (PackageQueryPlan plan, int requestedCandidates) =
+            BrowserPackageQueryOperations.PlanAssemblySemantic(
+                packageInput,
+                maximumCandidates,
+                includePrerelease: false);
+
+        Assert.Equal(maximumCandidates, requestedCandidates);
+        if (prefix)
+            Assert.IsType<SourceSelector.PackagePrefix>(plan.PackageInput);
+        else
+            Assert.IsType<SourceSelector.Package>(plan.PackageInput);
+    }
+
+    [Fact]
+    public void AssemblySemanticPlan_RejectsBoundsOutsideTheInputShape()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            BrowserPackageQueryOperations.PlanAssemblySemantic(
+                "Newtonsoft.Json",
+                maximumCandidates: 5,
+                includePrerelease: false));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            BrowserPackageQueryOperations.PlanAssemblySemantic(
+                "Newtonsoft.*",
+                maximumCandidates: 6,
+                includePrerelease: false));
+    }
+
+    [Fact]
+    public void AssemblySemanticLiteral_AcceptsNonemptyWhitespace()
+    {
+        BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(" ");
+
+        Assert.Throws<ArgumentException>(() =>
+            BrowserPackageQueryOperations.ValidateAssemblySemanticLiteral(""));
+    }
+
+    [Fact]
+    public void AssemblySemanticResultRow_PreservesRootAndBoundsPreview()
+    {
+        var selectedAsset = new BrowserPackageAssemblySemanticSelectedAsset(
+            "lib/net10.0/Contoso.dll",
+            "Contoso",
+            "net10.0",
+            "implementation",
+            Ordinal: 1,
+            UnevaluatedSiblings: 2,
+            RootRequest: "opaque-root-request");
+        BrowserPackageAssemblySemanticOccurrence[] occurrences =
+        [
+            .. Enumerable.Range(1, 4).Select(index =>
+                new BrowserPackageAssemblySemanticOccurrence(
+                    Guid.Empty.ToString("D"),
+                    MethodDefinitionToken: 0x06000000 + index,
+                    IlOffset: index,
+                    UserStringToken: 0x70000000 + index,
+                    LiteralCharacterCount: 24,
+                    LiteralText: $"shared-literal-use-marker-{index}")),
+        ];
+        var result = new BrowserPackageAssemblySemanticResult(
+            CandidateOrdinal: 1,
+            PackageId: "Contoso.Package",
+            Version: "1.0.0",
+            Producer: "nuget.org",
+            selectedAsset,
+            occurrences);
+
+        BrowserPackageQueryRow row =
+            BrowserPackageQueryOperations.ProjectResultRow(result);
+
+        Assert.Equal("opaque-root-request", row.RootRequest);
+        BrowserPackageQueryEvidence evidence = Assert.Single(row.Evidence);
+        Assert.Equal(4, evidence.Summary!.Count);
+        Assert.Equal(3, evidence.Summary.Preview.Length);
+        Assert.Contains(
+            "4 decoded literal uses",
+            evidence.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "2 sibling assemblies not evaluated",
+            evidence.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AssemblySemanticProgress_ContainsNoTerminalTruth()
+    {
+        BrowserPackageQueryEvent progress =
+            BrowserPackageQueryOperations.ProjectAssemblySemanticProgress(
+                candidateOrdinal: 2,
+                candidateCount: 5);
+
+        Assert.Equal(BrowserPackageQueryEventKind.Progress, progress.Kind);
+        Assert.Null(progress.Row);
+        Assert.Null(progress.Failure);
+        Assert.Null(progress.Completion);
+        Assert.Null(progress.Assessment);
+        Assert.Equal(BrowserPackageQueryProgressPhase.Assembly, progress.Progress!.Phase);
+        Assert.Equal(2, progress.Progress.Completed);
+        Assert.Equal(5, progress.Progress.Limit);
+    }
+
+    [Theory]
     [InlineData("Newtonsoft.Json", false, "Newtonsoft.Json", 1)]
     [InlineData("Newtonsoft.*", true, "Newtonsoft.", 200)]
     [InlineData("Newtonsoft*", true, "Newtonsoft", 200)]

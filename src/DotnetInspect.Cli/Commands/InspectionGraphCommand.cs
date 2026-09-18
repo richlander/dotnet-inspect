@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
@@ -196,10 +197,20 @@ public static class InspectionGraphCommand
         WorkspaceContextLoadOutcome.Loaded context)
     {
         var output = new InspectionGraphOutputAdapter(context);
-        IReadOnlyList<InspectionGraphEdgeRow> rows =
-            RowWindow.Apply(
+        if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                options.RowSelection,
                 options.Rows,
-                output.EdgeRows(document));
+                output.EdgeRows(document),
+                "Integration graph",
+                failure =>
+                    $"Integration graph row selection stage "
+                    + $"{failure.Failure.StageNumber} requires edge "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} edges are available.",
+                out IReadOnlyList<InspectionGraphEdgeRow> rows))
+        {
+            return 1;
+        }
         bool incomplete = document.Failures.Length > 0;
 
         if (options.Count)

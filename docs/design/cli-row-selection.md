@@ -18,14 +18,15 @@ contracts remain command-owned until their semantic adoption.
 The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
-and projected member Facts JSON have semantic `-n` adoption. Their supported
-Window and direction capabilities remain command-specific. These adopters also
-accept explicit rendered-line selection where their output format permits it.
-Unselected modes of a partially adopted command use the rendered-line fallback.
-Commands without an active semantic row adoption, including text documents and
-structured commands whose item rows have not yet been adopted, lower bare `-n`
-to rendered-line selection. Explicit `--lines` remains accepted as redundant
-unit selection.
+projected member Facts JSON, Workspace top-level inventory, and Integration
+graph edges have semantic `-n` adoption. Their supported Window and direction
+capabilities remain command-specific. These adopters also accept explicit
+rendered-line selection where their output format permits it. Unselected modes
+of a partially adopted command use the rendered-line fallback. Commands
+without an active semantic row adoption, including text documents and
+structured commands whose item rows have not yet been adopted, lower bare
+`-n` to rendered-line selection. Explicit `--lines` remains accepted as
+redundant unit selection.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -48,8 +49,12 @@ selected sections. #6650 adopts timeline Evaluation and Transition rows while
 preserving its explicit package-cell acquisition plan. The broad #4677 line
 unit rollout defines rendered lines as the fallback item sequence, adds shared
 `--lines`/`--tail-lines`, and retires numeric `-t` as a row-count spelling on
-`implements` and `extensions`. Semantic adoption for the remaining command row
-sets is still staged.
+`implements` and `extensions`. The Workspace top-level inventory adoption
+selects complete owner-issued entries after kind filtering without reducing
+Workspace construction or acquisition. The Integration graph adoption selects
+logical edges after complete induced-set construction without reducing package
+acquisition or graph production. Semantic adoption for the remaining command
+row sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -621,6 +626,92 @@ A following numeric token is ordinary positional package input when the
 package slot is available, not a count. Surplus input directly following the
 flag receives the host's common zero-arity error.
 
+## Workspace top-level inventory adoption
+
+Ordinary `workspace` inventory declares one semantic row per
+`WorkspaceTopLevelInventoryEntry` in the owner-issued `Entries` order. This
+includes direct construction, packet restoration, and `--root-request`
+reopening. The inventory operation first completes Workspace construction,
+restoration, acquisition, admission, and `--kind` filtering; Head/Tail and
+strict Window stages then select from that completed typed vector before Count
+or format lowering.
+
+```console
+$ dotnet-inspect workspace \
+    --register-package-prefix Microsoft.Extensions. \
+    --register-ecosystem aspire \
+    -n 1 --tail --table
+Kind       Location          State
+Ecosystem  ecosystem.aspire  Registered
+```
+
+What to notice: `-n 1 --tail` selects the last complete inventory entry. It
+does not clip the rendered table, skip Workspace construction, or reduce
+Package acquisition. The same typed selection reaches complete JSON entry
+objects. `--count` observes the selected entry vector, while the document's
+inventory counts retain the operation's complete pre-row-selection evidence.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before Workspace work. One strict Window
+failure withholds the complete inventory document:
+
+```console
+$ dotnet-inspect workspace \
+    --register-package-prefix Microsoft.Extensions. \
+    --register-ecosystem aspire \
+    --rows 2..3 --json
+Error: Workspace inventory row selection stage 1 requires entry 3, but only 2 entries are available.
+```
+
+Portable definition output selected by `--share` and Package Navigation
+selected by `--active-package` or its descendant selectors remain outside this
+semantic declaration. They use the rendered-line fallback rather than
+reinterpreting their distinct result shapes as inventory entries.
+
+## Integration graph adoption
+
+`graph integrations` declares one semantic row per logical
+`InspectionGraphEdge` in the owner-issued document order. The CLI's
+`InspectionGraphEdgeRow` projection preserves each edge's typed `EdgeId`, so
+Head/Tail and strict Window stages select identities rather than matching
+display labels. Selection runs only after the complete explicit package set is
+acquired, the induced-set request executes, relationship admission finishes,
+and every graph failure is retained. Count and every graph or row renderer then
+consume the selected edge vector.
+
+```console
+$ dotnet-inspect graph integrations \
+    --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
+    --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+    --package Microsoft.Extensions.Logging@10.0.0 \
+    --package Microsoft.Extensions.Http@10.0.0 \
+    --tfm net10.0 \
+    --relationship integration.observed \
+    -n 1 --tail --table
+```
+
+What to notice: `-n 1 --tail` selects the final admitted logical edge. It does
+not clip rendered output, reduce package acquisition, change relationship
+producer demand, or hide retained graph failures. JSON carries the selected
+edge plus its required node and group context; JSONL, Markdown, table, TSV,
+Mermaid, plaintext graph, and Count consume the same selected edge identities.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before package acquisition. One strict Window
+failure withholds the complete graph document:
+
+```console
+$ dotnet-inspect graph integrations \
+    --package Microsoft.Extensions.Logging@10.0.0 \
+    --tfm net10.0 \
+    --rows 2..3 --json
+Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges are available.
+```
+
+`graph libraries` remains outside this declaration because its selected
+sections are independent row sets with different schemas. It retains its
+legacy `--rows` contract and uses the rendered-line fallback for `-n`.
+
 ## Demo-list adoption
 
 The finite `demo list` catalog and equivalent bare `demo` listing declare one
@@ -778,6 +869,22 @@ The timeline adoption is enforced by:
 | `TimelineCommandTests` | Evaluations and Transitions apply semantic Head/Tail and ordered Window stages independently before Markdown, table, TSV, JSONL, typed JSON, or Count lowering; one strict Window failure emits no partial document. |
 | `ConfiguredPayloadAcquisitionTests.TimelineRange_SemanticRowsComposeWithoutReducingExplicitAcquisition` | Bare `-N`, Tail, and Window compose over final Evaluation rows while explicit dense `--at all` still acquires every selected package cell. |
 | `ConfiguredPayloadAcquisitionTests.TimelineRange_ExplicitLinesClipRenderedOutput` and `TimelineRange_LinesRejectDocumentJsonBeforeAcquisition` | Explicit Lines clips rendered TSV without reducing authorized package-cell acquisition, while complete JSON rejects line selection before package acquisition. |
+
+The Workspace top-level inventory adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `WorkspaceCommandTests` | Direct, packet, and Root-reopening top-level inventory modes declare complete typed entries after kind filtering; explicit and bare Head, Tail, and closed, prefix, or suffix strict Window select the same owner-ordered identities before JSON, JSONL, Markout, or Count lowering. One unavailable Window emits no partial document. |
+| `WorkspaceCommandTests.SemanticHead_DoesNotHideFailedWorkspaceConstruction` | Semantic selection does not reduce Package acquisition or hide a failed Workspace construction behind a selected successful prefix. |
+| `WorkspaceCommandTests.CommandLineInventory_LinesRejectCompleteJsonBeforeWorkspaceWork`, `CommandLineNavigation_InferredLinesRejectCompleteJsonBeforeWorkspaceWork`, and `CommandLineShare_SpellingsRemainRenderedLineFallback` | Explicit Lines rejects complete inventory JSON before Workspace work, while active-package Navigation and both bare and explicit-URL Share remain outside the inventory declaration and infer rendered-line selection. |
+
+The Integration graph adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
+| `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
+| `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, `LibrariesCommand_RetainsLegacyWindowValidation`, `LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation; `graph libraries` remains outside the declaration, infers Lines for `-n`, and retains legacy Window validation. |
 
 The broad explicit-line rollout is enforced by:
 

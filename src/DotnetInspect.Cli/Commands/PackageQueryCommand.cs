@@ -40,6 +40,10 @@ internal static class PackageQueryCommand
                     PackageQuerySections.Catalog.Pipeline.GetCostAnnotations(),
                 sectionCategories:
                     PackageQuerySections.Catalog.SelectionCategoryMap,
+                catalogHiddenSections:
+                    PackageQuerySections.Catalog.Pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors:
+                    PackageQuerySections.Catalog.Pipeline.GetListedCategoryDoors(),
                 semanticRowSelection: options.RowSelection,
                 semanticSelectionName: "Package Query");
         }
@@ -287,7 +291,7 @@ internal static class PackageQueryCommand
             summary);
         HashSet<string> includeSections = options.IncludeSections
             ?? (options.SelectDefault
-                ? [PackageProfileSections.Packages]
+                ? [.. PackageQuerySections.BareSelectSectionNames]
                 : [
                     document.HasPackages
                         ? PackageProfileSections.Packages
@@ -348,6 +352,8 @@ internal static class PackageQueryCommand
             MarkoutWriterOptions writerOptions)
         {
             writerOptions.IncludeSections = includeSections;
+            writerOptions.SectionOrder =
+                PackageQuerySections.Catalog.AlphabeticalSectionOrder;
             if (emptyView is null)
             {
                 MarkoutSerializer.Serialize(
@@ -380,7 +386,9 @@ internal static class PackageQueryCommand
                 options.Fields,
                 Serialize,
                 !options.CompactJson,
-                maxRows: null);
+                maxRows: null,
+                sectionOrder:
+                    PackageQuerySections.Catalog.AlphabeticalSectionOrder);
         }
         else if (options.Tabular)
         {

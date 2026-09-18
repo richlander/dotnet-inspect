@@ -68,12 +68,12 @@ into authoritative absence.
 
 The House verifies candidate bytes through SourceLinkService and uses
 CSharpText for member slicing. An authored member requires a vouched
-declaration; a type result retains its primary-document scope, mapping
+declaration; a type result retains its selected-document scope, mapping
 strength and possible partiality rather than claiming a complete declaration.
 Embedded PDB interpretation does not by itself promise embedded source-text
 retrieval.
-Type settlement retains the producer's primary and additional document mapping,
-including line, browse URL, resolution method, and checksum facts, rather than
+Type settlement retains the producer's resolved type identity and complete
+document collection, including browse URL, resolution method, and checksum facts, rather than
 replacing that evidence with a path-only reconstruction.
 
 The operation's finite bounds cover detached assembly and PDB bytes,
@@ -139,6 +139,53 @@ and actual `MemberTextSlicer.cs` source. This permits an offline,
 pathless-content success case with real method/type mappings, alongside
 checksum rejection and lease-retirement cases. The Platform `System.Text.Json`
 scenario below remains the broader production-adoption motivation.
+
+#### Authored type-document selection
+
+An authored type request settles its primary document by default. The shared
+consumer selector preserves the former SourceLink preference: a filename
+matching the resolved metadata leaf name plus `.cs`, case-insensitively;
+otherwise the shortest filename, with discovery order breaking ties. This
+heuristic is presentation/acquisition policy, not a producer fact. It does not
+reorder SourceLink's native document collection. `TypeSourceDocumentSelectionTests`
+gates the unchanged preference, ties, and selection from reordered real
+`SourceLinkService` evidence.
+
+An explicit selection names one exact original PDB document path in that type's
+producer-issued document collection. Selection is ordinal, not a URL,
+basename, case-insensitive match, or a path to open directly. The exact TypeDef
+must exist before its document membership is considered. Missing membership
+settles unavailable without reading source content; another type's document
+in the same PDB is not a substitute.
+
+The selected document supplies the candidate path, URL, and checksum. A
+secondary document retains `AdditionalTypeDocument` scope rather than
+masquerading as the primary document. The complete native type mapping retains
+every document and its discovery order; selection does not rewrite that
+mapping or claim a complete type declaration. The existing additional-document
+projection lists documents other than the conventional default, even when one
+of them is explicitly selected. The request and
+settlement receipt retain the explicit selector, including when settlement
+fails or hits a bound. Existing authored-only policy, authorized capabilities,
+bounds, and cleanup obligations apply unchanged.
+
+The focused prerequisite is #7544. Its real motivating asset is this
+repository's partial `SourceLinkService`, including
+`SourceLinkService.SourceContent.cs`. PR-fast Release
+`AuthoredSourceHouseTests` cases gate explicit primary/additional selection,
+ordinal membership, rejection of unrelated documents, selected-document
+checksum evidence, and operation settlement.
+
+The immediate adoption path has three focused slices: this House selection
+capability (#7544), the homogeneous SourceLink collection and mechanical
+consumer migration (#7577), then a shared completed CLI type-document operation
+and production caller cutover (#7546). The latter must preserve metadata-only
+Source Files listing, explicit authored/decompiled demand, and partial-document
+row selection through `InspectionEnvelope<T>`, with the existing Browser Type
+Source operation as its neighbor. This is a prerequisite within the existing
+twelve-step plan, not a claim that CLI adoption or legacy retirement is complete.
+No rendering changes are introduced here: the later CLI cutover retains its
+Markout sections and printable-document lowering.
 
 ## Authority and exact claim
 

@@ -851,15 +851,14 @@ public static class SourceHouse
 
         SourceLinkResolver.TypeSourceInfo? typeMapping =
             source.ResolveTypeSource(target.Type);
-        if (typeMapping?.SourceFilePath
-            is not { Length: > 0 } sourcePath)
+        if (typeMapping is null
+            || TypeSourceDocumentSelection.SelectDefault(typeMapping) is not { } primary)
         {
             return MappingPreparation.Unavailable(
                 documentsObserved);
         }
 
-        int typeMappingsObserved =
-            checked(1 + typeMapping.AdditionalSourceFiles.Count);
+        int typeMappingsObserved = typeMapping.Documents.Length;
         if (typeMappingsObserved > limits.MaximumTargetMappings)
         {
             return MappingPreparation.Incomplete(
@@ -867,8 +866,23 @@ public static class SourceHouse
                 documentsObserved,
                 typeMappingsObserved);
         }
+        SourceLinkResolver.TypeSourceDocument selected = primary;
+        if (target is SourceHouseTarget.TypeTarget
+            { OriginalDocumentPath: { } selectedPath })
+        {
+            var matching = typeMapping.Documents.FirstOrDefault(
+                document => string.Equals(
+                    document.FilePath, selectedPath, StringComparison.Ordinal));
+            if (matching is null)
+            {
+                return MappingPreparation.Unavailable(
+                    documentsObserved,
+                    typeMappingsObserved);
+            }
+            selected = matching;
+        }
         SourceDocumentObservation? typeDocument =
-            SelectDocument(documents, documentRowId: null, sourcePath);
+            SelectDocument(documents, documentRowId: null, selected.FilePath);
         if (typeDocument is null)
         {
             return MappingPreparation.Unavailable(
@@ -877,20 +891,19 @@ public static class SourceHouse
         }
 
         SourceHouseMappingStrength strength =
-            typeMapping.ResolutionMethod
+            selected.ResolutionMethod
                 == SourceLinkResolver.SourceResolutionMethod.Inferred
                 ? SourceHouseMappingStrength.InferredTypeDocument
                 : SourceHouseMappingStrength.CorrelatedTypeDocument;
         SourceLinkResolver.TypeSourceInfo detachedMapping =
             typeMapping with
             {
-                Checksum = typeMapping.Checksum?.ToArray(),
-                AdditionalSourceFiles =
+                Documents =
                 [
-                    .. typeMapping.AdditionalSourceFiles.Select(
-                        static additional => additional with
+                    .. typeMapping.Documents.Select(
+                        static document => document with
                         {
-                            Checksum = additional.Checksum?.ToArray(),
+                            Checksum = document.Checksum?.ToArray(),
                         }),
                 ],
             };
@@ -898,8 +911,9 @@ public static class SourceHouse
             detachedMapping,
             typeDocument,
             strength,
-            typeMapping.IsPartialType,
-            typeMapping.AdditionalSourceFiles
+            typeMapping.Documents.Length > 1,
+            typeMapping.Documents
+                .Where(document => document.FilePath != primary.FilePath)
                 .Select(
                     static additional =>
                         new SourceHouseAdditionalTypeDocument(
