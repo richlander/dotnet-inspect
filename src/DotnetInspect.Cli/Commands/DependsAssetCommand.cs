@@ -246,13 +246,17 @@ public partial class DependsCommand
                         includeSections)
                         ? 0
                         : 1;
-            if (primaryExitCode != 0)
+            int exitCode = primaryExitCode;
+            bool shareOnlyPrimary =
+                options.ShareFormat is not null
+                && !options.EnvelopeOutput;
+            if (!shareOnlyPrimary)
             {
-                return primaryExitCode;
+                WriteAssetDiagnostics(projection);
+                exitCode = Math.Max(
+                    exitCode,
+                    AssetExitCode(projection));
             }
-
-            WriteAssetDiagnostics(projection);
-            int exitCode = AssetExitCode(projection);
             if (options.EvidenceEnvelopePath is { } evidencePath)
             {
                 if (evidence is null)
@@ -355,23 +359,44 @@ public partial class DependsCommand
 
     private static InspectionShare CreateAssetInspectionShare(
         DependsOptions options,
-        DependsAssetProjection projection) =>
-        options.ShareFormat is not null
-            && projection.Evidence.PackageInputs.Roots
-                is [PackageDependencyEvidenceRoot
+        DependsAssetProjection projection)
+    {
+        if (options.ShareFormat is null)
+        {
+            return new InspectionShare.NonProjectable(
+                "asset-dependencies/share",
+                "Share projection was not requested.");
+        }
+
+        PackageDependencyEvidenceOutcome packageInputs =
+            projection.Evidence.PackageInputs;
+        PackageSourceCoordinate? coordinate =
+            packageInputs.Roots.Length + packageInputs.FailedRoots.Length == 1
+                ? packageInputs.Roots switch
                 {
-                    Identity:
-                        PackageDependencyEvidenceRootIdentity.Package
-                            package,
-                }]
-            ? DependsShareProjection.ProjectAsset(
-                options,
-                package.Coordinate)
+                    [PackageDependencyEvidenceRoot
+                    {
+                        Identity:
+                            PackageDependencyEvidenceRootIdentity.Package
+                                package,
+                    }] => package.Coordinate,
+                    [] => packageInputs.FailedRoots[0] switch
+                    {
+                        PackageDependencyEvidenceRootFailure.Package package =>
+                            package.Coordinate,
+                        PackageDependencyEvidenceRootFailure.Acquisition
+                            acquisition => acquisition.Coordinate,
+                        _ => null,
+                    },
+                    _ => null,
+                }
+                : null;
+        return coordinate is not null
+            ? DependsShareProjection.ProjectAsset(options, coordinate)
             : new InspectionShare.NonProjectable(
                 "asset-dependencies/share",
-                options.ShareFormat is null
-                    ? "Share projection was not requested."
-                    : "The asset dependency request is not one exact package root.");
+                "The asset dependency request is not one exact package root.");
+    }
 
     private sealed class DependsAssetInspectionState(
         DependsOptions options,

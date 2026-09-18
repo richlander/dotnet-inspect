@@ -359,6 +359,78 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task EvidenceEnvelopePreservesExactPackageShareWhenManifestIsUnavailable()
+    {
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+        if (!buildProbe.IsDebugBuild)
+            return;
+
+        const string packageId =
+            "Copilot.Pr7538.DoesNotExist.9f4a3d71e6b64b1ab8a6058df130417a";
+        string[] arguments =
+        [
+            "depends",
+            "--package",
+            $"{packageId}@1.0.0",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+        ];
+        (int baselineExitCode, string baselineOutput, string baselineError) =
+            await RunCapturedOfflineAsync(arguments);
+        string evidencePath = Path.Combine(
+            CreateTemporaryDirectory(),
+            "evidence.json");
+
+        (int evidenceExitCode, string evidenceOutput, string evidenceError) =
+            await RunCapturedOfflineAsync(
+            [
+                .. arguments,
+                "--evidence-envelope",
+                evidencePath,
+            ]);
+
+        Assert.True(
+            baselineExitCode == 0,
+            $"Baseline stderr:{Environment.NewLine}{baselineError}");
+        Assert.True(
+            evidenceExitCode == baselineExitCode,
+            $"Evidence stderr:{Environment.NewLine}{evidenceError}");
+        Assert.Equal(baselineOutput, evidenceOutput);
+        Assert.Equal(
+            baselineError
+                + $"Evidence envelope: {evidencePath}{Environment.NewLine}",
+            evidenceError);
+        using JsonDocument enriched = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                evidencePath,
+                TestContext.Current.CancellationToken));
+        JsonElement packageInputs =
+            enriched.RootElement.GetProperty("evidence")
+                .GetProperty("packageInputs");
+        Assert.Empty(packageInputs.GetProperty("roots").EnumerateArray());
+        JsonElement failure = Assert.Single(
+            packageInputs.GetProperty("failedRoots").EnumerateArray());
+        Assert.Equal(
+            "acquisition",
+            failure.GetProperty("case").GetString());
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            failure.GetProperty("coordinate")
+                .GetProperty("packageId")
+                .GetString());
+        Assert.Equal(
+            "1.0.0",
+            failure.GetProperty("coordinate")
+                .GetProperty("version")
+                .GetString());
+    }
+
+    [Fact]
     public async Task TypeDepthBoundMatchesUnboundedShortestPathEdges()
     {
         PersistentCache.Initialize("dotnet-inspect-test");
@@ -3924,6 +3996,27 @@ public sealed class DependsAssetCommandTests
     private static Task<(int ExitCode, string Output, string Error)>
         RunCapturedAsync(string[] args) =>
         ConsoleCapture.RunAsync(() => RunAsync(args));
+
+    private static Task<(int ExitCode, string Output, string Error)>
+        RunCapturedOfflineAsync(string[] args) =>
+        ConsoleCapture.RunAsync(async () =>
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            try
+            {
+                return await RunAsync(args);
+            }
+            finally
+            {
+                DotnetInspector.Networking.HttpClientFactory.Initialize(
+                    new HttpClientFactoryOptions());
+                DotnetInspector.Networking.HttpClientFactory
+                    .ResetSharedForTesting();
+            }
+        });
 
     private static Task<int> RunAsync(string[] args)
     {
