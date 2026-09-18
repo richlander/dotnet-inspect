@@ -156,6 +156,101 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("library", "--tree")]
+    [InlineData("library", "--dependencies")]
+    [InlineData("package", "--tree")]
+    [InlineData("package", "--dependencies")]
+    public async Task AggregateReferenceTreeRequiresExactLibrary(
+        string command,
+        string treeOption)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                command,
+                packagePath,
+                "-S",
+                "References",
+                treeOption,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "The selected Library operation requires one exact Library",
+                result.Error);
+            Assert.Contains("--library <asset>", result.Error);
+            Assert.Contains("--namesake-library", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AggregateDocumentTitleUsesPackageIdentity()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalMultiTfmLibraryPackage(
+                packageId: "Microsoft.Azure.SignalR",
+                assetName: "Microsoft.Azure.SignalR.Common.dll",
+                includeCompanion: true,
+                companionAssetName: "Microsoft.Azure.SignalR.dll");
+        try
+        {
+            var markdown = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "References",
+                "--markdown",
+                "--tips",
+                "q");
+            var plainText = await RunAppAsync(
+                "library",
+                packagePath,
+                "-S",
+                "References",
+                "--plaintext",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.StartsWith(
+                "# Microsoft.Azure.SignalR\n\n## Libraries\n",
+                markdown.Output);
+            Assert.Contains(
+                "### lib/net10.0/Microsoft.Azure.SignalR.Common.dll",
+                markdown.Output);
+            Assert.False(
+                markdown.Output.StartsWith(
+                    "# Microsoft.Azure.SignalR.Common\n",
+                    StringComparison.Ordinal));
+            Assert.Empty(markdown.Error);
+
+            Assert.Equal(0, plainText.Exit);
+            Assert.StartsWith(
+                "Microsoft.Azure.SignalR\n\nLibraries\n",
+                plainText.Output);
+            Assert.Contains(
+                "lib/net10.0/Microsoft.Azure.SignalR.Common.dll",
+                plainText.Output);
+            Assert.False(
+                plainText.Output.StartsWith(
+                    "Microsoft.Azure.SignalR.Common\n",
+                    StringComparison.Ordinal));
+            Assert.Empty(plainText.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageCommand_AggregateIntegrationsRetainProducerLibrary()
     {
@@ -876,7 +971,8 @@ public partial class CommandExecutionTests
         CreateLocalMultiTfmLibraryPackage(
             string packageId = "Tfm.All.Sample",
             string assetName = "Tfm.All.Sample.dll",
-            bool includeCompanion = false)
+            bool includeCompanion = false,
+            string companionAssetName = "Companion.dll")
     {
         string tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -894,7 +990,7 @@ public partial class CommandExecutionTests
             {
                 File.Copy(
                     TestAssemblyPath,
-                    Path.Combine(libDir, "Companion.dll"));
+                    Path.Combine(libDir, companionAssetName));
             }
         }
 

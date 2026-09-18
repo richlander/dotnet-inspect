@@ -799,9 +799,14 @@ public static class OutputFormatter
         }
     }
 
-    public static void WriteLibraryResults(List<LibraryInspection> inspections, LibraryOptions options,
+    public static void WriteLibraryResults(
+        List<LibraryInspection> inspections,
+        string documentTitle,
+        LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentTitle);
+
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
 
@@ -837,8 +842,7 @@ public static class OutputFormatter
         {
             var documents = new List<string>
             {
-                LibraryViewText.Contain(Path.GetFileNameWithoutExtension(inspections[0].FileName))
-                    ?? string.Empty,
+                LibraryViewText.Contain(documentTitle) ?? string.Empty,
                 "Libraries"
             };
             documents.AddRange(inspections.Select(inspection =>
@@ -858,8 +862,9 @@ public static class OutputFormatter
         {
             var documents = new List<string>
             {
-                RenderMarkdownHeading(1, LibraryViewText.Contain(
-                    Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty),
+                RenderMarkdownHeading(
+                    1,
+                    LibraryViewText.Contain(documentTitle) ?? string.Empty),
                 RenderMarkdownHeading(2, "Libraries")
             };
             documents.AddRange(inspections.Select(inspection =>

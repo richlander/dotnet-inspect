@@ -962,12 +962,22 @@ public class LibraryCommand
 
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion) = extractResult.Value;
                 tempDir = extractTempDir;
-                packageName = resolvedPackageName;
-                packageVersion = resolvedPackageVersion;
+                packageName = resolvedPackageName ?? packageName;
+                packageVersion = resolvedPackageVersion ?? packageVersion;
 
                 bool aggregatePackageSelection =
                     string.IsNullOrWhiteSpace(assemblyPath)
                     && !options.NamesakeLibrary;
+                if ((aggregatePackageSelection
+                        || assemblyPaths.Count > 1)
+                    && options.Tree)
+                {
+                    CommandError.Write(
+                        "The selected Library operation requires one exact "
+                        + "Library. Narrow the package with "
+                        + "--library <asset> or --namesake-library.");
+                    return 1;
+                }
                 if ((aggregatePackageSelection
                         || assemblyPaths.Count > 1)
                     && (options.Print
@@ -1235,7 +1245,18 @@ public class LibraryCommand
                             options,
                             aggregatePackageSelection))
                         return 1;
-                    OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                    string documentTitle =
+                        aggregatePackageSelection
+                        || string.IsNullOrWhiteSpace(assemblyPath)
+                            ? packageName
+                                ?? throw new InvalidOperationException(
+                                    "Package identity was not resolved.")
+                            : Path.GetFileNameWithoutExtension(assemblyPath);
+                    OutputFormatter.WriteLibraryResults(
+                        inspections,
+                        documentTitle,
+                        options,
+                        pipeline);
                 }
 
                 return Math.Max(

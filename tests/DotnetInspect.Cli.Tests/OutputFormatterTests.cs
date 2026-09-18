@@ -3381,7 +3381,7 @@ public class OutputFormatterTests
         };
 
         var (markdown, markdownError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, options, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", options, pipeline));
 
         Assert.Empty(markdownError);
         Assert.StartsWith("# Test\n\n## Libraries\n", markdown);
@@ -3399,7 +3399,7 @@ public class OutputFormatterTests
             IncludeSections = null
         };
         var (quiet, quietError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, quietOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", quietOptions, pipeline));
 
         Assert.Empty(quietError);
         Assert.Contains("Name: Test", quiet);
@@ -3410,7 +3410,7 @@ public class OutputFormatterTests
             PlainText = true
         };
         var (plain, plainError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", plainOptions, pipeline));
 
         Assert.Empty(plainError);
         Assert.StartsWith("Test\n\nLibraries\n", plain);
@@ -3434,7 +3434,7 @@ public class OutputFormatterTests
         };
 
         var (columns, columnsError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, columnOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", columnOptions, pipeline));
 
         Assert.Empty(columnsError);
         Assert.Equal(
@@ -3451,7 +3451,7 @@ public class OutputFormatterTests
             Verbosity = Verbosity.Quiet
         };
         var (fields, fieldsError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, fieldOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", fieldOptions, pipeline));
 
         Assert.Empty(fieldsError);
         Assert.Equal(
@@ -3466,7 +3466,7 @@ public class OutputFormatterTests
             Verbosity = Verbosity.Quiet
         };
         var (plain, plainError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", plainOptions, pipeline));
 
         Assert.Empty(plainError);
         Assert.Equal(
@@ -3491,7 +3491,7 @@ public class OutputFormatterTests
             IncludeSections = ["Signals"]
         };
         var (scalar, scalarError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, scalarOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", scalarOptions, pipeline));
 
         Assert.Empty(scalarError);
         Assert.Equal("2", scalar.Trim());
@@ -3501,7 +3501,7 @@ public class OutputFormatterTests
             IncludeSections = ["Library Info", "Signals"]
         };
         var (map, mapError) = await ConsoleCapture.RunAsync(
-            () => OutputFormatter.WriteLibraryResults(inspections, mapOptions, pipeline));
+            () => OutputFormatter.WriteLibraryResults(inspections, "Test", mapOptions, pipeline));
 
         Assert.Empty(mapError);
         Assert.Contains("| Library Info |", map);
@@ -3541,11 +3541,14 @@ public class OutputFormatterTests
 
         var (output, error) = await ConsoleCapture.RunAsync(
             () => OutputFormatter.WriteLibraryResults(
-                inspections, options, LibrarySections.CreatePipeline()));
+                inspections,
+                "Aggregate<tag>&\n## FORGED",
+                options,
+                LibrarySections.CreatePipeline()));
 
         Assert.Empty(error);
         Assert.DoesNotContain("\n## FORGED", output);
-        Assert.StartsWith("# Test&lt;tag&gt;&amp; ## FORGED\n", output);
+        Assert.StartsWith("# Aggregate&lt;tag&gt;&amp; ## FORGED\n", output);
         Assert.Contains("### Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)", output);
         Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n'),

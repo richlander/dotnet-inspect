@@ -45,6 +45,15 @@ public partial class PackageCommand
     private static OptionError? GetPackageAggregateLibraryModeError(
         InspectionOptions options)
     {
+        if (options.Discover is null
+            && options.ShowDependencies)
+        {
+            return new OptionError(
+                "The selected Library operation requires one exact Library. "
+                + "Narrow the package with --library <asset> "
+                + "or --namesake-library.");
+        }
+
         List<string> conflicts = [];
         if (options.ListLayout || options.ListLayoutExplicitlySet)
             conflicts.Add("--layout");
