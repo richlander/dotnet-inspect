@@ -33,6 +33,10 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// exact <paramref name="MethodToken"/> and a source document so every relationship retains its
 /// product-issued source targets.
 /// </param>
+/// <param name="CallCycles">
+/// Includes bounded focus-cycle witnesses over the same exact call relationships. Positive
+/// witnesses remain valid when the independent cycle census is incomplete.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -47,7 +51,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     AnnotationStage AnnotatedStage = AnnotationStage.Raised,
     PrinterOptions? PrinterOptions = null,
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
-    bool CallRelationships = false);
+    bool CallRelationships = false,
+    bool CallCycles = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -110,13 +115,36 @@ public sealed record AssemblyMemberCallRelationship(
 public sealed record AssemblyMemberCallRelationshipOverlay(
     IReadOnlyList<AssemblyMemberCallRelationship> Relationships);
 
+/// <summary>
+/// One focus cycle joined to the physical source facts for its first edge and
+/// the typed target reached by every ordered edge.
+/// </summary>
+public sealed record AssemblyMemberCallCycle(
+    FindingKey Key,
+    int Ordinal,
+    IReadOnlyList<int> EdgeRows,
+    IReadOnlyList<int> FactIds,
+    IReadOnlyList<CallGraphNode> Targets);
+
+/// <summary>
+/// Bounded focus-cycle Findings plus the independent completeness state of the
+/// operation that produced them.
+/// </summary>
+public sealed record AssemblyMemberCallCycleInspection(
+    IReadOnlyList<AssemblyMemberCallCycle> Findings,
+    AnnotatedCallGraphCycleLimit Limits)
+{
+    public bool IsComplete => Limits == AnnotatedCallGraphCycleLimit.None;
+}
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
-    AssemblyMemberCallRelationshipOverlay? CallRelationships = null);
+    AssemblyMemberCallRelationshipOverlay? CallRelationships = null,
+    AssemblyMemberCallCycleInspection? CallCycles = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -245,6 +273,12 @@ public static class AssemblyContextMemberProjectionQuery
                 "Call relationships require a source document and an exact MethodDef token.",
                 nameof(request));
         }
+        if (request.CallCycles && !request.CallRelationships)
+        {
+            throw new ArgumentException(
+                "Call cycles require exact call relationships.",
+                nameof(request));
+        }
         if (request.FindingEvidence
             && (!request.SourceDocument || !request.FactRows))
         {
@@ -297,7 +331,10 @@ public static class AssemblyContextMemberProjectionQuery
                 index is not null
                     && request.MethodToken is int requestedMethodToken
                     && request.CallRelationships
-                    ? ProjectCallRelationships(index, requestedMethodToken)
+                    ? ProjectCallRelationships(
+                        index,
+                        requestedMethodToken,
+                        request.CallCycles)
                     : null;
             if (request.CallRelationships
                 && index is not null
@@ -353,7 +390,10 @@ public static class AssemblyContextMemberProjectionQuery
             {
                 CallRelationshipProjection? destinationRelationships =
                     callRelationships
-                    ?? ProjectCallRelationships(index, methodToken);
+                    ?? ProjectCallRelationships(
+                        index,
+                        methodToken,
+                        includeCycles: false);
                 if (destinationRelationships is not null)
                 {
                     destinations = ProjectInvocationDestinations(
@@ -369,12 +409,21 @@ public static class AssemblyContextMemberProjectionQuery
                         callRelationships,
                         relationshipDocument)
                     : null;
+            AssemblyMemberCallCycleInspection? cycleInspection =
+                request.CallCycles
+                    && callRelationships is not null
+                    && relationshipOverlay is not null
+                    ? ProjectCallCycles(
+                        callRelationships,
+                        relationshipOverlay)
+                    : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
                 findingEvidence,
                 destinations,
-                relationshipOverlay);
+                relationshipOverlay,
+                cycleInspection);
             resolver.ValidateForPublication();
             return result;
         }
@@ -695,26 +744,65 @@ public static class AssemblyContextMemberProjectionQuery
 
     sealed record CallRelationshipProjection(
         CallGraphProjection Graph,
-        ImmutableArray<AnnotatedCallGraphMappedCall> Calls);
+        ImmutableArray<AnnotatedCallGraphMappedCall> Calls,
+        AnnotatedCallGraphCycleInspection? Cycles);
 
     static CallRelationshipProjection? ProjectCallRelationships(
         LibraryBodyIndex index,
-        int callerToken)
+        int callerToken,
+        bool includeCycles)
     {
         index.GetDirectCallsByEvidenceMethod()
             .TryGetValue(callerToken, out ImmutableArray<DirectCall> callArray);
         DirectCall[] calls = callArray.IsDefault ? [] : [.. callArray];
-        CallTreeNode? calleeRoot = index.BuildCallTree(
+        CallTreeNode? exactCalleeRoot = index.BuildCallTree(
             callerToken,
             maxDepth: 1,
             maxNodes: calls.Length == int.MaxValue
                 ? int.MaxValue
                 : calls.Length + 1);
-        if (calleeRoot is null)
+        if (exactCalleeRoot is null)
             return null;
 
-        CallGraphProjection graph =
-            CallGraphProjection.FromCallees(calleeRoot);
+        CallGraphProjection graph;
+        AnnotatedCallGraphCycleInspection? cycles = null;
+        if (includeCycles)
+        {
+            const int CycleDepth = 3;
+            const int CycleMaxNodes = 25;
+            CallTreeNode boundedCalleeRoot = index.BuildCallTree(
+                callerToken,
+                CycleDepth,
+                CycleMaxNodes);
+            CallTreeNode calleeRoot = PreserveExactFocusNeighborhood(
+                exactCalleeRoot,
+                boundedCalleeRoot);
+            CallTreeNode callerRoot = index.BuildCallerTree(
+                callerToken,
+                CycleDepth,
+                CycleMaxNodes);
+            var graphView = new MemberCallGraphView(
+                CallGraphTier.Callers,
+                calleeRoot,
+                callerRoot)
+            {
+                FocusModuleVersionId =
+                    index.ModuleIdentity.ModuleVersionId,
+                FocusMethodToken = callerToken,
+                FocusCallSites = [.. calls],
+            };
+            graph = CallGraphProjection.Create(
+                graphView.CallerRoot,
+                graphView.CalleeRoot);
+            cycles = CallGraphCycleFindings.Inspect(
+                graphView,
+                graph);
+        }
+        else
+        {
+            graph = CallGraphProjection.FromCallees(
+                exactCalleeRoot);
+        }
         (
             ImmutableArray<AnnotatedCallGraphMappedCall> mapped,
             string? failure) =
@@ -724,7 +812,47 @@ public static class AssemblyContextMemberProjectionQuery
                 omitNotProjected: false);
         if (failure is not null)
             throw new InvalidOperationException(failure);
-        return new(graph, mapped);
+        return new(graph, mapped, cycles);
+    }
+
+    static CallTreeNode PreserveExactFocusNeighborhood(
+        CallTreeNode exactRoot,
+        CallTreeNode boundedRoot)
+    {
+        Dictionary<GraphNodeIdentity, CallTreeNode> boundedChildren =
+            boundedRoot.Children.ToDictionary(
+                static child =>
+                    child.GraphEvidence?.Identity
+                        ?? GraphNodeIdentity.FromMember(
+                            child.Member));
+        if (boundedChildren.Count == exactRoot.Children.Length
+            && exactRoot.Children.All(child =>
+                boundedChildren.ContainsKey(
+                    child.GraphEvidence?.Identity
+                        ?? GraphNodeIdentity.FromMember(
+                            child.Member))))
+        {
+            return boundedRoot;
+        }
+
+        ImmutableArray<CallTreeNode> children =
+        [
+            .. exactRoot.Children.Select(child =>
+            {
+                GraphNodeIdentity identity =
+                    child.GraphEvidence?.Identity
+                        ?? GraphNodeIdentity.FromMember(
+                            child.Member);
+                return boundedChildren.GetValueOrDefault(
+                    identity,
+                    child);
+            }),
+        ];
+        return boundedRoot with
+        {
+            Status = exactRoot.Status,
+            Children = children,
+        };
     }
 
     static IReadOnlyList<AssemblyMemberInvocationDestination> ProjectInvocationDestinations(
@@ -787,6 +915,67 @@ public static class AssemblyContextMemberProjectionQuery
             rows[index] = new(occurrences[index], target);
         }
         return new(rows);
+    }
+
+    static AssemblyMemberCallCycleInspection ProjectCallCycles(
+        CallRelationshipProjection relationships,
+        AssemblyMemberCallRelationshipOverlay relationshipOverlay)
+    {
+        AnnotatedCallGraphCycleInspection cycles =
+            relationships.Cycles
+                ?? throw new InvalidOperationException(
+                    "Call cycle projection produced no cycle inspection.");
+        Dictionary<int, CallGraphRow> graphRows =
+            relationships.Graph.Rows.ToDictionary(
+                static row => row.Number);
+        var findings =
+            new AssemblyMemberCallCycle[cycles.Findings.Length];
+        for (int index = 0; index < findings.Length; index++)
+        {
+            Finding<CallGraphCycleWitness> finding =
+                cycles.Findings[index];
+            int ordinal = finding.Ordinal
+                ?? throw new InvalidOperationException(
+                    "A call cycle Finding carries no ordinal.");
+            int firstEdgeRow =
+                finding.Payload.EdgeRows[0];
+            int[] factIds =
+            [
+                .. relationshipOverlay.Relationships
+                    .Where(relationship =>
+                        relationship.Occurrence.EdgeRow
+                            == firstEdgeRow)
+                    .Select(relationship =>
+                        relationship.Occurrence.FactId),
+            ];
+            if (factIds.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "A focus cycle does not begin at one source-targeted call relationship.");
+            }
+            CallGraphNode[] targets =
+            [
+                .. finding.Payload.EdgeRows.Select(edgeRow =>
+                {
+                    if (!graphRows.TryGetValue(
+                            edgeRow,
+                            out CallGraphRow row))
+                    {
+                        throw new InvalidOperationException(
+                            $"A call cycle names missing edge row {edgeRow}.");
+                    }
+                    return relationships.Graph.Nodes[
+                        row.Edge.To];
+                }),
+            ];
+            findings[index] = new AssemblyMemberCallCycle(
+                finding.Key,
+                ordinal,
+                finding.Payload.EdgeRows,
+                factIds,
+                targets);
+        }
+        return new(findings, cycles.Limits);
     }
 
     static CallGraphNode? FindCallee(
