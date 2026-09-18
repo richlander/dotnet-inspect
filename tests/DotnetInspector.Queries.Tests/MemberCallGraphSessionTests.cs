@@ -436,6 +436,51 @@ public sealed class MemberCallGraphSessionTests
                     .CorrespondenceIncomplete));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task CrossLibraryCalleeNeighborhood_EquivalentIdentitySpellingMatchesGeneration(
+        int equivalentIdentityIndex)
+    {
+        await using GraphContext context =
+            GraphContext.CreateWithEquivalentIdentity(
+                equivalentIdentityIndex,
+                CallerPath,
+                TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10));
+
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            ("RunAcrossBoundary", "Forward"),
+            (
+                InspectionMember(
+                    document.Nodes[edge.FromNodeId]).Name,
+                InspectionMember(
+                    document.Nodes[edge.ToNodeId]).Name));
+        Assert.Equal(
+            "boundary",
+            ExternalFocusRole(document, edge));
+        Assert.DoesNotContain(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                ExternalFocusedCallGraphInspectionCatalog
+                    .BoundaryClassificationIncomplete));
+    }
+
     [Fact]
     public void CalleeNeighborhoodRequest_RequiresFiniteValidBounds()
     {
@@ -1713,19 +1758,41 @@ public sealed class MemberCallGraphSessionTests
         internal TestSource[] Sources { get; }
 
         internal static GraphContext Create(params string[] paths) =>
-            CreateCore(streamOnly: false, failingIndex: null, paths);
+            CreateCore(
+                streamOnly: false,
+                failingIndex: null,
+                equivalentIdentityIndex: null,
+                paths);
 
         internal static GraphContext CreateStreamOnly(
             params string[] paths) =>
-            CreateCore(streamOnly: true, failingIndex: null, paths);
+            CreateCore(
+                streamOnly: true,
+                failingIndex: null,
+                equivalentIdentityIndex: null,
+                paths);
 
         internal static GraphContext CreateWithFailingParticipant(
             params string[] paths) =>
-            CreateCore(streamOnly: false, failingIndex: 1, paths);
+            CreateCore(
+                streamOnly: false,
+                failingIndex: 1,
+                equivalentIdentityIndex: null,
+                paths);
+
+        internal static GraphContext CreateWithEquivalentIdentity(
+            int equivalentIdentityIndex,
+            params string[] paths) =>
+            CreateCore(
+                streamOnly: false,
+                failingIndex: null,
+                equivalentIdentityIndex,
+                paths);
 
         static GraphContext CreateCore(
             bool streamOnly,
             int? failingIndex,
+            int? equivalentIdentityIndex,
             params string[] paths)
         {
             TestSource[] sources = paths
@@ -1733,7 +1800,8 @@ public sealed class MemberCallGraphSessionTests
                     (path, index) => TestSource.Create(
                         path,
                         streamOnly,
-                        failingIndex == index))
+                        failingIndex == index,
+                        equivalentIdentityIndex == index))
                 .ToArray();
             var policy =
                 new SourceRelativeAssemblyGroupBindingPolicy(
@@ -1786,7 +1854,8 @@ public sealed class MemberCallGraphSessionTests
         internal static TestSource Create(
             string sourcePath,
             bool streamOnly,
-            bool fails)
+            bool fails,
+            bool useEquivalentIdentity = false)
         {
             ResolvedAssemblyReference source =
                 ResolvedAssemblyReference.CreateFromPath(
@@ -1798,7 +1867,14 @@ public sealed class MemberCallGraphSessionTests
             TestSource? testSource = null;
             ResolvedAssemblyReference assembly =
                 ResolvedAssemblyReference.Create(
-                    source.Identity,
+                    useEquivalentIdentity
+                        ? new AssemblyReferenceIdentity(
+                            source.Identity.Name.ToLowerInvariant(),
+                            source.Identity.Version,
+                            Culture: "neutral",
+                            PublicKeyToken:
+                                source.Identity.PublicKeyToken)
+                        : source.Identity,
                     streamOnly ? null : sourcePath,
                     () => testSource!.Open(),
                     source.Provenance,

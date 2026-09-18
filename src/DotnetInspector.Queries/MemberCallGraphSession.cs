@@ -749,7 +749,20 @@ public sealed class MemberCallGraphSession : IDisposable
 
     readonly record struct AssemblyImageIdentity(
         AssemblyReferenceIdentity Identity,
-        Guid ModuleVersionId);
+        Guid ModuleVersionId)
+    {
+        public bool Equals(AssemblyImageIdentity other) =>
+            ModuleVersionId == other.ModuleVersionId
+            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                Identity,
+                other.Identity);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                AssemblyReferenceIdentity.EquivalentComparer
+                    .GetHashCode(Identity),
+                ModuleVersionId);
+    }
 
     enum IndexBuildKind
     {

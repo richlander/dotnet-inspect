@@ -85,10 +85,12 @@ identity and physical definition storage evidence. Labels, member spelling,
 `CallGraphNodeKind`, assembly-name text, and unresolved resolution hints never
 substitute for the exact join.
 
-Two registrations of the same exact assembly generation classify alike.
-Assemblies with matching names but different versions or module version ids do
-not. An unresolved or outside-group endpoint remains unknown even when the
-source traversal labels it external.
+Assembly identity uses ECMA equivalence, including case-insensitive name,
+culture, and public-key-token comparison and equivalent neutral-culture
+spellings. Two registrations of the same exact assembly generation therefore
+classify alike. Assemblies with matching names but different versions or module
+version ids do not. An unresolved or outside-group endpoint remains unknown
+even when the source traversal labels it external.
 
 The focus node must classify as hub. Failure to establish that invariant is a
 visible query error rather than an empty graph.
@@ -177,8 +179,8 @@ Release gates cover:
 3. edge role characteristics for boundary and connector rows;
 4. outside-group endpoints retained as unclassified boundaries with a targeted
    completeness limit;
-5. exact generation matching rather than assembly-name or traversal-kind
-   inference;
+5. exact generation matching, including ECMA-equivalent identity spellings,
+   rather than assembly-name or traversal-kind inference;
 6. physical call-site receipts and existing traversal, node, depth,
    correspondence, and analysis diagnostics surviving filtering;
 7. zero-depth and node-bound requests retaining only the primary seed and
