@@ -4102,12 +4102,14 @@ public sealed partial class CSharpPrinter
         return $"{receiver}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
     }
 
-    string ForLoopIncrementText(IrNode node) => node switch
+    string ForLoopIncrementText(IrNode node)
     {
-        ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment } => Expression(increment),
-        PointerCompoundAssignment update => PointerUpdateText(update, statement: false),
-        _ => Statement(node)?.TrimEnd(';') ?? "",
-    };
+        if (node is PointerCompoundAssignment update)
+            return PointerUpdateText(update, statement: false);
+        return node is ExpressionStatement { Expression: IncrementDecrement { IsChecked: true } increment }
+            ? Expression(increment)
+            : Statement(node)?.TrimEnd(';') ?? "";
+    }
 
     string PointerUpdateText(PointerCompoundAssignment update, bool statement)
     {
