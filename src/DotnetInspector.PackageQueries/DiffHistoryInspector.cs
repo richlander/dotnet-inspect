@@ -76,7 +76,9 @@ public static class DiffHistoryInspector
             [.. points.Select(static point => point.Row)],
             correlation,
             transitions,
-            changedVersionAssessments);
+            changedVersionAssessments,
+            request.ComparisonOptions,
+            request.MatchAcceptanceThreshold);
         return new DiffHistoryOutcome.Available(
             new DiffHistoryDocument.ApiMembers(content));
     }

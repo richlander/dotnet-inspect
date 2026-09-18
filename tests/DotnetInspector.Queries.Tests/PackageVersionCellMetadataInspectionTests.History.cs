@@ -66,10 +66,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         Assert.Equal(
             [1, 2],
             document.ChangedVersions
-                .Select(static address => address.Position));
+                .Select(static assessment =>
+                    assessment.Destination.Position));
         Assert.DoesNotContain(
             population[0].Cell.Address,
-            document.ChangedVersions);
+            document.ChangedVersionAddresses);
+        Assert.Equal(ApiDiffOptions.Default, document.ComparisonOptions);
+        Assert.Equal(100, document.MatchAcceptanceThreshold);
         Assert.True(
             document.Correlation.Compare("#1", "#3").IsExact);
     }
@@ -208,6 +211,289 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 DiffHistoryChangedVersionState.Failed,
                 assessment.State));
         Assert.Empty(document.ChangedVersions);
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountReducesChangedVersionRowsOncePerDestination()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[1], FixtureCatalog.DiffV2.AssemblyPath()),
+            (population[2], FixtureCatalog.DiffV1.AssemblyPath()));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        var completed = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    available.Count);
+        SectionCountEntry<DiffHistoryCountCohort> count =
+            Assert.Single(completed.Counts);
+        Assert.Equal(DiffHistoryCountCohort.ChangedVersions, count.Identity);
+        Assert.Equal(2, count.Value);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.Equal(2, document.ChangedVersions.Length);
+        Assert.All(
+            document.ChangedVersions,
+            static row =>
+            {
+                Assert.Equal(
+                    row.Predecessor.Position + 1,
+                    row.Destination.Position);
+                Assert.NotNull(row.Comparison);
+            });
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task HistoryCountCanEstablishZeroFromCompleteEvidence()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[1], FixtureCatalog.DiffV1.AssemblyPath()));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var completed = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        envelope.Content).Count);
+        Assert.Equal(0, Assert.Single(completed.Counts).Value);
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountRetainsSparseFailureBesideUsableDocument()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[2], FixtureCatalog.DiffV2.AssemblyPath()));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        HistoryType,
+                        [
+                            population[0].Cell.Address,
+                            population[2].Cell.Address,
+                        ])),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.Single(document.Transitions);
+        var failure = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        DiffHistoryChangedVersionCountEvidence evidence =
+            Assert.Single(failure.Sources).Evidence;
+        Assert.Equal(0, evidence.EstablishedAssessmentCount);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Unevaluated,
+            evidence.FirstUnestablishedAssessment!.State);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code
+                    == "diff-history.count-source-insufficient");
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountUsesProvenHeadAndWindowPrefixesButNotEarlierUnknowns()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        byte[] firstImage =
+            File.ReadAllBytes(FixtureCatalog.DiffV1.AssemblyPath());
+        byte[] secondImage =
+            File.ReadAllBytes(FixtureCatalog.DiffV2.AssemblyPath());
+        var lateFailure = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            if (position == 2)
+            {
+                return new PackageHouseSettlement.ResourceFree(
+                    new PackageHouseResult.Rejected(
+                        new PackageHouseEvidence(execution.Request),
+                        Reason("Late fixture rejection.")));
+            }
+
+            CellFixture fixture = population[position];
+            return fixture.Realize(
+                execution,
+                fixture.Content(
+                    ($"lib/{Framework}/DiffFixtureSample.dll",
+                        position == 0 ? firstImage : secondImage)));
+        });
+        RowSelectionIntent<string> headOne =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Head(1)]);
+        RowSelectionIntent<string> windowOne =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Window(1, 1)]);
+
+        foreach (RowSelectionIntent<string> selection
+            in new[] { headOne, windowOne })
+        {
+            InspectionEnvelope<DiffHistoryOutcome> prefixEnvelope =
+                await DiffHistoryInspection.InspectApiMembersAsync(
+                    CountRequest(
+                        HistoryRequest(population, HistoryType),
+                        selection),
+                    lateFailure,
+                    TestContext.Current.CancellationToken);
+
+            var prefixCompleted = Assert.IsType<
+                SectionCountOutcome<
+                    DiffHistoryCountCohort,
+                    DiffHistoryChangedVersionCountEvidence>.Completed>(
+                        Assert.IsType<DiffHistoryOutcome.Available>(
+                            prefixEnvelope.Content).Count);
+            Assert.Equal(1, Assert.Single(prefixCompleted.Counts).Value);
+        }
+
+        var earlyFailure = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            if (position == 1)
+            {
+                return new PackageHouseSettlement.ResourceFree(
+                    new PackageHouseResult.Rejected(
+                        new PackageHouseEvidence(execution.Request),
+                        Reason("Early fixture rejection.")));
+            }
+
+            CellFixture fixture = population[position];
+            return fixture.Realize(
+                execution,
+                fixture.Content(
+                    ($"lib/{Framework}/DiffFixtureSample.dll",
+                        position == 0 ? firstImage : secondImage)));
+        });
+
+        InspectionEnvelope<DiffHistoryOutcome> blockedEnvelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType),
+                    headOne),
+                earlyFailure,
+                TestContext.Current.CancellationToken);
+
+        var blocked = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        blockedEnvelope.Content).Count);
+        Assert.Equal(
+            1,
+            Assert.Single(blocked.Sources)
+                .Evidence.RequiredChangedVersionPrefix);
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountPreservesStrictSelectionFailureWithoutScalar()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()),
+            (population[1], FixtureCatalog.DiffV2.AssemblyPath()));
+        RowSelectionIntent<string> window =
+            RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Window(2, 3)]);
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType),
+                    window),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var semantic = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Semantic>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        envelope.Content).Count);
+        Assert.Equal(1, semantic.StageNumber);
+        Assert.Equal(3, semantic.RequiredPosition);
+        Assert.Equal(1, semantic.AvailableCount);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code
+                    == "diff-history.count-selection-failure");
+    }
+
+    [Fact]
+    public void HistoryCountRejectsRankingBeforeAcquisition()
+    {
+        RowSelectionIntent<string> ranked =
+            RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Top(
+                        1,
+                        "change"),
+                ]);
+
+        Assert.Throws<ArgumentException>(
+            () => new DiffHistoryCountRequest(
+                DiffHistoryCountCohort.ChangedVersions,
+                ranked));
     }
 
     [Fact]
@@ -375,10 +661,17 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 contents[position]);
         });
 
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                executor,
+                TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
         DiffHistoryApiMemberDocument document =
-            await InspectHistoryAsync(
-                HistoryRequest(population, HistoryType),
-                executor);
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
 
         Assert.Equal(
             [
@@ -390,6 +683,15 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         Assert.True(document.Transitions[0].Comparison.IsExact);
         Assert.False(document.Transitions[1].Comparison.IsExact);
         Assert.Empty(document.ChangedVersions);
+        var countFailure = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    available.Count);
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Inapplicable,
+            Assert.Single(countFailure.Sources)
+                .Evidence.FirstUnestablishedAssessment!.State);
     }
 
     [Fact]
@@ -470,6 +772,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
     public async Task HistoryExecutesPinnedSystemTextJsonPopulation()
     {
         ImmutableArray<CellFixture> population =
@@ -483,13 +786,20 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             (population[1], "system.text.json.9.0.0.nupkg"),
             (population[2], "system.text.json.10.0.0.nupkg"));
 
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "System.Text.Json.JsonSerializer",
+                        framework: "net8.0")),
+                executor,
+                TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
         DiffHistoryApiMemberDocument document =
-            await InspectHistoryAsync(
-                HistoryRequest(
-                    population,
-                    "System.Text.Json.JsonSerializer",
-                    framework: "net8.0"),
-                executor);
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
 
         Assert.Equal(3, executor.Calls);
         Assert.All(
@@ -498,7 +808,93 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 Assert.IsType<
                     FindingInspection<ApiMemberHandle>.Complete>(
                         evaluation.Inspection.Value));
-        Assert.NotEmpty(document.ChangedVersions);
+        Assert.Equal(
+            [
+                DiffHistoryChangedVersionState.Changed,
+                DiffHistoryChangedVersionState.Changed,
+            ],
+            document.ChangedVersionAssessments
+                .Select(static assessment => assessment.State));
+        var completed = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    available.Count);
+        Assert.Equal(2, Assert.Single(completed.Counts).Value);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task HistoryCountRecordsPinnedUnchangedPackageWitness()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "System.Text.Json",
+                "8.0.6",
+                "9.0.0",
+                "10.0.0");
+        SettlementExecutor executor = PackageExecutor(
+            (population[0], "system.text.json.8.0.6.nupkg"),
+            (population[1], "system.text.json.9.0.0.nupkg"),
+            (population[2], "system.text.json.10.0.0.nupkg"));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "System.Text.Json.JsonEncodedText",
+                        framework: "net8.0")),
+                executor,
+                TestContext.Current.CancellationToken);
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+
+        Assert.Equal(
+            [
+                DiffHistoryChangedVersionState.Unchanged,
+                DiffHistoryChangedVersionState.Unchanged,
+            ],
+            document.ChangedVersionAssessments
+                .Select(static assessment => assessment.State));
+        var completed = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    available.Count);
+        Assert.Equal(0, Assert.Single(completed.Counts).Value);
+    }
+
+    [Fact]
+    public async Task HistoryCountRequiresAtLeastOneTransition()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0");
+        SettlementExecutor executor = Executor(
+            (population[0], FixtureCatalog.DiffV1.AssemblyPath()));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var failure = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.SourceForCount>(
+                    Assert.IsType<DiffHistoryOutcome.Available>(
+                        envelope.Content).Count);
+        DiffHistoryChangedVersionCountEvidence evidence =
+            Assert.Single(failure.Sources).Evidence;
+        Assert.Equal(0, evidence.TotalAssessmentCount);
+        Assert.Null(evidence.FirstUnestablishedAssessment);
     }
 
     [Fact]
@@ -611,4 +1007,13 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 : new PackageVersionCellApiInspectionRequest(
                     typeFullName,
                     projectionLimits));
+
+    static DiffHistoryApiMemberOperationRequest CountRequest(
+        DiffHistoryApiMemberInspectionRequest inspection,
+        RowSelectionIntent<string>? rowSelection = null) =>
+        new(
+            inspection,
+            new DiffHistoryCountRequest(
+                DiffHistoryCountCohort.ChangedVersions,
+                rowSelection));
 }
