@@ -208,8 +208,9 @@ does not redefine Integration relationships or Workspace classification.
 The production path is:
 
 1. #7470 implements this CallGraph-owned projection and deterministic gates.
-2. A focused Queries/Inspection Graph slice classifies exact Workspace
-   participants and selects external focus for integration-style call graphs.
+2. [#7498](https://github.com/richlander/dotnet-inspect/issues/7498)
+   classifies exact Workspace participants and selects external focus for
+   integration-style call graphs.
 3. CLI Graph lowers the shared result through Markout.
 4. Inspect Web consumes the same host-neutral result through its graph viewer.
 
