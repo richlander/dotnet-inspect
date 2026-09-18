@@ -196,66 +196,30 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             await ActivateSourceAsync(owner);
         BrowserSpotlightExternalPackageWorkspaceRequest external =
             ExternalRequest(EcosystemPackCatalog.CreatePlatformWorkspacePlan());
-        using WorkspaceRealizationOperationLease source =
-            await EnterAsync(owner, "source");
-        BrowserSpotlightFreshWorkspaceAuthority authority =
-            BrowserSpotlightFreshWorkspaceAuthority.From(
-                Basis(source, generation: 13));
-        var admitted = Assert.IsType<
-            BrowserSpotlightRetainedWorkspaceAdmissionResult<
-                BrowserSpotlightRetainedWorkspaceHostAuthority,
-                BrowserRetainedWorkspaceActivationRejection>.Admitted>(
-                    owner.AdmitSpotlightActivation(
-                        "source",
-                        authority,
-                        external.Activation));
-        BrowserSpotlightRetainedWorkspaceHostAuthority hostAuthority =
-            admitted.Authority;
+        Descriptor descriptor = await DescriptorAsync(
+            owner,
+            external,
+            generation: 13);
         using var cancellation = new CancellationTokenSource();
-        hostAuthority.BindCancellation(cancellation.Token);
-        try
-        {
-            BrowserSpotlightWorkspaceRestorationResult<
-                BrowserPreparedWorkspaceActivation,
-                CompleteRestorationFailure> restoration =
-                    await owner.RestoreSpotlightAsync(
-                        hostAuthority,
-                        TestContext.Current.CancellationToken);
-            if (restoration
-                is BrowserSpotlightWorkspaceRestorationResult<
-                    BrowserPreparedWorkspaceActivation,
-                    CompleteRestorationFailure>.Failed failed)
-            {
-                Assert.Fail(failed.Result.Message);
-            }
-            var complete = Assert.IsType<
-                BrowserSpotlightWorkspaceRestorationResult<
-                    BrowserPreparedWorkspaceActivation,
-                    CompleteRestorationFailure>.Complete>(restoration);
 
-            cancellation.Cancel();
+        var cancelled = Assert.IsType<
+            ActivationResult.CompleteButNotPublished>(
+                await BrowserSpotlightRetainedWorkspaceActivation.ExecuteAsync(
+                    owner,
+                    "source",
+                    descriptor,
+                    cancellation.Token,
+                    cancellation.Cancel));
 
-            Assert.IsType<
-                BrowserSpotlightRetainedWorkspacePublicationResult<
-                    BrowserRetainedWorkspaceInstallation,
-                    BrowserRetainedWorkspaceActivationRejection>.Rejected>(
-                        owner.PublishSpotlightActivation(
-                            new(
-                                authority,
-                                hostAuthority,
-                                complete.Activation)));
-            BrowserRetainedWorkspaceNonInstallResult nonInstall =
-                await complete.Activation.SettleAsync();
-
-            Assert.True(nonInstall.Settlement!.Succeeded);
-            Assert.Null(nonInstall.Failure);
-            Assert.Same(sourceInstallation, owner.Active);
-            Assert.Equal(1, owner.Capacity.Charged);
-        }
-        finally
-        {
-            hostAuthority.Complete();
-        }
+        Assert.IsType<
+            BrowserSpotlightFreshWorkspaceBlock<
+                BrowserRetainedWorkspaceActivationRejection>.Host>(
+                    cancelled.Reason);
+        Assert.True(cancelled.NonInstall.Settlement!.Succeeded);
+        Assert.Null(cancelled.NonInstall.Failure);
+        Assert.False(cancelled.Activation.IsPending);
+        Assert.Same(sourceInstallation, owner.Active);
+        Assert.Equal(1, owner.Capacity.Charged);
     }
 
     [Fact]

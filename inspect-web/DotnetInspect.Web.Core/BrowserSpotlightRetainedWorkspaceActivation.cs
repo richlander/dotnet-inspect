@@ -185,7 +185,8 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
                 TNavigationAction,
                 TPlatformAction,
                 TLibraryIntent> descriptor,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action? preparedObserver = null)
         where TNavigationAction : class
         where TPlatformAction : class
         where TLibraryIntent : class
@@ -320,6 +321,7 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
                                     complete)
                             {
                                 prepared = complete.Activation;
+                                preparedObserver?.Invoke();
                             }
                             return restoration;
                         },
