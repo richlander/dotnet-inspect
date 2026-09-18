@@ -3372,64 +3372,20 @@ public sealed partial class CSharpPrinter
                 return UnsafeRequirementsAreWithin(node, yieldReturn.Value);
             case Throw { Value: { } value } when value is not CaughtException:
                 return UnsafeRequirementsAreWithin(node, value);
-            case StoreLocal { Value: not StackAllocate } store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadLocal load && load.Index == store.Index,
-                        store.Type) is { } localRoot
-                    && UnsafeRequirementsAreWithin(
-                        store,
-                        store.Type.Kind == TypeRefKind.ByRef,
-                        localRoot);
-            case StoreArgument store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadArgument load
-                            && PlaceIdentity.SameArgument(
-                                load.Index,
-                                load.Parameter,
-                                store.Index,
-                                store.Parameter),
-                        store.Type) is { } argumentRoot
-                    && UnsafeRequirementsAreWithin(store, argumentRoot);
+            case ScalarStore { Value: not StackAllocate } store:
+                return AssignmentUnsafeExpressionRoot(store.Value, store.UpdateKind) is { } root
+                    && UnsafeRequirementsAreWithin(store, store is StoreLocal { Type.Kind: TypeRefKind.ByRef }, root);
             case StoreStackSlot { Value: not StackAllocate } store:
                 var slotType = StackSlotTargetType(store);
                 return AssignmentUnsafeExpressionRoot(
                         store.Value,
-                        left => left is LoadStackSlot load
-                            && StackSlotName(load) == StackSlotName(store),
-                        slotType) is { } slotRoot
+                        ResidualSlotUpdateKind(store)) is { } slotRoot
                     && UnsafeRequirementsAreWithin(
                         store,
                         slotType?.Kind == TypeRefKind.ByRef,
                         slotRoot);
-            case StoreField store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadField load
-                            && load.Field.Name == store.Field.Name
-                            && Equals(load.Field.DeclaringType, store.Field.DeclaringType)
-                            && SamePlace(load.Instance, store.Instance),
-                        store.Field.Type) is { } fieldRoot
-                    && UnsafeRequirementsAreWithin(store, fieldRoot);
-            case StoreProperty store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadProperty load
-                            && load.PropertyName == store.PropertyName
-                            && Equals(load.Accessor.DeclaringType, store.Accessor.DeclaringType)
-                            && SameLValue(load.Instance, store.Instance)
-                            && PlaceIdentity.SameOperands(load.IndexArguments, store.IndexArguments),
-                        StorePropertyTargetType(store)) is { } propertyRoot
-                    && UnsafeRequirementsAreWithin(store, propertyRoot);
             case StoreElement store when InlineReceiverTempStoreValue(store) is null:
                 return UnsafeRequirementsAreWithin(store, store.Value);
-            case StoreIndirect store:
-                return AssignmentUnsafeExpressionRoot(
-                        store.Value,
-                        left => left is LoadIndirect load && SameLValue(load.Address, store.Address),
-                        IndirectStoreType(store.Address, store.Type)) is { } indirectRoot
-                    && UnsafeRequirementsAreWithin(store, indirectRoot);
             case DeconstructionAssignment assignment:
                 return UnsafeRequirementsAreWithin(assignment, assignment.Source);
             case ChainedAssignment assignment:
@@ -3534,15 +3490,12 @@ public sealed partial class CSharpPrinter
                     ResultType: { Kind: TypeRefKind.Pointer }
                 });
 
-    IrExpression? AssignmentUnsafeExpressionRoot(
-        IrExpression value,
-        Func<IrExpression, bool> readsTarget,
-        TypeRef? targetType)
+    static IrExpression? AssignmentUnsafeExpressionRoot(IrExpression value, ScalarUpdateKind? updateKind)
     {
-        if (value is not Binary binary || !readsTarget(binary.Left))
+        if (updateKind is null)
             return value;
+        var binary = (Binary)value;
         if (binary.IsChecked
-            || targetType?.Kind == TypeRefKind.Pointer
             || binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight)
         {
             return null;
@@ -4006,7 +3959,7 @@ public sealed partial class CSharpPrinter
             : $"{LocalName(s.Index)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreLocal s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(s.Type, s.Value))};"
-            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
+            : AssignmentText(s, $"{LocalName(s.Index)}", s.Value, s.UpdateKind, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {UnsafeExpressionText(d.Source, Expression(d.Source))};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {UnsafeExpressionText(c.Value, CoerceText(c.Value, c.InnermostTargetType))};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {UnsafeExpressionText(n.Value, CoerceText(n.Value, n.LocalType))};",
@@ -4016,12 +3969,7 @@ public sealed partial class CSharpPrinter
             s,
             CSharpNaming.ContainedIdentifier(s.Name),
             s.Value,
-            left => left is LoadArgument load
-                && PlaceIdentity.SameArgument(
-                    load.Index,
-                    load.Parameter,
-                    s.Index,
-                    s.Parameter),
+            s.UpdateKind,
             s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
@@ -4030,24 +3978,17 @@ public sealed partial class CSharpPrinter
             : $"{StackSlotName(s)} = ref {UnsafeExpressionText(s.Value, Deref(s.Value), force: RendersAsPointerDeref(s.Value))};",
         StoreStackSlot s => _declaringStores.Contains(s)
             ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {UnsafeExpressionText(s.Value, DeclarationInitializerText(StackSlotTargetType(s)!, s.Value))};"
-            : AssignmentText(s, StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
+            : AssignmentText(s, StackSlotName(s), s.Value, ResidualSlotUpdateKind(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             s,
             FieldTarget(s.Field, s.Instance), s.Value,
-            left => left is LoadField load
-                && load.Field.Name == s.Field.Name
-                && Equals(load.Field.DeclaringType, s.Field.DeclaringType)
-                && SamePlace(load.Instance, s.Instance),
+            s.UpdateKind,
             s.Field.Type),
         StoreProperty s => AssignmentText(
             s,
             PropertyTarget(s.Accessor, s.HasInstance ? s.Instance : null, s.IndexArguments, s.PropertyName, s.IsVirtual),
             s.Value,
-            left => left is LoadProperty load
-                && load.PropertyName == s.PropertyName
-                && Equals(load.Accessor.DeclaringType, s.Accessor.DeclaringType)
-                && SameLValue(load.Instance, s.Instance)
-                && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
+            s.UpdateKind,
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {UnsafeExpressionText(e.Value, CoerceText(e.Value, e.Accessor.ParameterTypes[0]))};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
@@ -4058,7 +3999,7 @@ public sealed partial class CSharpPrinter
             s,
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
-            left => left is LoadIndirect load && SameLValue(load.Address, s.Address),
+            s.UpdateKind,
             IndirectStoreType(s.Address, s.Type),
             parenthesizeIncrementTarget: RendersAsPointerDeref(s.Address)),
         // default-initialization of a named place spells through the place,
@@ -5483,19 +5424,7 @@ public sealed partial class CSharpPrinter
     /// the address — the faithful target — falling back to the opcode type when
     /// the address carries no pointer/managed-ref type (an untyped <c>stind</c>).
     /// </summary>
-    TypeRef? IndirectStoreType(IrExpression address, TypeRef? opcodeType) => PointeeType(address) ?? opcodeType;
-
-    /// <summary>The element a pointer/managed-ref address points at, seen through the additive pointer arithmetic (<c>p + i</c>) and conversions that an indexed store roots in.</summary>
-    static TypeRef? PointeeType(IrExpression address) => address.ResultType switch
-    {
-        { Kind: TypeRefKind.Pointer or TypeRefKind.ByRef, ElementType: { } element } => element,
-        _ => address switch
-        {
-            Binary { Kind: BinaryKind.Add or BinaryKind.Subtract } b => PointeeType(b.Left) ?? PointeeType(b.Right),
-            Convert c => PointeeType(c.Operand),
-            _ => null,
-        },
-    };
+    TypeRef? IndirectStoreType(IrExpression address, TypeRef? opcodeType) => PointerArithmetic.PointeeType(address) ?? opcodeType;
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
@@ -6037,35 +5966,35 @@ public sealed partial class CSharpPrinter
         }
         && element.Name.StartsWith("ValueTuple`", StringComparison.Ordinal);
 
-    /// <summary>
-    /// Assignment spelling with compound/increment sugar: when the value is
-    /// an unchecked binary whose left operand reads the assignment target,
-    /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
-    /// </summary>
+    ScalarUpdateKind? ResidualSlotUpdateKind(StoreStackSlot store)
+        => StackSlotTargetType(store)?.Kind != TypeRefKind.Pointer
+            && store.Value is Binary { Left: LoadStackSlot read } binary
+            && StackSlotName(read) == StackSlotName(store)
+                ? ScalarSelfUpdatePass.Classify(binary)
+                : null;
+
     string AssignmentText(
         IrNode owner,
         string target,
         IrExpression value,
-        Func<IrExpression, bool> readsTarget,
+        ScalarUpdateKind? updateKind,
         TypeRef? targetType = null,
         bool parenthesizeIncrementTarget = false)
     {
-        if (targetType?.Kind != TypeRefKind.Pointer && value is Binary binary && readsTarget(binary.Left))
+        if (updateKind is { } kind)
         {
-            // A compound assignment only forms when the value reads the target
-            // in same-type arithmetic, so the result already matches the target
-            // — no conversion is involved on this path.
+            var binary = (Binary)value;
             string statement = CompoundStatement(
                 target,
                 binary,
                 targetType,
-                parenthesizeIncrementTarget,
-                out bool isIncrement);
+                kind,
+                parenthesizeIncrementTarget);
             _printedRangeMetadata?.SetNodeKind(
                 owner,
                 binary.IsChecked
                     ? "CheckedStatement"
-                    : isIncrement
+                    : kind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement
                         ? "IncrementOrDecrementExpression"
                         : "AssignmentStatement");
             // A checked compound (add.ovf/sub.ovf/mul.ovf) cannot be spelled as a
@@ -6087,18 +6016,14 @@ public sealed partial class CSharpPrinter
         string target,
         Binary binary,
         TypeRef? targetType,
-        bool parenthesizeIncrementTarget,
-        out bool isIncrement)
+        ScalarUpdateKind updateKind,
+        bool parenthesizeIncrementTarget)
     {
-        isIncrement = false;
         string incrementTarget = parenthesizeIncrementTarget
             ? $"({target})"
             : target;
-        if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract && binary.Right is Constant { Value: 1 })
-        {
-            isIncrement = true;
-            return $"{incrementTarget}{(binary.Kind == BinaryKind.Add ? "++" : "--")};";
-        }
+        if (updateKind is ScalarUpdateKind.Increment or ScalarUpdateKind.Decrement)
+            return $"{incrementTarget}{(updateKind == ScalarUpdateKind.Increment ? "++" : "--")};";
         // The compound runs in the lvalue's type. Prefer the resolved store type
         // (`targetType`) over `binary.Left.ResultType`: an indirect store reads its
         // target through `ldind.i`, which the importer types as the signed native
