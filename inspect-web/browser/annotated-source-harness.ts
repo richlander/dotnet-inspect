@@ -259,6 +259,10 @@ const result: AnnotatedSourceResult = {
       available: true,
       unavailableReason: null,
     },
+    callRelationships: {
+      available: false,
+      unavailableReason: "NotProjected",
+    },
   },
   findingEvidenceDocuments: [{
     id: 0,
@@ -308,6 +312,7 @@ const result: AnnotatedSourceResult = {
     nodeIds: [],
     unavailableReason: null,
   }],
+  callRelationships: [],
   provenance: inertString("browser-gate product fixture"),
   contextLimitation: null,
 };

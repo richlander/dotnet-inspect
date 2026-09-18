@@ -22,9 +22,16 @@
                      Version="[8.0.4]" />
     <PackageDownload Include="Microsoft.EntityFrameworkCore.Relational"
                      Version="[8.0.4]" />
+    <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
+          Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)avalonia/12.1.2/avalonia.12.1.2.nupkg"
+          Link="RealAssets/ApiMatching/avalonia.12.1.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)npgsql.entityframeworkcore.postgresql/8.0.4/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
           Link="RealAssets/TypeDependencies/npgsql.entityframeworkcore.postgresql.8.0.4.nupkg"
           CopyToOutputDirectory="PreserveNewest" />

@@ -546,6 +546,26 @@ call-only Research profile to `ResearchFactRequirements.None`, and
 `RequirementsNone_DoesNotResolveAnAssemblyContext` is the non-vacuity gate that
 proves such a profile bypasses Research's Analysis-context resolver.
 
+The Inspect Web member Finding census adopts the same body-local relationship
+dimension through
+`ResearchFactRegistry.MemberCensusWithCallRelationships`. The source operation
+requires an exact MethodDef token, obtains physical calls from its retained
+`LibraryBodyIndex`, and builds one depth-one callee projection that also
+supplies invocation destinations. The resulting `call.edge` Findings share the
+ordinary census receipt and source targets while remaining outside the default
+annotation set; **All** reveals them without changing first paint. The Browser
+contract also transports one typed sidecar row per Finding with the caller
+MVID and MethodDef token, IL offset, operand token, call kind, loop state,
+stable edge row, and occurrence-specific graph target. Browser validation
+requires exact coverage between those rows and the document's `call.edge`
+Findings; it never recovers identity from labels or source text.
+`MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
+single operation shape, and
+`MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
+Browser/Wasm transport alongside existing callee evidence. This adoption does
+not yet transport cycle or ownership witnesses, add a relationship table, or
+reuse the separately requested full member Call Graph surface.
+
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
 `Completed`). The push path is a thin wrapper over the same memoized pull core,

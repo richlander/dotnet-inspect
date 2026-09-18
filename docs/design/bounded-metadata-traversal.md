@@ -544,9 +544,11 @@ The relationship-consumer implementation applies these projections:
   separate mechanisms.
 
 Delete depth-only and silent-truncation duplicates after consumer migration. A
-syntax census should retain an explicit list of direct relationship reads and
-identify which are harmless one-edge lookups versus multi-edge climbs. It must
-include callers that reach a climb indirectly through the shared primitives.
+direct one-edge read may remain when it does not form a relationship chain;
+multi-edge climbs must consume the shared bounded traversal. Source spelling
+does not establish that semantic distinction, so ownership is evaluated in
+design and review. Each migrated consumer proves the contract through its
+public paths with cyclic, over-budget, and valid relationship cases.
 
 ### 2. Count and projection amplification
 

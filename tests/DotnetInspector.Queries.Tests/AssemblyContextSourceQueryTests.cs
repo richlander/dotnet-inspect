@@ -198,7 +198,7 @@ public sealed partial class AssemblyContextSourceQueryTests
             StringComparison.Ordinal);
         Assert.Equal(
             SourceLinkResolver.SourceResolutionMethod.Inferred,
-            source.Inspection.Mapping?.ResolutionMethod);
+            Assert.Single(source.Inspection.Mapping!.Documents).ResolutionMethod);
         Assert.Equal(
             SourceChecksumVerification.Exact,
             source.Inspection.ChecksumVerification);
