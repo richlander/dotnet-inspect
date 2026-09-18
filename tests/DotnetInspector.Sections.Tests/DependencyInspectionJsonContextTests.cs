@@ -4,6 +4,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;
 
@@ -266,6 +267,48 @@ public sealed class DependencyInspectionJsonContextTests
             ((DependencyInspectionFailure.Pruning)
                 roundTripped.Failures[2]).Value);
         Assert.Equal("Inventory unavailable", inventory.Message.ToString());
+    }
+
+    [Fact]
+    public void ContentRoundTripsLibraryGraphIdentityVariants()
+    {
+        var assembly = new ManagedMetadataIdentity.Assembly(
+            new AssemblyReferenceIdentity(
+                "Example.Assembly",
+                new Version(1, 2, 3, 4),
+                "neutral",
+                "0011223344556677"));
+        var module = new ManagedMetadataIdentity.Module(
+            "Example.Module.netmodule",
+            Guid.Parse("01234567-89ab-cdef-0123-456789abcdef"));
+        var graph = new DependencyGraphDocument(
+            [],
+            [
+                new DependencyGraphNode(
+                    Id: 0,
+                    new DependencyGraphNodeIdentity.Library(assembly),
+                    new InertString(TextPolicy.Field, assembly.Name)),
+                new DependencyGraphNode(
+                    Id: 1,
+                    new DependencyGraphNodeIdentity.Library(module),
+                    new InertString(TextPolicy.Field, module.Name)),
+            ],
+            [],
+            [],
+            []);
+
+        DependencyGraphDocument roundTripped = RoundTrip(graph);
+
+        var roundTrippedAssembly = Assert.IsType<
+            ManagedMetadataIdentity.Assembly>(
+                Assert.IsType<DependencyGraphNodeIdentity.Library>(
+                    roundTripped.Nodes[0].Identity).Identity);
+        Assert.Equal(assembly.Identity, roundTrippedAssembly.Identity);
+        var roundTrippedModule = Assert.IsType<ManagedMetadataIdentity.Module>(
+            Assert.IsType<DependencyGraphNodeIdentity.Library>(
+                roundTripped.Nodes[1].Identity).Identity);
+        Assert.Equal(module.ModuleName, roundTrippedModule.ModuleName);
+        Assert.Equal(module.ModuleVersionId, roundTrippedModule.ModuleVersionId);
     }
 
     [Fact]

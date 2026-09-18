@@ -65,7 +65,10 @@ public abstract record DependencyGraphNodeIdentity
             DependencyGraphNodeKind.Type;
     }
 
-    public sealed record Library(ManagedMetadataIdentity Identity) :
+    public sealed record Library(
+        [property: JsonConverter(
+            typeof(DependencyGraphManagedMetadataIdentityJsonConverter))]
+        ManagedMetadataIdentity Identity) :
         DependencyGraphNodeIdentity
     {
         [JsonIgnore]
