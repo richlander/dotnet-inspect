@@ -1121,7 +1121,9 @@ issue references below.
   compiled context once, requires the exact seven rooted artifacts and consumer
   mappings, compiles all seven `.js` and `.d.ts` outputs against the SDK-owned
   `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm runtime pack
-  with host-independent LF output, and proves all 21 files are current;
+  with host-independent LF output, proves the seven checked-in TypeScript
+  sources are current, and type-checks authored consumers against the fourteen
+  exact transient outputs;
 - the deployment and promotion verifiers pin the exact rooted-assembly set (the
   seven names above) and structural invariants such as exactly one SDK
   `create()` call, one runtime, and zero entry-point invocations, but assert
