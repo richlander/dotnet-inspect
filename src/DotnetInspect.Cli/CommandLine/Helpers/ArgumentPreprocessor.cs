@@ -110,6 +110,9 @@ public static class ArgumentPreprocessor
         if (option.Equals("--all-libraries", StringComparison.Ordinal)
             || option.StartsWith(
                 "--all-libraries=",
+                StringComparison.Ordinal)
+            || option.StartsWith(
+                "--all-libraries:",
                 StringComparison.Ordinal))
         {
             return "'--all-libraries' is no longer valid. Selected-TFM package "

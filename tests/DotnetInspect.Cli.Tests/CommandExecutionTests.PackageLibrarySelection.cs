@@ -784,11 +784,44 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task PackageCommand_AllLibrariesExplainsAggregateDefault()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task PackageCommand_ExactLibraryRejectsEmptyAsset(
+        string asset)
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--library", asset,
+                "-S", "Library Info");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--library requires a non-empty asset name",
+                result.Error);
+            Assert.DoesNotContain("Test.Primary.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--all-libraries")]
+    [InlineData("--all-libraries=false")]
+    [InlineData("--all-libraries=true")]
+    [InlineData("--all-libraries:false")]
+    [InlineData("--all-libraries:true")]
+    public async Task PackageCommand_AllLibrariesExplainsAggregateDefault(
+        string option)
     {
         var result = await RunAppAsync(
-            "package", "Any.Package", "--all-libraries");
+            "package", "Any.Package", option);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);

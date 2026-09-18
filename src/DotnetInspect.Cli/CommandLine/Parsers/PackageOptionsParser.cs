@@ -92,10 +92,9 @@ public static class PackageOptionsParser
             Tree = result.GetValue(opts.Tree),
             Discover = opts.ParseDiscover(result),
             Count = result.GetValue(opts.Count),
-            PackageLibrary =
-                result.GetValue(args.NamesakeLibraryOption)
-                    ? ""
-                    : result.GetValue(args.LibraryOption),
+            PackageLibrary = result.GetValue(args.LibraryOption),
+            NamesakeLibrary =
+                result.GetValue(args.NamesakeLibraryOption),
             AggregateLibraries =
                 PackageCommand.RequestsAggregateLibraryInspection(
                     opts.ParseSelect(result),
@@ -123,9 +122,15 @@ public static class PackageOptionsParser
 
         var explicitVersion = parseResult.GetValue(args.VersionOption);
         var libraryValue = parseResult.GetValue(args.LibraryOption);
-        var packageLibrary = parseResult.GetValue(args.NamesakeLibraryOption)
-            ? ""
-            : libraryValue;
+        bool namesakeLibrary =
+            parseResult.GetValue(args.NamesakeLibraryOption);
+        if (parseResult.GetResult(args.LibraryOption)
+                is { Implicit: false }
+            && string.IsNullOrWhiteSpace(libraryValue))
+        {
+            return new InvalidArguments(
+                "--library requires a non-empty asset name.");
+        }
 
         bool hasExplicitVersionSelector =
             parseResult.GetResult(args.VersionOption) is { Implicit: false };
@@ -226,7 +231,8 @@ public static class PackageOptionsParser
             ShowDependencies = parseResult.GetValue(args.DependenciesOption),
             Tfm = parseResult.GetValue(args.TfmOption),
             TypeFilter = typeFilter,
-            PackageLibrary = packageLibrary,
+            PackageLibrary = libraryValue,
+            NamesakeLibrary = namesakeLibrary,
             ListLayout = parseResult.GetValue(args.LayoutOption) && !opts.IsDiscoveryMode(parseResult),
             ListLayoutExplicitlySet =
                 parseResult.GetValue(args.LayoutOption),
@@ -295,7 +301,8 @@ public static class PackageOptionsParser
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
-        if (packageLibrary is null
+        if (libraryValue is null
+            && !namesakeLibrary
             && PackageCommand.RequestsAggregateLibraryInspection(
                 options.Select,
                 options.Discover))

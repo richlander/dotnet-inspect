@@ -56,6 +56,7 @@ public partial class PackageCommand
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode =
             options.PackageLibrary != null
+            || options.NamesakeLibrary
             || options.AggregateLibraries;
         if (!packageLibraryMode)
             options = NormalizeDependencyProjection(options);
@@ -1088,7 +1089,8 @@ public partial class PackageCommand
                     options);
             }
 
-            if (options.PackageLibrary != null)
+            if (options.PackageLibrary != null
+                || options.NamesakeLibrary)
             {
                 return await ExecutePackageLibraryAsync(
                     target.IsLocalFile,

@@ -37,7 +37,8 @@ public partial class PackageCommand
     {
         if (options.AggregateLibraries)
             return GetPackageAggregateLibraryModeError(options);
-        if (options.PackageLibrary is not null)
+        if (options.PackageLibrary is not null
+            || options.NamesakeLibrary)
             return GetPackageLibraryModeError(options);
         return null;
     }
@@ -136,9 +137,7 @@ public partial class PackageCommand
                 : packageName;
         return LibraryCommand.ExecuteAsync(
             CreateLibraryOptions(
-                string.IsNullOrWhiteSpace(options.PackageLibrary)
-                    ? null
-                    : options.PackageLibrary,
+                options.PackageLibrary,
                 packageReference,
                 options));
     }
@@ -274,10 +273,7 @@ public partial class PackageCommand
         new()
         {
             AssemblyName = assemblyName,
-            NamesakeLibrary =
-                options.PackageLibrary is not null
-                && string.IsNullOrWhiteSpace(
-                    options.PackageLibrary),
+            NamesakeLibrary = options.NamesakeLibrary,
             IncludeMetadata = true,
             PackagePath = packageReference,
             IncludePrerelease = options.IncludePrerelease,

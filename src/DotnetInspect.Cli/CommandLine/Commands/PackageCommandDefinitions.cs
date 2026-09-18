@@ -267,6 +267,7 @@ public static class PackageCommandDefinitions
                         if (exitCode == 0
                             && success.Options.PackageArgs.Length > 0
                             && success.Options.PackageLibrary == null
+                            && !success.Options.NamesakeLibrary
                             && !success.Options.AggregateLibraries
                             && !success.Options.FormatExplicitlySet
                             && !success.Options.IsRawOutput)

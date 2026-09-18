@@ -42,10 +42,14 @@ public record InspectionOptions : IProjectionOptions
     public bool BrowsableUrls { get; init; }
 
     /// <summary>
-    /// Library inside the package to inspect. Null means package inspection; empty string means
-    /// namesake narrowing; a non-empty value selects a specific compile asset.
+    /// Exact library inside the package to inspect.
     /// </summary>
     public string? PackageLibrary { get; init; }
+
+    /// <summary>
+    /// Narrow inspection to the package's unique namesake library.
+    /// </summary>
+    public bool NamesakeLibrary { get; init; }
 
     /// <summary>
     /// Route package Library-section demand through the selected compile-Library aggregate.
@@ -325,7 +329,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null;
+    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || NamesakeLibrary;
 
     /// <summary>
     /// All inspection features enabled.

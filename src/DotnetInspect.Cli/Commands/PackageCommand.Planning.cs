@@ -429,7 +429,7 @@ public partial class PackageCommand
         if (options.Paths) conflicts.Add("--paths");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
-        if (options.PackageLibrary != null) conflicts.Add("--library");
+        if (options.PackageLibrary != null || options.NamesakeLibrary) conflicts.Add("--library");
         if (options.AggregateLibraries) conflicts.Add("Library section inspection");
         if (options.Discover != null) conflicts.Add("-D/--discover");
 
@@ -498,7 +498,7 @@ public partial class PackageCommand
             if (options.ListTfms) conflicts.Add("--tfms");
             if (options.ListVersions) conflicts.Add("--versions/--version");
             if (options.ShowDependencies) conflicts.Add("--dependencies");
-            if (options.PackageLibrary != null) conflicts.Add("--library");
+            if (options.PackageLibrary != null || options.NamesakeLibrary) conflicts.Add("--library");
             if (options.AggregateLibraries) conflicts.Add("Library section inspection");
             if (options.Discover != null) conflicts.Add("-D/--discover");
             if (options.Columns != null) conflicts.Add("--columns");
