@@ -348,8 +348,8 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   const url = buildWorkspaceStateUrl(
     "https://inspect.example/packages/old?stale=1#metadata",
     state,
-    stateJson => {
-      encodedStates.push(JSON.parse(stateJson) as unknown);
+    shareState => {
+      encodedStates.push(shareState);
       return encoded();
     });
 

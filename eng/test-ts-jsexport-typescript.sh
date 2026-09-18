@@ -89,6 +89,24 @@ export async function readInertDisplay(): Promise<string> {
 export const untreated: InertString = "plain text";
 TS
 
+cat > "$scratch/typed-input-usage.ts" <<'TS'
+import { matchWidgetCandidates } from "./facade.js";
+import type { WidgetDto } from "./facade.js";
+
+const candidates: ReadonlyArray<WidgetDto> = [
+  { name: "primary", count: 1 },
+  { name: "fallback", count: 2 },
+];
+
+export const matched: boolean =
+  matchWidgetCandidates("primary", candidates);
+
+// The public facade accepts the authenticated JSON value, not its raw ABI
+// envelope.
+// @ts-expect-error
+export const rawEnvelope = matchWidgetCandidates("primary", JSON.stringify(candidates));
+TS
+
 cat > "$scratch/conditional-usage.ts" <<'TS'
 import { getConditionalOutput } from "./facade.js";
 import type {
@@ -429,6 +447,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "callback-usage.ts",
     "conditional-usage.ts",
     "inert-usage.ts",
+    "typed-input-usage.ts",
     "union-usage.ts"
   ]
 }

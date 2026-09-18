@@ -9,6 +9,37 @@ namespace DotnetInspector.PlatformHouse.Packages;
 /// </summary>
 public static class PackagePlatformAssemblyReferenceResolver
 {
+    /// <summary>
+    /// Projects either a successful package reference snapshot or its
+    /// resource-free source-terminal result.
+    /// </summary>
+    public static ValueTask<
+        PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
+            PlatformHouseRequest request,
+            PackagePlatformHouseResult<
+                PackageReferenceRealization> reference,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return reference switch
+        {
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded success =>
+                    ResolveAsync(request, success, consumedWork),
+            PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded terminal =>
+                    ValueTask.FromResult(
+                        PlatformHouseAssemblyReferenceResolver
+                            .ProjectSourceTerminal(
+                                request,
+                                terminal.Contribution,
+                                consumedWork,
+                                RejectionKind(terminal))),
+            _ => throw new InvalidOperationException(
+                "Unknown package-backed Platform result."),
+        };
+    }
+
     public static ValueTask<
         PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
             PlatformHouseRequest request,
@@ -55,4 +86,20 @@ public static class PackagePlatformAssemblyReferenceResolver
             item,
             consumedWork);
     }
+
+    static PlatformHouseRejectionKind? RejectionKind(
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.NotSucceeded terminal) =>
+        terminal.Contribution is not PlatformSourceContribution.Rejected
+            ? null
+            : terminal.Diagnostic.Kind switch
+            {
+                PackagePlatformSourceDiagnosticKind.InvalidSelection =>
+                    PlatformHouseRejectionKind.InvalidRequest,
+                PackagePlatformSourceDiagnosticKind.InvalidCoordinate
+                    or PackagePlatformSourceDiagnosticKind.UnsupportedTarget =>
+                        PlatformHouseRejectionKind
+                            .InvalidTargetCorrespondence,
+                _ => PlatformHouseRejectionKind.InvalidOwnerResult,
+            };
 }

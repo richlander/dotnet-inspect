@@ -498,9 +498,9 @@ async function installFacades(
         const surface = surfaceFor("Microsoft.NETCore.App");
         return JSON.stringify({ ...surface, activeFramework: framework, version: version || surface.version });
       }
-      export function searchTypes(query, candidatesJson) {
+      export function searchTypes(query, candidates) {
         const normalized = query.toLowerCase();
-        return JSON.parse(candidatesJson)
+        return candidates
           .filter(candidate => candidate.name.toLowerCase().includes(normalized)
             || candidate.full.toLowerCase().includes(normalized))
           .map(candidate => ({ key: candidate.key, kind: "substring" }));
@@ -918,14 +918,18 @@ async function installFacades(
       document.addEventListener("hold-workspace-encode", () => {
         holdNextWorkspaceEncode = true;
       });
-      export async function encodeWorkspaceShareState(json) {
+      export async function encodeWorkspaceShareState(state) {
         if (holdNextWorkspaceEncode) {
           holdNextWorkspaceEncode = false;
           document.documentElement.dataset.workspaceEncodePending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-workspace-encode", resolve, { once: true }));
         }
-        return { succeeded: true, packet: btoa(json), failure: null };
+        return {
+          succeeded: true,
+          packet: btoa(JSON.stringify(state)),
+          failure: null,
+        };
       }
       export function decodeWorkspaceShareState(packet) {
         return { succeeded: true, state: JSON.parse(atob(packet)), failure: null };

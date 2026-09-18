@@ -2383,9 +2383,10 @@ public sealed partial class CSharpPrinter
                     : "ConversionExpression",
                 IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
         }
-        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
+        var numericSource = CoercionSourceType(value);
+        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(numericSource, numericTarget))
             return TransparentCoercion(value);
-        if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
+        if (!CSharpConversionRules.NeedsNumericCast(numericSource, target))
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
@@ -2408,19 +2409,24 @@ public sealed partial class CSharpPrinter
             }
             return new(
                 CheckedSafeNumericCast(
-                    EffectiveType(conv.Operand),
+                    CoercionSourceType(conv.Operand),
                     numericTarget,
                     () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}"),
                 "ConversionExpression");
         }
         return new(
             CheckedSafeNumericCast(
-                EffectiveType(value),
+                numericSource,
                 numericTarget,
                 () => $"({TypeText(numericTarget)}){Operand(value)}"),
             "ConversionExpression",
             IsContextualWrapper: true);
     }
+
+    TypeRef? CoercionSourceType(IrExpression value)
+        => value is Unary && TypeFamilies.Of(value.ResultType) is StackFamily.I8 or StackFamily.I
+            ? WideIndexOperandType(value)
+            : EffectiveType(value);
 
     bool EnumConditionalHasCompleteSymbolicArms(
         Conditional conditional,

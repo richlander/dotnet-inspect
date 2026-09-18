@@ -322,14 +322,19 @@ Not:
 - [Tree rendering](https://github.com/...)
 ```
 
-### Opting into blob URLs
+### Preferring rendered URLs
 
-Use `--blob` to switch from raw URLs to `/blob/` URLs for browser viewing:
+Fetchable content URLs are the default. Use `--prefer-rendered-urls` to prefer a
+browser view when a supported provider mapping exists; otherwise the URL stays
+unchanged. For GitHub this selects `/blob/` views. Only the GitHub route segment
+is changed, not arbitrary `/raw/` segments in file paths or other providers.
+The [URL preference contract](output-shapes.md#url-shape-modifiers-orthogonal-to-the-ladder)
+owns this behavior and its distinction from `--print` and `--bare`.
 
 ```bash
-# Default: /raw/ URLs (LLM-friendly, returns raw content via 302 redirect)
+# Default: fetchable source URLs
 dotnet-inspect type TreeNode --package Markout -S "Source Files"
 
-# With --blob: /blob/ URLs (browser-friendly, returns HTML page)
-dotnet-inspect type TreeNode --package Markout -S "Source Files" --blob
+# Prefer a rendered browser view when available
+dotnet-inspect type TreeNode --package Markout -S "Source Files" --prefer-rendered-urls
 ```
