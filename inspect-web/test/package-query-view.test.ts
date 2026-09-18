@@ -1755,6 +1755,37 @@ test("bindPackageQueryView defers term updates and render resumption during comp
   assert.deepEqual(calls, ["edit:0:eq:日本", "resume"]);
 });
 
+test("bindPackageQueryView ignores an unpaired term compositionend", () => {
+  const value = new FakeElement();
+  const operator = new FakeElement();
+  operator.value = "eq";
+  const form = new FakeElement({ queryTermForm: "0" });
+  form.add("[data-query-term-value]", value);
+  form.add("[data-query-term-operator]", operator);
+  const root = new FakeRoot(value);
+  root.add("[data-query-term-form]", form);
+  const calls: string[] = [];
+
+  bindPackageQueryView(fakeDom.parentNode(root), {
+    onBack: () => {},
+    onCancel: () => {},
+    onPresetToggle: () => {},
+    onLibraryLiteralInput: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => {},
+    onResultViewportChange: () => {},
+    onRowOpen: () => {},
+    onRun: () => {},
+    onSourceChange: () => {},
+    onTermEdit: () => calls.push("edit"),
+    onEditorCompositionEnd: () => calls.push("resume"),
+  });
+
+  value.dispatch("compositionend");
+
+  assert.deepEqual(calls, []);
+});
+
 test("Package Query stream rendering resumes once after composition settles", () => {
   let frameCallback: (() => void) | null = null;
   let composing = true;

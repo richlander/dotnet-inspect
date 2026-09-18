@@ -107,7 +107,10 @@ export function bindPackageQueryEditor(
     publish();
   });
   element.addEventListener("compositionend", () => {
+    const wasComposing =
+      element.dataset.queryEditorComposing === "true";
     delete element.dataset.queryEditorComposing;
+    if (!wasComposing) return;
     publish();
     compositionSettled?.();
   });
