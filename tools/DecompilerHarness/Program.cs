@@ -613,7 +613,22 @@ static class Program
         }
 
         if (fidelityCheck)
-            return FidelityCheck.Run(assemblies, compileCap, maxExamples, lowered, fidelityTimings, fidelityZeroSignalGuard);
+        {
+            return lowered
+                ? FidelityCheck.Run(
+                    assemblies,
+                    compileCap,
+                    maxExamples,
+                    lowered: true,
+                    timings: fidelityTimings,
+                    zeroSignalGuard: fidelityZeroSignalGuard)
+                : await FidelityCheck.RunReturnToSender(
+                    assemblies,
+                    compileCap,
+                    maxExamples,
+                    fidelityTimings,
+                    fidelityZeroSignalGuard);
+        }
 
         if (returnToSender)
             return await ReturnToSender.Run(assemblies, cap, maxExamples);
@@ -2385,7 +2400,9 @@ static class Program
                                 violations against JSON baseline <f>.
           --emit-validity-defects <f>    with --validity-check, write per-method defect codes to <f>
           --diff-validity-defects <f>    with --validity-check, diff per-method defects against baseline <f>
-          --fidelity-check        decompile, recompile in-context, and compare IL opcodes (semantic fidelity)
+          --fidelity-check        select stable raised methods, round-trip product C# through
+                                floor-disabled ReturnToSender, and compare contract bodies.
+                                With --lowered, use the labelled legacy whole-module evaluator.
           --idempotence-check     run the IR pipeline twice and report methods the
                                 second run still rewrites (ordering gaps / instability);
                                 bucketed by the pass that fired. Zero is the target.

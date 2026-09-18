@@ -1065,6 +1065,53 @@ codegen defect can neither mask nor manufacture a type/binding artifact defect:
 See [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md) for
 the flags, buckets, and current baselines.
 
+### Standalone fidelity population
+
+Bare raised `--fidelity-check` is a broad product-artifact RTS measurement, not
+a whole-module reconstruction sweep. Before running an oracle, it selects
+concrete methods from live metadata whose product C# type, namespace, member,
+parameter, generic-parameter, generic-constraint, and referenced-signature
+identities are exactly representable on non-generated top-level classes and
+structs and whose canonical metadata signature shape is available. Out-of-range
+generic parameter references and custom-modified constraint shapes are
+ineligible rather than identity-degraded, except for the exact
+source-representable `unmanaged` pseudo-constraint encoding. Property shapes
+must form a valid C# property or indexer; a parameterized property is an indexer
+only when its metadata name matches the declaring type's authentic CoreLib
+`DefaultMemberAttribute`. MethodDef accessibility masks without an exact C#
+spelling are ineligible. MethodDef signature headers are also ineligible when
+their calling convention, instance/explicit-this state, or generic state cannot
+be preserved by a C# declaration. An authenticated
+`System.Object.Finalize` MethodImpl is rendered as `~Type()` only when its body
+retains the exact protected virtual reuse-slot destructor shape. Every
+represented property or event accessor MethodDef must retain exact
+accessibility and declaration modifiers, an exact header, exact accessor-name
+correspondence, and callable-signature correspondence with its declaring row.
+Property/getter correspondence treats the compiler's PropertyDef and getter
+encodings for mutable and authenticated read-only by-ref returns as equivalent.
+Member-signature custom modifiers are ineligible unless they are authenticated
+read-only by-ref encodings that the product spells explicitly. `CB_TYPE`
+filters that population first. Stable hash ranking then chooses up to the
+remaining caller-ordered global `--compile-cap` for each assembly. The cap is a
+maximum, so an input set with fewer eligible methods produces a shorter,
+explicitly reported run.
+
+Each planned method is bound to a `MetadataMethodAddress`. Every method
+submitted to the native evaluator receives exactly one floor-disabled result in
+candidate order. Missing output and assembly-context failure remain explicit
+`ContextFail`; a product body below `Full` remains `NotFull`; no legacy result
+can replace either outcome. `--fidelity-zero-signal-guard N` probes the first
+`N` methods of the fixed population and, when useful or mixed signal exists,
+continues without re-evaluating the probe. The report distinguishes the planned
+and evaluated counts when the guard stops. Native `--fidelity-timings` reports
+selection and RTS evaluation rather than the legacy skeleton phases.
+
+The lowered command remains the labelled legacy whole-module rail because the
+product artifact provider has no lowered request. `CB_CLUSTER`, `CB_DUMP`, and
+the legacy skeleton phase timings describe only that rail. Structured
+`FidelityCheck.Evaluate` gates keep their existing whole-module contract until
+their owning evidence migrates separately.
+
 ### Changed-method plateau decisions
 
 Changed-method evidence fights the **changed-method boss**. Its first job is to

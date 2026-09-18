@@ -1016,8 +1016,54 @@ declarations, module-wide skeleton construction, or legacy rendering controls
 retain the labelled legacy path and run on their appropriate Deep Inspect
 cadence. Raised and lowered fidelity remain separate evidence rails. Lowered
 changed-method fidelity remains explicitly on the legacy whole-module path
-until the product artifact provider owns a lowered artifact request. Broad
-standalone fidelity also retains its current path.
+until the product artifact provider owns a lowered artifact request.
+
+Raised standalone `--fidelity-check` uses floor-disabled product-artifact RTS
+over a tools-owned population selected before either fidelity oracle runs. For
+each caller-ordered assembly, the harness filters live metadata to concrete
+methods whose product C# type, namespace, member, parameter, generic-parameter,
+generic-constraint, and referenced-signature identities are exactly
+representable on non-generated top-level classes and structs, requires an
+available canonical metadata signature shape, rejects out-of-range generic
+parameter references and custom-modified constraint shapes other than the exact
+source-representable `unmanaged` pseudo-constraint encoding, rejects property
+shapes that cannot form a C# property or indexer, requires a parameterized
+property's metadata name to match the declaring type's authentic CoreLib
+`DefaultMemberAttribute`, rejects MethodDef accessibility masks without an
+exact C# spelling, rejects MethodDef signature headers whose calling convention,
+instance/explicit-this state, or generic state cannot be preserved by a C#
+declaration, requires an authenticated `System.Object.Finalize` MethodImpl body
+to retain the exact protected virtual reuse-slot destructor shape before
+spelling `~Type()`, requires every represented property or event accessor
+MethodDef to retain exact accessibility and declaration modifiers, an exact
+header, exact accessor-name correspondence, and callable-signature
+correspondence with its declaring row, including the compiler's equivalent
+PropertyDef/getter encodings for mutable and authenticated read-only by-ref
+returns, and rejects unrepresented member-signature custom modifiers while
+retaining authenticated read-only by-ref modifier encodings that the product
+spells explicitly, applies `CB_TYPE` before sampling, and chooses a stable
+hash-ranked set up to the remaining global `--compile-cap`. The cap remains a
+maximum across the complete assembly list: a run with fewer eligible methods
+reports the shorter population rather than failing. Every selected method is
+bound immediately to its live `MetadataMethodAddress`; selection never depends
+on legacy checkability, rendering success, or a legacy status.
+
+The native evaluator returns exactly one result in candidate order for every
+target it receives. Missing output and expected assembly-context failures
+become explicit `ContextFail` rows, compile-back-floor use must remain zero, and
+product `DecompilationFidelity` below `Full` remains `NotFull`. The standalone
+report labels the engine, planned candidate population, evaluated population,
+global cap, and floor policy before the existing status buckets.
+`--fidelity-zero-signal-guard` probes the first `N` members of that already-fixed
+population and either stops on the same dominant failure rule or evaluates the
+remaining members without repeating the probe. `--fidelity-timings` reports
+native selection and RTS-evaluation phases rather than legacy skeleton phases.
+
+Lowered standalone `--fidelity-check --lowered` remains the labelled legacy
+whole-module evaluator until a product-owned lowered artifact request exists.
+The reconstruction-only `CB_CLUSTER` and `CB_DUMP` controls apply only to that
+lowered rail. Structured `FidelityCheck.Evaluate` consumers whose claim is
+whole-module reconstruction also remain legacy and migrate independently.
 
 ### Member comparison query consumption
 
