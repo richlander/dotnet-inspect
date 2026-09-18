@@ -240,11 +240,76 @@ public static partial class MetadataFindings
                     .TypeForwarderRowOperation
             && MayAffectType(failure, typeFullName));
 
-    static ApiSurfaceInspectionFailure? FindMemberComparisonFailure(
+    static bool HasMemberComparisonFailure(
         ApiSurface surface,
         string typeFullName)
-        => surface.InspectionFailures.FirstOrDefault(failure =>
-            IsMemberComparisonFailure(failure, typeFullName));
+    {
+        if (surface.InspectionFailures.Any(failure =>
+            failure.Operation
+                != ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation
+            && IsMemberComparisonFailure(failure, typeFullName)))
+        {
+            return true;
+        }
+
+        ApiType? type = FindType(surface, typeFullName);
+        if (type is null)
+            return false;
+
+        if (surface.ConstraintResolutionFailuresBySubject.Count == 0)
+        {
+            return surface.InspectionFailures.Any(failure =>
+                failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                && MayAffectType(failure, typeFullName));
+        }
+
+        HashSet<int> subjectTokens = [];
+        AddToken(type.MetadataToken);
+        foreach (ApiMember member in type.Members)
+        {
+            AddToken(member.MetadataToken);
+            AddToken(member.GetterToken);
+            AddToken(member.SetterToken);
+            AddToken(member.AdderToken);
+            AddToken(member.RemoverToken);
+        }
+        if (subjectTokens.Count == 0)
+        {
+            return surface.InspectionFailures.Any(failure =>
+                failure.Operation
+                    == ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                && MayAffectType(failure, typeFullName));
+        }
+
+        return surface.ConstraintResolutionFailuresBySubject.Any(pair =>
+            subjectTokens.Contains(pair.Key.SubjectToken)
+            && MatchesSourcePath(
+                pair.Key.SourceAssemblyPath,
+                type.SourceAssemblyPath)
+            && pair.Value.Any(failure =>
+                MatchesSourcePath(
+                    failure.SourceAssemblyPath,
+                    type.SourceAssemblyPath)));
+
+        void AddToken(int? token)
+        {
+            if (token is int value)
+                subjectTokens.Add(value);
+        }
+    }
+
+    static bool MatchesSourcePath(
+        string? evidencePath,
+        string? selectedPath) =>
+        evidencePath is null
+        || string.Equals(
+            evidencePath,
+            selectedPath,
+            StringComparison.Ordinal);
 
     static bool IsMemberComparisonFailure(
         ApiSurfaceInspectionFailure failure,
@@ -385,17 +450,17 @@ public static partial class MetadataFindings
     public static bool IsApiMemberComparisonComplete(
         ApiSurface? surface,
         string typeFullName,
-        IEnumerable<ApiSurfaceInspectionFailure>?
-            contextualFailures = null)
+        IEnumerable<ApiSurface>? contextualSurfaces = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         if (surface is null)
             return false;
-        if (contextualFailures is not null
-            && contextualFailures.Any(failure =>
-                IsMemberComparisonFailure(
-                    failure,
-                    typeFullName)))
+        if (HasMemberComparisonFailure(surface, typeFullName)
+            || (contextualSurfaces is not null
+                && contextualSurfaces.Any(contextualSurface =>
+                    HasMemberComparisonFailure(
+                        contextualSurface,
+                        typeFullName))))
         {
             return false;
         }
@@ -405,10 +470,8 @@ public static partial class MetadataFindings
             return FindTypeIdentityFailure(
                 surface,
                 typeFullName) is null;
-
         return type.Members.All(static member =>
-                member.SignatureDecodeStatus is null)
-            && FindMemberComparisonFailure(surface, typeFullName) is null;
+            member.SignatureDecodeStatus is null);
     }
 
     public static FindingComparison<ApiAttributeHandle> CompareApiAttributes(

@@ -773,7 +773,7 @@ public class MetadataFindingsTests
             MetadataFindings.IsApiMemberComparisonComplete(
                 Surface(Type("Widget")),
                 "TestNamespace.Widget",
-                surface.InspectionFailures));
+                [surface]));
 
         surface.InspectionFailures[0] =
             surface.InspectionFailures[0] with
@@ -793,7 +793,7 @@ public class MetadataFindingsTests
             MetadataFindings.IsApiMemberComparisonComplete(
                 Surface(Type("Widget")),
                 "TestNamespace.Widget",
-                surface.InspectionFailures));
+                [surface]));
     }
 
     [Fact]

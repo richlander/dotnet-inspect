@@ -331,7 +331,6 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 execution,
                 contents[position]);
         });
-
         InspectionEnvelope<DiffHistoryOutcome> envelope =
             await DiffHistoryInspection.InspectApiMembersAsync(
                 CountRequest(
@@ -456,6 +455,82 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             DiffHistoryChangedVersionState.Failed,
             Assert.Single(source.Sources)
                 .Evidence.FirstUnestablishedAssessment!.State);
+    }
+
+    [Fact]
+    public async Task
+        HistoryCountIgnoresUnrelatedParticipantFailures()
+    {
+        byte[] image =
+            AssemblyContextApiComparisonQueryTests
+                .BuildTypedApiSurfaceImage(
+                    typeCount: 1,
+                    assemblyName: "UnrelatedFailure");
+        byte[] dependency =
+            AssemblyContextApiComparisonQueryTests
+                .BuildMalformedConstraintDependency();
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.UnrelatedConstraint",
+                "1.0.0",
+                "2.0.0");
+        IPackageContent[] contents =
+        [
+            population[0].Content(
+                ($"lib/{Framework}/UnrelatedFailure.dll", image),
+                ($"lib/{Framework}/Missing.dll", dependency)),
+            population[1].Content(
+                ($"lib/{Framework}/UnrelatedFailure.dll", image),
+                ($"lib/{Framework}/Missing.dll", dependency)),
+        ];
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            return population[position].Realize(
+                execution,
+                contents[position]);
+        });
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffHistoryInspection.InspectApiMembersAsync(
+                CountRequest(
+                    HistoryRequest(
+                        population,
+                        "ComparisonBudgetTypes.Type0")),
+                executor,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<DiffHistoryOutcome.Available>(envelope.Content);
+        DiffHistoryApiMemberDocument document =
+            Assert.IsType<DiffHistoryDocument.ApiMembers>(
+                available.Document).Content;
+        Assert.All(
+            document.Evaluations,
+            static evaluation =>
+            {
+                Assert.IsType<
+                    FindingInspection<ApiMemberHandle>.Complete>(
+                        evaluation.Inspection.Value);
+                Assert.Contains(
+                    evaluation.Participants,
+                    static participant =>
+                        participant
+                            is DiffHistoryApiParticipantEvidence
+                                .Available
+                            {
+                                InspectionFailures.IsEmpty: false,
+                            });
+            });
+        Assert.Equal(
+            DiffHistoryChangedVersionState.Unchanged,
+            Assert.Single(document.ChangedVersionAssessments).State);
+        var completed = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    available.Count);
+        Assert.Equal(0, Assert.Single(completed.Counts).Value);
     }
 
     [Fact]

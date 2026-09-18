@@ -224,12 +224,12 @@ public static class DiffHistoryInspector
         PackageVersionCellApiFindingSet match = matches[0];
         ApiSurface comparisonSurface =
             match.Assembly.Value.Surface;
-        IEnumerable<ApiSurfaceInspectionFailure> contextualFailures =
+        IEnumerable<ApiSurface> contextualSurfaces =
             api.Surfaces.Assemblies.Assemblies
                 .OfType<
                     AssemblyContextEntry<AssemblyApiSurface>.Available>()
-                .SelectMany(static participant =>
-                    participant.Value.InspectionFailures);
+                .Select(static participant =>
+                    participant.Value.Surface);
         return new(
             new(
                 cell.Address,
@@ -242,7 +242,7 @@ public static class DiffHistoryInspector
             MetadataFindings.IsApiMemberComparisonComplete(
                 comparisonSurface,
                 request.ApiInspection.TypeFullName,
-                contextualFailures)
+                contextualSurfaces)
                     ? comparisonSurface
                     : null);
     }
