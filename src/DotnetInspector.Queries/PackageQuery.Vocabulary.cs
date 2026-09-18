@@ -62,6 +62,7 @@ internal enum PackageQueryPredicateKind
     Readme,
     Tool,
     ToolFormat,
+    AssemblyReference,
     Skill,
 }
 
@@ -73,6 +74,7 @@ internal sealed record PackageQueryPredicate(
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat
+            or PackageQueryPredicateKind.AssemblyReference
             or PackageQueryPredicateKind.Skill;
 }
 

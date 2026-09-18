@@ -101,7 +101,7 @@ operator, value-kind, and example metadata.
 The Browser and CLI share the first production vocabulary:
 `dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
 `depends-prefix=true`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`skill=true`.
+`references=<simple-assembly-name>` and `skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.
@@ -229,7 +229,10 @@ and
   incompatible with broad `tool=true`. Their product-issued replacement group
   makes the broad and specific presets replace one another without making
   display grouping define compatibility. `skill=true` matches package entries
-  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
+  at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively.
+  `references=<simple-assembly-name>` is a free-input active term over
+  `AssemblyRef` simple names in every admitted managed `ref/` and `lib/` group;
+  result evidence names the matching frameworks and archive paths. The rail
   persistently discloses that package-content terms may download up to 20
   candidate archives.
 - **Active terms and palette**: free-input descriptors such as `depends` add
@@ -595,7 +598,8 @@ and browser-history and focus-return outcomes are proved by
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
 9. Confirm `tool=true` remains nuspec-only. Select `tool-format=v1`,
-   `tool-format=v2`, or `skill=true`; confirm the request bound drops to 20
+   `tool-format=v2`, `references=<simple-assembly-name>`, or `skill=true`;
+   confirm the request bound drops to 20
    candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content term and confirm the default returns to 200.
