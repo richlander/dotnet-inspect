@@ -9,6 +9,37 @@ public sealed class XmlDocumentationReaderTests
         "M:Samples.Container.Method``1(``0,System.Int32)";
 
     [Fact]
+    public void ReadMembers_ReturnsOnlyRequestedEntriesInOneScan()
+    {
+        const string xml = """
+            <doc>
+              <members>
+                <member name="T:Samples.Container"><summary>Container.</summary></member>
+                <member name="M:Samples.Container.First"><summary>First.</summary></member>
+                <member name="M:Samples.Container.Second"><summary>Second.</summary></member>
+              </members>
+            </doc>
+            """;
+
+        IReadOnlyDictionary<string, XmlDocumentationEntry> entries =
+            XmlDocumentationReader.ReadMembers(
+                Stream(xml),
+                [
+                    new("T:Samples.Container"),
+                    new("M:Samples.Container.Second"),
+                    new("M:Samples.Container.Missing"),
+                ]);
+
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(
+            "Container.",
+            entries["T:Samples.Container"].Summary);
+        Assert.Equal(
+            "Second.",
+            entries["M:Samples.Container.Second"].Summary);
+    }
+
+    [Fact]
     public void ReaderAndCatalog_ReturnTheSameExactGenericMember()
     {
         const string xml = """

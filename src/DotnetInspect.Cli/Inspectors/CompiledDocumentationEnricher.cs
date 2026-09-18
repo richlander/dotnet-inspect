@@ -1,0 +1,693 @@
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Models;
+using DotnetInspector.DocumentationHouse;
+using DotnetInspector.DocumentationHouse.Direct;
+using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
+using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
+using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
+using Inspector.Artifacts.Local;
+using NuGetFetch;
+
+namespace DotnetInspect.Cli.Inspectors;
+
+internal static class CompiledDocumentationEnricher
+{
+    private static readonly ApiSurfaceExtractionBounds s_apiSurfaceBounds =
+        new(
+            maxTypes: 100_000,
+            maxMembers: 1_000_000,
+            maxInspectionFailures: 1_024,
+            maxTypeForwarders: 100_000,
+            maxMetadataRows: 250_000,
+            maxRetainedTextCharacters: 32_000_000);
+
+    private static readonly DocumentationHouseLimits s_documentationLimits =
+        new(
+            maximumCompiledXmlContributions: 1,
+            maximumCompiledXmlBytes: 8 * 1024 * 1024,
+            XmlDocumentationReadLimits.Default);
+
+    internal static async Task EnrichAsync(
+        IEnumerable<ApiType> types,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded,
+        ApiOptions options,
+        bool includeMembers = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(loaded);
+        ArgumentNullException.ThrowIfNull(options);
+
+        ApiType[] requestedTypes = [.. types];
+        if (requestedTypes.Length == 0)
+            return;
+
+        if (source.ApiSource == SourceKind.Platform
+            || !string.IsNullOrEmpty(options.PlatformAssembly))
+        {
+            SourceEnricher.EnrichTypesFromXmlDoc(
+                requestedTypes,
+                options,
+                source.Context.Logger);
+            return;
+        }
+
+        foreach (IGrouping<string, ApiType> group in requestedTypes.GroupBy(
+                     type => loaded.TryGetSourceAssembly(type)?.Path
+                         ?? loaded.ApiDllPath,
+                     PathComparer()))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DocumentationTargetSet targets =
+                DocumentationTargetSet.Create(group, includeMembers);
+            if (targets.Ids.Count == 0)
+                continue;
+
+            IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes;
+            if (CanUsePackageHouse(source, group.Key))
+            {
+                outcomes = await QueryPackageAsync(
+                        source,
+                        group.Key,
+                        targets.Ids,
+                        options,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                ResolvedAssemblyReference assembly =
+                    loaded.TryGetSourceAssembly(group.First())
+                    ?? ResolvedAssemblyReference.CreateFromPath(
+                        group.Key,
+                        AssemblyResolutionProvenance.Local(
+                            "compiled documentation"));
+                outcomes = await QueryDirectLibraryAsync(
+                        group.Key,
+                        assembly.Identity,
+                        targets.Ids,
+                        options.IncludeAll
+                            ? ApiSurfaceExtractionScope.IncludeAll
+                            : ApiSurfaceExtractionScope
+                                .PublicWithNonPublicTypes,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            ApplyOutcomes(
+                targets,
+                outcomes,
+                source.Context.Logger);
+            foreach (ApiType type in group)
+                type.SourceResolution = "XmlDoc";
+        }
+    }
+
+    private static bool CanUsePackageHouse(
+        ApiSourceResult source,
+        string assemblyPath)
+    {
+        if (source.ApiSource != SourceKind.NuGet
+            || source.PackageExtractPath is null
+            || source.PackageAuthority is null
+            || string.IsNullOrWhiteSpace(source.PackageName)
+            || string.IsNullOrWhiteSpace(source.PackageVersion)
+            || string.IsNullOrWhiteSpace(source.SelectedTfm)
+            || string.IsNullOrWhiteSpace(source.PackageProducerKey))
+        {
+            return false;
+        }
+
+        string relative = Path.GetRelativePath(
+            source.PackageExtractPath,
+            assemblyPath);
+        return relative != ".."
+            && !relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)
+            && !Path.IsPathRooted(relative);
+    }
+
+    private static async ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        QueryPackageAsync(
+            ApiSourceResult source,
+            string assemblyPath,
+            IReadOnlyCollection<string> documentationIds,
+            ApiOptions options,
+            CancellationToken cancellationToken)
+    {
+        using var stores = new PackageStoreScope();
+        await using DesktopPackageSourceComposition composition =
+            source.Context.CreatePackageSourceComposition();
+        PackageHouseSettlement settlement =
+            await composition.RealizePinnedCompileAsync(
+                    PackageSourceCoordinate.Create(
+                        source.PackageName!,
+                        source.PackageVersion!),
+                    source.SelectedTfm!,
+                    stores.Get,
+                    options.SourceOptions,
+                    source.PackageProducerKey,
+                    source.Context.Logger.Log,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (settlement is not PackageHouseSettlement.Acquired acquired
+            || settlement.Result is not PackageHouseResult.Settled
+            || settlement.Result.Evidence.Realization
+                is not PackageHouseRealizationReceipt.Compile realization)
+        {
+            throw new InvalidOperationException(
+                $"PackageHouse could not realize {source.PackageName} "
+                    + $"{source.PackageVersion} for {source.SelectedTfm} "
+                    + $"({DescribePackageHouseResult(settlement.Result)}).");
+        }
+
+        PackageCompileAsset? asset =
+            realization.Selection.Assets.FirstOrDefault(
+                candidate => PathComparer().Equals(
+                    AssetPath(source.PackageExtractPath!, candidate),
+                    Path.GetFullPath(assemblyPath)));
+        if (asset is null)
+        {
+            throw new InvalidOperationException(
+                $"'{assemblyPath}' is not a selected compile assembly of "
+                    + $"{source.PackageName} {source.PackageVersion}.");
+        }
+
+        PackageHouseLibraryHandoff.Compile handoff =
+            realization.LibraryHandoffs
+                .OfType<PackageHouseLibraryHandoff.Compile>()
+                .Single(candidate => ReferenceEquals(candidate.Asset, asset));
+        return await PackageCompiledDocumentationQuery.ExecuteManyAsync(
+                acquired,
+                handoff,
+                documentationIds,
+                new PackageCompiledDocumentationQueryLimits
+                {
+                    ApiSurface = s_apiSurfaceBounds,
+                    ApiSurfaceScope = options.IncludeAll
+                        ? ApiSurfaceExtractionScope.IncludeAll
+                        : ApiSurfaceExtractionScope
+                            .PublicWithNonPublicTypes,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        QueryDirectLibraryAsync(
+            string assemblyPath,
+            AssemblyReferenceIdentity assemblyIdentity,
+            IReadOnlyCollection<string> documentationIds,
+            ApiSurfaceExtractionScope apiSurfaceScope,
+            CancellationToken cancellationToken)
+    {
+        string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
+        bool hasXml = File.Exists(xmlPath);
+        await using var artifacts = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = hasXml ? 2 : 1,
+                MaxArtifactBytes = 512L * 1024 * 1024,
+                MaxRetainedBytes = 512L * 1024 * 1024,
+            });
+        await artifacts.AddRequiredAcquisitionAsync(
+            (scope, token) => LocalArtifactSource.AcquireFileAsync(
+                scope,
+                assemblyPath,
+                cancellationToken: token),
+            [ArtifactWorkspaceRole.CallerDesignated],
+            cancellationToken);
+        if (hasXml)
+        {
+            await artifacts.AddRequiredAcquisitionAsync(
+                (scope, token) => LocalArtifactSource.AcquireFileAsync(
+                    scope,
+                    xmlPath,
+                    cancellationToken: token),
+                [ArtifactWorkspaceRole.CallerDesignated],
+                cancellationToken);
+        }
+
+        ArtifactSetPublicationOutcome publication =
+            await artifacts.SealAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (publication is ArtifactSetPublicationOutcome.NotPublished rejected)
+        {
+            throw new InvalidOperationException(
+                "The direct Library could not be published: "
+                    + string.Join(
+                        "; ",
+                        rejected.Failures.Select(
+                            failure => failure.Diagnostic.Summary)));
+        }
+
+        ArtifactQueryAuthorization authorization =
+            artifacts.CreateQueryAuthorization();
+        using ArtifactQueryLease queryLease =
+            artifacts.IssueLease(authorization);
+        ArtifactDescriptor[] catalog =
+            [.. artifacts.GetCatalog(queryLease)];
+        ArtifactContentReference assemblyContent =
+            artifacts.GetContentReference(
+                catalog[0].Identity,
+                queryLease);
+        ArtifactContentReference? xmlContent = hasXml
+            ? artifacts.GetContentReference(
+                catalog[1].Identity,
+                queryLease)
+            : null;
+        var identity =
+            new ManagedMetadataIdentity.Assembly(assemblyIdentity);
+        LibraryReference library =
+            LibraryReference.CreateDirect(
+                new LibraryAssemblyCorrespondence(
+                    assemblyContent,
+                    identity,
+                    assemblyContent,
+                    identity),
+                xmlContent is null
+                    ? null
+                    :
+                    [
+                        new LibraryCompanionCorrespondence(
+                            xmlContent,
+                            LibraryContentRole.CompiledXmlDocumentation,
+                            assemblyContent),
+                    ]);
+        List<ArtifactContentLease> contentLeases =
+        [
+            artifacts.IssueContentLease(
+                assemblyContent,
+                queryLease),
+        ];
+        if (xmlContent is not null)
+        {
+            contentLeases.Add(
+                artifacts.IssueContentLease(
+                    xmlContent,
+                    queryLease));
+        }
+
+        await using LibraryContentOwner owner =
+            CreateContentOwner(library, contentLeases);
+        using LibraryOperationLease inspectionOperation =
+            IssueOperation(owner, library);
+        LibraryApiSurfaceInspectionOutcome inspection =
+            LibraryApiSurfaceInspection.Execute(
+                new(
+                    library,
+                    apiSurfaceScope,
+                    s_apiSurfaceBounds),
+                inspectionOperation,
+                cancellationToken);
+        if (inspection
+            is not LibraryApiSurfaceInspectionOutcome.Completed completed)
+        {
+            throw new InvalidOperationException(
+                $"The direct Library API surface could not be inspected "
+                    + $"({inspection.GetType().Name}).");
+        }
+
+        IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
+            ResolveSubjects(
+                completed.Correspondence,
+                documentationIds);
+        var outcomes =
+            new Dictionary<string, CompiledDocumentationOutcome>(
+                documentationIds.Count,
+                StringComparer.Ordinal);
+        var requests =
+            new List<DocumentationHouseRequest>(
+                documentationIds.Count);
+        foreach (string documentationId in documentationIds)
+        {
+            DocumentationSubjectReference subject =
+                subjects[documentationId];
+            IReadOnlyList<CompiledXmlContribution> contributions =
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(
+                        library,
+                        subject);
+            var plan = new DocumentationHouseOperationPlan(
+                DocumentationHouseOperationPlanIdentity.Create(
+                    "cli-direct-compiled-documentation"),
+                DocumentationHousePolicyGeneration.Create(
+                    "cli-direct-compiled-documentation-v1"),
+                s_documentationLimits,
+                DateTimeOffset.UtcNow.AddSeconds(10),
+                contributions);
+            var request = new DocumentationHouseRequest(
+                DocumentationHouseRequestIdentity.Create(
+                    "cli-direct-compiled-documentation"),
+                subject,
+                DocumentationDemand.CompiledXml,
+                plan);
+            requests.Add(request);
+        }
+        using LibraryOperationLease operation =
+            IssueOperation(owner, library);
+        IReadOnlyList<CompiledDocumentationQueryResult> results =
+            await CompiledDocumentationQuery.ExecuteManyAsync(
+                    requests,
+                    operation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        int index = 0;
+        foreach (string documentationId in documentationIds)
+        {
+            outcomes.Add(
+                documentationId,
+                results[index].Content);
+            index++;
+        }
+        return outcomes;
+    }
+
+    private static LibraryContentOwner CreateContentOwner(
+        LibraryReference library,
+        IReadOnlyList<ArtifactContentLease> contentLeases)
+    {
+        try
+        {
+            return new LibraryContentOwner(library, contentLeases);
+        }
+        catch
+        {
+            foreach (ArtifactContentLease contentLease in contentLeases)
+                contentLease.Dispose();
+            throw;
+        }
+    }
+
+    private static IReadOnlyDictionary<
+        string,
+        DocumentationSubjectReference> ResolveSubjects(
+        LibraryApiSurfaceCorrespondence correspondence,
+        IReadOnlyCollection<string> documentationIds)
+    {
+        var requested =
+            new HashSet<string>(documentationIds, StringComparer.Ordinal);
+        var subjects =
+            new Dictionary<string, DocumentationSubjectReference>(
+                requested.Count,
+                StringComparer.Ordinal);
+        foreach (ApiType type in correspondence.Surface.Types)
+        {
+            if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                    type,
+                    out XmlDocMemberIdentity typeIdentity)
+                && requested.Contains(typeIdentity.Value))
+            {
+                Add(
+                    typeIdentity.Value,
+                    DocumentationSubjectReference.ForType(
+                        correspondence,
+                        type));
+            }
+
+            foreach (ApiMember member in type.Members)
+            {
+                if (member.DeclaringTypeDefinitionName is not null
+                    || !ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                        type,
+                        member,
+                        out XmlDocMemberIdentity memberIdentity)
+                    || !requested.Contains(memberIdentity.Value))
+                {
+                    continue;
+                }
+                Add(
+                    memberIdentity.Value,
+                    DocumentationSubjectReference.ForMember(
+                        correspondence,
+                        type,
+                        member));
+            }
+        }
+
+        string? missing =
+            requested.FirstOrDefault(id => !subjects.ContainsKey(id));
+        if (missing is not null)
+        {
+            throw new InvalidOperationException(
+                $"The direct Library has no subject '{missing}'.");
+        }
+        return subjects;
+
+        void Add(
+            string documentationId,
+            DocumentationSubjectReference subject)
+        {
+            if (!subjects.TryAdd(documentationId, subject))
+            {
+                throw new InvalidOperationException(
+                    $"The direct Library has multiple subjects "
+                        + $"'{documentationId}'.");
+            }
+        }
+    }
+
+    private static void ApplyOutcomes(
+        DocumentationTargetSet targets,
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes,
+        VerboseLogger logger)
+    {
+        var failures = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach ((string documentationId, CompiledDocumentationOutcome outcome)
+            in outcomes)
+        {
+            if (outcome is CompiledDocumentationOutcome.Available available)
+            {
+                targets.Apply(
+                    documentationId,
+                    CreateDocComment(available.Documentation));
+                continue;
+            }
+
+            if (outcome is CompiledDocumentationOutcome.Absent)
+                continue;
+            if (outcome is CompiledDocumentationOutcome.Unavailable)
+            {
+                logger.Log(
+                    $"Compiled documentation is unavailable for "
+                        + $"'{documentationId}'.");
+                continue;
+            }
+
+            string reason = DescribeFailure(outcome);
+            failures[reason] =
+                failures.TryGetValue(reason, out int count)
+                    ? count + 1
+                    : 1;
+        }
+
+        foreach ((string reason, int count) in failures)
+        {
+            CommandError.WriteWarning(
+                count == 1
+                    ? $"Compiled documentation {reason}."
+                    : $"Compiled documentation {reason} for {count} subjects.");
+        }
+    }
+
+    private static DocComment CreateDocComment(
+        CompiledDocumentationEntry documentation) =>
+        new()
+        {
+            Summary = documentation.Summary,
+            Remarks = documentation.Remarks,
+            Returns = documentation.Returns,
+            Parameters = documentation.Parameters.ToDictionary(
+                parameter => parameter.Name,
+                parameter => parameter.Description,
+                StringComparer.Ordinal),
+        };
+
+    private static string DescribeFailure(
+        CompiledDocumentationOutcome outcome) =>
+        outcome switch
+        {
+            CompiledDocumentationOutcome.Ambiguous =>
+                "was ambiguous",
+            CompiledDocumentationOutcome.ContributionsRejected =>
+                "contributions were rejected",
+            CompiledDocumentationOutcome.MalformedOrUnreadableDocument =>
+                "was malformed or unreadable",
+            CompiledDocumentationOutcome.Incomplete incomplete =>
+                $"was incomplete ({incomplete.Reason})",
+            CompiledDocumentationOutcome.RequestRejected rejected =>
+                $"request was rejected ({rejected.Reason})",
+            CompiledDocumentationOutcome.ContentAccessFailed =>
+                "content access failed",
+            _ => $"failed ({outcome.GetType().Name})",
+        };
+
+    private static string DescribePackageHouseResult(
+        PackageHouseResult result) =>
+        result switch
+        {
+            PackageHouseResult.NotFound value =>
+                value.Reason.ToString(),
+            PackageHouseResult.NoMatch value =>
+                value.Reason.ToString(),
+            PackageHouseResult.Ambiguous value =>
+                value.Reason.ToString(),
+            PackageHouseResult.Rejected value =>
+                value.Reason.ToString(),
+            PackageHouseResult.Unavailable value =>
+                value.Reason.ToString(),
+            PackageHouseResult.Incomplete value =>
+                value.Reason.ToString(),
+            _ => result.GetType().Name,
+        };
+
+    private static LibraryOperationLease IssueOperation(
+        LibraryContentOwner owner,
+        LibraryReference library) =>
+        owner.IssueOperationLease(library) switch
+        {
+            LibraryOperationLeaseIssueOutcome.Issued issued =>
+                issued.Lease,
+            LibraryOperationLeaseIssueOutcome outcome =>
+                throw new InvalidOperationException(
+                    $"The direct Library rejected documentation access "
+                        + $"({outcome.GetType().Name})."),
+        };
+
+    private static string AssetPath(
+        string packageRoot,
+        PackageCompileAsset asset) =>
+        Path.GetFullPath(
+            Path.Combine(
+                packageRoot,
+                asset.Path.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar)));
+
+    private static StringComparer PathComparer() =>
+        OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private sealed class DocumentationTargetSet
+    {
+        private readonly Dictionary<string, List<Action<DocComment>>> _targets;
+
+        private DocumentationTargetSet(
+            Dictionary<string, List<Action<DocComment>>> targets) =>
+            _targets = targets;
+
+        internal IReadOnlyCollection<string> Ids => _targets.Keys;
+
+        internal static DocumentationTargetSet Create(
+            IEnumerable<ApiType> types,
+            bool includeMembers)
+        {
+            var targets =
+                new Dictionary<string, List<Action<DocComment>>>(
+                    StringComparer.Ordinal);
+            foreach (ApiType type in types)
+            {
+                if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                        type,
+                        out XmlDocMemberIdentity typeIdentity))
+                {
+                    Add(
+                        typeIdentity.Value,
+                        documentation => type.Documentation = documentation);
+                }
+                if (!includeMembers)
+                    continue;
+
+                foreach (ApiMember member in type.Members)
+                {
+                    if (member.DeclaringTypeDefinitionName is not null
+                        || !ApiMemberIdentity.TryGetXmlDocMemberIdentity(
+                            type,
+                            member,
+                            out XmlDocMemberIdentity memberIdentity))
+                    {
+                        continue;
+                    }
+                    Add(
+                        memberIdentity.Value,
+                        documentation =>
+                            member.Documentation = documentation);
+                }
+            }
+            return new(targets);
+
+            void Add(
+                string documentationId,
+                Action<DocComment> apply)
+            {
+                if (!targets.TryGetValue(
+                        documentationId,
+                        out List<Action<DocComment>>? applications))
+                {
+                    applications = [];
+                    targets.Add(documentationId, applications);
+                }
+                applications.Add(apply);
+            }
+        }
+
+        internal void Apply(
+            string documentationId,
+            DocComment documentation)
+        {
+            foreach (Action<DocComment> apply
+                in _targets[documentationId])
+            {
+                apply(documentation);
+            }
+        }
+    }
+
+    private sealed class PackageStoreScope : IDisposable
+    {
+        private readonly Dictionary<
+            ConfiguredPackageAuthority,
+            IPackageStore> _stores = [];
+        private string? _temporaryRoot;
+
+        internal IPackageStore Get(
+            ConfiguredPackageAuthority authority,
+            PackageProducerIdentity producer)
+        {
+            if (!_stores.TryGetValue(
+                    authority,
+                    out IPackageStore? store))
+            {
+                store = new AuthorityScopedFileSystemPackageStore(
+                    authority,
+                    producer,
+                    () => _temporaryRoot ??=
+                        Directory.CreateTempSubdirectory(
+                            "inspect-cli-docs").FullName);
+                _stores.Add(authority, store);
+            }
+            return store;
+        }
+
+        public void Dispose()
+        {
+            _stores.Clear();
+            DotnetInspector.Packages.PackageExtractor.Cleanup(
+                _temporaryRoot);
+            _temporaryRoot = null;
+        }
+    }
+
+}

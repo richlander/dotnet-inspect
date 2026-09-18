@@ -83,6 +83,47 @@ public static class XmlDocumentationReader
             (_, entry) => result = entry);
         return result;
     }
+
+    /// <summary>
+    /// Reads several exact members in one complete, bounded document scan.
+    /// </summary>
+    public static IReadOnlyDictionary<string, XmlDocumentationEntry>
+        ReadMembers(
+            Stream stream,
+            IReadOnlyCollection<XmlDocMemberIdentity> identities,
+            XmlDocumentationReadLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(identities);
+        limits ??= XmlDocumentationReadLimits.Default;
+
+        var selected = new HashSet<string>(
+            identities.Select(static identity =>
+                (identity
+                    ?? throw new ArgumentException(
+                        "Documentation identities cannot contain null.",
+                        nameof(identities)))
+                    .Value),
+            StringComparer.Ordinal);
+        if (selected.Count != identities.Count)
+        {
+            throw new ArgumentException(
+                "Documentation identities must be unique.",
+                nameof(identities));
+        }
+
+        var results =
+            new Dictionary<string, XmlDocumentationEntry>(
+                selected.Count,
+                StringComparer.Ordinal);
+        XmlDocumentationParser.Scan(
+            stream,
+            limits,
+            selected.Contains,
+            (memberId, entry) => results[memberId] = entry);
+        return new ReadOnlyDictionary<string, XmlDocumentationEntry>(
+            results);
+    }
 }
 
 /// <summary>

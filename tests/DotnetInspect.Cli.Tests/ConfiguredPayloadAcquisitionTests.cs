@@ -902,7 +902,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string root, string id, string readme, bool hierarchical = false,
         string? redirectId = null, string version = Version,
         byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        byte[]? documentation = null)
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -914,7 +915,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 redirectId,
                 version,
                 library,
-                libraryName));
+                libraryName,
+                documentation));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -923,7 +925,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     private static byte[] CreatePackage(
         string id, string readme, string? redirectId = null,
         string version = Version, byte[]? library = null,
-        string libraryName = "Npgsql.dll")
+        string libraryName = "Npgsql.dll",
+        byte[]? documentation = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -941,6 +944,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 using Stream entry = archive.CreateEntry(
                     $"lib/net11.0/{libraryName}").Open();
                 entry.Write(library);
+            }
+            if (documentation is not null)
+            {
+                using Stream entry = archive.CreateEntry(
+                    $"lib/net11.0/{Path.ChangeExtension(libraryName, ".xml")}")
+                    .Open();
+                entry.Write(documentation);
             }
             if (redirectId is not null)
             {

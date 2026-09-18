@@ -282,6 +282,82 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        ExecuteMany_TypeAndMemberPublishIndependentAvailableOutcomes()
+    {
+        byte[] xml = await File.ReadAllBytesAsync(
+            RealAsset("System.Text.Json.xml"),
+            TestContext.Current.CancellationToken);
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(xml);
+        ApiType type = Assert.Single(
+            library.ApiSurfaceCorrespondence.Surface.Types,
+            candidate =>
+                candidate.FullName
+                    == "System.Text.Json.JsonSerializer");
+        DocumentationSubjectReference typeSubject =
+            DocumentationSubjectReference.ForType(
+                library.ApiSurfaceCorrespondence,
+                type);
+        DocumentationSubjectReference memberSubject =
+            Subject(library);
+        DocumentationHouseRequest[] requests =
+        [
+            Request(
+                typeSubject,
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(
+                        library.Reference,
+                        typeSubject)),
+            Request(
+                memberSubject,
+                DirectLibraryDocumentationHouseAdapter
+                    .CreateCompiledXmlContributions(
+                        library.Reference,
+                        memberSubject)),
+        ];
+
+        IReadOnlyList<CompiledDocumentationQueryResult> results =
+            await CompiledDocumentationQuery.ExecuteManyAsync(
+                requests,
+                library.IssueOperation(),
+                TestContext.Current.CancellationToken);
+
+        Assert.Collection(
+            results,
+            result =>
+            {
+                var available =
+                    Assert.IsType<
+                        CompiledDocumentationOutcome.Available>(
+                            result.Content);
+                Assert.Equal(
+                    "T:System.Text.Json.JsonSerializer",
+                    available.Subject.DocumentationId);
+                Assert.NotNull(available.Documentation.Summary);
+            },
+            result =>
+            {
+                var available =
+                    Assert.IsType<
+                        CompiledDocumentationOutcome.Available>(
+                            result.Content);
+                Assert.Equal(
+                    DeserializeIdentity,
+                    available.Subject.DocumentationId);
+                Assert.NotNull(available.Documentation.Summary);
+            });
+        Assert.Equal(
+            1,
+            results.Count(
+                result => result.Outcome.Work.ParsedCompiledXml));
+        Assert.Single(
+            results,
+            result =>
+                result.Outcome.Work.CompiledXmlBytesObserved > 0);
+    }
+
+    [Fact]
+    public async Task
         MillionsOfContributions_PublishBoundedIncompleteProvenance()
     {
         const int contributionCount = 4_000_000;
