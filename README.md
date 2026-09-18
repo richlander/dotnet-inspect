@@ -488,9 +488,17 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected
-matching package rows only when completion or the semantic selection proves
-the count exact.
+counts selected matching package rows only when completion or the semantic
+selection proves the count exact.
+
+Package Query output adapts after execution. The default renders `Packages`
+when at least one package matched and `Query Summary` otherwise. The summary
+reports independent `Candidates`, `Matches`, and `Evaluation Failures` integer
+columns, so a missing package (`Candidates=0`) remains distinct from an
+existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
+stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
+`Packages` retains its empty table or array when no package matched. Bare `-S`
+also requests the non-adaptive `Packages` preset.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an

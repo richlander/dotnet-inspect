@@ -145,6 +145,7 @@ public sealed record ResearchHeaderFact(
 public interface IResearchFactProducer
 {
     string Name { get; }
+    /// <summary>The exact descriptor IDs this producer can emit.</summary>
     IReadOnlyList<string> Produces { get; }
     IReadOnlyList<string> DependsOn { get; }
     ResearchFactRequirements Requirements => ResearchFactRequirements.None;
@@ -165,6 +166,13 @@ public sealed class ResearchFactRegistry
     public ResearchFactRegistry(params IResearchFactProducer[] producers)
     {
         _producers = Order(producers);
+        DescriptorIds =
+        [
+            .. _producers
+                .SelectMany(producer => producer.Produces)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
         Requirements = _producers.Aggregate(
             ResearchFactRequirements.None,
             static (requirements, producer) =>
@@ -172,6 +180,8 @@ public sealed class ResearchFactRegistry
     }
 
     public IReadOnlyList<string> ProducerNames => [.. _producers.Select(producer => producer.Name)];
+    /// <summary>The exact descriptor IDs declared by this registry's producers.</summary>
+    public ImmutableArray<string> DescriptorIds { get; }
     public ResearchFactRequirements Requirements { get; }
 
     public static ResearchFactRegistry Default { get; } = new(
@@ -249,7 +259,10 @@ public sealed class ResearchFactRegistry
 sealed class DecompilerLifetimeFactProducer : IResearchFactProducer
 {
     public string Name => "decompiler-lifetime-facts";
-    public IReadOnlyList<string> Produces { get; } = ["lifetime.*"];
+    public IReadOnlyList<string> Produces { get; } =
+    [
+        .. LifetimeClassifier.Descriptors.Select(descriptor => descriptor.Id),
+    ];
     public IReadOnlyList<string> DependsOn => [];
 
     public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
