@@ -27,11 +27,11 @@ It does not implement History or a second host terminal.
 
 ## Motivation and real asset
 
-Subject-owned Diff History needs to inspect selected cells from one already
-settled package-version population. Re-discovering a selected version,
-reconstructing its source authority, or extracting its package directly in a
-host would break the cell's reporter-bound correspondence and duplicate
-PackageHouse and Workspace policy.
+Top-level Diff History and its operation-backed subject sections need to
+inspect selected cells from one already settled package-version population.
+Re-discovering a selected version, reconstructing its source authority, or
+extracting its package directly in a host would break the cell's
+reporter-bound correspondence and duplicate PackageHouse and Workspace policy.
 
 The motivating population is `Markout@0.33.0..0.35.2`. Production
 `dotnet-inspect` observation of `Markout@0.35.2` records one `net10.0` package
