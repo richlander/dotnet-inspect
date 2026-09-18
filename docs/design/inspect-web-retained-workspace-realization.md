@@ -439,10 +439,11 @@ before publishing the new compatibility entry, history result, and legacy
 package-occurrence surface.
 
 The managed-to-compatibility commit boundary is shared by Saved Open,
-retained-list selection, and browser-history traversal. Each path validates
-its compatibility successor before deactivation, makes the short irreversible
-boundary inert, and keeps Navigation waiting until successor presentation and
-history handling complete.
+retained-list selection, browser-history traversal, and active deletion whose
+successor is a compatibility definition. Each path validates its compatibility
+successor before deactivation, makes the short irreversible boundary inert,
+and keeps Navigation waiting until successor presentation, history handling,
+and any deletion commit complete.
 
 ### Spotlight and package-query handoff
 
@@ -524,6 +525,11 @@ After cutover, the retained-realization owner invalidates predecessor-bound
 result models before they can act on the new realization. Navigation Consumer
 then installs the authorized Navigation result and owns the resulting location,
 history, focus, and announcement effects.
+
+Installation preserves every coordinate in the complete definition
+independently of retained package focus. In particular, a Platform coordinate
+and its definition position remain installed when a package coordinate is the
+active presentation, so a subsequent Save does not omit Platform.
 
 ## Deletion
 

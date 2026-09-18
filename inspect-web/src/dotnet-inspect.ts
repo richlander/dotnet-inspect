@@ -2249,23 +2249,25 @@ async function deleteRetainedWorkspaceCore(
         return;
       }
       if (successor?.kind === "legacy") {
-        await retainedWorkspaceActivationController.deactivate(workspaceId);
-        if (!navigationSequence.isCurrent(navigationSeq)) return;
-        const transition = activateLegacyWorkspaceAfterManaged(
-          retainedWorkspaces,
-          successor.id);
-        retainedWorkspaces = transition.collection;
-        const snapshot = transition.activatedSnapshot;
-        if (snapshot === null) {
-          throw new Error(
-            "The compatibility Workspace has no retained snapshot.");
-        }
-        restoreRetainedWorkspaceSnapshot(snapshot);
-        await retainedWorkspaceActivationController.delete(workspaceId);
-        retainedWorkspaces =
-          removeRetainedWorkspace(retainedWorkspaces, workspaceId).collection;
-        render({ synchronizeUrl: false });
-        restartRestoredWorkspaceSelectionData();
+        await activateLegacyRetainedWorkspaceAfterManaged(
+          successor.id,
+          target,
+          navigationSeq,
+          async () => {
+            await retainedWorkspaceActivationController.delete(workspaceId);
+            retainedWorkspaces =
+              removeRetainedWorkspace(
+                retainedWorkspaces,
+                workspaceId).collection;
+            workspaceLocation.replace(
+              activeWorkspaceUrl ?? "/demos",
+              withPlatformRootParentHistory(
+                history.state,
+                navigationSnapshotHasPlatformRootParent(
+                  navigationHistory.snapshot())));
+            render({ synchronizeUrl: false });
+            restartRestoredWorkspaceSelectionData();
+          });
         return;
       }
 
@@ -12266,6 +12268,18 @@ function installRetainedSavedWorkspace(
       navigationSeq,
       renderSelection: false,
     });
+  const platformPackage = packages.find(
+    packageEntry => packageEntry.packageModel.source.kind === "platform");
+  if (platformPackage) {
+    state.platformSelection = {
+      tfm: platformPackage.packageModel.activeFramework,
+      version: platformPackage.packageModel.version,
+      includeAllLibraries: false,
+      filter: "",
+    };
+    state.platformSlot = installation.definition.tabs.findIndex(
+      tab => tab.id === platformPackage.navigationId);
+  }
   commitWorkspaceShareBasis(shareBasis);
   state.home = false;
   state.loading = false;

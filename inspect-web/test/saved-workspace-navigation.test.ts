@@ -140,6 +140,7 @@ const hostNames = new Set([
   "beginManagedCompatibilityCommit", "commitManagedCompatibilityOpen",
   "finishManagedCompatibilityOpen", "cancelPendingManagedCompatibilityOpen",
   "activateLegacyRetainedWorkspaceAfterManaged",
+  "deleteRetainedWorkspaceCore",
   "clearInstalledManagedWorkspaceAssociation",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
@@ -1040,6 +1041,11 @@ function harness() {
     open: (entry: SavedWorkspace = saved): void => {
       runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
     },
+    deleteWorkspace: async (workspaceId: string): Promise<void> => {
+      await runInNewContext(
+        "deleteRetainedWorkspaceCore(workspaceId)",
+        { ...context, workspaceId });
+    },
     demo: (): void => { runInNewContext('runHomeDemo("demo")', context); },
     add: (result: SpotlightPackageResult = {
       kind: "pkg-nuget", hit: { id: "Added.Package" }, ranges: [],
@@ -1644,6 +1650,62 @@ test("complete saved Platform Open installs managed Platform presentation", asyn
   assert.deepEqual(h.acquisitions, []);
 });
 
+test("mixed complete Open preserves inactive Platform through Save", async () => {
+  const h = harness();
+  const definition: BrowserWorkspaceShareState = {
+    tabs: [
+      {
+        id: "platform",
+        kind: "group",
+        source: ":Platform",
+        version: "11.0.6",
+        framework: "net11.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "package",
+        kind: "package",
+        source: "System.Text.Json",
+        version: "9.0.4",
+        framework: "net9.0",
+        runtimeIdentifier: null,
+      },
+    ],
+    contexts: [{
+      id: "mixed-context",
+      tabIds: ["platform", "package"],
+    }],
+    activeTabId: "package",
+    selectedContextId: "mixed-context",
+    view: {
+      lens: null, type: null, memberAnchor: null, memberSignature: null,
+      section: null, libraries: [],
+    },
+  };
+  h.controls.retainedActivation = {
+    status: "activated",
+    installation: retainedInstallation(definition),
+    failure: null,
+  };
+
+  h.open(completeSaved);
+  await h.settle();
+
+  assert.equal(h.state.package?.id, "System.Text.Json");
+  assert.deepEqual(structuredClone(h.state.platformSelection), {
+    tfm: "net11.0",
+    version: "11.0.6",
+    includeAllLibraries: false,
+    filter: "",
+  });
+  assert.equal(h.state.platformSlot, 0);
+
+  const captured = await h.capture();
+
+  assert.equal(captured.coordinateCount, 2);
+  assert.deepEqual(h.completeEncoded, [definition]);
+});
+
 test("managed Workspace root uses exact admitted occurrence actions without a legacy Workspace", async () => {
   const h = harness();
 
@@ -1935,6 +1997,40 @@ test("retained compatibility cutover blocks navigation through managed deactivat
   assert.equal(
     h.context.retainedWorkspaces.activeWorkspaceId,
     "workspace-1");
+  assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
+});
+
+test("active managed deletion keeps legacy successor cutover inside the commit barrier", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const managedId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(managedId, "workspace-definition-1");
+  const deactivation = deferred<void>();
+  h.controls.deactivateRetained = () => deactivation.promise;
+
+  const deletion = h.deleteWorkspace(managedId);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(h.context.app.inert, true);
+  assert.throws(
+    () => h.navigationSequence.begin(),
+    /compatibility cutover/u);
+  assert.equal(
+    h.context.retainedWorkspaces.activeWorkspaceId,
+    managedId);
+
+  deactivation.resolve();
+  await deletion;
+
+  assert.equal(h.context.app.inert, false);
+  assert.equal(h.context.retainedWorkspaces.activeWorkspaceId, "workspace-1");
+  assert.equal(
+    h.context.retainedWorkspaces.workspaces.some(
+      (workspace: { id: string }) => workspace.id === managedId),
+    false);
+  assert.equal(h.state.package?.id, "Source");
+  assert.deepEqual(h.retainedDeletes, [managedId]);
   assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
 });
 
