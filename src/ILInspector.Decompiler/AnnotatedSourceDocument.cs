@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ILInspector.Decompiler.Annotations;
 
 namespace ILInspector.Decompiler;
@@ -163,6 +164,7 @@ public sealed record AnnotatedSourceDocumentSource
 /// </remarks>
 /// <param name="Start">0-based index of the span's first UTF-16 code unit in the document text.</param>
 /// <param name="Length">The span's length in UTF-16 code units. Always positive in a validated document; a coordinate that selects nothing is not recorded.</param>
+[JsonConverter(typeof(AnnotatedSourceSpanJsonConverter))]
 public readonly record struct AnnotatedSourceSpan(int Start, int Length);
 
 /// <summary>
@@ -387,6 +389,7 @@ public enum AnnotatedSourceFactOrigin
 /// <param name="Detail">Rendered specifics, e.g. the allocated type name.</param>
 /// <param name="SourceOffset">IL offset of the originating instruction, or <c>-1</c> when unknown.</param>
 /// <param name="Origin">Which plane of the member this fact was observed on.</param>
+[JsonConverter(typeof(AnnotatedSourceFactJsonConverter))]
 public readonly record struct AnnotatedSourceFact(
     int Id,
     string Descriptor,
@@ -414,6 +417,7 @@ public readonly record struct AnnotatedSourceFact(
 /// </remarks>
 /// <param name="FactId">The <see cref="AnnotatedSourceFact.Id"/> being anchored.</param>
 /// <param name="NodeId">The <see cref="AnnotatedSourceNode.Id"/> it is anchored to.</param>
+[JsonConverter(typeof(AnnotatedSourceTargetJsonConverter))]
 public readonly record struct AnnotatedSourceTarget(int FactId, int NodeId);
 
 /// <summary>
