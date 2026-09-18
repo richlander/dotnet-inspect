@@ -25,7 +25,10 @@ import type {
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "../src/workbench-keybindings.ts";
 import { fakeDom } from "./fake-dom.ts";
-import { inertStringFixture } from "./inert-string-fixture.ts";
+import {
+  inertStringFixture,
+  metadataInertStringFixture,
+} from "./inert-string-fixture.ts";
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -183,8 +186,12 @@ function availableExactTypeInspection(
       isComplete,
     },
     share: {
+      kind: "nonProjectable" as const,
       fullUrl: null,
       packet: null,
+      path: "exact-type",
+      reason: metadataInertStringFixture(
+        "Fixture exact-type inspection is not shareable."),
     },
     diagnostics,
   };
@@ -210,8 +217,12 @@ function unavailableExactTypeInspection(
       isComplete: false,
     },
     share: {
+      kind: "nonProjectable" as const,
       fullUrl: null,
       packet: null,
+      path: "exact-type",
+      reason: metadataInertStringFixture(
+        "Fixture exact-type inspection is not shareable."),
     },
     diagnostics,
   };

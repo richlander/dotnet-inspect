@@ -484,9 +484,26 @@ internal static class TypeScriptFacadeEmitter
                     .Where(union => !surface.WireDirections.TryGetValue(union.Definition, out var direction)
                         || direction != JsonWireDirection.None)
                     .Select(union => union.Definition))
+                .Concat(surface.PolymorphicUnions
+                    .Where(union => !surface.WireDirections.TryGetValue(
+                            union.Definition,
+                            out JsonWireDirection direction)
+                        || direction != JsonWireDirection.None)
+                    .SelectMany(union =>
+                        new[] { union.Definition }
+                            .Concat(union.Cases.Select(
+                                @case => @case.Definition))))
+                .Distinct()
                 .OrderBy(CanonicalTypeIdentity, StringComparer.Ordinal))
             {
-                string preferredName = DtsEmitter.PreferredTypeName(type);
+                string preferredName =
+                    surface.PolymorphicUnions.Any(union =>
+                        union.Cases.Any(@case =>
+                            ReferenceEquals(@case.Definition, type)))
+                        && type.DefinitionName is { } definition
+                            ? StripMetadataArity(
+                                definition.Segments[^1])
+                            : DtsEmitter.PreferredTypeName(type);
                 if (!TypeScriptIdentifier.IsIdentifierName(preferredName))
                 {
                     throw new UnsupportedWireContractException(
@@ -551,6 +568,12 @@ internal static class TypeScriptFacadeEmitter
                 parameterNames,
                 inertStringName,
                 inertStringBrandName);
+        }
+
+        static string StripMetadataArity(string name)
+        {
+            int separator = name.LastIndexOf('`');
+            return separator < 0 ? name : name[..separator];
         }
 
         public IReadOnlyDictionary<ApiType, string> TypeNames =>

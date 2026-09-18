@@ -498,7 +498,9 @@ columns, so a missing package (`Candidates=0`) remains distinct from an
 existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
 stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
 `Packages` retains its empty table or array when no package matched. Bare `-S`
-also requests the non-adaptive `Packages` preset.
+also requests the non-adaptive `Packages` preset. Select `@Query` to compose
+`Packages` and `Query Summary` in Markdown or JSON; table, TSV, and JSONL remain
+one-section formats.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
@@ -638,10 +640,13 @@ dotnet-inspect workspace \
 ```
 
 Use repeatable `--kind package|exact-library|package-prefix|ecosystem` to
-select inventory kinds without changing Workspace construction. JSON and
-JSONL retain the typed entry arms and their portable details. `--verbose`
-adds each Package producer, requested/selected/effective target, runtime
-identifier, and asset-selection status to human output.
+select inventory kinds without changing Workspace construction. `-n N`,
+`--tail`, and `--rows A..B` select complete typed entries after that filter;
+`--count` observes the selected entries, while `--lines` explicitly selects
+rendered lines. JSON and JSONL retain the typed entry arms and their portable
+details. `--verbose` adds each Package producer,
+requested/selected/effective target, runtime identifier, and asset-selection
+status to human output.
 
 Restore one current-format canonical Workspace packet or exact Inspect Web URL
 for inventory instead of supplying direct construction options:

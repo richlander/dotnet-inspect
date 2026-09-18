@@ -7,7 +7,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Text;
-using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
@@ -173,14 +172,6 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Null(performance.InspectionError);
         Assert.Equal(expectedStatus.ToString(), performance.CompileLibrary.Status.ToString());
-    }
-
-    static string NestedDocumentation(int depth)
-    {
-        string nested = string.Concat(Enumerable.Repeat("<b>", depth));
-        string close = string.Concat(Enumerable.Repeat("</b>", depth));
-        return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
-            + "</member></members></doc>";
     }
 
     static byte[] BuildTransportAmplificationImage(

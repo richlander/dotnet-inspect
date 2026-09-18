@@ -959,6 +959,9 @@ public class ApiType
     public bool HasUnsupportedJsonWireAttributes { get; set; }
 
     [JsonIgnore]
+    public ApiJsonPolymorphismEvidence? JsonPolymorphism { get; set; }
+
+    [JsonIgnore]
     public int JsonSerializableAttributeCount { get; set; }
 
     [JsonIgnore]
@@ -967,6 +970,12 @@ public class ApiType
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public JsonWireNamingPolicy? JsonPropertyNamingPolicy { get; set; }
+
+    [JsonIgnore]
+    public JsonWireIgnoreCondition JsonDefaultIgnoreCondition { get; set; }
+
+    [JsonIgnore]
+    public bool JsonUseStringEnumConverter { get; set; }
 
     /// <summary>
     /// The effective source-generation mode declared by this serializer
@@ -2002,3 +2011,18 @@ public sealed record ApiJsonSerializableRoot(
     [JsonIgnore]
     public JsonSourceGenerationMode GenerationMode { get; init; }
 }
+
+public sealed record ApiJsonDerivedType(
+    ApiTypeReferenceIdentity Type,
+    string TypeDiscriminator);
+
+/// <summary>
+/// Authentic System.Text.Json polymorphism metadata retained without treating
+/// unreadable or unsupported rows as absence.
+/// </summary>
+public sealed record ApiJsonPolymorphismEvidence(
+    int PolymorphicAttributeCount,
+    string? TypeDiscriminatorPropertyName,
+    int DerivedTypeAttributeCount,
+    IReadOnlyList<ApiJsonDerivedType> DerivedTypes,
+    string? UnsupportedReason);
