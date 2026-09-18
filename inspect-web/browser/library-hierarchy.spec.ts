@@ -487,7 +487,11 @@ async function installFacades(
       }
       export async function queryPackageVersions() {
         const versions = packageLoading.versions ?? ["1.0.0", "0.9.0"];
-        return { versions, currentVersionInsertionIndex: 0, previousVersion: versions[1], previousVersionUnavailableReason: null };
+        return {
+          versions,
+          currentVersionInsertionIndex: 0,
+          ...(versions[1] === undefined ? {} : { previousVersion: versions[1] }),
+        };
       }
       export async function loadRuntimePack(framework, version) {
         document.documentElement.dataset.runtimePackRequest = JSON.stringify([framework, version]);
@@ -3386,6 +3390,18 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator("#package-diff-target").selectOption("previous");
   await expect(page.locator("#package-diff-target-status"))
     .toHaveText("Previous listed release");
+});
+
+test("Package comparison targets consume an omitted predecessor", async ({ page }) => {
+  await installFacades(
+    page, surface, [], "ready", "ready", undefined,
+    "ready", "ready", undefined, {}, { versions: [] },
+  );
+  await page.goto(root);
+  await expect(page.locator("#package-diff-target-status"))
+    .toHaveText("No earlier listed version is available.");
+  await expect(page.locator("#package-diff-target option:checked"))
+    .toHaveText("Automatic: no earlier version");
 });
 
 for (const initialWidth of [1440, 390]) {
