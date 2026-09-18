@@ -115,17 +115,38 @@ public partial class PackageCommand
                 .Contains(PackageSections.PackageInfo);
     }
 
-    private static void ApplyPackageInfoMeasurements(
+    private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         long? fallbackPackageSize,
+        string? requestedTargetFramework,
         Action<string>? log)
     {
+        InspectionEnvelope<PackageInfoMeasurements>? inspection = null;
         if (resolution.HouseSettlement
+                is PackageHouseSettlement.Acquired toolSettlement
+            && await PackageToolDeclarationEvidence.TryCreateAsync(
+                toolSettlement.Payload) is { } declaration)
+        {
+            inspection =
+                PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                    toolSettlement,
+                    declaration,
+                    requestedTargetFramework?.Equals(
+                        "all",
+                        StringComparison.OrdinalIgnoreCase) == true
+                            ? null
+                            : requestedTargetFramework);
+        }
+        else if (resolution.HouseSettlement
             is PackageHouseSettlement.Acquired settlement)
         {
-            InspectionEnvelope<PackageInfoMeasurements> inspection =
+            inspection =
                 PackageInfoMeasurementInspection.Project(settlement);
+        }
+
+        if (inspection is not null)
+        {
             result.PackageInfoMeasurementInspection = inspection;
             result.PackageSize =
                 inspection.Content.CompressedPackageBytes;

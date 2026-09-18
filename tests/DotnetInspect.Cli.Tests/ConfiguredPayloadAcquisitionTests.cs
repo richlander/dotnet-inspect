@@ -919,6 +919,122 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_DeclaredToolUsesAggregateToolMeasurements()
+    {
+        string id = $"Pinned.ToolMeasurements.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ("tools/net10.0/any/Alpha.dll", new byte[11]),
+            ("tools/net10.0/any/Beta.dll", new byte[17]),
+            ("tools/net10.0/any/fr/Alpha.resources.dll", new byte[19]),
+            (
+                "tools/net10.0/any/runtimes/linux-x64/native/Native.dll",
+                new byte[23]),
+            ("tools/net8.0/any/Alpha.dll", new byte[29]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tfm", "all", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Type | Tool |", output);
+        Assert.Contains("| Selected TFM | net10.0 |", output);
+        Assert.Contains("| Selected-TFM Folders | tools |", output);
+        Assert.Contains("| TFM Count | 2 |", output);
+        Assert.Contains("| Selected-TFM Size | 28 B |", output);
+        Assert.Contains("| Selected-TFM Library Count | 2 |", output);
+        Assert.DoesNotContain("| Selected-TFM Status |", output);
+        Assert.Empty(error);
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements()
+    {
+        string id = $"Pinned.ToolShape.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: null,
+            ("tools/net10.0/any/Shape.dll", new byte[11]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Type | Tool |", output);
+        Assert.DoesNotContain("| Selected TFM |", output);
+        Assert.DoesNotContain("| Selected-TFM Size |", output);
+        Assert.DoesNotContain("| Selected-TFM Library Count |", output);
+        Assert.Contains("| Selected-TFM Status |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_WrapperDeclarationDoesNotAuthorizePayloadMeasurements()
+    {
+        string wrapperId = $"Pinned.ToolWrapper.{Guid.NewGuid():N}";
+        string payloadId = $"{wrapperId}.Payload";
+        string source = Path.Combine(_root, "tool-wrapper-feed");
+        Directory.CreateDirectory(source);
+        byte[] settings = Encoding.UTF8.GetBytes($"""
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="wrapped" EntryPoint="Payload.dll" Runner="dotnet" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="{payloadId}" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{wrapperId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreateToolPackage(
+                wrapperId,
+                packageType: "DotnetTool",
+                ("tools/net10.0/any/DotnetToolSettings.xml", settings)));
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{payloadId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreateToolPackage(
+                payloadId,
+                packageType: null,
+                ("tools/net10.0/any/Payload.dll", new byte[31])));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{wrapperId}@{Version}", "--source", source,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Type | Tool v2 |", output);
+        Assert.DoesNotContain("| Selected TFM |", output);
+        Assert.DoesNotContain("| Selected-TFM Size |", output);
+        Assert.DoesNotContain("| Selected-TFM Library Count |", output);
+        Assert.Contains("| Selected-TFM Status |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task ExtractPinnedPackage_LocalWrapperReauthorizesRedirectedId()
     {
         const string WrapperId = "Pinned.Wrapper";
@@ -1147,6 +1263,41 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     using Stream entry = archive.CreateEntry(path).Open();
                     entry.Write(content);
                 }
+            }
+        }
+        return buffer.ToArray();
+    }
+
+    private static byte[] CreateToolPackage(
+        string id,
+        string? packageType,
+        params (string Path, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            string packageTypes = packageType is not null
+                ? $"""
+                      <packageTypes>
+                        <packageType name="{packageType}" />
+                      </packageTypes>
+                  """
+                : "";
+            WriteEntry(archive, $"{id}.nuspec", $"""
+                <package><metadata>
+                  <id>{id}</id><version>{Version}</version>
+                  <authors>Payload tests</authors>
+                  <description>Tool measurement fixture</description>
+                {packageTypes}
+                </metadata></package>
+                """);
+            foreach ((string path, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(path).Open();
+                stream.Write(content);
             }
         }
         return buffer.ToArray();

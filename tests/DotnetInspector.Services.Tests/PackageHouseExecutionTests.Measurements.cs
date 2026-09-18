@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
@@ -9,6 +10,395 @@ namespace DotnetInspector.Services.Tests;
 
 public sealed partial class PackageHouseExecutionTests
 {
+    [Fact]
+    public async Task PackageInfoEnvelopeMeasuresDeclaredToolPayload()
+    {
+        const string UnsafeFolder = "HOSTILE\u202EMARKER";
+        byte[] archive = CreateDeclaredToolArchive(
+            "DotnetToolRidPackage",
+            ("tools/net10.0/any/Alpha.dll", new byte[13]),
+            ("tools/net10.0/any/Beta.dll", new byte[17]),
+            ("tools/net10.0/any/fr/Alpha.resources.dll", new byte[19]),
+            (
+                "tools/net10.0/any/runtimes/linux-x64/native/Native.dll",
+                new byte[23]),
+            ("tools/net8.0/any/Alpha.dll", new byte[29]),
+            ($"{UnsafeFolder}/net10.0/data.bin", new byte[31]));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+        PackageToolDeclarationEvidence declaration =
+            await ToolDeclarationAsync(settlement);
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                declaration);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.Measured,
+            measurements.Status);
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            [@"HOSTILE\u202EMARKER", "tools"],
+            measurements.SelectedTargetFrameworkFolders!
+                .Select(static folder => folder.ToString()));
+        Assert.Equal(30, measurements.SelectedLibraryPayloadBytes);
+        Assert.Equal(2, measurements.SelectedLibraryCount);
+        Assert.Same(content.GenerationIdentity, measurements.Generation);
+        Assert.Null(measurements.Evidence);
+        Assert.NotNull(measurements.ToolEvidence);
+        Assert.Null(measurements.SelectionReceipt);
+        Assert.Empty(envelope.Diagnostics);
+
+        string json = JsonSerializer.Serialize(
+            envelope,
+            PackageInfoMeasurementJsonContext.Default
+                .InspectionEnvelopePackageInfoMeasurements);
+        InspectionEnvelope<PackageInfoMeasurements> roundTripped =
+            JsonSerializer.Deserialize(
+                json,
+                PackageInfoMeasurementJsonContext.Default
+                    .InspectionEnvelopePackageInfoMeasurements)!;
+        Assert.Equal(
+            measurements.SelectedLibraryPayloadBytes,
+            roundTripped.Content.SelectedLibraryPayloadBytes);
+        Assert.Equal(
+            measurements.SelectedTargetFrameworkFolders,
+            roundTripped.Content.SelectedTargetFrameworkFolders);
+        Assert.DoesNotContain('\u202E', json);
+        Assert.Null(roundTripped.Content.ToolEvidence);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task DeclaredToolMeasurementUsesApplicableExplicitFramework()
+    {
+        byte[] archive = CreateDeclaredToolArchive(
+            "DotnetTool",
+            ("tools/net8.0/any/Tool.dll", new byte[11]),
+            ("tools/net6.0/any/Tool.dll", new byte[7]));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+        PackageToolDeclarationEvidence declaration =
+            await ToolDeclarationAsync(settlement);
+
+        PackageInfoMeasurements measurements =
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                declaration,
+                "net10.0").Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.Measured,
+            measurements.Status);
+        Assert.Equal("net8.0", measurements.SelectedTargetFramework);
+        Assert.Equal(11, measurements.SelectedLibraryPayloadBytes);
+        Assert.Equal(1, measurements.SelectedLibraryCount);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task DeclaredToolMeasurementPreservesSelectedEmptySlice()
+    {
+        byte[] archive = CreateDeclaredToolArchive(
+            "DotnetTool",
+            ("tools/net10.0/any/DotnetToolSettings.xml", []),
+            ("tools/net8.0/any/Legacy.dll", []));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageInfoMeasurements measurements =
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                await ToolDeclarationAsync(settlement)).Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.SelectedEmpty,
+            measurements.Status);
+        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(
+            ["tools"],
+            measurements.SelectedTargetFrameworkFolders!
+                .Select(static folder => folder.ToString()));
+        Assert.Equal(0, measurements.SelectedLibraryPayloadBytes);
+        Assert.Equal(0, measurements.SelectedLibraryCount);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task DeclaredToolMeasurementRejectsCaseCollidingEntries()
+    {
+        byte[] archive = CreateDeclaredToolArchive(
+            "DotnetTool",
+            ("tools/net10.0/any/Tool.dll", []),
+            ("tools/net10.0/any/tool.dll", []));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+        PackageToolDeclarationEvidence declaration =
+            Assert.IsType<PackageToolDeclarationEvidence>(
+                await PackageToolDeclarationEvidence.TryCreateAsync(
+                    payload,
+                    TestContext.Current.CancellationToken));
+
+        PackageToolSliceMeasurementOutcome.InvalidSelection invalid =
+            Assert.IsType<PackageToolSliceMeasurementOutcome.InvalidSelection>(
+                PackageToolSliceMeasurementProjection.Project(
+                    payload,
+                    declaration));
+        Assert.Contains(
+            "ambiguous entry paths",
+            invalid.Reason,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MalformedToolPathsDoNotCreateSlices()
+    {
+        var content = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                "DotnetTool",
+                ("tools/net8.0/any/Tool.dll", []),
+                ("tools/net12.0/../Invalid.dll", []),
+                ("tools\\net12.0\\any\\Invalid.dll", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+        PackageToolDeclarationEvidence declaration =
+            Assert.IsType<PackageToolDeclarationEvidence>(
+                await PackageToolDeclarationEvidence.TryCreateAsync(
+                    payload,
+                    TestContext.Current.CancellationToken));
+
+        PackageToolSliceMeasurementOutcome.Measured measured =
+            Assert.IsType<PackageToolSliceMeasurementOutcome.Measured>(
+                PackageToolSliceMeasurementProjection.Project(
+                    payload,
+                    declaration));
+
+        Assert.Equal(
+            ["net8.0"],
+            measured.Measurements.Evidence.AvailableTargetFrameworks);
+        Assert.Equal("net8.0", measured.Measurements.SelectedTargetFramework);
+    }
+
+    [Fact]
+    public async Task DeclaredToolMeasurementRequiresEntryManifest()
+    {
+        var inner = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                "DotnetTool",
+                ("tools/net10.0/any/Tool.dll", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var content = new ArchiveOnlyPackageContent(inner);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageInfoMeasurements measurements =
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                await ToolDeclarationAsync(settlement)).Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.Unavailable,
+            measurements.Status);
+        Assert.Equal(
+            PackageHouseCompileSliceMeasurementUnavailableReason
+                .EntryManifestUnavailable,
+            measurements.UnavailableReason);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task DeclaredToolMeasurementRejectsForeignDeclarationGeneration()
+    {
+        var content = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                "DotnetTool",
+                ("tools/net10.0/any/Tool.dll", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+        var foreign = new AcquiredPackageSourcePayload(
+            settlement.Payload.Coordinate,
+            new InMemoryPackageContent(
+                content.NupkgBytes.ToArray(),
+                fromCache: true,
+                PackageProducerIdentity.NuGetOrg.Key),
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+        PackageToolDeclarationEvidence declaration =
+            Assert.IsType<PackageToolDeclarationEvidence>(
+                await PackageToolDeclarationEvidence.TryCreateAsync(
+                    foreign,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Throws<ArgumentException>(() =>
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                declaration));
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Theory]
+    [InlineData("DotnetTool")]
+    [InlineData("DotnetToolRidPackage")]
+    public async Task ToolDeclarationAuthenticatesSupportedPayloadType(
+        string packageType)
+    {
+        var content = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                packageType,
+                ("tools/net10.0/any/Tool.dll", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+
+        PackageToolDeclarationEvidence declaration =
+            Assert.IsType<PackageToolDeclarationEvidence>(
+                await PackageToolDeclarationEvidence.TryCreateAsync(
+                    payload,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(packageType, declaration.PackageType);
+        Assert.Same(content.GenerationIdentity, declaration.Generation);
+    }
+
+    [Fact]
+    public async Task ToolDeclarationRejectsMismatchedManifestCoordinate()
+    {
+        var content = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                "DotnetTool",
+                "Other.Package",
+                Version,
+                ("tools/net10.0/any/Tool.dll", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(MaterializedPackageId, Version),
+            content,
+            PackageProducerIdentity.NuGetOrg.Key,
+            PackagePayloadOrigin.Cache);
+
+        Assert.Null(
+            await PackageToolDeclarationEvidence.TryCreateAsync(
+                payload,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task NoToolSlicesJsonRejectsNonemptyFrameworkInventory()
+    {
+        var content = new InMemoryPackageContent(
+            CreateDeclaredToolArchive(
+                "DotnetTool",
+                ("content/readme.txt", [])),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                settlement,
+                await ToolDeclarationAsync(settlement));
+        Assert.Equal(
+            PackageInfoMeasurementStatus.NoToolSlices,
+            envelope.Content.Status);
+
+        string json = JsonSerializer.Serialize(
+            envelope,
+            PackageInfoMeasurementJsonContext.Default
+                .InspectionEnvelopePackageInfoMeasurements);
+        const string EmptyInventory =
+            "\"availableTargetFrameworkCount\":0";
+        Assert.Contains(EmptyInventory, json, StringComparison.Ordinal);
+        string contradictory = json.Replace(
+            EmptyInventory,
+            "\"availableTargetFrameworkCount\":1",
+            StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentException>(() =>
+            JsonSerializer.Deserialize(
+                contradictory,
+                PackageInfoMeasurementJsonContext.Default
+                    .InspectionEnvelopePackageInfoMeasurements));
+        await environment.AssertRootSettledAsync();
+    }
+
     [Fact]
     public async Task PackageInfoEnvelopeRetainsMeasuredSelectionCorrespondence()
     {
@@ -475,6 +865,49 @@ public sealed partial class PackageHouseExecutionTests
                     environment.IssueOperation(
                         request,
                         TestContext.Current.CancellationToken)));
+    }
+
+    private static async Task<PackageToolDeclarationEvidence>
+        ToolDeclarationAsync(
+            PackageHouseSettlement.Acquired settlement)
+    {
+        return Assert.IsType<PackageToolDeclarationEvidence>(
+            await PackageToolDeclarationEvidence.TryCreateAsync(
+                settlement.Payload,
+                TestContext.Current.CancellationToken));
+    }
+
+    private static byte[] CreateDeclaredToolArchive(
+        string packageType,
+        params (string Path, byte[] Content)[] entries)
+        => CreateDeclaredToolArchive(
+            packageType,
+            MaterializedPackageId,
+            Version,
+            entries);
+
+    private static byte[] CreateDeclaredToolArchive(
+        string packageType,
+        string packageId,
+        string version,
+        params (string Path, byte[] Content)[] entries)
+    {
+        byte[] nuspec = Encoding.UTF8.GetBytes($"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>{packageId}</id>
+                <version>{version}</version>
+                <authors>Measurement tests</authors>
+                <description>Declared tool measurement fixture</description>
+                <packageTypes>
+                  <packageType name="{packageType}" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """);
+        return TestPackageArchive.CreateWithContent(
+            [($"{packageId}.nuspec", nuspec), .. entries]);
     }
 
     private sealed class ArchiveOnlyPackageContent(

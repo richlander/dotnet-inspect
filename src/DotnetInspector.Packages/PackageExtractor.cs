@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using DotnetInspector.Cache;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -1856,66 +1857,86 @@ public static class PackageExtractor
                     MaxCharactersInDocument = MaxNuspecBytes,
                 });
             XDocument document = XDocument.Load(reader, LoadOptions.None);
-            XElement? root = document.Root;
-            if (root is null
-                || root.Name.LocalName != "package")
-            {
-                return false;
-            }
-
-            XNamespace nuspecNamespace = root.Name.Namespace;
-            XElement[] metadataElements = root.Elements()
-                .Where(element =>
-                    element.Name.LocalName == "metadata")
-                .Take(2)
-                .ToArray();
-            if (metadataElements.Length != 1
-                || metadataElements[0].Name.Namespace
-                    != nuspecNamespace)
-            {
-                return false;
-            }
-
-            XElement metadata = metadataElements[0];
-            XElement[] idElements = metadata.Elements()
-                .Where(element => element.Name.LocalName == "id")
-                .Take(2)
-                .ToArray();
-            XElement[] versionElements = metadata.Elements()
-                .Where(element =>
-                    element.Name.LocalName == "version")
-                .Take(2)
-                .ToArray();
-            if (idElements.Length != 1
-                || idElements[0].Name.Namespace != nuspecNamespace
-                || versionElements.Length != 1
-                || versionElements[0].Name.Namespace != nuspecNamespace)
-            {
-                return false;
-            }
-
-            string actualId = idElements[0].Value;
-            string actualVersion = versionElements[0].Value;
-
-            return string.Equals(
-                       actualId.Trim(),
-                       packageId,
-                       StringComparison.OrdinalIgnoreCase)
-                   && TryNormalizePackageVersion(
-                       version,
-                       out string expected)
-                   && TryNormalizePackageVersion(
-                       actualVersion.Trim(),
-                       out string actual)
-                   && string.Equals(
-                       expected,
-                       actual,
-                       StringComparison.OrdinalIgnoreCase);
+            return TryGetExpectedNuspecMetadata(
+                document,
+                packageId,
+                version,
+                out _);
         }
         catch (XmlException)
         {
             return false;
         }
+    }
+
+    internal static bool TryGetExpectedNuspecMetadata(
+        XDocument document,
+        string packageId,
+        string version,
+        [NotNullWhen(true)] out XElement? metadata)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        metadata = null;
+        XElement? root = document.Root;
+        if (root is null
+            || root.Name.LocalName != "package")
+        {
+            return false;
+        }
+
+        XNamespace nuspecNamespace = root.Name.Namespace;
+        XElement[] metadataElements = root.Elements()
+            .Where(element =>
+                element.Name.LocalName == "metadata")
+            .Take(2)
+            .ToArray();
+        if (metadataElements.Length != 1
+            || metadataElements[0].Name.Namespace
+                != nuspecNamespace)
+        {
+            return false;
+        }
+
+        XElement candidate = metadataElements[0];
+        XElement[] idElements = candidate.Elements()
+            .Where(element => element.Name.LocalName == "id")
+            .Take(2)
+            .ToArray();
+        XElement[] versionElements = candidate.Elements()
+            .Where(element =>
+                element.Name.LocalName == "version")
+            .Take(2)
+            .ToArray();
+        if (idElements.Length != 1
+            || idElements[0].Name.Namespace != nuspecNamespace
+            || versionElements.Length != 1
+            || versionElements[0].Name.Namespace != nuspecNamespace)
+        {
+            return false;
+        }
+
+        string actualId = idElements[0].Value;
+        string actualVersion = versionElements[0].Value;
+        if (!string.Equals(
+                actualId.Trim(),
+                packageId,
+                StringComparison.OrdinalIgnoreCase)
+            || !TryNormalizePackageVersion(
+                version,
+                out string expected)
+            || !TryNormalizePackageVersion(
+                actualVersion.Trim(),
+                out string actual)
+            || !string.Equals(
+                expected,
+                actual,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        metadata = candidate;
+        return true;
     }
 
     /// <summary>

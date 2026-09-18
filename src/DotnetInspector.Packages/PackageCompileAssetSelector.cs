@@ -640,7 +640,7 @@ public static class PackageCompileAssetSelector
                 : null;
     }
 
-    static string? SelectApplicableFramework(
+    internal static string? SelectApplicableFramework(
         IReadOnlyList<string> frameworks,
         string requestedFramework)
     {
@@ -721,7 +721,9 @@ public static class PackageCompileAssetSelector
     /// package entry, or false for an entry that is not shaped like one —
     /// including traversal-shaped and backslash-separated spellings.
     /// </summary>
-    static bool TryParsePathParts(string entry, out string[]? parts)
+    internal static bool TryParsePathParts(
+        string entry,
+        out string[]? parts)
     {
         parts = null;
         if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
