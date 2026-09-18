@@ -73,8 +73,8 @@ QueryOutcome       — streamed QueryResultRow[] + assembly assessments +
                      partial failures + completion state
     |
     v
-QueryResultRow     — one package's metadata/manifest/content projection + which
-                      predicate terms matched + why
+QueryResultRow     — one package's metadata/manifest/content projection +
+                      semantic answers + structured evidence
 ```
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
@@ -255,9 +255,10 @@ and
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Query-scoped source-selection context from the
   first row appears once above the current result list. Each card is a compact
-  package summary plus only its package-scoped, product-authored evidence for
-  *why* it matched, including shared count-and-preview explanations for
-  dependencies and embedded skill documents. Metadata-only rows retain their
+  package summary plus direct semantic answers and only its package-scoped
+  structured evidence. The Browser authors compact presentation for shared
+  count-and-preview facts such as dependencies and embedded skill documents.
+  Metadata-only rows retain their
   nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed

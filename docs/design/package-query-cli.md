@@ -19,9 +19,9 @@ for the retained implementation evidence.
 The current sources implement one host-neutral L1 Package Query vocabulary as
 `PackageQuery`: product-owned ordered term descriptors, complete Portable Query
 Intent planning, ANDed predicate evaluation with vocabulary-owned OR families,
-an explicit package-content provider for archive-derived terms, non-empty inert
-evidence, separate candidate and match bounds, retained Head/Tail/Window stages,
-visible failures, and typed completion.
+an explicit package-content provider for archive-derived terms, semantic
+answers with structured evidence, separate candidate and match bounds, retained
+Head/Tail/Window stages, visible failures, and typed completion.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
