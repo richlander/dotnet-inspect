@@ -893,6 +893,15 @@ public sealed class IrFunction : IrNode
         = ImmutableDictionary<TypeRef, TypeRef>.Empty;
 
     /// <summary>
+    /// Enum types this function references whose exact definitions carry
+    /// <see cref="FlagsAttribute"/>. Materialized while metadata is live so the
+    /// printer may name complete flag combinations without guessing from member
+    /// values alone.
+    /// </summary>
+    public IReadOnlySet<TypeRef> FlagsEnumTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
+    /// <summary>
     /// Types proven, while metadata was live, to satisfy C# collection-initializer
     /// receiver rules. `ObjectInitializerPass` consumes this so an arbitrary
     /// method named `Add` is not enough to raise `new C { ... }`.
@@ -963,6 +972,7 @@ public sealed class IrFunction : IrNode
                 static pair => (IReadOnlyDictionary<long, string>)
                     pair.Value.ToImmutableDictionary()),
             EnumUnderlyingTypes.ToImmutableDictionary(),
+            FlagsEnumTypes.ToImmutableHashSet(),
             CollectionInitializerTypes.ToImmutableHashSet(),
             UnionTypes.ToImmutableHashSet(),
             ByRefLikeTypes.ToImmutableHashSet(),
@@ -999,6 +1009,9 @@ public sealed class IrFunction : IrNode
         EnumUnderlyingTypes = WithoutAmbiguous(
             MergeMap(EnumUnderlyingTypes, body.EnumUnderlyingTypes),
             ambiguous);
+        FlagsEnumTypes = WithoutAmbiguous(
+            MergeSet(FlagsEnumTypes, body.FlagsEnumTypes),
+            ambiguous);
         CollectionInitializerTypes = WithoutAmbiguous(
             MergeSet(CollectionInitializerTypes, body.CollectionInitializerTypes),
             ambiguous);
@@ -1026,6 +1039,7 @@ public sealed class IrFunction : IrNode
         AmbiguousTypeFacts = source.AmbiguousTypeFacts;
         EnumMembers = source.EnumMembers;
         EnumUnderlyingTypes = source.EnumUnderlyingTypes;
+        FlagsEnumTypes = source.FlagsEnumTypes;
         CollectionInitializerTypes = source.CollectionInitializerTypes;
         UnionTypes = source.UnionTypes;
         ByRefLikeTypes = source.ByRefLikeTypes;
