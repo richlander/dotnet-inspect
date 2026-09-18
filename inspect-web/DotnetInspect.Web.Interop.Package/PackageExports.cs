@@ -26,8 +26,8 @@ namespace DotnetInspect.Web.Interop.Package;
 /// </para>
 /// <para>
 /// Two other categories exist and say so in place: exports that read package content without
-/// inspecting an assembly (the document and XML-documentation reads), and exports that touch no
-/// artifact at all (type-name ranking and cache statistics).
+/// inspecting an assembly (package documents), and exports that touch no artifact at all
+/// (type-name ranking and cache statistics).
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -50,6 +50,43 @@ public static partial class PackageExports
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryPackageRoot(string rootRequest)
+    {
+        if (!PackageRootReacquisitionRequest.TryDecode(
+                rootRequest,
+                out PackageRootReacquisitionRequest? request))
+        {
+            throw new ArgumentException(
+                "The package Root request is invalid.",
+                nameof(rootRequest));
+        }
+
+        BrowserPackageSurface surface =
+            await BrowserPackageWorkspace.RunPackageOperationAsync(
+                async deadline =>
+                {
+                    BrowserPackageCoordinate coordinate =
+                        await BrowserPackageWorkspace.ReacquireAsync(
+                            request,
+                            deadline.Token).ConfigureAwait(false);
+                    await using BrowserScopeLease<BrowserInspectionScope>
+                        scopeLease =
+                            await BrowserPackageWorkspace.OpenScopeAsync(
+                                [coordinate],
+                                deadline.Token).ConfigureAwait(false);
+                    BrowserInspectionScope scope = scopeLease.Scope;
+                    return BrowserPackageWireProjection.Project(
+                        BrowserPackageSurfaceProjection.ProjectSurface(
+                            scope,
+                            scope.Coordinates[0]));
+                },
+                BrowserPackageWorkspace.PackageOperationTimeout);
+        return JsonSerializer.Serialize(
+            surface,
+            BrowserPackageJsonContext.Default.BrowserPackageSurface);
     }
 
     static async Task<BrowserPackageLoadResult> PackageSurfaceAsync(
@@ -419,8 +456,8 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// One member's entry from the XML documentation shipped beside the product-selected compile
-    /// asset. This reads package content and inspects no assembly, so it opens no group.
+    /// One exact member's shared compiled-documentation outcome from the PackageHouse-selected
+    /// Library and its associated XML companion.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryMemberDocumentation(
@@ -430,19 +467,17 @@ public static partial class PackageExports
         string assemblyName,
         string documentationId)
     {
-        BrowserPackageCoordinate coordinate = await BrowserPackageWorkspace.ResolveAsync(
-            packageId,
-            version,
-            framework);
-        PackageCompileAsset asset = coordinate.CompileAsset(assemblyName);
-        BrowserMemberDocumentation documentation = coordinate.Package.TryReadText(
-            Path.ChangeExtension(asset.Path, ".xml"),
-            out byte[] xml)
-                ? BrowserXmlDocumentation.Read(xml, documentationId)
-                : BrowserXmlDocumentation.Empty;
+        CompiledDocumentationOutcome documentation =
+            await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+                packageId,
+                version,
+                framework,
+                assemblyName,
+                documentationId);
         return JsonSerializer.Serialize(
             documentation,
-            BrowserPackageJsonContext.Default.BrowserMemberDocumentation);
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
     }
 
     /// <summary>

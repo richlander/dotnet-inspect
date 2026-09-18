@@ -927,6 +927,12 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     jsonTypeAttributes,
                     observeDecodeWork);
+            apiType.JsonPolymorphism =
+                AttributeReader.ReadJsonPolymorphism(
+                    reader,
+                    jsonTypeAttributes,
+                    currentAssemblyIdentity,
+                    observeDecodeWork);
             apiType.JsonSerializableRoots =
                 AttributeReader.ReadJsonSerializableRoots(
                     reader,
@@ -965,15 +971,21 @@ public static partial class ApiSurfaceExtractor
                         observeDecodeWork);
             }
 
-            if (AttributeReader.TryGetJsonSourceGenerationOptions(
+            if (AttributeReader.TryGetJsonSourceGenerationWireOptions(
                     reader,
                     jsonTypeAttributes,
                     out JsonWireNamingPolicy? namingPolicy,
                     out JsonSourceGenerationMode generationMode,
+                    out JsonWireIgnoreCondition defaultIgnoreCondition,
+                    out bool useStringEnumConverter,
                     observeDecodeWork))
             {
                 apiType.JsonPropertyNamingPolicy = namingPolicy;
                 apiType.JsonSourceGenerationMode = generationMode;
+                apiType.JsonDefaultIgnoreCondition =
+                    defaultIgnoreCondition;
+                apiType.JsonUseStringEnumConverter =
+                    useStringEnumConverter;
             }
 
             // Check if this is an extension class (static class with [Extension] attribute)
