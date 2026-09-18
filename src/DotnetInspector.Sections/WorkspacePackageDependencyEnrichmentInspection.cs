@@ -503,6 +503,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
                     version2.Definitions,
                 InspectionDefinitionScenarioPreparationResult.Version3 version3 =>
                     version3.Definitions,
+                InspectionDefinitionScenarioPreparationResult.Version4 version4 =>
+                    version4.Definitions,
                 _ => throw new UnreachableException(),
             };
             return RewriteResult.Success(definitions, addedMemberCount);

@@ -72,6 +72,11 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     envelope.Content;
             Assert.Equal(3, success.SelectedRootCount);
             Assert.Equal(3, success.AddedMemberCount);
+            Assert.All(
+                success.Definitions.Records,
+                record => Assert.Equal(
+                    InspectionDefinitionSchema.Version4,
+                    record.SchemaVersion));
 
             WorkspaceDefinition workspace = success.Definitions.Workspace!;
             Assert.Equal(
@@ -106,6 +111,10 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 [null, "t0", "t1", "t2", "t3", "t4", "t5"],
                 success.Definitions.View!.States.Select(
                     state => state.Navigation));
+            Assert.IsType<PortableSubjectRequest.Library>(
+                success.Definitions.View.States[1].Subject);
+            Assert.IsType<PortableRetainedSubjectContext.AllLibraries>(
+                success.Definitions.View.States[1].Context);
 
             var share =
                 Assert.IsType<InspectionShare.Available>(envelope.Share);
@@ -113,6 +122,13 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 WorkspaceSharePacketCodec.Decode(
                     share.Packet,
                     TestContext.Current.CancellationToken);
+            Assert.Equal(
+                WorkspaceSharePacketCodec.Format4Version,
+                packet.FormatVersion);
+            Assert.IsType<PortableSubjectRequest.Library>(
+                packet.ViewStates[1].Subject);
+            Assert.IsType<PortableRetainedSubjectContext.AllLibraries>(
+                packet.ViewStates[1].Context);
             Assert.Equal(6, packet.Tabs.Count);
             Assert.Equal([0, 1, 3], packet.Contexts[0].TabIndexes);
             Assert.Equal([2, 4, 5], packet.Contexts[1].TabIndexes);
@@ -260,7 +276,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     coordinate: explicitDependency),
                 new NavigationTabDefinition("t2", coordinate: root9),
             ],
-            focus: "t0");
+            focus: "t0",
+            schemaVersion: InspectionDefinitionSchema.Version4);
     }
 
     private static CommittedScenarioDefinitionSet SingleContextDefinitions(
@@ -284,29 +301,38 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
     private static CommittedScenarioDefinitionSet Prepare(
         IReadOnlyList<WorkspaceContextDefinition> contexts,
         IReadOnlyList<NavigationTabDefinition> tabs,
-        string? focus)
+        string? focus,
+        int schemaVersion = InspectionDefinitionSchema.Version3)
     {
         var workspace = new WorkspaceDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.WorkspaceId,
             contexts);
         var navigation = new CommittedNavigationDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.NavigationId,
             tabs,
             focus);
         var view = new CommittedViewDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ViewId,
             [
                 new CommittedViewStateDefinition(
                     navigation: null,
                     subject: new PortableSubjectRequest.Workspace()),
-                .. tabs.Select(tab =>
-                    new CommittedViewStateDefinition(tab.Id)),
+                .. tabs.Select((tab, index) =>
+                    schemaVersion == InspectionDefinitionSchema.Version4
+                        && index == 0
+                        ? new CommittedViewStateDefinition(
+                            tab.Id,
+                            subject: new PortableSubjectRequest.Library(),
+                            context:
+                                new PortableRetainedSubjectContext
+                                    .AllLibraries())
+                        : new CommittedViewStateDefinition(tab.Id)),
             ]);
         var scenario = new ScenarioDefinition(
-            InspectionDefinitionSchema.Version3,
+            schemaVersion,
             WorkspaceSharePacketTransposer.ScenarioId,
             workspace: workspace.Id,
             context: contexts[0].Name,
@@ -317,10 +343,17 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         registry.Add(navigation);
         registry.Add(view);
         registry.Add(scenario);
-        return Assert.IsType<
-            InspectionDefinitionScenarioPreparationResult.Version3>(
-                registry.PreparePacketScenario(scenario.Id))
-            .Definitions;
+        InspectionDefinitionScenarioPreparationResult prepared =
+            registry.PreparePacketScenario(scenario.Id);
+        return prepared switch
+        {
+            InspectionDefinitionScenarioPreparationResult.Version3 version3 =>
+                version3.Definitions,
+            InspectionDefinitionScenarioPreparationResult.Version4 version4 =>
+                version4.Definitions,
+            _ => throw new InvalidOperationException(
+                "The enrichment fixture requires schema version 3 or 4."),
+        };
     }
 
     private static string[] PackageMembers(

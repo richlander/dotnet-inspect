@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-- Adds `workspace --make-package-dependencies-explicit --share packet|url` to
-  acquire every direct Package member, resolve exact direct dependencies with
-  existing Package owners, and emit one context-preserving, all-or-nothing
-  derived Workspace packet (#7494).
 - Adds complete service `--envelope` output to `package activity` with result
   kind `ecosystem-change-report` and schema version `1`. Unprojected `--json`
   emits the same owner-issued report Content without the service frame.
