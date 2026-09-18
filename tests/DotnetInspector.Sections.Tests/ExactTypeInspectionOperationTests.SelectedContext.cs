@@ -50,6 +50,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         await ActivateAsync(coordinator, candidate);
         using WorkspaceRealizationOperationLease authority =
             await AdmitAsync(coordinator);
+        Assert.Null(Assert.Single(context.Receipt.Members).Coordinate);
 
         InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
             SelectedContextExactTypeInspectionOperation.Execute(
@@ -324,6 +325,104 @@ public sealed partial class ExactTypeInspectionOperationTests
                 path: null,
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(name));
+    }
+
+    [Fact]
+    public async Task
+        SelectedContext_MissingDefiningCoordinateIsUnavailable()
+    {
+        const string assemblyName = "CoordinateUnavailable";
+        const string typeName = "Exact.CoordinateUnavailable";
+        byte[] image = BuildAssembly(
+            assemblyName,
+            typeName,
+            typeof(IDisposable));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    assemblyName,
+                    new Version(0, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(assemblyName));
+        var input = new WorkspaceContextInput
+        {
+            Members =
+            [
+                WorkspaceMemberCoordinate.Embedded(
+                    "assemblies/CoordinateUnavailable.dll",
+                    new string('0', 64),
+                    assemblyName),
+            ],
+        };
+        WorkspaceMemberCoordinate declared = Assert.Single(input.Members);
+        var realized = new RealizedMemberCoordinate.Embedded(
+            "assemblies/CoordinateUnavailable.dll",
+            new string('0', 64),
+            assemblyName);
+        await using var coordinator = new WorkspaceRealizationCoordinator();
+        WorkspaceRealizationCandidate candidate =
+            Assert.IsType<WorkspaceRealizationCandidateStartResult.Prepared>(
+                await coordinator.BeginCandidateAsync(
+                    new WorkspacePlan([], [input]),
+                    TestContext.Current.CancellationToken))
+            .Candidate;
+        WorkspaceDeclarationContext context;
+        using (WorkspaceRealizationConstructionLease construction =
+            candidate.EnterConstruction())
+        {
+            var participant = new AssemblyContextParticipant(
+                assembly,
+                NoResolverAssemblyBindingPolicy.Instance);
+            AssemblyContextGroup group =
+                construction.Workspace.CreateAssemblyContextGroup(
+                    [participant]);
+            var loaded = new WorkspaceContextLoadOutcome.Loaded(
+                construction.Workspace.Identity,
+                group,
+                [new WorkspaceContextMember(
+                    declared,
+                    realized,
+                    participant)],
+                [],
+                framework: null,
+                runtimeIdentifier: null);
+            context = construction.Workspace.CompleteDeclarationContext(
+                construction.Workspace.BeginDeclarationContext(),
+                input,
+                loaded);
+        }
+        await ActivateAsync(coordinator, candidate);
+        using WorkspaceRealizationOperationLease authority =
+            await AdmitAsync(coordinator);
+
+        InspectionEnvelope<SelectedContextExactTypeInspectionResult> envelope =
+            SelectedContextExactTypeInspectionOperation.Execute(
+                authority,
+                context,
+                new SelectedContextExactTypeInspectionRequest(typeName));
+
+        ExactTypeInspectionResult inspection = envelope.Content.Inspection;
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            inspection.Outcome);
+        Assert.Null(inspection.Type);
+        Assert.Null(inspection.RequestedAssembly);
+        Assert.Null(inspection.SupplierAssembly);
+        Assert.Empty(inspection.ForwardingHops);
+        Assert.Empty(inspection.Suggestions);
+        Assert.Empty(envelope.Content.DefiningSources);
+        Assert.Contains(
+            inspection.Failures,
+            failure => failure.Kind
+                == ExactTypeInspectionFailureKind
+                    .DefiningSourceUnavailable);
+        Assert.Contains(
+            envelope.Diagnostics,
+            diagnostic => diagnostic.Code
+                == "exact-type.defining-source-unavailable");
     }
 
     [Fact]
