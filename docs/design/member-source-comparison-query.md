@@ -108,6 +108,14 @@ The endpoint preserves product-issued repository provenance separately from
 resolved or fetch URLs. This query does not decide whether a host may expose an
 Open action.
 
+The endpoint also retains the native authored House outcome or terminal Library
+admission result when reached. Its
+[shared member acquisition](member-source-acquisition.md) reuses the acquired
+Portable PDB for the independently attempted decompiler rather than acquiring
+symbols twice. `MemberSourceInspection.CompareAsync` supplies the completed
+Sections envelope consumed by CLI Source Diff; the comparison policy here is
+unchanged.
+
 ### Decompiled endpoint
 
 The decompiled endpoint is either:
