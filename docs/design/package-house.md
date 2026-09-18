@@ -54,9 +54,9 @@ and presentation.
 credentials, transports, clients, stores, and disposal, but its
 composition-owned exact and selecting payload operations, asynchronous pinned
 candidate path, and candidate-manifest path now settle through PackageHouse.
-The CLI's online `package --latest-version` and equivalent `@latest` version
-queries consume the shared `PackageVersionSettlementInspection` envelope,
-also used by Inspect Web exact/latest package opening. The shared inspection
+The CLI's online `package Package@latest --version` query and `@latest` package
+opening consume the shared `PackageVersionSettlementInspection` envelope, also
+used by Inspect Web exact/latest package opening. The shared inspection
 projects House `Settle` evidence into a serialization-ready outcome; hosts
 render or consume the selected coordinate rather than choosing a latest row.
 The earlier desktop-only `SettleVersionAsync` bridge is retired. Desktop
@@ -66,7 +66,7 @@ settlement's optional discovery callback.
 `System.Text.Json` is the motivating production package. The
 `SourceScopedRoutingTests.LatestVersionSettlement_*` cases cover the detached
 receipt, requested progress, and explicit prerelease boundary, while the
-existing latest-version, source-failure, listing, and rendering cases preserve
+existing latest-settlement, source-failure, listing, and rendering cases preserve
 neighboring behavior.
 This is payload-free adoption: ordinary version listings, CLI pinned and range
 queries, offline behavior, and package-content/Workspace
@@ -590,7 +590,8 @@ lease. The inspection consumes that operation; hosts still own clients and
 the source root. A payload-free operation needs no Workspace.
 
 Production adoption has three steps within this slice: the shared boundary,
-CLI latest-version queries, and Inspect Web exact/latest package opening.
+CLI `Package@latest --version` queries, and Inspect Web exact/latest package
+opening.
 The CLI retains scalar/feed/listing presentation. Inspect Web retains the
 same baseline through its richer package-opening composition and transport,
 then continues existing payload acquisition and Workspace admission.
