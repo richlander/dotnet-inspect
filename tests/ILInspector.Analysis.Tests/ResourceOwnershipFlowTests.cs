@@ -285,6 +285,35 @@ public sealed class ResourceOwnershipFlowTests
     }
 
     [Fact]
+    public void KindlessTokenMoveDoesNotTaintArrayPoolProjection()
+    {
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenWithResourceEffects(
+                CallerPath,
+                LibraryBodyAnalysisFeatures.OwnershipFlow,
+                Resolver(CallerPath),
+                Admit(
+                    ArrayPoolResourceEffectModel.Definition(),
+                    TokenResourceModel(omitMoveKind: true)),
+                bodyScope: new HashSet<int>
+                {
+                    MethodToken("RentWhileMovingToken"),
+                });
+
+        ResourceOwnershipMethodEvidence evidence =
+            Assert.Single(index.ResourceOwnership);
+        Assert.False(evidence.IsComplete);
+        Assert.Equal(
+            0,
+            Assert.Single(evidence.Limits).ParameterIndex);
+
+        ArrayPoolOwnershipMethodEvidence projected =
+            Assert.Single(index.ArrayPoolOwnership);
+        Assert.True(projected.IsComplete);
+        Assert.True(Assert.Single(projected.Rents).IsComplete);
+    }
+
+    [Fact]
     public void DifferentAuthorityDoesNotReleaseAcquiredResource()
     {
         LibraryBodyIndex index = LibraryBodyIndex.Open(
@@ -1189,7 +1218,8 @@ public sealed class ResourceOwnershipFlowTests
 
     static ResourceEffectModelDefinition TokenResourceModel(
         bool omitReleaseKind = false,
-        ResourceEffectCompletion? releaseCompletion = null)
+        ResourceEffectCompletion? releaseCompletion = null,
+        bool omitMoveKind = false)
     {
         ResourceAssemblySelector assembly = FixtureAssembly();
         ResourceTypeExpression.Named api = new(
@@ -1261,7 +1291,7 @@ public sealed class ResourceOwnershipFlowTests
                         new ResourceEffectLocation.Parameter(0),
                         new ResourceEffectLocation.Return(),
                         new ResourceEffectCompletion.NormalReturn(),
-                        kind),
+                        omitMoveKind ? null : kind),
                     [Provenance(
                         TokenModelIdentity,
                         "move",

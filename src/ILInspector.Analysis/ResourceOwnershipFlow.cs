@@ -499,6 +499,18 @@ internal static class ResourceOwnershipFlow
                     slot,
                     isArgument: isArgument,
                     classifyRelease: ClassifyRelease);
+            if (classification.ParameterIndex >= 0
+                && AddUnsupportedSourceEffectLimits(
+                    classification.OperationOffset,
+                    classification.ParameterIndex,
+                    rootParameterIndex,
+                    projectedResourceKind,
+                    effects,
+                    handledEffects,
+                    limits))
+            {
+                complete = false;
+            }
             switch (classification.Kind)
             {
                 case ArrayPoolUseClassifier.UseKind.Release:
@@ -629,6 +641,68 @@ internal static class ResourceOwnershipFlow
                 .ToImmutableArray(),
             complete);
     }
+
+    static bool AddUnsupportedSourceEffectLimits(
+        int operationOffset,
+        int calleeParameterIndex,
+        int? rootParameterIndex,
+        ResourceKindIdentity? projectedResourceKind,
+        IReadOnlyDictionary<int, ImmutableArray<ResolvedResourceEffect>>
+            effects,
+        HashSet<ResolvedResourceEffect> handledEffects,
+        ImmutableArray<ResourceOwnershipFlowLimit>.Builder limits)
+    {
+        if (!effects.TryGetValue(
+                operationOffset,
+                out ImmutableArray<ResolvedResourceEffect> atCall))
+        {
+            return false;
+        }
+
+        bool added = false;
+        foreach (ResolvedResourceEffect effect in atCall)
+        {
+            if (effect.Effect is ResourceEffect.Resource
+                or ResourceEffect.Authority
+                or ResourceEffect.Acquire
+                or ResourceEffect.Release
+                || Source(effect.Effect)
+                    is not ResourceEffectLocation.Parameter source
+                || source.Index != calleeParameterIndex)
+            {
+                continue;
+            }
+
+            handledEffects.Add(effect);
+            limits.Add(
+                new(
+                    ResourceOwnershipFlowLimitKind.UnsupportedEffect,
+                    operationOffset,
+                    Effect: effect,
+                    ResourceKind:
+                        effect.ResourceKinds.IsEmpty
+                            ? projectedResourceKind
+                            : null,
+                    ParameterIndex: rootParameterIndex));
+            added = true;
+        }
+        return added;
+    }
+
+    static ResourceEffectLocation? Source(ResourceEffect effect) =>
+        effect switch
+        {
+            ResourceEffect.Move move => move.Source,
+            ResourceEffect.Consume consume => consume.Source,
+            ResourceEffect.Borrow borrow => borrow.Source,
+            ResourceEffect.Derive derive => derive.Source,
+            ResourceEffect.Pass pass => pass.Source,
+            ResourceEffect.Independent independent => independent.Source,
+            ResourceEffect.Callback callback => callback.Delegate,
+            ResourceEffect.Accept accept => accept.Source,
+            ResourceEffect.Outcome outcome => outcome.Source,
+            _ => null,
+        };
 
     static ReleaseMatchOutcome MatchRelease(
         DirectCall call,
