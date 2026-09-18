@@ -198,6 +198,16 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             typeDefinition,
             methodDefinition);
 
+    GenericScope
+        ILibraryMethodAnalysisInfrastructure.CreatePresenceScope(
+            TypeDefinition typeDefinition,
+            MethodDefinition methodDefinition,
+            UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver.CreatePresenceScope(
+            typeDefinition,
+            methodDefinition,
+            workBudget);
+
     MethodIdentity
         ILibraryMethodAnalysisInfrastructure.CreateMethodIdentity(
             TypeDefinitionHandle typeHandle,
@@ -209,6 +219,21 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodHandle,
             methodDefinition,
             scope);
+
+    MethodIdentity
+        ILibraryMethodAnalysisInfrastructure
+            .CreatePresenceMethodIdentity(
+                TypeDefinitionHandle typeHandle,
+                MethodDefinitionHandle methodHandle,
+                MethodDefinition methodDefinition,
+                GenericScope scope,
+                UnsafePresenceWorkBudget workBudget) =>
+        _primaryMetadataResolver.CreatePresenceMethodIdentity(
+            typeHandle,
+            methodHandle,
+            methodDefinition,
+            scope,
+            workBudget);
 
     ILibraryMethodAnalysisResolver
         ILibraryMethodAnalysisInfrastructure.CreateMethodAnalysisResolver(

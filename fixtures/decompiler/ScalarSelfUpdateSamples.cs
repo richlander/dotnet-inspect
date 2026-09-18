@@ -70,6 +70,84 @@ internal static class ScalarSelfUpdateSamples
         return value;
     }
 
+    public static int CheckedRhsNegation(int value, int amount)
+    {
+        checked { value -= unchecked(-amount); }
+        return value;
+    }
+
+    public static int CheckedRhsConversion(int value, int amount)
+    {
+        checked { value *= unchecked((short)amount); }
+        return value;
+    }
+
+    public static int CheckedRhsNested(int value, int amount, int step)
+    {
+        checked { value += unchecked(amount + checked(step * 2)); }
+        return value + amount;
+    }
+
+    public static int CheckedRhsAllChecked(int value, int amount)
+    {
+        checked { value += amount + 1; }
+        return value;
+    }
+
+    public static int UncheckedRhsChecked(int value, int amount)
+    {
+        value += checked(amount + 1);
+        return value;
+    }
+
+    public static int CheckedRhsBitwise(int value, int amount)
+    {
+        checked { value += amount & 7; }
+        return value;
+    }
+
+    public static void CheckedRhsStores(Counter counter, ref int value, int amount)
+    {
+        int local = value;
+        Observe(ref local);
+        checked
+        {
+            local += unchecked(amount + 1);
+            value -= unchecked(amount * 2);
+            counter.Count += unchecked(amount - 1);
+            s_count += unchecked(-amount);
+            counter.Value += unchecked((short)amount);
+        }
+        Observe(ref local);
+    }
+
+    public static void CheckedRhsIndexer(Counter counter, int index, int amount)
+    {
+        checked { counter[index] += unchecked(amount + 2); }
+    }
+
+    public static unsafe void CheckedRhsIndirect(int* value, int amount)
+    {
+        unsafe { checked { *value += unchecked(amount + 1); } }
+    }
+
+    public static int CheckedLocalHeader(int start, int step)
+    {
+        int value = start;
+        for (value = checked(value + step); value < 100; value = checked(value + step))
+            Console.WriteLine(value);
+        return value;
+    }
+
+    public static int CheckedRhsHeader(int start, int step)
+    {
+        int value = start;
+        for (value = checked(value + unchecked(step + 1)); value < 100;
+            value = checked(value + unchecked(step + 1)))
+            Console.WriteLine(value);
+        return value;
+    }
+
     public static int Loop(int value, int amount)
     {
         for (value += amount; value < 100; value += amount)

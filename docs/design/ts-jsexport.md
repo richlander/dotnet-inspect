@@ -235,6 +235,48 @@ use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. Direct JS-interop arrays remain mutable because
 they are runtime values, not serialized snapshots.
 
+For a serialize-only record, owner-issued `Conditional` member presence becomes
+an exact optional property:
+
+```ts
+readonly property?: T;
+```
+
+Optionality describes possible key absence independently of nullability. When
+System.Text.Json omits the member's null or default value, the generated
+present-value type removes only that member's outer `null`; nested nullability
+and `null` supplied by another authenticated wire contract remain intact. A
+`Present` nullable member therefore remains `property: T | null`, while a
+nullable `WhenWritingNull` member becomes `property?: T`. `Never` remains
+present. The emitter consumes `JsExportSurface` presence facts rather than
+reading serializer attributes or inferring absence from C# nullability.
+A conditional `JsonElement` member uses the recursive `JsonValue`
+present-value alias, which includes JSON `null` but excludes JavaScript
+`undefined`; it is therefore `property?: JsonValue`, not
+`property?: unknown`. Other arbitrary JSON outputs retain their existing
+opaque `unknown` contract.
+
+A conditional member whose present-value type is an immediate record generic
+parameter is unsupported. The open generic declaration does not retain enough
+owner-issued information to distinguish a CLR default null from JSON null in
+every authenticated closed instantiation, and `property?: T` becomes unsound
+when a supported argument maps to `unknown`. Generation fails visibly rather
+than publishing that declaration.
+
+A conditional member whose union alias can collapse to `unknown` is likewise
+unsupported. This includes a top-level `JsonElement` case supplied directly or
+through a closed generic union argument, and an open record generic parameter
+flowing through a union case. Nested `JsonElement` values inside an array,
+collection, dictionary, or record do not collapse the member's present-value
+type and therefore do not require the `JsonValue` helper. Finite nesting of the
+same generic union definition remains a closed substitution path and is
+analyzed through every supplied argument; cycle suppression applies only to
+recursive union-case traversal.
+
+A bidirectional record whose serialize and deserialize presence differs still
+fails visibly. Separate input and output declarations are a later
+direction-specific contract, not a shape the emitter guesses in this slice.
+
 ### Translating unions and nullability
 
 C# and TypeScript can both describe alternative and nullable values, but they
@@ -364,10 +406,11 @@ DOM-, or URL-safe. Consumers retain their sink-specific escaping.
 The generator and browser receive only the already-encoded representation.
 They do not import or expose `InertText.Encoding`; recovering original text
 remains a separate CLI concern under the InertText audit boundary.
-Polymorphic `System.Text.Json` base records remain structural in this
-generation slice; their runtime discriminator and derived members are
-preserved by the managed serializer, while a later union-lowering slice may
-expose them as a discriminated TypeScript union.
+Authenticated serialize-only polymorphic `System.Text.Json` base records lower
+to discriminated TypeScript unions. Their case interfaces consume the same
+owner-issued member-presence evidence as ordinary records, including exact
+optional present-value mapping; unsupported or deserialize-reached
+polymorphism fails visibly.
 
 `JsonUnionWireTests` and the compiler/runtime consumer harness
 `eng/test-ts-jsexport-typescript.sh` gate the generated contract against actual
@@ -1194,6 +1237,12 @@ issue references below.
   without renaming or replacing module infrastructure, parameter order and
   types remain unchanged, and every wire-type reference resolves to the
   allocated declaration for its exact typed identity;
+- compiled conditional-presence fixtures emit exact optional serialize-side
+  properties under `exactOptionalPropertyTypes`, remove only member-level outer
+  `null` from present values, preserve nested and unconditionally present
+  nullability, retain `Never` as required, declare `JsonValue` for member-level,
+  context-default, and polymorphic-only conditional JSON members, and continue
+  to reject a direction-sensitive bidirectional record;
 - an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
