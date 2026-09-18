@@ -491,11 +491,44 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 ```
 
+License selection also stays at the manifest boundary. `license=any` matches
+any nuspec license declaration. Closed semantic values match nuspec metadata
+without reading a license document: SPDX expressions match their exact
+expression, and `license=OSMF` recognizes a declared `OSMFEULA.*` file:
+
+```bash
+dotnet-inspect package query wix \
+  --where "license=OSMF" --nuspec-only
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
+```
+
+Neither query opens the package archive. To inspect the license documents that
+the package actually ships, use the separate package-file section:
+
+```bash
+dotnet-inspect package wix@7.0.0 -S "Package license files"
+dotnet-inspect package wix@7.0.0 -S "Package license files" --count
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
+```
+
+Package Query places the semantic result in `Answer`: `MIT` for the
+Newtonsoft.Json query, `OSMF` for the WiX query, and `true` for
+`license=any`. Supporting nuspec
+declaration kind and value remain separate evidence. `--count` already emits
+only the scalar count; `--bare` is useful with `--print` when only the selected
+document body is wanted without package or section framing.
+
+The exact nuspec `<license type="file">` target is always included. The same
+section also finds conventional text or Markdown license names and license
+directories; notices remain a separate legal-document concern. Reading that
+content is an explicit package projection and never informs license identity.
+
 Add `--where "key=value"` to select product-owned Package Query terms, with one
-matched package per row and product-authored evidence. The initial CLI
+matched package per row, semantic answers, and structured evidence. The initial CLI
 vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, and skill packages. Discover the
-admitted keys and values before constructing a query:
+.NET tools and their CLI v1/v2 format, skill packages, and nuspec license
+identity. Discover the admitted keys and values before constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages
