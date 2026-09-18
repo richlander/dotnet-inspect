@@ -1587,6 +1587,33 @@ public sealed class WorkspaceCommandTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("url")]
+    public async Task CommandLineShare_SpellingsRemainRenderedLineFallback(
+        string? shareFormat)
+    {
+        var args = new List<string>
+        {
+            "workspace",
+            "--register-package-prefix",
+            "Alpha.",
+            "--share",
+        };
+        if (shareFormat is not null)
+            args.Add(shareFormat);
+        args.AddRange(["-n", "1", "--json"]);
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
     [InlineData("--root-request", "invalid", "--root-request must be")]
     public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(

@@ -290,7 +290,7 @@ public static class WorkspaceCommandDefinitions
         && parseResult.GetValue(typeOption) is null
         && parseResult.GetValue(memberOption) is null
         && parseResult.GetValue(lensOption) is null
-        && parseResult.GetValue(shareOption) is null;
+        && parseResult.GetResult(shareOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,
