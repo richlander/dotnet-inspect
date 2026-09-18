@@ -2189,6 +2189,12 @@ function rebindActiveWorkspaceHistory(): void {
     history.state);
 }
 
+function realignPendingWorkspaceHistoryTraversal(): void {
+  if (pendingWorkspaceHistoryTraversal === null) return;
+  rebindActiveWorkspaceHistory();
+  pendingWorkspaceHistoryTraversal = null;
+}
+
 function restartRestoredWorkspaceSelectionData(): void {
   const load = loadSelectionData();
   if (load instanceof Promise) {
@@ -3042,7 +3048,16 @@ async function waitForPendingWorkspaceCommit(): Promise<void> {
 }
 
 const navigationSequence = {
-  begin(): number {
+  begin(
+    {
+      preserveWorkspaceHistoryTraversal = false,
+    }: {
+      preserveWorkspaceHistoryTraversal?: boolean;
+    } = {},
+  ): number {
+    if (!preserveWorkspaceHistoryTraversal) {
+      realignPendingWorkspaceHistoryTraversal();
+    }
     if (packageContentLoadingSequence !== null
       && innerNavigationSequence.isCurrent(packageContentLoadingSequence)) {
       state.loading = false;
@@ -4357,6 +4372,7 @@ function workspaceOccurrenceViewIsVisible() {
 }
 
 async function activateWorkspacePackageOccurrence(action: string) {
+  const navigationSeq = navigationSequence.begin();
   const managed = managedWorkspaceOccurrenceActions.get(action);
   if (managed !== undefined) {
     const result: BrowserRetainedWorkspacePackageActivationResult =
@@ -4365,6 +4381,7 @@ async function activateWorkspacePackageOccurrence(action: string) {
         managed.realizationId,
         managed.navigationId,
       );
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (managedWorkspaceOccurrenceActions.get(action) !== managed
       || installedRetainedWorkspaceRealizationId
         !== managed.realizationId
@@ -4385,13 +4402,14 @@ async function activateWorkspacePackageOccurrence(action: string) {
     }
     const packageModel = createNuGetPackageModel(result.package);
     retainPackageModel(packageModel);
-    selectWorkspacePackage(packageModel);
+    selectWorkspacePackage(packageModel, { navigationSeq });
     return;
   }
 
   await awaitWorkspaceOccurrenceClear();
   const result: BrowserWorkspacePackageOccurrenceActivation =
     await inspectActivateWorkspacePackageOccurrence(action);
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!result.activated || !result.package) {
     state.workspaceOccurrenceSignature = "";
     ensureWorkspaceOccurrenceView();
@@ -4405,7 +4423,7 @@ async function activateWorkspacePackageOccurrence(action: string) {
 
   const packageModel = createNuGetPackageModel(result.package);
   retainPackageModel(packageModel);
-  selectWorkspacePackage(packageModel);
+  selectWorkspacePackage(packageModel, { navigationSeq });
 }
 
 function activatePackage(
@@ -18433,7 +18451,9 @@ window.addEventListener("popstate", (event: PopStateEvent) => {
     diagnosticsDestinationFocusPending = true;
   }
   const leftPackageQueryHandoff = currentPackageQueryHandoff();
-  const navigationSeq = navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin({
+    preserveWorkspaceHistoryTraversal: true,
+  });
   let leftPackageQueryForWorkspaceSuccessor = false;
   let unavailableWorkspaceAdmissionRejected = false;
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();

@@ -142,6 +142,7 @@ const hostNames = new Set([
   "activateLegacyRetainedWorkspaceAfterManaged",
   "selectRetainedWorkspaceCore", "publishRetainedWorkspaceSelectionHistory",
   "publishRetainedWorkspaceDeletionHistory", "rebindActiveWorkspaceHistory",
+  "realignPendingWorkspaceHistoryTraversal",
   "deleteRetainedWorkspaceCore", "waitForPendingWorkspaceCommit",
   "navigateWithinCurrentWorkspace", "restorePlatformScopeThenDeepLink",
   "applyPlatformLibraryScope",
@@ -409,8 +410,18 @@ function harness() {
   const innerNavigationSequence = createNavigationSequence();
   let cancelPendingWorkspaceConstruction = () => {};
   let cancelPendingManagedCompatibilityOpen = () => true;
+  let realignPendingWorkspaceHistoryTraversal = () => {};
   const navigationSequence = {
-    begin: () => {
+    begin: (
+      {
+        preserveWorkspaceHistoryTraversal = false,
+      }: {
+        preserveWorkspaceHistoryTraversal?: boolean;
+      } = {},
+    ) => {
+      if (!preserveWorkspaceHistoryTraversal) {
+        realignPendingWorkspaceHistoryTraversal();
+      }
       if (!cancelPendingManagedCompatibilityOpen()) {
         throw new Error(
           "Wait for the Workspace compatibility cutover to finish before navigating.");
@@ -999,6 +1010,11 @@ function harness() {
     Boolean(runInNewContext(
       "cancelPendingManagedCompatibilityOpen()",
       context));
+  realignPendingWorkspaceHistoryTraversal = () => {
+    runInNewContext(
+      "realignPendingWorkspaceHistoryTraversal()",
+      context);
+  };
   return {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
@@ -1760,6 +1776,75 @@ test("failed managed history activation restores the incumbent entry", async () 
   assert.match(h.toasts.at(-1) ?? "", /Package unavailable/);
 });
 
+test("new saved Open realigns a superseded managed history traversal", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const incumbentId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(incumbentId, "workspace-definition-1");
+
+  const traversalDecode = deferred<BrowserWorkspaceShareDecodeResult>();
+  let decodeStarted = false;
+  h.controls.decodeWorkspace = () => {
+    decodeStarted = true;
+    return traversalDecode.promise;
+  };
+  const browserHistory = wireBrowserHistory(h);
+  h.history.state = { id: incumbentId };
+  browserHistory.dispatch(h.history.state);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(decodeStarted, true);
+  assert.notEqual(h.context.pendingWorkspaceHistoryTraversal, null);
+
+  const secondSaved: CompleteSavedWorkspace = {
+    ...completeSaved,
+    name: "Second Complete Workspace",
+    packet: "second-complete-packet",
+    canonicalLocation: "/?w=second-location#workspace",
+  };
+  h.controls.retainedActivation = {
+    status: "activated",
+    installation: {
+      ...retainedInstallation(),
+      retainedDefinitionId: "workspace-definition-2",
+      canonicalLocation: secondSaved.canonicalLocation,
+      canonicalPacket: secondSaved.packet,
+      realizationId: "workspace-realization-2",
+      publicationOrdinal: 2,
+    },
+    failure: null,
+  };
+  h.open(secondSaved);
+  await h.settle();
+
+  const successorId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(successorId, "workspace-definition-2");
+  assert.equal(h.context.pendingWorkspaceHistoryTraversal, null);
+  assert.equal(
+    h.location.href,
+    new URL(secondSaved.canonicalLocation, h.location).href);
+  assert.equal(h.writes.at(-1)?.kind, "push");
+
+  traversalDecode.resolve({
+    succeeded: true,
+    state: sharedState(),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(browserHistory.errors, []);
+  assert.equal(
+    h.location.href,
+    new URL(secondSaved.canonicalLocation, h.location).href);
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-2");
+  assert.doesNotMatch(
+    h.state.queryNotice,
+    /browser history entry could not be committed/);
+});
+
 test("compatibility selection yields history publication to browser traversal", async () => {
   const h = harness();
   h.open(completeSaved);
@@ -2077,6 +2162,66 @@ test("managed occurrence completion cannot publish after realization replacement
   assert.deepEqual(h.toasts, [
     "That Workspace view was replaced. Package actions have been refreshed.",
   ]);
+});
+
+test("delayed managed occurrence cannot supersede a newer saved Open", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const occurrence = h.state.workspaceOccurrences?.occurrences[0];
+  assert.ok(occurrence);
+  const activation = deferred<{
+    activated: boolean;
+    superseded: boolean;
+    package: BrowserPackageSurface | null;
+  }>();
+  h.controls.activateManagedOccurrence = () => activation.promise;
+  const pendingValue: unknown = runInNewContext(
+    "activateWorkspacePackageOccurrence(action)",
+    { ...h.context, action: occurrence.action },
+  );
+  const pending = Promise.resolve(pendingValue);
+
+  const secondSaved: CompleteSavedWorkspace = {
+    ...completeSaved,
+    name: "Second Complete Workspace",
+    packet: "second-complete-packet",
+    canonicalLocation: "/?w=second-location#workspace",
+  };
+  h.controls.retainedActivation = {
+    status: "activated",
+    installation: {
+      ...retainedInstallation(),
+      retainedDefinitionId: "workspace-definition-2",
+      canonicalLocation: secondSaved.canonicalLocation,
+      canonicalPacket: secondSaved.packet,
+      realizationId: "workspace-realization-2",
+      publicationOrdinal: 2,
+    },
+    failure: null,
+  };
+  h.open(secondSaved);
+  await h.settle();
+  const successorSequence = h.navigationSequence.current();
+
+  activation.resolve({
+    activated: true,
+    superseded: false,
+    package: packageSurface("Alpha", "2.3.4", "net10.0"),
+  });
+  await pending;
+
+  assert.equal(h.navigationSequence.current(), successorSequence);
+  assert.equal(
+    h.context.retainedWorkspaces.activeWorkspaceId,
+    "workspace-definition-2");
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-2");
+  assert.equal(
+    h.location.href,
+    new URL(secondSaved.canonicalLocation, h.location).href);
+  assert.deepEqual(h.toasts, []);
 });
 
 test("failed complete saved Open preserves the incumbent and retries the same retained definition", async () => {

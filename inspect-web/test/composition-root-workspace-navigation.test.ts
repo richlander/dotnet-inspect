@@ -837,7 +837,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{[\s\S]*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);[\s\S]*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\([\s\S]*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);[\s\S]*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*if \(!retainedWorkspaceActivationController\.cancelPending\(\)\) \{\s*throw new Error\([\s\S]*\}\s*cancelPendingWorkspaceConstruction\(\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
@@ -893,7 +893,7 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
     /function settleInterruptedPlatformStatus\(targetState: AppState\)[\s\S]*if \(targetState\.platformCatalogStatus\.loading\)[\s\S]*error: "Platform catalog loading was interrupted\."[\s\S]*if \(targetState\.platformOpeningStatus\.loading\)[\s\S]*error: "Platform Library opening was interrupted\."/);
   assert.match(
     appSource,
-    /const navigationSequence = \{[\s\S]*begin\(\): number \{[\s\S]*settleInterruptedPlatformStatus\(state\);[\s\S]*invalidate\(\): void \{[\s\S]*settleInterruptedPlatformStatus\(state\);/);
+    /const navigationSequence = \{[\s\S]*begin\([\s\S]*settleInterruptedPlatformStatus\(state\);[\s\S]*invalidate\(\): void \{[\s\S]*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /retryAction: \(\) =>\s*restorePlatformHistoryView\(view, row, navigationSequence\.current\(\)\)/);
@@ -1128,10 +1128,10 @@ test("Package query and Activity are routed Spotlight actions", () => {
     ?? "";
   assert.match(
     popstate,
-    /const leftPackageQueryHandoff = currentPackageQueryHandoff\(\);\s*const navigationSeq = navigationSequence\.begin\(\)/);
+    /const leftPackageQueryHandoff = currentPackageQueryHandoff\(\);\s*const navigationSeq = navigationSequence\.begin\(\{\s*preserveWorkspaceHistoryTraversal: true,\s*\}\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(traversal\.historyState\)[\s\S]*activateManagedRetainedWorkspaceProjection\([\s\S]*activateRetainedWorkspaceProjection\(historyWorkspace\.id, false\)/);
+    /const navigationSeq = navigationSequence\.begin\(\{\s*preserveWorkspaceHistoryTraversal: true,\s*\}\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*let unavailableWorkspaceAdmissionRejected = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*retainedWorkspaceIdFromHistory\(traversal\.historyState\)[\s\S]*activateManagedRetainedWorkspaceProjection\([\s\S]*activateRetainedWorkspaceProjection\(historyWorkspace\.id, false\)/);
   assert.match(
     appSource,
     /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
@@ -1309,7 +1309,16 @@ test("browser history reuses available identities and publishes only unavailable
     /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \|\| state\.platformSelection \? location\.href : "\/demos"\),\s*history\.state\)/);
   assert.match(
     appSource,
+    /const navigationSequence = \{\s*begin\([\s\S]*preserveWorkspaceHistoryTraversal = false[\s\S]*if \(!preserveWorkspaceHistoryTraversal\) \{\s*realignPendingWorkspaceHistoryTraversal\(\);/);
+  assert.match(
+    history,
+    /navigationSequence\.begin\(\{\s*preserveWorkspaceHistoryTraversal: true,\s*\}\)/);
+  assert.match(
+    appSource,
     /catch \(error\) \{\s*if \(pendingWorkspaceHistoryTraversal === traversal\s*&& navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*rebindActiveWorkspaceHistory\(\);\s*\}\s*showToast\(`Could not activate Workspace:/);
+  assert.match(
+    appSource,
+    /async function activateWorkspacePackageOccurrence\(action: string\) \{\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await inspectActivateRetainedWorkspacePackageOccurrence\([\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*selectWorkspacePackage\(packageModel, \{ navigationSeq \}\)/);
   assert.match(
     appSource,
     /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
