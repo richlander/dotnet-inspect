@@ -1,7 +1,7 @@
 ---
 id: version-queries
 description: Query package versions, wildcard patterns, and custom NuGet sources
-commands: [--version, --versions, --latest-version, --add-source, --nugetconfig]
+commands: [--version, --versions, @latest, --add-source, --nugetconfig]
 areas: [versioning, cache, nuget, wildcards, sources]
 ---
 
@@ -77,25 +77,11 @@ stable-version
 
 > Goal: Check the latest version available on NuGet.
 
-### 2a. Using `--latest-version`
+### 2a. Using `@latest`
 
 ```prompt
 What is the latest version of System.CommandLine on NuGet?
 ```
-
-```bash
-dotnet-inspect System.CommandLine --latest-version
-```
-
-```query
-grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
-```
-
-```expect
-stable-version
-```
-
-### 2b. Using `@latest`
 
 ```bash
 dotnet-inspect System.CommandLine@latest --version
@@ -109,7 +95,7 @@ grep -Eq '^[0-9]+(\.[0-9]+){2}$' && echo stable-version
 stable-version
 ```
 
-### 2c. Using `@latest` with package command
+### 2b. Using `@latest` with package command
 
 ```bash
 dotnet-inspect package System.Text.Json@latest -v:q
@@ -127,13 +113,13 @@ grep -Eq 'Version: [0-9]+(\.[0-9]+){2} \|' && echo stable-version
 stable-version
 ```
 
-### 2d. Query latest prerelease version
+### 2c. Query latest prerelease version
 
 By default, unpinned package resolution chooses the latest stable version. Add `--preview`
 or `--prerelease` to include prerelease versions when resolving latest.
 
 ```bash
-dotnet-inspect package System.Text.Json --latest-version --preview
+dotnet-inspect package System.Text.Json@latest --version --preview
 ```
 
 ```query
@@ -144,7 +130,7 @@ grep -Eq '^[0-9]+(\.[0-9]+){2}-[^ ]+$' && echo prerelease-version
 prerelease-version
 ```
 
-### 2e. Resolve latest prerelease package
+### 2d. Resolve latest prerelease package
 
 ```bash
 dotnet-inspect package System.Text.Json@latest --preview -v:q
@@ -163,7 +149,7 @@ grep -Eq 'Version: [0-9]+(\.[0-9]+){2}-[^ |]+ \|' && echo prerelease-version
 prerelease-version
 ```
 
-### 2f. Inspect an exact prerelease library
+### 2e. Inspect an exact prerelease library
 
 ```bash
 dotnet-inspect library System.Text.Json.dll \

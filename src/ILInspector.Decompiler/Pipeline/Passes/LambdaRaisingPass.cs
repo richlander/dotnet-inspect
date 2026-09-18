@@ -521,6 +521,8 @@ public sealed class LambdaRaisingPass : IIrPass
                 continue;
             if (allowLocalStatements && statement is StoreStackSlot)
                 continue;
+            if (allowLocalStatements && statement is PointerCompoundAssignment { Target: LoadLocal or LoadStackSlot })
+                continue;
             if (statement is not ExpressionStatement)
                 return false;
         }
