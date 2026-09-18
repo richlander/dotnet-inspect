@@ -5,6 +5,8 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using DotnetInspector.Sections;
+using DotnetInspector.SourceHouse;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using DotnetInspect.Web.Interop.Source;
@@ -311,6 +313,41 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         Assert.Null(added.BeforeText);
     }
 
+    // PR-fast: bounded public projection over the existing embedded-PDB pair.
+    [Theory]
+    [InlineData(true, "SourceDeadlineExceeded")]
+    [InlineData(false, "SourceLimitExceeded")]
+    public async Task SettlementBoundsKeepTruthfulPublicOutcomes(bool deadline, string expected)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        using var host = Host();
+        SourceHouseLimits limits = host.Context.MemberSourcePairLimits;
+        var context = new AssemblyContextSourceQueryContext(
+            host.Context.SymbolClient, host.Context.PdbStore,
+            host.Context.PackageSourceAuthorization, host.Context.SourceFetch)
+        {
+            MemberSourcePairTimeout = deadline
+                ? TimeSpan.FromTicks(1) : host.Context.MemberSourcePairTimeout,
+            MemberSourcePairLimits = deadline ? limits : new(
+                limits.MaximumAssemblyBytes, limits.MaximumPortablePdbBytes,
+                limits.TargetBounds, limits.SourceLinkReadLimits,
+                limits.MaximumDocuments, limits.MaximumTargetMappings,
+                limits.MaximumCandidateAttempts, 1, limits.MaximumSourceTextCharacters),
+        };
+
+        BrowserSourceComparison value = await pair.CompareThrough(host, "Counter", "Value", context);
+
+        Assert.Equal("Unavailable", value.Status);
+        Assert.Empty(value.Lines);
+        foreach (var endpoint in new[] { value.Before, value.After })
+        {
+            Assert.Equal("Failed", endpoint.State);
+            Assert.StartsWith($"{expected}:", endpoint.Detail);
+            Assert.Null(endpoint.Text);
+        }
+        await pair.AssertScopesReleased();
+    }
+
     [Theory]
     [InlineData("Unchanged", true, false)]
     [InlineData("SameSource", true, false)]
@@ -495,7 +532,8 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
         internal async Task<BrowserSourceComparison> CompareThrough(
             SourcePairHost host,
             string typeName,
-            string memberName)
+            string memberName,
+            AssemblyContextSourceQueryContext? sourceContext = null)
         {
             BrowserSourceComparisonRequest request = await Request(typeName, memberName);
             await using BrowserMemberResolution.ScopedResolution before =
@@ -515,15 +553,27 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
             BrowserWorkspaceParticipant after = afterScope.ImplementationParticipant(
                 afterScope.SurfaceParticipant(
                     afterCoordinate, afterCoordinate.CompileAsset(request.Assembly)));
-            AssemblyMemberSourcePairResult pair = await before.Scope.UseImplementationParticipant(
+            InspectionEnvelope<AssemblyMemberSourcePairResult> inspection = await before.Scope.UseImplementationParticipant(
                 before.ImplementationParticipant,
                 (beforeGroup, beforeParticipant) => afterScope.UseImplementationParticipant(
                     after,
                     (afterGroup, afterParticipant) =>
-                        AssemblyContextMemberSourcePairQuery.ExecuteAsync(
+                        MemberSourcePairInspection.ExecuteAsync(
                             beforeGroup, beforeParticipant, afterGroup, afterParticipant,
-                            new(selected.Type, selected.Member), host.Context,
+                            new(selected.Type, selected.Member), sourceContext ?? host.Context,
                             TestContext.Current.CancellationToken)));
+            AssemblyMemberSourcePairResult pair = inspection.Content;
+            foreach (var endpoint in new[] { pair.Before, pair.After })
+            {
+                var resolved = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(endpoint);
+                Assert.NotNull(resolved.HouseOutcome);
+                if (resolved.HouseOutcome is not SourceHouseOutcome.Incomplete
+                    { Boundary: SourceHouseIncompleteBoundary.Deadline })
+                {
+                    Assert.Equal(SourceHousePdbContributionKind.Embedded,
+                        resolved.HouseOutcome.PdbContribution.Kind);
+                }
+            }
             return BrowserSourceComparisonProjection.Project(
                 request, pair, before.ImplementationParticipant, after);
         }
