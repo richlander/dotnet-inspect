@@ -19,6 +19,7 @@ internal sealed record IrTypeFactSnapshot(
     IReadOnlySet<TypeRef> AmbiguousTypeFacts,
     IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers,
     IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes,
+    IReadOnlySet<TypeRef> FlagsEnumTypes,
     IReadOnlySet<TypeRef> CollectionInitializerTypes,
     IReadOnlySet<TypeRef> UnionTypes,
     IReadOnlySet<TypeRef> ByRefLikeTypes,
@@ -40,6 +41,7 @@ internal sealed record IrTypeFactSnapshot(
                         .Select(pair =>
                             $"{pair.Key}={Part(pair.Value)}"))),
             Map(EnumUnderlyingTypes, Type),
+            Set(FlagsEnumTypes, Type),
             Set(CollectionInitializerTypes, Type),
             Set(UnionTypes, Type),
             Set(ByRefLikeTypes, Type),

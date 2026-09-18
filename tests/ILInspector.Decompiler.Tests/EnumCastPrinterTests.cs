@@ -40,6 +40,199 @@ public class EnumCastPrinterTests
             "public enum Tiny { Other = 2 }");
     }
 
+    [Fact]
+    public void FlagsEnumConstant_UsesExactMemberBeforeDecomposition()
+    {
+        string body = RenderKnownFlagsEnumReturnConstant(
+            3,
+            TypeRef.CoreLib("System", "Int32"),
+            new Dictionary<long, string>
+            {
+                [1] = "A",
+                [2] = "B",
+                [3] = "Both",
+            });
+
+        Assert.Contains("return Tiny.Both;", body);
+        Assert.DoesNotContain("Tiny.A | Tiny.B", body);
+        AssertCompiles(
+            "public static Tiny M()",
+            body,
+            "[Flags] public enum Tiny { A = 1, B = 2, Both = A | B }");
+    }
+
+    [Fact]
+    public void FlagsEnumConstant_DecomposesCompleteSingleBitSet()
+    {
+        string body = RenderKnownFlagsEnumReturnConstant(
+            5,
+            TypeRef.CoreLib("System", "Int32"),
+            new Dictionary<long, string>
+            {
+                [1] = "A",
+                [2] = "B",
+                [4] = "C",
+            });
+
+        Assert.Contains("return Tiny.A | Tiny.C;", body);
+        Assert.DoesNotContain("(Tiny)5", body);
+        AssertCompiles(
+            "public static Tiny M()",
+            body,
+            "[Flags] public enum Tiny { A = 1, B = 2, C = 4 }");
+    }
+
+    [Fact]
+    public void FlagsEnumCombination_ParenthesizesAtTighterOuterOperator()
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        string equality = Render(new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadArgument(0, "value", enumType),
+            new Constant(3, intType)), boolType);
+        string and = Render(new Binary(
+            BinaryKind.And,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "value", enumType),
+            new Constant(3, intType)), enumType);
+        string xor = Render(new Binary(
+            BinaryKind.Xor,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "value", enumType),
+            new Constant(3, intType)), enumType);
+
+        Assert.Contains("return value == (Tiny.A | Tiny.B);", equality);
+        Assert.Contains("return value & (Tiny.A | Tiny.B);", and);
+        Assert.Contains("return value ^ (Tiny.A | Tiny.B);", xor);
+        AssertCompiles(
+            "public static bool M(Tiny value)",
+            equality,
+            "[Flags] public enum Tiny { A = 1, B = 2 }");
+        AssertCompiles(
+            "public static Tiny M(Tiny value)",
+            and,
+            "[Flags] public enum Tiny { A = 1, B = 2 }");
+        AssertCompiles(
+            "public static Tiny M(Tiny value)",
+            xor,
+            "[Flags] public enum Tiny { A = 1, B = 2 }");
+
+        string Render(IrExpression expression, TypeRef returnType)
+        {
+            var block = new Block(0);
+            block.Add(new Return(expression));
+            var container = new BlockContainer();
+            container.Add(block);
+            var signature = new MethodSignature(
+                returnType,
+                [new Parameter("value", enumType)],
+                HasThis: false,
+                GenericParameterCount: 0);
+            var function = new IrFunction(
+                "M",
+                TypeRef.Definition("synthetic", "", "Holder"),
+                signature,
+                [],
+                container)
+            {
+                TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+                EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = intType },
+                EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+                {
+                    [enumType] = new Dictionary<long, string> { [1] = "A", [2] = "B" },
+                },
+                FlagsEnumTypes = ImmutableHashSet.Create(enumType),
+            };
+            return CSharpPrinter.Print(function).Output!.Trim();
+        }
+    }
+
+    [Fact]
+    public void FlagsEnumConstant_RequiresFlagsAndCompleteSpellableCoverage()
+    {
+        var members = new Dictionary<long, string>
+        {
+            [1] = "A",
+            [2] = "B",
+        };
+        string nonFlags = RenderKnownFlagsEnumReturnConstant(
+            3,
+            TypeRef.CoreLib("System", "Int32"),
+            members,
+            isFlags: false);
+        string residualBit = RenderKnownFlagsEnumReturnConstant(
+            5,
+            TypeRef.CoreLib("System", "Int32"),
+            members);
+        string unspellableBit = RenderKnownFlagsEnumReturnConstant(
+            3,
+            TypeRef.CoreLib("System", "Int32"),
+            new Dictionary<long, string>
+            {
+                [1] = "A",
+                [2] = "Bad-Name",
+            });
+
+        Assert.Contains("return (Tiny)3;", nonFlags);
+        Assert.Contains("return (Tiny)5;", residualBit);
+        Assert.Contains("return (Tiny)3;", unspellableBit);
+        Assert.DoesNotContain("Bad-Name", unspellableBit);
+        AssertCompiles(
+            "public static Tiny M()",
+            nonFlags,
+            "public enum Tiny { A = 1, B = 2 }");
+        AssertCompiles(
+            "public static Tiny M()",
+            residualBit,
+            "[Flags] public enum Tiny { A = 1, B = 2 }");
+        AssertCompiles(
+            "public static Tiny M()",
+            unspellableBit,
+            "[Flags] public enum Tiny { A = 1, B = 2 }");
+    }
+
+    [Fact]
+    public void FlagsEnumConstant_HandlesZeroAndUnsignedHighBit()
+    {
+        string namedZero = RenderKnownFlagsEnumReturnConstant(
+            0,
+            TypeRef.CoreLib("System", "UInt32"),
+            new Dictionary<long, string> { [0] = "None", [1] = "A" });
+        string unnamedZero = RenderKnownFlagsEnumReturnConstant(
+            0,
+            TypeRef.CoreLib("System", "UInt32"),
+            new Dictionary<long, string> { [1] = "A" });
+        string highBit = RenderKnownFlagsEnumReturnConstant(
+            unchecked((int)0x80000001),
+            TypeRef.CoreLib("System", "UInt32"),
+            new Dictionary<long, string>
+            {
+                [1] = "A",
+                [unchecked((int)0x80000000)] = "Top",
+            });
+
+        Assert.Contains("return Tiny.None;", namedZero);
+        Assert.Contains("return (Tiny)0;", unnamedZero);
+        Assert.Contains("return Tiny.A | Tiny.Top;", highBit);
+        AssertCompiles(
+            "public static Tiny M()",
+            namedZero,
+            "[Flags] public enum Tiny : uint { None = 0, A = 1 }");
+        AssertCompiles(
+            "public static Tiny M()",
+            unnamedZero,
+            "[Flags] public enum Tiny : uint { A = 1 }");
+        AssertCompiles(
+            "public static Tiny M()",
+            highBit,
+            "[Flags] public enum Tiny : uint { A = 1, Top = 0x80000000u }");
+    }
+
     // #3011: an enum-typed value shifted has no predefined C# shift operator
     // (CS0019); the printer reinterprets the enum left operand to its underlying
     // integer so the shift type-checks and the shr/shr.un opcode round-trips.
@@ -1480,6 +1673,40 @@ public class EnumCastPrinterTests
                 {
                     [enumType] = new Dictionary<long, string> { [value] = memberName },
                 },
+        };
+
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    static string RenderKnownFlagsEnumReturnConstant(
+        int value,
+        TypeRef underlying,
+        IReadOnlyDictionary<long, string> members,
+        bool isFlags = true)
+    {
+        var enumType = TypeRef.Definition("synthetic", "", "Tiny");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new Constant(value, intType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(enumType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            signature,
+            [],
+            container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = underlying },
+            EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [enumType] = members,
+            },
+            FlagsEnumTypes = isFlags
+                ? ImmutableHashSet.Create(enumType)
+                : ImmutableHashSet<TypeRef>.Empty,
         };
 
         return CSharpPrinter.Print(function).Output!.Trim();
