@@ -22,6 +22,7 @@ src/DotnetInspector.QueryEngine
 src/DotnetInspector.ResearchQueries
 src/DotnetInspector.Sections
 src/DotnetInspector.Services
+src/DotnetInspector.SourceHouse
 src/DotnetInspector.SourceSelection
 src/DotnetInspector.Vocabulary
 src/Inspector.Findings

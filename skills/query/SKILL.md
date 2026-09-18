@@ -119,6 +119,7 @@ evidence unless a category is named.
 | `diff` | `@Diff` | none |
 | `project` | `@Project` | none |
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
+| `ecosystem` | `@Ecosystem` | `@Integrations` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -134,8 +135,10 @@ or SourceLink evidence. Diff `@Diff` composes `Changes`, `Analysis Diff`, and
 by exact name. Project `@Project` composes restored dependency `Skills` and
 `Package README file` inventories. Vocabulary `@Vocabulary` composes the
 complete product-owned vocabulary document; use `@API` or `@Decompiler` for
-the corresponding query family. `Switches` is a section. There are no
-user-facing `@All`, `@Default`, or `@Hidden` categories.
+the corresponding query family. Ecosystem `@Ecosystem` composes every section
+available after the optional focus operand chooses the route; use
+`@Integrations` for configured Integration bindings. `Switches` is a section.
+There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
 owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
@@ -221,13 +224,16 @@ Package Query does not
 accept API-search scopes, source overrides, or ranking. Query-execution flags
 cannot be combined with `-Q`.
 
-`library -Q Integrations` describes the ecosystem facet for the whole Integration
-family. All integrations are enabled by default; use
+`library -Q Integrations` describes the concept and ecosystem facets for the
+whole Integration family. All integrations are enabled by default; use
 `library MyLibrary.dll -S Integrations --where "ecosystem=ecosystem.aspire"`
-to narrow the ordinary result. The initial supported value is
-`ecosystem.aspire`. Use a concrete section such as `Integration: Aspire` for
-TSV/JSONL. This predicate does not combine with Body Shapes or Performance
-Triage filters/rankings.
+to enable an ecosystem's registered concepts, or
+`--where "integration=integration.aspire"` to select one concept. Aspire
+currently enables the complete configured Integration catalog, and an
+`integration` predicate narrows within that set. Query discovery lists every
+supported concept identity.
+`Integrations` supports TSV/JSONL. Neither facet combines with Body Shapes or
+Performance Triage filters/rankings.
 
 ## Correlate one member's Findings
 
@@ -316,9 +322,10 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines on commands that
-  have not adopted semantic rows, like `head`.
-- `--tail` takes the same count from the end, like `tail`.
+- `-n N` and numeric shorthand like `-6` select semantic rows on commands
+  that declare them. Other commands reject `-n` alone.
+- Add `--lines` for the first N rendered lines or `--tail-lines` for the last
+  N. `--lines --tail` is equivalent to `--tail-lines`.
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On adopted semantic-row surfaces, use `-n N` instead.
@@ -332,10 +339,11 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-`find`, `package query`, package `--versions` / `--versions-with-feed`, and
-`demo list` use semantic rows. `-n N` selects complete items. Package version
-listings and `demo list` also accept `-n N --lines` to clip rendered lines.
-`--rows` on those surfaces accepts only `A..B`, `A..`, and `..B`; `-n` and
-`--rows` compose as stages in argv order. `--head` and `--tail` modify `-n`,
-not the range. On `package query`, `--take N` separately bounds package work
-before semantic row selection.
+`find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
+`timeline`, `package query`, package activity, package `--versions` /
+`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
+complete items; `-n N --lines` instead clips rendered output. Where supported,
+`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
+stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
+`package query`, `--take N` separately bounds package work before semantic row
+selection.

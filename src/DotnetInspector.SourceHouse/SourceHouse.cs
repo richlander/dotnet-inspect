@@ -1215,6 +1215,12 @@ public static class SourceHouse
                                 or InvalidOperationException)
                         {
                             string detail = ExceptionDetail(exception);
+                            string code = exception switch
+                            {
+                                CSharpTextComplexityException => "SourceTooComplex",
+                                InvalidMemberTextCoordinatesException => "InvalidSequencePointCoordinates",
+                                _ => "SourceExtractionFailed",
+                            };
                             attempts.Add(
                                 Attempt(
                                     capability,
@@ -1222,11 +1228,11 @@ public static class SourceHouse
                                     bytes.Length,
                                     verification,
                                     new(
-                                        "MemberSlicingFailed",
+                                        code,
                                         detail)));
                             observedFailure ??= new(
                                 SourceHouseFailureStage.SourceSlicing,
-                                "MemberSlicingFailed",
+                                code,
                                 detail);
                             continue;
                         }

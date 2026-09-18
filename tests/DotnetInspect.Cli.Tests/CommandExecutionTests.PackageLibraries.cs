@@ -547,12 +547,12 @@ public partial class CommandExecutionTests
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown",
-                "-n", "2", "--tips", "q");
+                "--lines", "-n", "2", "--tips", "q");
             var windowedFile = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown",
-                "-n", "2", "--out", outputPath, "--tips", "q");
+                "--lines", "-n", "2", "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, windowed.Exit);
             Assert.Equal(2, windowed.Output.Count(character => character == '\n'));
@@ -1008,8 +1008,7 @@ public partial class CommandExecutionTests
                 "--all-libraries",
                 "--tfm",
                 "all",
-                "-S",
-                "Integration: Configuration",
+                "-S", "Integrations",
                 "--tsv");
 
             Assert.Equal(0, exit);
@@ -1035,8 +1034,10 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "@Integrations", "--rows", "40");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Integration: Configuration", output);
-            Assert.Contains("| Library | TFM | Kind | API |", output);
+            Assert.Contains("## Integrations", output);
+            Assert.Contains(
+                "| Library | TFM | Integration | Kind | Shape | Symbol |",
+                output);
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
@@ -1082,12 +1083,11 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--all-libraries",
-                "-S",
-                "Integration: Configuration");
+                "-S", "Integrations");
 
             Assert.Equal(0, exit);
             Assert.Contains(
-                "## Integration: Configuration",
+                "## Integrations",
                 output);
         }
         finally
@@ -1124,14 +1124,13 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--all-libraries",
-                "-S",
-                "Integration: Configuration",
+                "-S", "Integrations",
                 "--tips",
                 "q");
 
             Assert.Equal(0, exit);
             Assert.Contains(
-                "## Integration: Configuration",
+                "## Integrations",
                 output,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
@@ -1168,7 +1167,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tips",
                 "q");
 
@@ -1233,8 +1232,7 @@ public partial class CommandExecutionTests
                     "package",
                     packagePath,
                     "--all-libraries",
-                    "-S",
-                    "Integration: Configuration",
+                    "-S", "Integrations",
                     "--tips",
                     "q",
                     .. outputOption,
@@ -1247,7 +1245,7 @@ public partial class CommandExecutionTests
                 {
                     case null:
                         Assert.Contains(
-                            "## Integration: Configuration",
+                            "## Integrations",
                             output,
                             StringComparison.Ordinal);
                         break;
@@ -1323,14 +1321,13 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--all-libraries",
-                "-S",
-                "Integration: Configuration",
+                "-S", "Integrations",
                 "--tips",
                 "q");
 
             Assert.Equal(1, exit);
             Assert.Contains(
-                "## Integration: Configuration",
+                "## Integrations",
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -1407,8 +1404,7 @@ public partial class CommandExecutionTests
                     "package",
                     packagePath,
                     "--all-libraries",
-                    "-S",
-                    "Integration: Configuration",
+                    "-S", "Integrations",
                     "--tips",
                     "q",
                     .. outputOption,
@@ -1448,7 +1444,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tips",
                 "q");
 
@@ -1482,7 +1478,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tips",
                 "q");
 
@@ -1512,12 +1508,12 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--rows",
                 "20");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains("## Integration Opportunities", output);
             Assert.Contains(
                 "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
                 output);
@@ -1560,7 +1556,7 @@ public partial class CommandExecutionTests
         };
         var options = new LibraryOptions
         {
-            IncludeSections = ["Integration: Opportunities"],
+            IncludeSections = ["Integration Opportunities"],
         };
         List<string>? sections = null;
 
@@ -1573,7 +1569,7 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Empty(Assert.IsType<List<string>>(sections));
         Assert.Contains(
-            "Integration: Opportunities inspection failed "
+            "Integration Opportunities inspection failed "
             + "(Assembly context integration opportunities): opportunity failure",
             error);
     }
@@ -1587,7 +1583,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--tsv");
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--tsv");
 
             Assert.Equal(0, exit);
             string[] lines = output.ReplaceLineEndings("\n").Split(
@@ -1598,7 +1594,7 @@ public partial class CommandExecutionTests
                 Assert.Single(
                     PackageCommand.AllLibrariesRowSchemas,
                     schema => schema.Section.Equals(
-                        "Integration: Configuration",
+                        IntegrationSectionNames.Integrations,
                         StringComparison.Ordinal));
             Assert.Equal(rowSchema.StableHeaders, headers);
             Assert.All(
@@ -1800,8 +1796,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--all-libraries",
-                "-S",
-                "Integration: Configuration",
+                "-S", "Integrations",
                 "--rows",
                 "1",
                 "--count",
@@ -1811,8 +1806,7 @@ public partial class CommandExecutionTests
                 "package",
                 packagePath,
                 "--all-libraries",
-                "-S",
-                "Integration: Configuration",
+                "-S", "Integrations",
                 "--rows",
                 "1",
                 "--tsv",
@@ -1910,7 +1904,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--rows",
                 "2",
                 "--tips",
@@ -1920,7 +1914,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--rows",
                 "2",
                 "--tsv",
@@ -2058,7 +2052,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--jsonl");
+                "package", packagePath, "--all-libraries", "-S", "Integrations", "--jsonl");
 
             Assert.Equal(0, exit);
             var documents = SplitOutputLines(output)
@@ -2298,13 +2292,13 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "3" },
-                         ["-n", "3", "--tail"]
+                         new[] { "-n", "3", "--lines" },
+                         ["-n", "3", "--tail-lines"]
                      })
             {
                 string outputPath = Path.Combine(
                     tempDir,
-                    lineWindow.Contains("--tail") ? "tail.txt" : "head.txt");
+                    lineWindow.Contains("--tail-lines") ? "tail.txt" : "head.txt");
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
                     [
@@ -2415,13 +2409,13 @@ public partial class CommandExecutionTests
         {
             foreach (string[] lineWindow in new[]
                      {
-                         new[] { "-n", "1" },
-                         ["-n", "1", "--tail"]
+                         new[] { "-n", "1", "--lines" },
+                         ["-n", "1", "--tail-lines"]
                      })
             {
                 string outputPath = Path.Combine(
                     tempDir,
-                    lineWindow.Contains("--tail") ? "count-tail.jsonl" : "count-head.jsonl");
+                    lineWindow.Contains("--tail-lines") ? "count-tail.jsonl" : "count-head.jsonl");
                 var baseline = await RunAppInDirectoryAsync(
                     tempDir,
                     [
@@ -2497,7 +2491,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tsv",
                 "--out",
                 outputPath,
@@ -2512,29 +2506,26 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.Empty(File.ReadAllText(outputPath));
 
-            foreach (string category in new[] { "@Integrations", "Integrations" })
-            {
-                File.WriteAllText(outputPath, "stale");
-                var invalidSelection = await RunAppAsync(
-                    "package",
-                    packagePath,
-                    "--all-libraries",
-                    "-S",
-                    category,
-                    "--tsv",
-                    "--out",
-                    outputPath,
-                    "--tips",
-                    "q");
+            File.WriteAllText(outputPath, "stale");
+            var invalidSelection = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "@Integrations",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
 
-                Assert.Equal(1, invalidSelection.Exit);
-                Assert.Empty(invalidSelection.Output);
-                Assert.Contains(
-                    "requires one concrete section",
-                    invalidSelection.Error,
-                    StringComparison.Ordinal);
-                Assert.Equal("stale", File.ReadAllText(outputPath));
-            }
+            Assert.Equal(1, invalidSelection.Exit);
+            Assert.Empty(invalidSelection.Output);
+            Assert.Contains(
+                "requires one concrete section",
+                invalidSelection.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("stale", File.ReadAllText(outputPath));
 
             File.WriteAllText(outputPath, "stale");
             var unsupportedSelection = await RunAppAsync(
@@ -2568,7 +2559,7 @@ public partial class CommandExecutionTests
                 packagePath,
                 "--all-libraries",
                 "-S",
-                "Integration: Opportunities",
+                "Integration Opportunities",
                 "--tsv",
                 "--out",
                 invalidPath,

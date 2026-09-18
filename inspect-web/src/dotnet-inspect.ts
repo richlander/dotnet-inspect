@@ -2504,11 +2504,20 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
       request.taste);
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
+    const findingEvidenceDocuments =
+      result.annotatedSource.findingEvidenceDocuments.map(entry => {
+        validateAnnotatedSourceDocument(entry.document);
+        return {
+          ...entry,
+          document: entry.document,
+        };
+      });
     return {
       ...result,
       annotatedSource: {
         ...result.annotatedSource,
         document,
+        findingEvidenceDocuments,
       },
     };
   },
@@ -8780,6 +8789,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
         ?? blockedCallGraphNodeBinding(
           destination.target,
           "the exact target is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
+      return;
+    }
+    case "finding-evidence-open": {
+      const evidence =
+        model.findingEvidenceByFactId.get(action.factId);
+      if (!evidence) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          evidence.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          evidence.target,
+          "the exact callee is unavailable in the current workspace",
           "annotated");
       dismissAnnotatedSourceModal(false);
       binding.onSelect();

@@ -1,12 +1,17 @@
 using System.Collections.Immutable;
 
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Markout;
+
+using static DotnetInspect.Cli.Sections.EcosystemSections;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -15,24 +20,12 @@ public static class EcosystemCommand
 {
     public const string Name = "ecosystem";
 
-    internal const string EcosystemsSection = "Ecosystems";
-    internal const string InfoSection = "Ecosystem Info";
-    internal const string NamespaceHintsSection = "Namespace Hints";
-    internal const string CorePackagesSection = "Core Packages";
-    internal const string ToolPackagesSection = "Tool Packages";
-    internal const string KnownIntegrationsSection = "Known Integrations";
-    internal const string DemosSection = "Demos";
-    internal const string PruningSection = "Pruning";
-
     private const string CatalogDescription =
         "Product-configured ecosystem knowledge. This catalog is not an exhaustive description of the external ecosystems.";
     private const string ConfiguredKnowledgeScope =
         "Configured product knowledge; not a library observation.";
     private const string UnboundKnowledgeScope =
         "No Integration concepts are explicitly bound to this ecosystem in the current product build. This does not mean the external ecosystem has no integrations.";
-    private static readonly IReadOnlyDictionary<string, string[]> NoCategories =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>
     /// The base shared framework installed on this machine, which is the target the
     /// <c>Pruning</c> section reports.
@@ -66,10 +59,13 @@ public static class EcosystemCommand
         }
 
         EcosystemSection[] sections = CreateSections(packs, focus, pruneSource);
+        SectionCatalog<EcosystemDiscoveryModel> catalog = focus is null
+            ? CatalogWide
+            : focus.Id == EcosystemPackIds.Platform
+                ? Platform
+                : Focused;
         DocumentSchema schema = CreateSchema(sections);
         string[]? projectedColumns = ResolveProjectedColumns(options);
-        string[]? discover = NormalizeSectionAliases(options.Discover);
-        string[]? select = NormalizeSectionAliases(options.Select);
 
         if (options.Schema && options.Discover is null)
         {
@@ -79,8 +75,10 @@ public static class EcosystemCommand
 
         if (options.Discover is not null)
         {
+            SectionPipeline<EcosystemDiscoveryModel> pipeline =
+                catalog.Pipeline;
             return DiscoverOutput.Execute(
-                discover,
+                options.Discover,
                 schema,
                 DiscoveryOutputRequest.Create(
                     options.Format,
@@ -88,7 +86,13 @@ public static class EcosystemCommand
                     options.Format == OutputFormat.Table,
                     options.NoHeader,
                     projection: options),
-                rootLabel: focus?.Title ?? EcosystemsSection);
+                rootLabel: focus?.Title ?? EcosystemsSection,
+                sectionCostAnnotations: pipeline.GetCostAnnotations(),
+                sectionCategories: catalog.SelectionCategoryMap,
+                catalogHiddenSections:
+                    options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: pipeline.GetListedCategoryDoors(),
+                expandCategoryAliases: false);
         }
 
         if (options.Tree)
@@ -100,34 +104,30 @@ public static class EcosystemCommand
 
         string defaultSection =
             focus is null ? EcosystemsSection : InfoSection;
-        HashSet<string> selectedNames;
         bool defaultSelection = options.Select is null && !options.SelectDefault;
-        if (options.SelectDefault)
-        {
-            selectedNames = new HashSet<string>(
-                sections.Select(section => section.Name),
-                StringComparer.OrdinalIgnoreCase);
-        }
-        else
-        {
-            SelectResult selection = SelectResolver.ResolveSelectAsSections(
-                select,
-                [.. sections.Select(section => section.Name)],
-                infoSections: [defaultSection],
-                NoCategories,
-                selectDefault: false);
-            if (SelectOutput.WriteUnresolved(selection))
-                return 1;
+        SelectResult selection = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            catalog.SelectableSectionNames,
+            catalog.InfoSectionNames,
+            catalog.SelectionCategoryMap,
+            selectDefault: options.SelectDefault,
+            expandCategoryAliases: false);
+        if (SelectOutput.WriteErrors(selection.Unresolved))
+            return 1;
 
-            selectedNames = selection.Sections
-                ?? new HashSet<string>(
-                    [defaultSection],
-                    StringComparer.OrdinalIgnoreCase);
-        }
+        HashSet<string> selectedNames = selection.Sections
+            ?? new HashSet<string>(
+                [defaultSection],
+                StringComparer.OrdinalIgnoreCase);
 
         EcosystemSection[] selected =
         [
-            .. sections.Where(section => selectedNames.Contains(section.Name)),
+            .. catalog.AlphabeticalSectionOrder
+                .Where(selectedNames.Contains)
+                .Select(name => sections.Single(
+                    section => section.Name.Equals(
+                        name,
+                        StringComparison.OrdinalIgnoreCase))),
         ];
         if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
@@ -150,23 +150,49 @@ public static class EcosystemCommand
         {
             if (selected.Length == 1)
             {
-                CountOutput.WriteCount(
-                    RowWindow.Apply(options.Rows, selected[0].Rows).Count);
+                if (!TryApplyRowSelection(
+                        selected,
+                        options.RowSelection,
+                        options.Rows,
+                        out EcosystemSection[] singleRowSelected))
+                {
+                    return 1;
+                }
+
+                CountOutput.WriteCount(singleRowSelected[0].Rows.Length);
             }
             else
             {
-                string[] ordered = [.. selected.Select(section => section.Name)];
+                string[] ordered =
+                [
+                    .. selected.Select(section => section.Name),
+                ];
                 if (!CountOutput.ValidateMapFormat(options.Format, ordered))
                     return 1;
 
+                EcosystemSection[] renderedSections =
+                [
+                    .. selected.Where(
+                        section => renderedNames.Contains(section.Name)),
+                ];
+                if (!TryApplyRowSelection(
+                        renderedSections,
+                        options.RowSelection,
+                        options.Rows,
+                        out EcosystemSection[] countRowSelected))
+                {
+                    return 1;
+                }
+                var selectedCounts = countRowSelected.ToDictionary(
+                    section => section.Name,
+                    section => section.Rows.Length,
+                    StringComparer.OrdinalIgnoreCase);
                 var projection = new CountProjection();
                 foreach (EcosystemSection section in selected)
                 {
                     projection.SetRows(
                         section.Name,
-                        renderedNames.Contains(section.Name)
-                            ? RowWindow.Apply(options.Rows, section.Rows).Count
-                            : 0);
+                        selectedCounts.GetValueOrDefault(section.Name));
                 }
                 CountOutput.Write(
                     projection,
@@ -213,11 +239,19 @@ public static class EcosystemCommand
                 or OutputFormat.Json;
         EcosystemSection[] renderSelected =
         [
-            .. selected.Where(section => renderedNames.Contains(section.Name)),
+            .. selected.Where(
+                section => renderedNames.Contains(section.Name)),
         ];
+        if (!TryApplyRowSelection(
+                renderSelected,
+                options.RowSelection,
+                options.Rows,
+                out EcosystemSection[] rowSelected))
+        {
+            return 1;
+        }
         EcosystemSection[] rendered = PrepareRenderSections(
-            renderSelected,
-            options.Rows,
+            rowSelected,
             structuredEmptyRows);
 
         if (options.Format == OutputFormat.Json)
@@ -638,11 +672,7 @@ public static class EcosystemCommand
 
     private static ImmutableArray<IntegrationConceptDescriptor> KnownConcepts(
         EcosystemPackId ecosystem) =>
-        [
-            .. LibraryIntegrationCatalog.All
-                .Where(descriptor => descriptor.Ecosystem == ecosystem)
-                .Select(descriptor => descriptor.Concept),
-        ];
+        LibraryIntegrationCatalog.ConceptsFor(ecosystem);
 
     private static DocumentSchema CreateSchema(
         IEnumerable<EcosystemSection> sections)
@@ -651,21 +681,6 @@ public static class EcosystemCommand
         foreach (EcosystemSection section in sections)
             schema.Add(section.Name, "column", section.Labels);
         return schema;
-    }
-
-    private static string[]? NormalizeSectionAliases(string[]? values)
-    {
-        if (values is null)
-            return null;
-
-        return
-        [
-            .. values.Select(value =>
-                value.Equals("Integrations", StringComparison.OrdinalIgnoreCase)
-                    || value.Equals("@Integrations", StringComparison.OrdinalIgnoreCase)
-                    ? KnownIntegrationsSection
-                    : value),
-        ];
     }
 
     private static bool ValidateStructuredEmptyProjection(
@@ -729,16 +744,14 @@ public static class EcosystemCommand
 
     private static EcosystemSection[] PrepareRenderSections(
         IEnumerable<EcosystemSection> sections,
-        RowWindow? rows,
         bool structuredEmptyRows) =>
         [
             .. sections.Select(section =>
             {
                 string[][] sectionRows = section.Rows;
-                string[][] renderedRows =
-                    [.. RowWindow.Apply(rows, sectionRows)];
+                string[][] renderedRows = sectionRows;
                 if (structuredEmptyRows
-                    && sectionRows.Length == 0
+                    && section.WasLogicallyEmpty
                     && section.StructuredEmptyRow is { } emptyRow)
                 {
                     renderedRows = [emptyRow];
@@ -747,10 +760,49 @@ public static class EcosystemCommand
                 return section with
                 {
                     RowSource = new Lazy<string[][]>(renderedRows),
-                    WasLogicallyEmpty = sectionRows.Length == 0,
                 };
             }),
         ];
+
+    private static bool TryApplyRowSelection(
+        EcosystemSection[] sections,
+        RowSelectionIntent<string>? rowSelection,
+        RowWindow? legacyRows,
+        out EcosystemSection[] selectedSections)
+    {
+        var selected = new List<EcosystemSection>(sections.Length);
+        foreach (EcosystemSection section in sections)
+        {
+            string[][] originalRows = section.Rows;
+            if (!CliSemanticRowSelection.TrySelectOrApplyLegacy(
+                    rowSelection,
+                    legacyRows,
+                    originalRows,
+                    section.Name,
+                    FormatRowSelectionFailure,
+                    out IReadOnlyList<string[]> selectedRows))
+            {
+                selectedSections = [];
+                return false;
+            }
+
+            selected.Add(section with
+            {
+                RowSource = new Lazy<string[][]>([.. selectedRows]),
+                WasLogicallyEmpty = originalRows.Length == 0,
+            });
+        }
+
+        selectedSections = [.. selected];
+        return true;
+    }
+
+    private static string FormatRowSelectionFailure(
+        RowsCohortSemanticFailure<string> failure) =>
+        $"Ecosystem row selection stage {failure.Failure.StageNumber} "
+        + $"for '{failure.Identity}' requires row "
+        + $"{failure.Failure.RequiredPosition}, but only "
+        + $"{failure.Failure.AvailableCount} rows are available.";
 
     private static void WriteDocument(
         MarkoutWriter writer,

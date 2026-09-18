@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 
@@ -15,14 +16,7 @@ internal sealed record LibraryIntegrationDescriptor(
     Func<LibraryInspection, bool> HasPresence,
     bool IncludeTypesWhenApisPresent)
 {
-    public EcosystemPackId? Ecosystem { get; init; }
-
     public string Name => Concept.DisplayLabel;
-
-    // User-facing section name/selector for this integration (e.g. "Integration: AI").
-    // Distinct from Name, which stays the unprefixed integration identity used for
-    // signal matching and finding payloads.
-    public string SectionName => IntegrationSectionNames.Prefix + Name;
 
     public bool CanRender(LibraryInspection inspection)
     {
@@ -78,7 +72,22 @@ internal sealed record LibraryIntegrationDescriptor(
         var apiCount = signals.Count(signal => signal.Shape == IntegrationSignalShape.Api);
         return apiCount > 0 && !IncludeTypesWhenApisPresent ? apiCount : signals.Count;
     }
+
+    public IEnumerable<(string Kind, string Name, string Shape)> RenderedSignals(
+        IReadOnlyCollection<(string Kind, string Name, string Shape)> signals)
+    {
+        bool hasApis = signals.Any(
+            signal => signal.Shape == IntegrationSignalShape.Api);
+        return hasApis && !IncludeTypesWhenApisPresent
+            ? signals.Where(
+                signal => signal.Shape == IntegrationSignalShape.Api)
+            : signals;
+    }
 }
+
+internal sealed record LibraryIntegrationEcosystemBinding(
+    EcosystemPackId Ecosystem,
+    ImmutableArray<IntegrationConceptDescriptor> Concepts);
 
 internal static class LibraryIntegrationCatalog
 {
@@ -112,10 +121,7 @@ internal static class LibraryIntegrationCatalog
         IntegrationConceptCatalog.Aspire,
         LibraryIntegrationSource.Ecosystem,
         inspection => inspection.HasAspireSupport,
-        IncludeTypesWhenApisPresent: true)
-    {
-        Ecosystem = EcosystemPackIds.Aspire,
-    };
+        IncludeTypesWhenApisPresent: true);
 
     public static readonly LibraryIntegrationDescriptor DependencyInjection = new(
         IntegrationConceptCatalog.DependencyInjection,
@@ -168,13 +174,31 @@ internal static class LibraryIntegrationCatalog
     public static readonly LibraryIntegrationDescriptor[] All =
         [.. IntegrationConceptCatalog.Concepts.Select(DescriptorFor)];
 
-    public static string[] CategorySections => [.. All.Select(descriptor => descriptor.SectionName)];
+    public static readonly ImmutableArray<LibraryIntegrationEcosystemBinding>
+        EcosystemBindings =
+        [
+            new(
+                EcosystemPackIds.Aspire,
+                [.. All.Select(descriptor => descriptor.Concept)]),
+        ];
 
     public static bool CanRenderAny(LibraryInspection inspection)
         => All.Any(descriptor => descriptor.CanRender(inspection));
 
     public static int CountPresence(LibraryInspection inspection)
         => All.Count(descriptor => descriptor.HasPresence(inspection));
+
+    public static ImmutableArray<IntegrationConceptDescriptor> ConceptsFor(
+        EcosystemPackId ecosystem)
+    {
+        foreach (LibraryIntegrationEcosystemBinding binding in EcosystemBindings)
+        {
+            if (binding.Ecosystem == ecosystem)
+                return binding.Concepts;
+        }
+
+        return [];
+    }
 
     static LibraryIntegrationDescriptor DescriptorFor(
         IntegrationConceptDescriptor concept)

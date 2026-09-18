@@ -58,7 +58,11 @@ public static partial class SourceExports
             source.Provenance,
             source.ContextLimitation,
             source.InvocationDestinations,
-            source.DestinationUnavailableReason);
+            source.DestinationUnavailableReason,
+            findingEvidenceDocuments: null,
+            findingEvidence: null,
+            findingEvidenceUnavailableReason:
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -103,7 +107,10 @@ public static partial class SourceExports
             source.Provenance,
             source.ContextLimitation,
             source.InvocationDestinations,
-            source.DestinationUnavailableReason);
+            source.DestinationUnavailableReason,
+            source.FindingEvidenceDocuments,
+            source.FindingEvidence,
+            source.FindingEvidenceUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -150,6 +157,7 @@ public static partial class SourceExports
                         MethodToken: resolution.BodyToken,
                         SourceDocument: true,
                         FactRows: factRows,
+                        FindingEvidence: factRows,
                         InvocationDestinations: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
@@ -180,6 +188,49 @@ public static partial class SourceExports
                                     scope.SurfaceParticipants)))),
                 ]
                 : null;
+        BrowserAnnotatedSourceFindingEvidenceDocument[]?
+            findingEvidenceDocuments = null;
+        BrowserAnnotatedSourceFindingEvidence[]? findingEvidence = null;
+        if (projection.FindingEvidence is { } projectedFindingEvidence)
+        {
+            BrowserCalleeEvidenceDocumentProjectionResult documentProjection =
+                BrowserCalleeEvidenceDocumentProjection.Project(
+                    projectedFindingEvidence);
+            findingEvidenceDocuments = documentProjection.Documents;
+            findingEvidence =
+            [
+                .. projectedFindingEvidence.Select(evidence =>
+                {
+                    BrowserCallGraphTarget target =
+                        BrowserSourceWireProjection.Project(
+                            BrowserCallGraphProjection.Target(
+                                evidence.Member,
+                                participant.Assembly.Identity,
+                                $"finding-{evidence.FactId}",
+                                scope.SurfaceParticipants));
+                    BrowserCalleeEvidenceDocumentReference documentReference =
+                        BrowserCalleeEvidenceDocumentProjection.Reference(
+                            evidence,
+                            documentProjection);
+                    return new BrowserAnnotatedSourceFindingEvidence(
+                        evidence.FactId,
+                        evidence.InstanceKey.Value,
+                        FullyQualifiedMemberName(evidence.Member),
+                        target,
+                        [
+                            .. evidence.Coordinates.Select(coordinate =>
+                                new BrowserAnnotatedSourceFindingEvidenceCoordinate(
+                                    coordinate.Location.ILOffset
+                                        ?? throw new InvalidOperationException(
+                                            "Instruction evidence carried no IL offset."),
+                                    EvidenceKind(coordinate.Kind))),
+                        ],
+                        documentReference.DocumentId,
+                        documentReference.NodeIds,
+                        documentReference.UnavailableReason);
+                }),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -191,8 +242,38 @@ public static partial class SourceExports
             destinations,
             destinations is null
                 ? BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            findingEvidenceDocuments,
+            findingEvidence,
+            findingEvidence is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
     }
+
+    static string FullyQualifiedMemberName(Analysis.MethodIdentity member)
+    {
+        string genericParameters = member.GenericArity == 0
+            ? ""
+            : $"<{string.Join(", ", member.GenericParameterNames)}>";
+        return $"{member.DeclaringType.ToQualifiedDisplayString()}.{member.Name}"
+            + $"{genericParameters}({string.Join(", ", member.ParameterTypes.Select(
+                type => type.ToQualifiedDisplayString()))})";
+    }
+
+    static BrowserCalleeEvidenceKind EvidenceKind(
+        CallSiteEvidenceKind kind) =>
+        kind switch
+        {
+            CallSiteEvidenceKind.ExceptionConstruction =>
+                BrowserCalleeEvidenceKind.ExceptionConstruction,
+            CallSiteEvidenceKind.Localloc =>
+                BrowserCalleeEvidenceKind.Localloc,
+            CallSiteEvidenceKind.Calli =>
+                BrowserCalleeEvidenceKind.Calli,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
 
     private sealed record MemberSourceProjection(
         ResearchViews.MemberProjectionResult Projection,
@@ -200,5 +281,10 @@ public static partial class SourceExports
         InertString Provenance,
         string? ContextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]? InvocationDestinations,
-        BrowserAnnotatedSourceCapabilityUnavailableReason DestinationUnavailableReason);
+        BrowserAnnotatedSourceCapabilityUnavailableReason DestinationUnavailableReason,
+        BrowserAnnotatedSourceFindingEvidenceDocument[]?
+            FindingEvidenceDocuments,
+        BrowserAnnotatedSourceFindingEvidence[]? FindingEvidence,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            FindingEvidenceUnavailableReason);
 }

@@ -9,34 +9,52 @@ namespace DotnetInspect.Cli.Options;
 
 public sealed record IntegrationQueryOptions
 {
-    private readonly ImmutableArray<IntegrationConceptDescriptor> _concepts;
+    private readonly ImmutableArray<IntegrationConceptDescriptor>
+        _ecosystemConcepts;
 
     private IntegrationQueryOptions(
         EcosystemPackId? ecosystem,
-        ImmutableArray<IntegrationConceptDescriptor> concepts)
+        IntegrationConceptDescriptor? integration,
+        ImmutableArray<IntegrationConceptDescriptor> ecosystemConcepts)
     {
         Ecosystem = ecosystem;
-        _concepts = concepts;
+        Integration = integration;
+        _ecosystemConcepts = ecosystemConcepts;
     }
 
-    public static IntegrationQueryOptions Default { get; } = new(null, []);
+    public static IntegrationQueryOptions Default { get; } =
+        new(null, null, []);
 
-    public static SectionQueryKey QueryKey { get; } = new(
+    public static SectionQueryKey EcosystemQueryKey { get; } = new(
         "ecosystem",
         ["--where"],
         ["="],
         "canonical ecosystem ID (exactly one predicate)",
-        [.. LibraryIntegrationCatalog.All
-            .Select(descriptor => descriptor.Ecosystem?.Value)
-            .OfType<string>()
-            .Distinct(StringComparer.Ordinal)],
+        [.. LibraryIntegrationCatalog.EcosystemBindings
+            .Select(binding => binding.Ecosystem.Value)],
         "--where \"ecosystem=ecosystem.aspire\"");
 
+    public static SectionQueryKey IntegrationQueryKey { get; } = new(
+        "integration",
+        ["--where"],
+        ["="],
+        "canonical Integration concept ID (exactly one predicate)",
+        [.. LibraryIntegrationCatalog.All.Select(
+            descriptor => descriptor.Concept.Id.Value)],
+        "--where \"integration=integration.aspire\"");
+
+    public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
+        [IntegrationQueryKey, EcosystemQueryKey];
+
     public EcosystemPackId? Ecosystem { get; }
-    public bool HasFilter => Ecosystem is not null;
+    public IntegrationConceptDescriptor? Integration { get; }
+    public bool HasFilter => Ecosystem is not null || Integration is not null;
 
     internal bool Matches(IntegrationConceptDescriptor? concept)
-        => !HasFilter || _concepts.Any(candidate => ReferenceEquals(candidate, concept));
+        => (Integration is null || ReferenceEquals(Integration, concept))
+           && (Ecosystem is null
+               || _ecosystemConcepts.Any(
+                   candidate => ReferenceEquals(candidate, concept)));
 
     public static bool TryExtract(
         IReadOnlyList<string> expressions,
@@ -44,6 +62,9 @@ public sealed record IntegrationQueryOptions
         out string[] remaining,
         out OptionError error)
     {
+        EcosystemPackId? ecosystem = null;
+        IntegrationConceptDescriptor? integration = null;
+        ImmutableArray<IntegrationConceptDescriptor> ecosystemConcepts = [];
         options = Default;
         remaining = [];
         List<string> unclaimed = [];
@@ -51,20 +72,56 @@ public sealed record IntegrationQueryOptions
         {
             if (!RowPredicateSyntaxParser.TryParse(expression, out var syntax, out error))
                 return false;
-            if (!RowPredicateSyntaxParser.NormalizeFieldName(syntax.Field).Equals(
-                    "ecosystem", StringComparison.OrdinalIgnoreCase))
+            string field =
+                RowPredicateSyntaxParser.NormalizeFieldName(syntax.Field);
+            if (!field.Equals("ecosystem", StringComparison.OrdinalIgnoreCase)
+                && !field.Equals(
+                    "integration",
+                    StringComparison.OrdinalIgnoreCase))
             {
                 unclaimed.Add(expression);
                 continue;
             }
             if (syntax.Operator != RowPredicateOperator.Equals)
             {
-                error = "Field 'ecosystem' in Integrations supports only = predicates.";
+                error =
+                    $"Field '{field}' in Integrations supports only = predicates.";
                 return false;
             }
-            if (options.HasFilter)
+
+            if (field.Equals("integration", StringComparison.OrdinalIgnoreCase))
             {
-                error = "Integrations accepts exactly one --where ecosystem=... predicate.";
+                if (integration is not null)
+                {
+                    error =
+                        "Integrations accepts exactly one --where integration=... predicate.";
+                    return false;
+                }
+                if (!syntax.Value.StartsWith(
+                        "integration.",
+                        StringComparison.Ordinal))
+                {
+                    error =
+                        "Field 'integration' requires a canonical Integration concept ID, such as integration.aspire.";
+                    return false;
+                }
+                integration = LibraryIntegrationCatalog.All
+                    .Select(descriptor => descriptor.Concept)
+                    .FirstOrDefault(concept => concept.Id.Value.Equals(
+                        syntax.Value,
+                        StringComparison.Ordinal));
+                if (integration is null)
+                {
+                    error = $"Unknown Integration concept '{syntax.Value}'.";
+                    return false;
+                }
+                continue;
+            }
+
+            if (ecosystem is not null)
+            {
+                error =
+                    "Integrations accepts exactly one --where ecosystem=... predicate.";
                 return false;
             }
             if (!EcosystemPackId.TryCreate(syntax.Value, out var id))
@@ -77,19 +134,17 @@ public sealed record IntegrationQueryOptions
                 error = $"Unknown ecosystem '{id}'.";
                 return false;
             }
-            ImmutableArray<IntegrationConceptDescriptor> concepts =
-                [.. LibraryIntegrationCatalog.All
-                    .Where(descriptor => descriptor.Ecosystem == id)
-                    .Select(descriptor => descriptor.Concept)];
-            if (concepts.IsEmpty)
+            ecosystemConcepts = LibraryIntegrationCatalog.ConceptsFor(id);
+            if (ecosystemConcepts.IsEmpty)
             {
                 error = new OptionError(
                     $"Ecosystem '{id}' has no CLI Integration query binding.",
                     ["Run 'library -Q Integrations' to discover supported values."]);
                 return false;
             }
-            options = new(id, concepts);
+            ecosystem = id;
         }
+        options = new(ecosystem, integration, ecosystemConcepts);
         remaining = [.. unclaimed];
         error = "";
         return true;

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
@@ -15,7 +16,7 @@ public static class WorkspaceCommandDefinitions
     {
         var command = new Command(
             WorkspaceCommand.Name,
-            "Show an inspection Workspace and optionally evaluate one exact Navigation occurrence");
+            "Author or inspect an inspection Workspace and optionally evaluate one exact Navigation occurrence");
         var packageOption = new Option<string[]>("--package")
         {
             Description =
@@ -36,7 +37,7 @@ public static class WorkspaceCommandDefinitions
         var packetOption = new Option<string?>("--packet")
         {
             Description =
-                "Restore one canonical Workspace packet",
+                "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
             Arity = ArgumentArity.ExactlyOne,
         };
         var registerLibraryOption =
@@ -110,7 +111,7 @@ public static class WorkspaceCommandDefinitions
                 "Exact destination view-facet id, such as type.compare or member.compare",
         };
         var shareOption = WorkspaceShareOption.Create(
-            "Emit the Workspace inventory's canonical packet or complete URL");
+            "Emit the complete portable Workspace definition as a canonical packet or URL without realization");
 
         command.Options.Add(packageOption);
         command.Options.Add(tfmOption);
@@ -142,12 +143,12 @@ public static class WorkspaceCommandDefinitions
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
             string? packet = parseResult.GetValue(packetOption);
-            string[] registeredLibraries =
-                parseResult.GetValue(registerLibraryOption) ?? [];
-            string[] registeredPackagePrefixes =
-                parseResult.GetValue(registerPackagePrefixOption) ?? [];
-            string[] registeredEcosystems =
-                parseResult.GetValue(registerEcosystemOption) ?? [];
+            WorkspaceRegistrationInput[] orderedRegistrations =
+                ParseOrderedRegistrations(
+                    parseResult,
+                    registerLibraryOption,
+                    registerPackagePrefixOption,
+                    registerEcosystemOption);
             WorkspaceTopLevelInventoryEntryKind[] inventoryKinds =
             [
                 .. (parseResult.GetValue(kindOption) ?? [])
@@ -188,9 +189,13 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
-                    RegisteredLibraries = registeredLibraries,
-                    RegisteredPackagePrefixes = registeredPackagePrefixes,
-                    RegisteredEcosystems = registeredEcosystems,
+                    OrderedRegistrations = orderedRegistrations,
+                    RegisteredLibraries =
+                        parseResult.GetValue(registerLibraryOption) ?? [],
+                    RegisteredPackagePrefixes =
+                        parseResult.GetValue(registerPackagePrefixOption) ?? [],
+                    RegisteredEcosystems =
+                        parseResult.GetValue(registerEcosystemOption) ?? [],
                     InventoryKinds = inventoryKinds,
                     RootRequest = rootRequest,
                     ActivePackage = activePackage,
@@ -215,6 +220,46 @@ public static class WorkspaceCommandDefinitions
         });
 
         return command;
+    }
+
+    static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
+        ParseResult parseResult,
+        Option<string[]> registerLibraryOption,
+        Option<string[]> registerPackagePrefixOption,
+        Option<string[]> registerEcosystemOption)
+    {
+        var kinds =
+            new Dictionary<string, WorkspaceRegistrationInputKind>(
+                StringComparer.Ordinal)
+            {
+                [registerLibraryOption.Name] =
+                    WorkspaceRegistrationInputKind.ExactLibrary,
+                [registerPackagePrefixOption.Name] =
+                    WorkspaceRegistrationInputKind.PackagePrefix,
+                [registerEcosystemOption.Name] =
+                    WorkspaceRegistrationInputKind.Ecosystem,
+            };
+        var registrations = new List<WorkspaceRegistrationInput>();
+        for (int index = 0; index < parseResult.Tokens.Count; index++)
+        {
+            Token token = parseResult.Tokens[index];
+            if (token.Type != TokenType.Option
+                || !kinds.TryGetValue(
+                    token.Value,
+                    out WorkspaceRegistrationInputKind kind)
+                || index + 1 >= parseResult.Tokens.Count
+                || parseResult.Tokens[index + 1].Type == TokenType.Option)
+            {
+                continue;
+            }
+
+            registrations.Add(
+                new WorkspaceRegistrationInput(
+                    kind,
+                    parseResult.Tokens[++index].Value));
+        }
+
+        return [.. registrations];
     }
 
     static WorkspaceTopLevelInventoryEntryKind ParseInventoryKind(

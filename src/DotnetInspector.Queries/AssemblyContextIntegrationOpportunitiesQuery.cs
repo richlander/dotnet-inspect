@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using ILInspector.Metadata;
 
@@ -7,6 +8,16 @@ namespace DotnetInspector.Queries;
 /// <summary>
 /// One participant's outcome in the group-scoped integration-opportunity query.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(
+    typeof(AssemblyIntegrationOpportunitiesEntry.Available),
+    "available")]
+[JsonDerivedType(
+    typeof(AssemblyIntegrationOpportunitiesEntry.Rejected),
+    "rejected")]
+[JsonDerivedType(
+    typeof(AssemblyIntegrationOpportunitiesEntry.Failed),
+    "failed")]
 public abstract record AssemblyIntegrationOpportunitiesEntry(
     AssemblyContextSubject Subject)
 {
@@ -29,8 +40,21 @@ public abstract record AssemblyIntegrationOpportunitiesEntry(
     /// </remarks>
     public sealed record Failed(
         AssemblyContextSubject Subject,
+        [property: JsonIgnore]
         BadImageFormatException Error)
-        : AssemblyIntegrationOpportunitiesEntry(Subject);
+        : AssemblyIntegrationOpportunitiesEntry(Subject)
+    {
+        [JsonConstructor]
+        public Failed(
+            AssemblyContextSubject subject,
+            string errorMessage)
+            : this(
+                subject,
+                new BadImageFormatException(errorMessage))
+            => ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+
+        public string ErrorMessage => Error.Message;
+    }
 }
 
 /// <summary>

@@ -54,6 +54,30 @@ export function validateDocument(document) {
       throw new TypeError("IL instruction offsets must be unique and strictly increasing in node order.");
     }
     if (hasIlOffset) previousIlOffset = node.il_offset;
+
+    if (node.provenance != null) {
+      if (node.medium !== "CSharp"
+        || typeof node.provenance !== "object"
+        || Array.isArray(node.provenance)
+        || !Array.isArray(node.provenance.il_offsets)
+        || node.provenance.il_offsets.length === 0) {
+        throw new TypeError(
+          `Node ${index} provenance must be a non-empty C# IL-offset set or null.`,
+        );
+      }
+      let previousProvenanceOffset = -1;
+      for (const offset of node.provenance.il_offsets) {
+        if (!Number.isInteger(offset)
+          || offset < 0
+          || offset > maxInt32
+          || offset <= previousProvenanceOffset) {
+          throw new TypeError(
+            `Node ${index} provenance offsets must be unique, strictly increasing non-negative 32-bit integers.`,
+          );
+        }
+        previousProvenanceOffset = offset;
+      }
+    }
   });
 
   document.regions.forEach((region, index) => {

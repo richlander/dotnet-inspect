@@ -411,6 +411,13 @@ public partial class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            if (options.EnvelopeOutput
+                && DotnetInspector.Networking.HttpClientFactory.IsOffline)
+            {
+                CommandError.Write(
+                    "--envelope for package version populations requires online configured-source settlement.");
+                return 1;
+            }
             if (!DotnetInspector.Networking.HttpClientFactory.IsOffline)
                 return await ExecuteOnlineVersionQueryAsync(packageArgs[0], options, context);
 
@@ -1439,14 +1446,16 @@ public partial class PackageCommand
                         writerOptions.IncludeSections,
                         fieldSectionsAsColumns: true);
                 }
-                if (!string.IsNullOrEmpty(options.OutputPath))
-                {
-                    File.WriteAllText(options.OutputPath, output);
-                }
-                else
-                {
-                    Console.WriteLine(output);
-                }
+                bool writesFile = !string.IsNullOrEmpty(options.OutputPath);
+                OutputDestination.Write(
+                    options.OutputPath,
+                    options.Rows,
+                    writer =>
+                    {
+                        writer.Write(output);
+                        if (!writesFile)
+                            writer.WriteLine();
+                    });
             }
 
             return PackageIntegrityExitCode(result);

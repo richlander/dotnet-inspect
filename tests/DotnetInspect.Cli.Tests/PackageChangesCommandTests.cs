@@ -53,6 +53,42 @@ public sealed class PackageChangesCommandTests
         Assert.Empty(result.Errors);
     }
 
+    [Fact]
+    public void ParserDoesNotApplySemanticMaximumToRenderedLineCount()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "-n",
+            int.MaxValue.ToString(CultureInfo.InvariantCulture),
+            "--lines",
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--lines --tail")]
+    public void ParserAcceptsDeclaredDirectionGrammar(string direction)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "package",
+            "activity",
+            "--ecosystem",
+            "aspire",
+            "-n",
+            "1",
+            .. direction.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
     [Theory]
     [InlineData(
         "package activity --ecosystem aspire --table",
@@ -370,6 +406,28 @@ public sealed class PackageChangesCommandTests
                 });
             CoreHttpClientFactory.ResetSharedForTesting();
         }
+    }
+
+    [Fact]
+    public async Task InvocationRejectsRenderedLineSelectionForJsonBeforeAcquisition()
+    {
+        var result = await InvokeAsync(
+            [
+                "package",
+                "activity",
+                "--ecosystem",
+                "aspire",
+                "--json",
+                "-n",
+                "1",
+                "--lines",
+            ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--lines and --tail-lines cannot be combined with JSON output",
+            result.Error);
     }
 
     [Fact]
