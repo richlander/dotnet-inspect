@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using DotnetInspector.EcosystemLoading;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 
@@ -465,10 +467,128 @@ public sealed class EcosystemPackRegistryTests
         Assert.Throws<ArgumentNullException>(() => registry.SelectScanner(null!));
     }
 
+    [Fact]
+    public void PopulationLoaderSelectionReturnsOnlyTheSelectedBindingWithoutInvocation()
+    {
+        s_firstLoaderInvocations = 0;
+        s_secondLoaderInvocations = 0;
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> first =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                EcosystemPopulationLoaderId.Create(
+                    "ecosystem-loader.first"),
+                LoadFirstAsync);
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> second =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                EcosystemPopulationLoaderId.Create(
+                    "ecosystem-loader.second"),
+                LoadSecondAsync);
+        EcosystemPackId firstId =
+            EcosystemPackId.Create("ecosystem.first");
+        var firstDeclaration =
+            new WorkspaceEcosystemRegistrationDeclaration(
+                WorkspaceEcosystemRegistrationId.Create(firstId.Value),
+                [],
+                [new PackageCoordinate("Example.Core")],
+                []);
+        EcosystemPackRegistry registry = Registry(
+            Pack(firstId.Value, 100, "package-set.first")
+                with
+                {
+                    PopulationLoader = first,
+                    WorkspaceRegistration = firstDeclaration,
+                },
+            Pack("ecosystem.second", 200, "package-set.second")
+                with { PopulationLoader = second });
+
+        Assert.All(
+            registry.Packs,
+            pack => Assert.True(pack.HasPopulationLoader));
+        _ = registry.Lookup(registry.Packs[0].Id);
+        _ = EcosystemWorkspacePlanFactory.Create(
+            registry,
+            [registry.Packs[0].Id]);
+        var selected =
+            Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
+                registry.SelectPopulationLoader(registry.Packs[1].Id));
+
+        Assert.Same(second, selected.Binding);
+        Assert.Equal(0, s_firstLoaderInvocations);
+        Assert.Equal(0, s_secondLoaderInvocations);
+    }
+
+    [Fact]
+    public void LoaderOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack()
+    {
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> binding =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                EcosystemPopulationLoaderId.Create(
+                    "ecosystem-loader.first"),
+                LoadFirstAsync);
+        EcosystemPackRegistry registry = Registry(
+            Pack("ecosystem.first", 100, null)
+                with { PopulationLoader = binding },
+            Pack("ecosystem.second", 200, "package-set.second"));
+
+        Assert.True(registry.Packs[0].HasPopulationLoader);
+        Assert.Same(
+            binding,
+            Assert.IsType<EcosystemPopulationLoaderSelectionResult.Known>(
+                registry.SelectPopulationLoader(registry.Packs[0].Id))
+                .Binding);
+        Assert.False(registry.Packs[1].HasPopulationLoader);
+        Assert.Same(
+            registry.Packs[1].Id,
+            Assert.IsType<
+                EcosystemPopulationLoaderSelectionResult.Unavailable>(
+                    registry.SelectPopulationLoader(registry.Packs[1].Id))
+                .Id);
+
+        EcosystemPackId unknown =
+            EcosystemPackId.Create("ecosystem.first-other");
+        Assert.Same(
+            unknown,
+            Assert.IsType<EcosystemPopulationLoaderSelectionResult.Unknown>(
+                registry.SelectPopulationLoader(unknown))
+                .Id);
+        Assert.Throws<ArgumentNullException>(
+            () => registry.SelectPopulationLoader(null!));
+    }
+
+    [Fact]
+    public void DuplicatePopulationLoaderIdentityFailsBeforePublication()
+    {
+        s_firstLoaderInvocations = 0;
+        s_secondLoaderInvocations = 0;
+        EcosystemPopulationLoaderId id =
+            EcosystemPopulationLoaderId.Create("ecosystem-loader.shared");
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> first =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                id,
+                LoadFirstAsync);
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> second =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                id,
+                LoadSecondAsync);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            Registry(
+                Pack("ecosystem.first", 100, null)
+                    with { PopulationLoader = first },
+                Pack("ecosystem.second", 200, null)
+                    with { PopulationLoader = second }));
+
+        Assert.Contains(id.Value, error.Message);
+        Assert.Equal("registrations", error.ParamName);
+        Assert.Equal(0, s_firstLoaderInvocations);
+        Assert.Equal(0, s_secondLoaderInvocations);
+    }
+
     private static int s_firstInvocations;
     private static int s_secondInvocations;
     private static int s_firstScannerInvocations;
     private static int s_secondScannerInvocations;
+    private static int s_firstLoaderInvocations;
+    private static int s_secondLoaderInvocations;
 
     private static ImmutableArray<EcosystemIntegrationClassification> ScanFirst(
         EcosystemIntegrationObservationContext context)
@@ -483,6 +603,27 @@ public sealed class EcosystemPackRegistryTests
         s_secondScannerInvocations++;
         return [];
     }
+
+    private static ValueTask<EcosystemPopulationLoaderReply> LoadFirstAsync(
+        EcosystemPopulationLoadRequest<TestLoaderInputs> request)
+    {
+        s_firstLoaderInvocations++;
+        return Failed(request);
+    }
+
+    private static ValueTask<EcosystemPopulationLoaderReply> LoadSecondAsync(
+        EcosystemPopulationLoadRequest<TestLoaderInputs> request)
+    {
+        s_secondLoaderInvocations++;
+        return Failed(request);
+    }
+
+    private static ValueTask<EcosystemPopulationLoaderReply> Failed(
+        EcosystemPopulationLoadRequest<TestLoaderInputs> request) =>
+        ValueTask.FromResult<EcosystemPopulationLoaderReply>(
+            request.Failed(
+                [],
+                [new("test.failure", "The test loader was invoked.")]));
 
     private static EcosystemPackRegistry Registry(
         params EcosystemPackRegistration[] registrations) =>
@@ -565,5 +706,17 @@ public sealed class EcosystemPackRegistryTests
                 view: $"{scenarioId}-view",
                 navigation: $"{scenarioId}-navigation"),
         ];
+    }
+
+    private sealed class TestLoaderInputs : IEcosystemPopulationLoadInputs
+    {
+        public EcosystemPopulationLoadInputSnapshot Snapshot { get; } =
+            new(
+                EcosystemPopulationOperationPolicyIdentity.Create(
+                    "test-operation-policy"),
+                EcosystemPopulationCapabilityPlanIdentity.Create(
+                    "test-capability-plan"),
+                EcosystemPopulationWorkIdentity.Create(
+                    "test-work"));
     }
 }
