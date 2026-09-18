@@ -176,8 +176,9 @@ The motivating real assets and current product oracle are inherited from
 Their pinned Resource Triage observations exercise the current ArrayPool path.
 This design does not claim lifecycle equivalence by itself. Issue #6729 must
 resolve the shipped typed ArrayPool model to the same exact framework
-operations, and issues #6730-#6731 must preserve the existing fixture and
-corpus outcomes when the generic engine adopts those resolved effects.
+operations. Issue #6730 consumes occurrence-bound effects additively; later
+lifecycle and Research migrations use the unchanged ArrayPool paths as their
+final fidelity oracle.
 
 ## Consumer and production adoption
 
@@ -190,11 +191,12 @@ The production path remains the 26-step #6544 plan:
 
 1. #6728 locks this resolution contract.
 2. #6729 implements it and the shipped typed ArrayPool mapping.
-3. #6730 replaces hard-coded ArrayPool operation recognition and generalizes
-   method-local ownership evidence.
-4. #6731 migrates lifecycle and leak analysis while preserving the pinned
-   oracle.
-5. #6732 migrates Research ownership-flow consumers.
+3. #6730 adds root-bound resource occurrence evidence without changing the
+   existing ArrayPool analyzers.
+4. #6731 consumes occurrence evidence in generic lifecycle and leak analysis.
+5. #6732 consumes a focused compact summary in Research; the lifecycle and
+   Research paths retire their legacy ArrayPool semantics only after final
+   focused fidelity gates pass.
 6. Later focused slices adopt repository ownership declarations, the CLI, and
    Inspect Web Browser/Wasm.
 7. #6778 later extends declaration support for non-terminal exclusive mutable
