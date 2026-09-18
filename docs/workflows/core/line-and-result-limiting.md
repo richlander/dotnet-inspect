@@ -7,9 +7,10 @@ areas: [output, limiting, count, agents]
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` selects semantic rows on commands
-> that declare them; other commands reject `-n` alone. Add `--lines` or
-> `--tail-lines` to request rendered-line clipping explicitly. `--rows N`
+> Control how much output is returned. `-n` selects semantic rows when the
+> active command or lens declares them and otherwise selects rendered lines.
+> Add `--lines` or `--tail-lines` to request rendered-line clipping explicitly
+> on semantic commands. `--rows N`
 > interprets a count as table data rows per rendered table, and `--rows N..M`
 > selects the rows those numbers name. `--value`, `--urls`, and `--paths`
 > project selected sections to scalar/URL/path payloads; `--json-array` makes
@@ -41,14 +42,14 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 
 > Goal: Truncate output to a fixed number of lines, regardless of content.
 
-### 1a. Using `-n --lines`
+### 1a. Using inferred rendered lines
 
 ```prompt
 Show me just the first 4 lines about System.Text.Json.
 ```
 
 ```bash
-dotnet-inspect library System.Text.Json -n 4 --lines
+dotnet-inspect library System.Text.Json -n 4
 ```
 
 ```expect
@@ -68,10 +69,10 @@ wc -l | tr -d ' '
 4
 ```
 
-### 1b. Using `-N --lines` shorthand
+### 1b. Using `-N` shorthand
 
 ```bash
-dotnet-inspect System.Text.Json -6 --lines
+dotnet-inspect System.Text.Json -6
 ```
 
 ```expect
