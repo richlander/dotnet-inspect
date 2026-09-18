@@ -34,8 +34,8 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   • conditional predecessors are never rewritten here; fewer than two cannot
 ///     establish the mixed scattered-dispatch shape.
 ///   • structured <c>break</c>/<c>continue</c> transfers do not reach their
-///     lexical successor. Direct boundary tests cover this classification;
-///     compiler-produced reachability at this pass remains unverified.
+///     lexical successor. A compiler-produced labeled-break return-tail merge
+///     and a direct paired <c>continue</c> boundary test cover this classification.
 /// Runs before structuring.
 /// </summary>
 public sealed class ReturnMergePass : IIrPass

@@ -1,4 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -124,6 +127,49 @@ public class ReturnMergePassTests
             block => block.StartOffset == 0x0005);
     }
 
+    [Fact]
+    public void CompilerProducedLabeledBreakBeforeReturnTail_PreservesBreak()
+    {
+        var function = ImportFixtureBeforeReturnMerge(
+            nameof(ReturnMergeSamples.LabeledBreakBeforeReturnTail));
+        var loop = Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        var transfer = Assert.Single(
+            loop.Body.Blocks,
+            block => block.Children is
+            [StoreLocal { Value: Constant { Value: 2 } }, Break]);
+        var merge = Assert.Single(
+            loop.Body.Blocks,
+            block => block.Children is [Return { Value: LoadLocal }]);
+        Assert.Equal(
+            2,
+            loop.Body.Blocks.Count(block =>
+                block.Children is [.., Branch branch]
+                && branch.TargetOffset == merge.StartOffset));
+
+        new ReturnMergePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Collection(
+            transfer.Children,
+            statement => Assert.IsType<StoreLocal>(statement),
+            statement => Assert.IsType<Break>(statement));
+        Assert.DoesNotContain(loop.Body.Blocks, block => ReferenceEquals(block, merge));
+    }
+
+    [Fact]
+    public void CompilerProducedLabeledBreakBeforeReturnTail_RendersAndExecutes()
+    {
+        var function = ImportFixture(nameof(ReturnMergeSamples.LabeledBreakBeforeReturnTail));
+        string output = CSharpPrinter.Print(function).Output ?? "";
+
+        Assert.Contains("result = 2;\n        break;", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("break;\n        return result;", output, StringComparison.Ordinal);
+
+        var compiled = Compile(output);
+        foreach (int input in new[] { -1, 0, 1, 2, 3, 4 })
+            Assert.Equal(ReturnMergeSamples.LabeledBreakBeforeReturnTail(input), compiled(input));
+    }
+
     static (IrFunction Function, Block DefaultArm) BuildMixedReturnTailCandidate(int conditionalPredecessors)
     {
         var body = new BlockContainer();
@@ -221,5 +267,73 @@ public class ReturnMergePassTests
             new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
             [Int32],
             body), transfer);
+    }
+
+    static IrFunction ImportFixtureBeforeReturnMerge(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(ReturnMergeSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(ReturnMergeSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is ReturnMergePass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+        function.CheckInvariant();
+        return function;
+    }
+
+    static IrFunction ImportFixture(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(ReturnMergeSamples).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(ReturnMergeSamples).FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static Func<int, int> Compile(string body)
+    {
+        string source = $$"""
+            static class Synthetic
+            {
+                public static int M(int x)
+                {
+            {{body}}
+                }
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "return-merge-gate",
+            [tree],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+        Assert.True(
+            errors.Length == 0,
+            "Rendered body must compile, got:\n  "
+                + string.Join("\n  ", errors)
+                + "\n--- body ---\n"
+                + body);
+
+        using var assemblyStream = new MemoryStream();
+        var emit = compilation.Emit(assemblyStream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                "\n",
+                emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)));
+        var method = Assembly.Load(assemblyStream.ToArray())
+            .GetType("Synthetic")!
+            .GetMethod("M", BindingFlags.Public | BindingFlags.Static)!;
+        return value => (int)method.Invoke(null, [value])!;
     }
 }
