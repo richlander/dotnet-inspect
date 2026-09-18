@@ -20,21 +20,20 @@ namespace InertText;
 ///
 /// The second half of that is what this type does <em>not</em> offer. Holding one of these
 /// gives no way back to the text it was built from: the decoder lives in
-/// <c>InertText.Encoding</c>, in its own namespace, and nothing here reaches it. So a file that
-/// imports <c>InertText</c> and not <c>InertText.Encoding</c> cannot recover the original of any
-/// value it handles, and that fact is legible in its using block rather than by tracing calls.
-/// A reflection test enumerates the public surface of this namespace and accounts for every
-/// member that returns text, so the property is enforced rather than merely intended.
+/// <c>InertText.Encoding</c>, in its own namespace, and the public currency surface exposes no
+/// equivalent recovery path. Reflection tests enumerate that compiled surface, account for
+/// every member that returns text, and reject caller delegates that could receive decoded
+/// scalars.
 ///
-/// The boundary is an audit aid, not a capability barrier — a file can always add the import.
-/// The goal it does meet is that the dangerous half cannot arrive by accident or unnoticed.
+/// The namespace split is an API and discoverability boundary, not a capability barrier between
+/// cooperating code. A trusted caller can explicitly invoke the decoder; routine construction
+/// and composition do not require decoder capability types.
 ///
 /// The policy is named rather than supplied. An earlier shape took a caller-written predicate,
 /// which read as the more general design and was worse in both directions: rules drifted apart
 /// between sinks that should have shared them, and repairing a value meant handing the caller's
-/// predicate the decoded original — walking the audit boundary back out through a callback, in a
-/// file whose using block still named only the currency namespace. <see cref="TextPolicy"/> is
-/// closed, so the rules are shared and no caller code runs during a repair.
+/// predicate the decoded original through a callback. <see cref="TextPolicy"/> is closed, so the
+/// rules are shared and no caller code runs during a repair.
 ///
 /// The term and the contract are borrowed from BSD <c>vis(3)</c> ("visually encode
 /// characters"): the output is inert, lossless (nothing is dropped, so the reader still sees

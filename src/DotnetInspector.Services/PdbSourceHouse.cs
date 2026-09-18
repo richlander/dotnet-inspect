@@ -7,6 +7,7 @@ using CSharpText.MemberSlicing;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using Inspector.Text;
+using DotnetInspector.SourceHouse;
 
 namespace DotnetInspector.Services;
 
@@ -137,7 +138,7 @@ public static class PdbSourceHouse
     }
 
     /// <summary>
-    /// Acquires the primary PDB source document for one exact metadata
+    /// Acquires the default PDB source document for one exact metadata
     /// type and verifies its portable-PDB checksum before exposing text.
     /// </summary>
     public static async Task<PdbTypeSourceInspection> AcquireTypeAsync(
@@ -175,7 +176,16 @@ public static class PdbSourceHouse
                 $"Portable PDB type source mapping failed: {ex.Message}",
                 PdbTypeSourceOutcome.InspectionFailed);
         }
-        if (mapping?.SourceFilePath is not { Length: > 0 } sourcePath)
+        if (mapping is null)
+        {
+            return TypeAbsent(
+                "The selected type has no portable-PDB source mapping.",
+                PdbTypeSourceOutcome.SourceMappingUnavailable);
+        }
+
+        SourceLinkResolver.TypeSourceDocument? defaultDocument =
+            TypeSourceDocumentSelection.SelectDefault(mapping);
+        if (defaultDocument?.FilePath is not { Length: > 0 } sourcePath)
         {
             return TypeAbsent(
                 "The selected type has no portable-PDB source mapping.",
@@ -215,7 +225,7 @@ public static class PdbSourceHouse
         if (document is null)
         {
             return TypeAbsent(
-                "The selected type's primary source document is not uniquely identified in the portable PDB.",
+                "The selected type's default source document is not uniquely identified in the portable PDB.",
                 PdbTypeSourceOutcome.SourceDocumentUnavailable,
                 mapping);
         }
@@ -252,7 +262,7 @@ public static class PdbSourceHouse
                 subject);
         }
 
-        string? url = document.ResolvedUrl ?? mapping.SourceUrl;
+        string? url = document.ResolvedUrl ?? defaultDocument.SourceUrl;
         if (url is not { Length: > 0 })
         {
             if (document.Storage != SourceDocumentStorage.Embedded
