@@ -9,6 +9,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Metadata;
 using Markout;
@@ -1683,6 +1684,142 @@ public sealed class InspectionGraphCommandTests
             missingTfm.Error);
     }
 
+    [Theory]
+    [InlineData("..1")]
+    [InlineData("2..")]
+    public async Task IntegrationsCommand_AcceptsSemanticOpenWindows(
+        string window)
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "integrations",
+            "--rows",
+            window);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "At least one --package is required.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "has no start row",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IntegrationsCommand_RejectsLegacyCountRows()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "integrations",
+            "--rows",
+            "1");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "At least one --package is required.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_RetainsLegacyWindowValidation()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--rows",
+            "..1");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "--rows '..1' has no start row",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "integrations",
+            "-n",
+            "1",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "At least one --package is required.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-n", "1")]
+    [InlineData("-1", null)]
+    public async Task IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs(
+        string gesture,
+        string? value)
+    {
+        var args = new List<string>
+        {
+            "graph",
+            "integrations",
+            gesture,
+        };
+        if (value is not null)
+            args.Add(value);
+        args.Add("--json");
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "At least one --package is required.",
+            captured.Error);
+        Assert.DoesNotContain(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ExecuteAsync_UsesExactPackageSetAndStructuredRequest()
     {
@@ -1860,6 +1997,85 @@ public sealed class InspectionGraphCommandTests
             jsonLine.RootElement.GetProperty("evidence").ValueKind);
         Assert.False(
             jsonLine.RootElement.TryGetProperty("edge_id", out _));
+    }
+
+    [Fact]
+    public async Task SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats()
+    {
+        InspectionGraphDocument document = GraphWithTwoEdges();
+        RowSelectionIntent<string> tail = Select(
+            RowSelectionIntentOperation<string>.Tail(1));
+
+        Execution markdown = await ExecuteAsync(
+            injectedDocument: document,
+            rowSelection: tail);
+        Execution table = await ExecuteAsync(
+            ["--table"],
+            injectedDocument: document,
+            rowSelection: tail);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            injectedDocument: document,
+            rowSelection: tail);
+        Execution jsonLines = await ExecuteAsync(
+            ["--jsonl"],
+            injectedDocument: document,
+            rowSelection: tail);
+        Execution count = await ExecuteAsync(
+            ["--count"],
+            injectedDocument: document,
+            rowSelection: tail);
+
+        Assert.All(
+            [markdown, table, json, jsonLines, count],
+            static execution => Assert.Equal(0, execution.ExitCode));
+        Assert.Equal(
+            1,
+            MarkdownTableTestOracle.CountRows(markdown.Output));
+        Assert.Contains(ThirdPackageId, markdown.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(PackageId, table.Output, StringComparison.Ordinal);
+        Assert.Contains(OtherPackageId, table.Output, StringComparison.Ordinal);
+        Assert.Contains(ThirdPackageId, table.Output, StringComparison.Ordinal);
+        Assert.Equal("1", count.Output.Trim());
+
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement edge = Assert.Single(
+            parsed.RootElement.GetProperty("edges").EnumerateArray());
+        Assert.Equal(
+            $"{OtherPackageId}@{Version}",
+            edge.GetProperty("source").GetString());
+        Assert.Equal(
+            $"{ThirdPackageId}@{Version}",
+            edge.GetProperty("target").GetString());
+
+        string jsonLineText = Assert.Single(
+            jsonLines.Output.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument jsonLine = JsonDocument.Parse(jsonLineText);
+        Assert.Equal(
+            $"{OtherPackageId}@{Version}",
+            jsonLine.RootElement.GetProperty("source").GetString());
+        Assert.Equal(
+            $"{ThirdPackageId}@{Version}",
+            jsonLine.RootElement.GetProperty("target").GetString());
+    }
+
+    [Fact]
+    public async Task SemanticUnavailableWindow_WithholdsGraph()
+    {
+        Execution execution = await ExecuteAsync(
+            injectedDocument: GraphWithTwoEdges(),
+            rowSelection: Select(
+                RowSelectionIntentOperation<string>.Window(2, 3)));
+
+        Assert.Equal(1, execution.ExitCode);
+        Assert.Empty(execution.Output);
+        Assert.Contains(
+            "Integration graph row selection stage 1 requires edge 3, "
+                + "but only 2 edges are available.",
+            execution.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2147,7 +2363,8 @@ public sealed class InspectionGraphCommandTests
         Execution json = await ExecuteAsync(
             ["--json"],
             injectedDocument: incomplete,
-            rows: RowWindow.Head(1));
+            rowSelection: Select(
+                RowSelectionIntentOperation<string>.Head(1)));
 
         Assert.Equal(1, execution.ExitCode);
         Assert.Equal(1, json.ExitCode);
@@ -2241,6 +2458,7 @@ public sealed class InspectionGraphCommandTests
         InspectionGraphDocument? injectedDocument = null,
         Action<InspectionGraphInducedSetRequest>? captureRequest = null,
         RowWindow? rows = null,
+        RowSelectionIntent<string>? rowSelection = null,
         OutputFormat? formatOverride = null,
         Func<
             WorkspaceContextLoadOutcome.Loaded,
@@ -2298,7 +2516,10 @@ public sealed class InspectionGraphCommandTests
             Format = formatOverride ?? format,
             Count = arguments.Contains("--count"),
             Tree = arguments.Contains("--tree"),
-            Rows = rows ?? (rowsIndex >= 0 ? RowWindow.Head(1) : null),
+            RowSelection = rowSelection,
+            Rows = rowSelection is null
+                ? rows ?? (rowsIndex >= 0 ? RowWindow.Head(1) : null)
+                : null,
         };
 
         Func<
@@ -2333,6 +2554,21 @@ public sealed class InspectionGraphCommandTests
             captured.Output,
             captured.Error);
     }
+
+    static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
+        params string[] args) =>
+        ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
+
+    static RowSelectionIntent<string> Select(
+        params RowSelectionIntentOperation<string>[] operations) =>
+        RowSelectionIntent<string>.Create(operations);
 
     static InspectionGraphDocument GraphWithTwoEdges()
     {
