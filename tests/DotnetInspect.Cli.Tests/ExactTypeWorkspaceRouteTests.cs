@@ -465,12 +465,15 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task WorkspaceRouteReportsInvalidPacket()
+    [Theory]
+    [InlineData("not-a-packet", "packet could not be restored")]
+    [InlineData("", "packet input is invalid")]
+    [InlineData("  ", "packet input is invalid")]
+    public async Task WorkspaceRouteReportsInvalidPacket(
+        string packet,
+        string expected)
     {
-        await AssertWorkspaceFailureAsync(
-            "not-a-packet",
-            "packet could not be restored");
+        await AssertWorkspaceFailureAsync(packet, expected);
     }
 
     [Fact]
@@ -549,6 +552,10 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(expected, error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            nameof(ArgumentException),
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

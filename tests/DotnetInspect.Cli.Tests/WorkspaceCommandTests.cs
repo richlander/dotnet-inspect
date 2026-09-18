@@ -1667,6 +1667,8 @@ public sealed partial class WorkspaceCommandTests
 
     [Theory]
     [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
+    [InlineData("--packet", "", "Workspace packet input is invalid")]
+    [InlineData("--packet", "  ", "Workspace packet input is invalid")]
     [InlineData("--root-request", "invalid", "--root-request must be")]
     public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(
         string route,
@@ -1686,6 +1688,10 @@ public sealed partial class WorkspaceCommandTests
         Assert.Contains(expectedError, captured.Error, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Rendered-line selection",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(ArgumentException),
             captured.Error,
             StringComparison.Ordinal);
     }

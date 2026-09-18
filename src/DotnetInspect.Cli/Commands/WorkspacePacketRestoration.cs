@@ -43,7 +43,6 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
         CancellationToken cancellationToken,
         string optionName = "--workspace")
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(input);
         ArgumentNullException.ThrowIfNull(loadOptions);
 
         string packet;
@@ -111,6 +110,12 @@ internal sealed class WorkspacePacketRestoration : IAsyncDisposable
         string value,
         string optionName)
     {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidDataException(
+                $"{optionName} requires a non-empty Workspace packet or URL.");
+        }
+
         if (value.StartsWith(
                 WorkspaceShareOutput.UrlPrefix,
                 StringComparison.Ordinal))
