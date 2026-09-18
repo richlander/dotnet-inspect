@@ -512,7 +512,7 @@ version pair additionally demonstrates Type-definition evidence that a
 compatibility-only view previously hid.
 
 This selected-Library route does not complete the Workspace lifecycle or
-subject-owned Diff migration. Existing aggregate-package,
+top-level Diff and subject-section migration. Existing aggregate-package,
 member-filter, Analysis Diff, Implementation Diff, Finding Transitions, and
 mixed-section routes remain until their own shared terminals cover their
 different populations and outputs. Realization-coordinator/House acquisition
@@ -549,7 +549,7 @@ The [Browser owner](inspect-web-library-api-diff.md#managed-composition)
 delivers the same complete baseline beside its existing selected-inventory
 projection, using the canonical Content serializer. Subject-command cutover
 remains explicit adoption work in the
-[subject-owned Diff plan](command-transition-model.md#subject-owned-diff).
+[operation/section composition](operation-command-and-subject-section-composition.md#production-adoption).
 House acquisition and optional Evidence capture remain separate.
 
 ### Browser consumer and remaining delivery

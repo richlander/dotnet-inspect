@@ -457,23 +457,25 @@ non-available Content with inert reason text, timeout state, and credential-safe
 authority failures. Neighboring source failures on an available population are
 ordered envelope diagnostics.
 
-Count is an optional semantic component of the same available Content. Its
-request names either the version or version/source cohort and applies the
-already-bound semantic row selection before returning a typed Count result.
-Ordinary `--count` projects that result as the existing scalar; `--count
---envelope` preserves both the complete population Document and Count
-component. The CLI's ordinary version, feed, JSON, JSONL, and TSV renderers
-remain projections over the shared Document. Neither the inspection nor the
-command selects or executes population cells.
+Count is a terminal projection over the settled population. Its request names
+either the version or version/source cohort and applies the already-bound
+semantic row selection before returning a typed Count result. Ordinary
+`--count` projects that result as the existing scalar; `--count --envelope`
+makes the same integer the Content of an `InspectionEnvelope<int>`. Without
+Count, available population Content retains only the complete Document and no
+redundant Count property. The CLI's ordinary version, feed, JSON, JSONL, and
+TSV renderers remain projections over the shared Document. Neither the
+inspection nor the command selects or executes population cells.
 
 This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History under
-[Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior; the metadata-only package version Count is now the
-resource-free CLI consumer described above.
+production consumer remains top-level Diff History under
+[Diff History inspection](diff-history.md), with future subject sections backed
+by that same operation rather than continued standalone `timeline` behavior;
+the metadata-only package version Count is now the resource-free CLI consumer
+described above.
 
 ## Package target context
 

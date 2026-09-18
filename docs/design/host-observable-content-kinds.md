@@ -198,7 +198,7 @@ Host-neutral schemas remain resource-free, NativeAOT-compatible, and
 serializable without executable closures, live readers, streams, leases,
 services, or host UI objects.
 
-The active subject-owned Diff plan in
+The active Diff envelope work in
 [#7051](https://github.com/richlander/dotnet-inspect/pull/7051)
 provides the first multi-kind serialization pressure: endpoint Diff, temporal
 History, and Package version Count must cross both the public CLI envelope
@@ -279,10 +279,10 @@ end-to-end tracker. Adoption has five planned steps:
 
 1. Lock this pattern and connect it to the envelope, shared-inspection, and
    output-shape guidance.
-2. Let the subject-owned Diff work in #7051 adopt the pattern for endpoint
-   comparison, temporal History, and Package version Count. Its focused owners
-   retain their existing semantics while the CLI and Browser consume the same
-   complete envelopes.
+2. Let the Diff and subject-section adoption work in #7051 adopt the pattern
+   for endpoint comparison, temporal History, and Package version Count. Its
+   focused owners retain their existing semantics while the CLI and Browser
+   consume the same complete envelopes.
 3. Let Package Query adopt the pattern in one focused owner change, replacing
    its completed event-array content with an owner-issued Document or Outcome
    while preserving progressive events separately. The CLI and Browser consume
