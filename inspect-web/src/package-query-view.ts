@@ -430,6 +430,7 @@ export function bindPackageQueryView(
     if ("isComposing" in event && event.isComposing) return;
     updateLibraryLiteral();
   });
+  literal?.addEventListener("compositionend", updateLibraryLiteral);
   targetFramework?.addEventListener("input", updateLibraryLiteral);
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");

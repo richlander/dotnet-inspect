@@ -831,10 +831,17 @@ test.describe("Package Query website over real Wasm", () => {
       element.dispatchEvent(new InputEvent("input", {
         bubbles: true,
         data: "日本",
-        inputType: "insertText",
-        isComposing: false,
+        inputType: "insertCompositionText",
+        isComposing: true,
+      }));
+      element.dispatchEvent(new CompositionEvent("compositionend", {
+        bubbles: true,
+        data: "日本",
       }));
     });
+    await expect(literal).toHaveValue("日本");
+    await page.locator("#package-query-run").click();
+    await expect(literal).toBeVisible();
     await expect(literal).toHaveValue("日本");
     await literal.fill("abcdef");
     await literal.evaluate(element => {

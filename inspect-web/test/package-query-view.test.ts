@@ -1584,7 +1584,10 @@ test("bindPackageQueryView defers library-literal updates during composition", (
   assert.deepEqual(calls, []);
 
   literal.value = "日本";
-  literal.dispatch("input", fakeDom.event({ isComposing: false }));
+  literal.dispatch("input", fakeDom.event({ isComposing: true }));
+  assert.deepEqual(calls, []);
+
+  literal.dispatch("compositionend");
   assert.deepEqual(calls, [["日本", "net10.0"]]);
 });
 
