@@ -18471,6 +18471,10 @@ window.addEventListener("popstate", (event: PopStateEvent) => {
         }
       }
     } catch (error) {
+      if (pendingWorkspaceHistoryTraversal === traversal
+        && navigationSequence.isCurrent(navigationSeq)) {
+        rebindActiveWorkspaceHistory();
+      }
       showToast(`Could not activate Workspace: ${errorMessage(error)}`);
       return;
     }

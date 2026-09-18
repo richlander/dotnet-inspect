@@ -1309,6 +1309,9 @@ test("browser history reuses available identities and publishes only unavailable
     /function rebindActiveWorkspaceHistory\(\): void \{\s*workspaceLocation\.replace\(\s*activeWorkspaceUrl \?\? \(state\.package \|\| state\.platformSelection \? location\.href : "\/demos"\),\s*history\.state\)/);
   assert.match(
     appSource,
+    /catch \(error\) \{\s*if \(pendingWorkspaceHistoryTraversal === traversal\s*&& navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*rebindActiveWorkspaceHistory\(\);\s*\}\s*showToast\(`Could not activate Workspace:/);
+  assert.match(
+    appSource,
     /function finishPackageRemoval\([\s\S]*if \(!state\.package && !state\.platformSelection\) \{\s*activeWorkspaceUrl = "\/demos";\s*if \(!state\.home\) \{\s*state\.workspaceSubjectOpen = true;\s*workspaceLocation\.replace\("\/demos", history\.state\)/);
   assert.match(
     appSource,

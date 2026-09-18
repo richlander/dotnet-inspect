@@ -141,7 +141,7 @@ const hostNames = new Set([
   "finishManagedCompatibilityOpen", "cancelPendingManagedCompatibilityOpen",
   "activateLegacyRetainedWorkspaceAfterManaged",
   "selectRetainedWorkspaceCore", "publishRetainedWorkspaceSelectionHistory",
-  "publishRetainedWorkspaceDeletionHistory",
+  "publishRetainedWorkspaceDeletionHistory", "rebindActiveWorkspaceHistory",
   "deleteRetainedWorkspaceCore", "waitForPendingWorkspaceCommit",
   "navigateWithinCurrentWorkspace", "restorePlatformScopeThenDeepLink",
   "applyPlatformLibraryScope",
@@ -1667,6 +1667,95 @@ test("browser traversal captures identity before waiting and blocks staged pushe
   assert.deepEqual(h.writes, []);
   assert.equal(h.location.href, href);
   assert.equal(h.context.pendingWorkspaceHistoryTraversal, traversal);
+});
+
+test("failed managed history activation restores the incumbent entry", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+  const firstId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(firstId, "workspace-definition-1");
+  const secondSaved: CompleteSavedWorkspace = {
+    ...completeSaved,
+    name: "Second Complete Workspace",
+    packet: "second-complete-packet",
+    canonicalLocation: "/?w=second-location#workspace",
+  };
+  h.controls.retainedActivation = {
+    status: "activated",
+    installation: {
+      ...retainedInstallation(),
+      retainedDefinitionId: "workspace-definition-2",
+      canonicalLocation: secondSaved.canonicalLocation,
+      canonicalPacket: secondSaved.packet,
+      realizationId: "workspace-realization-2",
+      publicationOrdinal: 2,
+    },
+    failure: null,
+  };
+  h.open(secondSaved);
+  await h.settle();
+  const incumbentId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(incumbentId, "workspace-definition-2");
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-2");
+
+  const browserHistory = wireBrowserHistory(h);
+  const entries: { url: string; state: { id: string | null } }[] = [
+    {
+      url: completeSaved.canonicalLocation,
+      state: { id: firstId },
+    },
+    {
+      url: secondSaved.canonicalLocation,
+      state: { id: incumbentId },
+    },
+  ];
+  const forwardEntry = structuredClone(entries[1]);
+  let index = 0;
+  h.context.workspaceLocation.replace = (destination, state) => {
+    const retainedId = h.context.retainedWorkspaces.activeWorkspaceId;
+    entries[index] = {
+      url: destination,
+      state: {
+        ...(state !== null && typeof state === "object" ? state : {}),
+        id: retainedId,
+      },
+    };
+    h.location.href = new URL(destination, h.location).href;
+    h.history.state = entries[index]!.state;
+    return true;
+  };
+  h.controls.retainedActivation = {
+    status: "failed",
+    installation: null,
+    failure: {
+      kind: "ContextLoadFailed",
+      message: "Package unavailable",
+    },
+  };
+  h.location.href = new URL(entries[index]!.url, h.location).href;
+  h.history.state = entries[index]!.state;
+
+  browserHistory.dispatch(h.history.state);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(browserHistory.errors, []);
+  assert.equal(h.location.href, new URL(secondSaved.canonicalLocation, h.location).href);
+  assert.deepEqual(entries[index], {
+    url: secondSaved.canonicalLocation,
+    state: { id: incumbentId },
+  });
+  assert.deepEqual(entries[1], forwardEntry);
+  assert.equal(h.context.retainedWorkspaces.activeWorkspaceId, incumbentId);
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    "workspace-realization-2");
+  assert.equal(h.context.pendingWorkspaceHistoryTraversal, null);
+  assert.equal(h.retainedActivations.at(-1), firstId);
+  assert.match(h.toasts.at(-1) ?? "", /Package unavailable/);
 });
 
 test("compatibility selection yields history publication to browser traversal", async () => {
