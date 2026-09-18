@@ -156,6 +156,94 @@ test("viewer model retains exact non-default call relationships", () => {
     !relationshipModel.defaultFindingIds.includes(relationshipFact.id));
 });
 
+test("viewer model retains exact call cycles by physical relationship fact", () => {
+  const relationshipFact = {
+    id: sampleDocument.facts.length,
+    descriptor: "call.edge",
+    category: "Relationship",
+    conditionality: "Always",
+    detail: "Example.Targets.Target(System.Int32)",
+    origin: "Body",
+    source_offset: 0,
+  } as const;
+  const relationshipDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [...sampleDocument.facts, relationshipFact],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: relationshipFact.id, node_id: 1 },
+    ],
+  };
+  const relationship = {
+    edgeRow: 1,
+    factId: relationshipFact.id,
+    moduleVersionId: "11111111-1111-1111-1111-111111111111",
+    callerToken: 0x06000001,
+    ilOffset: 0,
+    operandToken: 0x0A000001,
+    kind: "Call",
+    inLoop: false,
+    target: sampleInvocationTarget,
+  } as const;
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(relationshipDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+      callCycles: {
+        available: true,
+        unavailableReason: null,
+        isComplete: true,
+        limits: [],
+        findings: [{
+          findingKey: "cycle:key",
+          ordinal: 0,
+          edgeRows: [1],
+          factIds: [relationshipFact.id],
+          targets: [{
+            ...sampleInvocationTarget,
+            memberName: "Caller",
+          }],
+        }],
+      },
+    },
+    callRelationships: [relationship],
+  });
+
+  assert.equal(model.callCycles.findings.length, 1);
+  assert.equal(
+    model.callCyclesByFactId.get(relationshipFact.id)?.[0]?.findingKey,
+    "cycle:key");
+});
+
+test("viewer model rejects call cycles without exact first-edge anchors", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        callCycles: {
+          available: true,
+          unavailableReason: null,
+          isComplete: true,
+          limits: [],
+          findings: [{
+            findingKey: "cycle:key",
+            ordinal: 0,
+            edgeRows: [1],
+            factIds: [0],
+            targets: [sampleInvocationTarget],
+          }],
+        },
+      },
+    }),
+    /require call relationships/,
+  );
+});
+
 test("viewer model rejects call relationships without exact occurrence evidence", () => {
   assert.throws(
     () => createAnnotatedSourceViewerModel({

@@ -12,6 +12,8 @@ import type {
 } from "./document-model.ts";
 import type {
   BrowserAnnotatedSource,
+  BrowserAnnotatedSourceCallCycle,
+  BrowserAnnotatedSourceCallCycleInspection,
   BrowserAnnotatedSourceCallRelationship,
   BrowserAnnotatedSourceCapabilityAvailability,
   BrowserAnnotatedSourceFindingEvidence,
@@ -98,6 +100,9 @@ export interface AnnotatedSourceViewerModel {
   invocationDestinations:
     readonly BrowserAnnotatedSourceInvocationDestination[];
   callRelationships: readonly BrowserAnnotatedSourceCallRelationship[];
+  callCycles: BrowserAnnotatedSourceCallCycleInspection;
+  callCyclesByFactId:
+    ReadonlyMap<number, readonly BrowserAnnotatedSourceCallCycle[]>;
   findingEvidence: readonly AnnotatedSourceFindingEvidence[];
   findingEvidenceByFactId:
     ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
@@ -164,6 +169,8 @@ export function createAnnotatedSourceViewerModel(
     validateInvocationDestinations(result.document, result.viewerCatalog);
   const callRelationships =
     validateCallRelationships(result.document, result);
+  const callCycles =
+    validateCallCycles(result.document, result, callRelationships);
   const findingEvidence =
     validateFindingEvidence(
       result.document,
@@ -183,6 +190,8 @@ export function createAnnotatedSourceViewerModel(
       new Set(result.viewerCatalog.invocationLikeNodeKinds),
     invocationDestinations,
     callRelationships,
+    callCycles,
+    callCyclesByFactId: indexCallCycles(callCycles),
     findingEvidence,
     findingEvidenceByFactId:
       new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
@@ -209,6 +218,13 @@ export function findingEvidenceForFact(
   factId: number,
 ): AnnotatedSourceFindingEvidence | null {
   return model.findingEvidenceByFactId.get(factId) ?? null;
+}
+
+export function callCyclesForFact(
+  model: AnnotatedSourceViewerModel,
+  factId: number,
+): readonly BrowserAnnotatedSourceCallCycle[] {
+  return model.callCyclesByFactId.get(factId) ?? [];
 }
 
 export function createEmbeddedSession(
@@ -738,6 +754,100 @@ function validateCallRelationships(
     }
   }
   return validated;
+}
+
+function validateCallCycles(
+  document: AnnotatedSourceDocument,
+  result: AnnotatedSourceResult,
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): BrowserAnnotatedSourceCallCycleInspection {
+  const inspection = result.viewerCatalog.callCycles;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.isComplete
+      || inspection.limits.length > 0
+      || inspection.findings.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source call cycles cannot carry findings or completeness state.");
+    }
+    return inspection;
+  }
+  if (inspection.unavailableReason !== null
+    || inspection.isComplete !== (inspection.limits.length === 0)) {
+    throw new TypeError(
+      "Annotated Source call-cycle availability contradicts its completeness state.");
+  }
+  if (!result.viewerCatalog.callRelationships.available) {
+    throw new TypeError(
+      "Available Annotated Source call cycles require call relationships.");
+  }
+
+  const knownLimits = new Set([
+    "TraversalBoundary",
+    "IncompleteCorrespondence",
+    "WitnessBudget",
+    "PathBudget",
+    "AnalysisFailure",
+  ]);
+  if (new Set(inspection.limits).size !== inspection.limits.length
+    || inspection.limits.some(limit =>
+      typeof limit !== "string" || !knownLimits.has(limit))) {
+    throw new TypeError(
+      "Annotated Source call cycles carry unknown or duplicate limits.");
+  }
+
+  const findingKeys = new Set<string>();
+  for (const [index, finding] of inspection.findings.entries()) {
+    if (finding.ordinal !== index
+      || !nonEmptyString(finding.findingKey)
+      || findingKeys.has(finding.findingKey)
+      || finding.edgeRows.length === 0
+      || finding.edgeRows.some(edgeRow =>
+        !Number.isSafeInteger(edgeRow) || edgeRow < 1)
+      || new Set(finding.edgeRows).size !== finding.edgeRows.length
+      || finding.factIds.length === 0
+      || finding.factIds.some(factId =>
+        !Number.isSafeInteger(factId)
+        || !document.facts[factId]
+        || document.facts[factId]?.descriptor !== "call.edge")
+      || new Set(finding.factIds).size !== finding.factIds.length
+      || finding.targets.length !== finding.edgeRows.length) {
+      throw new TypeError(
+        `Annotated Source call cycle ${index} has invalid identity or path evidence.`);
+    }
+
+    const expectedFactIds = relationships
+      .filter(relationship =>
+        relationship.edgeRow === finding.edgeRows[0])
+      .map(relationship => relationship.factId);
+    const actualFactIds = new Set(finding.factIds);
+    if (expectedFactIds.length === 0
+      || expectedFactIds.length !== actualFactIds.size
+      || expectedFactIds.some(factId => !actualFactIds.has(factId))) {
+      throw new TypeError(
+        `Annotated Source call cycle ${index} is not anchored to every physical occurrence of its first edge.`);
+    }
+    finding.targets.forEach((target, targetIndex) =>
+      validateCallGraphTarget(
+        target,
+        `call cycle ${index} target ${targetIndex}`));
+    findingKeys.add(finding.findingKey);
+  }
+  return inspection;
+}
+
+function indexCallCycles(
+  inspection: BrowserAnnotatedSourceCallCycleInspection,
+): ReadonlyMap<number, readonly BrowserAnnotatedSourceCallCycle[]> {
+  const indexed = new Map<number, BrowserAnnotatedSourceCallCycle[]>();
+  for (const finding of inspection.findings) {
+    for (const factId of finding.factIds) {
+      const findings = indexed.get(factId) ?? [];
+      findings.push(finding);
+      indexed.set(factId, findings);
+    }
+  }
+  return indexed;
 }
 
 function validateFindingEvidence(
