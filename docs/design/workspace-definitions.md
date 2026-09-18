@@ -284,9 +284,9 @@ portable basis.
 The `workspace` command transforms portable Workspace state:
 
 ```text
-direct definition inputs | packet | URL
-                   |
-                   v
+direct definition inputs | packet
+                |
+                v
       validated portable definition
                    |
        +-----------+-----------+
