@@ -89,11 +89,22 @@ public sealed class PackageHouseCompileSliceMeasurements
     internal PackageHouseCompileSliceMeasurements(
         PackageHouseCompilePackageMeasurements package,
         ImmutableArray<PackageHouseCompileLibraryMeasurement> libraries,
+        ImmutableArray<string> selectedTargetFrameworkFolders,
         long selectedLibraryPayloadBytes)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentOutOfRangeException.ThrowIfNegative(
             selectedLibraryPayloadBytes);
+        if (selectedTargetFrameworkFolders.IsDefault
+            || selectedTargetFrameworkFolders.Any(string.IsNullOrWhiteSpace)
+            || selectedTargetFrameworkFolders
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() != selectedTargetFrameworkFolders.Length)
+        {
+            throw new ArgumentException(
+                "Selected target-framework folders must be initialized, non-empty names without case-insensitive duplicates.",
+                nameof(selectedTargetFrameworkFolders));
+        }
         PackageHouseRealizationReceipt.Compile realization =
             package.Realization;
         if (realization.Selection.Status is not
@@ -124,6 +135,7 @@ public sealed class PackageHouseCompileSliceMeasurements
 
         Package = package;
         Libraries = libraries;
+        SelectedTargetFrameworkFolders = selectedTargetFrameworkFolders;
         SelectedLibraryPayloadBytes = selectedLibraryPayloadBytes;
     }
 
@@ -154,6 +166,8 @@ public sealed class PackageHouseCompileSliceMeasurements
 
     public ImmutableArray<PackageHouseCompileLibraryMeasurement> Libraries
     { get; }
+
+    public ImmutableArray<string> SelectedTargetFrameworkFolders { get; }
 
     public int SelectedLibraryCount => Libraries.Length;
 
@@ -380,6 +394,10 @@ public static class PackageHouseCompileSliceMeasurementProjection
                 "A selected compile realization requires a settled House result.");
         }
 
+        ImmutableArray<string> selectedTargetFrameworkFolders =
+            SelectTargetFrameworkFolders(
+                settlement.Payload.Content,
+                realization.Selection.TargetFramework!);
         var libraries =
             ImmutableArray.CreateBuilder<PackageHouseCompileLibraryMeasurement>(
                 realization.Selection.Assets.Count);
@@ -457,6 +475,7 @@ public static class PackageHouseCompileSliceMeasurementProjection
         var measurements = new PackageHouseCompileSliceMeasurements(
             packageMeasurements,
             libraries.MoveToImmutable(),
+            selectedTargetFrameworkFolders,
             selectedPayloadBytes);
         return selectedEmpty
             ? new PackageHouseCompileSliceMeasurementOutcome.SelectedEmpty(
@@ -467,6 +486,48 @@ public static class PackageHouseCompileSliceMeasurementProjection
                 settlement.Result,
                 realization,
                 measurements);
+    }
+
+    private static ImmutableArray<string> SelectTargetFrameworkFolders(
+        IPackageContent content,
+        string selectedTargetFramework)
+    {
+        var folders = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string entry in content.EnumerateEntries())
+        {
+            if (string.IsNullOrWhiteSpace(entry)
+                || entry.Contains('\\'))
+            {
+                continue;
+            }
+
+            string[] segments = entry.Split('/');
+            if (segments.Length < 3
+                || segments.Any(string.IsNullOrEmpty)
+                || segments[^1].Equals("_._", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            for (int index = 1; index < segments.Length - 1; index++)
+            {
+                if (!segments[index].Equals(
+                        selectedTargetFramework,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                folders.Add(segments[0]);
+                break;
+            }
+        }
+
+        return folders
+            .OrderBy(static folder => folder, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static folder => folder, StringComparer.Ordinal)
+            .ToImmutableArray();
     }
 
     private static bool TryGetArchiveLength(
