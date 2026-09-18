@@ -762,9 +762,12 @@ public static class MetadataProjectionRenderer
     /// What <paramref name="entries"/> does not show. Every bound the set carries becomes a
     /// sentence, so a listing is never presented as more than it is.
     /// </summary>
-    public static IEnumerable<string> Caveats(MetadataHeapEntrySet entries)
+    public static IEnumerable<string> Caveats(
+        MetadataHeapEntrySet entries,
+        string heapAddressCommand = "--heap")
     {
         ArgumentNullException.ThrowIfNull(entries);
+        ArgumentException.ThrowIfNullOrWhiteSpace(heapAddressCommand);
 
         string name = MetadataHeapCoordinate.StreamName(entries.Heap);
 
@@ -775,11 +778,11 @@ public static class MetadataProjectionRenderer
                 break;
 
             case MetadataHeapCoverage.ReferencedOnly:
-                yield return $"Listed entries are the distinct {name} values that projected table rows point at, not a walk of the heap: ECMA-335 stores it as length-prefixed items with no index and System.Reflection.Metadata exposes no walker, so entries no row references are not listed. The heap is {entries.SizeInBytes} bytes; any address in it stays readable with --heap \"{name}:<address>\".";
+                yield return $"Listed entries are the distinct {name} values that projected table rows point at, not a walk of the heap: ECMA-335 stores it as length-prefixed items with no index and System.Reflection.Metadata exposes no walker, so entries no row references are not listed. The heap is {entries.SizeInBytes} bytes; any address in it stays readable with {heapAddressCommand} \"{name}:<address>\".";
                 break;
 
             case MetadataHeapCoverage.NotEnumerable:
-                yield return $"No entry of the {name} heap can be listed: no metadata table column points into it — its references are ldstr operands inside method bodies, which this projection does not read — and it cannot be walked. Its {entries.SizeInBytes} bytes are not empty; read a known address with --heap \"{name}:<address>\".";
+                yield return $"No entry of the {name} heap can be listed: no metadata table column points into it — its references are ldstr operands inside method bodies, which this projection does not read — and it cannot be walked. Its {entries.SizeInBytes} bytes are not empty; read a known address with {heapAddressCommand} \"{name}:<address>\".";
                 break;
         }
 

@@ -46,6 +46,40 @@ public class MetadataProjectionRendererTests
     static MetadataColumn Column(string name, MetadataColumnKind kind) => new(name, kind);
 
     [Fact]
+    public void HeapCaveats_DefaultToStandaloneHeapSyntax()
+    {
+        var entries = new MetadataHeapEntrySet(
+            HeapKind.String,
+            SizeInBytes: 10,
+            MetadataHeapCoverage.ReferencedOnly,
+            []);
+
+        string caveat = Assert.Single(MetadataProjectionRenderer.Caveats(entries));
+
+        Assert.Contains("--heap \"#Strings:<address>\"", caveat);
+    }
+
+    [Fact]
+    public void HeapCaveats_AcceptHostSpecificCoordinateSyntax()
+    {
+        var entries = new MetadataHeapEntrySet(
+            HeapKind.UserString,
+            SizeInBytes: 10,
+            MetadataHeapCoverage.NotEnumerable,
+            []);
+
+        string caveat = Assert.Single(
+            MetadataProjectionRenderer.Caveats(
+                entries,
+                "library coordinate"));
+
+        Assert.Contains(
+            "library coordinate \"#US:<address>\"",
+            caveat);
+        Assert.DoesNotContain("with --heap", caveat);
+    }
+
+    [Fact]
     public void Markdown_WritesHeadingHeaderRowAndRidColumn()
     {
         var projection = OneCell(

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
@@ -66,6 +67,14 @@ public class InspectionResult
     /// Size of the .nupkg file in bytes.
     /// </summary>
     public long? PackageSize { get; set; }
+
+    /// <summary>
+    /// PackageHouse-selected Package Info measurements and their shared
+    /// host-neutral envelope.
+    /// </summary>
+    [JsonIgnore]
+    public InspectionEnvelope<PackageInfoMeasurements>?
+        PackageInfoMeasurementInspection { get; set; }
 
     /// <summary>
     /// Whether the package owner is verified by NuGet.org.

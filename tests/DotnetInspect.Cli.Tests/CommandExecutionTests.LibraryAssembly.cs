@@ -26,6 +26,56 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
 
+    [Theory]
+    [InlineData("--unknown=value")]
+    [InlineData("--unknown:value")]
+    public async Task Library_AttachedUnknownOptionFails(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--platform",
+            "System.Text.Json",
+            option,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Unrecognized", error, StringComparison.Ordinal);
+        Assert.Contains("--unknown", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Library_EndOfOptionsAllowsLeadingDashSource()
+    {
+        DirectoryInfo directory =
+            Directory.CreateTempSubdirectory("library-leading-dash-");
+        try
+        {
+            const string fileName = "--probe.dll";
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(directory.FullName, fileName));
+
+            var (exit, output, error) =
+                await RunAppInDirectoryAsync(
+                    directory.FullName,
+                    "library",
+                    "--tips",
+                    "q",
+                    "--",
+                    fileName);
+
+            Assert.Equal(0, exit);
+            Assert.NotEmpty(output);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Library_FixedOverviewCountValidatesFieldProjection()
     {
@@ -1420,21 +1470,25 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("section (verbose)", output);
         Assert.Contains("Symbols", names);
 
-        // Unlike the -D top level, --schema surfaces the whole catalog: the surface opt-ins, the
-        // source/audit sections, the footguns, the kind-scoped performance sub-group, and the
-        // coordinate-gated IL-context sections.
+        // Unlike the -D top level, --schema surfaces the whole parent catalog: the surface opt-ins,
+        // the source/audit sections, the footguns, and the kind-scoped performance sub-group.
         foreach (var expected in new[]
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
                      "Unsafe Members", "Body Shapes", "Body Shape Summary", "SourceLink: Files", "SourceLink: Availability",
-                     "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
+                     "SourceLink: Missing Files", "SourceLink: Integrity",
                      "Integration Opportunities"
                  })
         {
             Assert.Contains(expected, names);
         }
 
+        Assert.DoesNotContain(
+            names,
+            name => name.StartsWith(
+                "Context: ",
+                StringComparison.Ordinal));
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
         Assert.Contains(IntegrationSectionNames.Integrations, names);
         Assert.Contains(IntegrationSectionNames.Opportunities, names);
@@ -1444,10 +1498,10 @@ public partial class CommandExecutionTests
                 "Integration: ",
                 StringComparison.Ordinal));
 
-        // The topical category doors lead the catalog, in
-        // alphabetical order, and every category row precedes every section row. @Metadata is
-        // among them because --schema surfaces the whole catalog, including the explicit-only
-        // lens the curated top-level -D still leaves out.
+        // The parent-owned topical category doors lead the catalog, in alphabetical order, and
+        // every category row precedes every section row. @Metadata is among them because --schema
+        // surfaces the whole parent catalog, including the explicit-only lens the curated
+        // top-level -D still leaves out. @Context belongs to library coordinate.
         var categoryLines = SplitOutputLines(output)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
@@ -1455,8 +1509,8 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
-                "@Audit", "@Context", "@Integrations", "@Library", "@Metadata",
-                "@Performance", "@ReadyToRun", "@SourceLink", "@Surface",
+                "@Audit", "@Integrations", "@Library", "@Metadata", "@Performance",
+                "@ReadyToRun", "@SourceLink", "@Surface",
             },
             categoryNames);
 
@@ -1794,7 +1848,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("\"Metadata: Heap\" requires --heap", error);
+        Assert.Contains(
+            "\"Metadata: Heap\" requires library coordinate",
+            error);
     }
 
     [Fact]
@@ -3097,39 +3153,34 @@ public partial class CommandExecutionTests
         Assert.Contains(option, error);
     }
 
-    [Theory]
-    [InlineData("--extract-resources")]
-    [InlineData("--il-offset")]
-    [InlineData("--il-offsets")]
-    [InlineData("--heap")]
-    public async Task LibraryCommand_TfmAll_CountDoesNotBypassSingleInspectionOperations(string option)
+    [Fact]
+    public async Task LibraryCommand_TfmAll_CountDoesNotBypassExtractResources()
     {
         var missingPackagePath = Path.Combine(
             Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
-        var arguments = new List<string>
-        {
-            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all"
-        };
-        if (option == "--extract-resources")
-            arguments.AddRange(["-S", SectionNames.Resources]);
-        arguments.Add("--count");
-        arguments.Add(option);
-        arguments.Add(option switch
-        {
-            "--extract-resources" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}"),
-            "--il-offset" => "0x06000001+0x0",
-            "--il-offsets" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.txt"),
-            "--heap" => "#Strings:0x1",
-            _ => throw new InvalidOperationException($"Unexpected option: {option}")
-        });
-        arguments.AddRange(["--tips", "q"]);
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-{Guid.NewGuid():N}");
 
-        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "Missing.dll",
+            "--package",
+            missingPackagePath,
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.Resources,
+            "--count",
+            "--extract-resources",
+            outputPath,
+            "--tips",
+            "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("--tfm all", error);
-        Assert.Contains(option, error);
+        Assert.Contains("--extract-resources", error);
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 

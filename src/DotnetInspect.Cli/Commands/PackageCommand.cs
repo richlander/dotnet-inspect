@@ -1002,6 +1002,15 @@ public partial class PackageCommand
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
+        if (!TryCreatePackageInfoTargetContext(
+                options,
+                producerOptions,
+                pipeline,
+                out PackageHouseTargetContext? packageInfoTargetContext))
+        {
+            return 1;
+        }
+
         try
         {
             PackageExtractionOutcome outcome;
@@ -1011,12 +1020,14 @@ public partial class PackageCommand
                     ? await PackageExtractor.ExtractPinnedPackageAsync(
                         client, packageName, pinnedVersion, logger.Log,
                         sourceOptions: options.SourceOptions,
-                        createComposition: context.CreatePackageSourceComposition)
+                        createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: packageInfoTargetContext)
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         client, packageName, version.Length > 0 ? version : null, logger.Log,
                         sourceOptions: options.SourceOptions,
                         includePrerelease: options.IncludePrerelease,
-                        createComposition: context.CreatePackageSourceComposition);
+                        createComposition: context.CreatePackageSourceComposition,
+                        compileTargetContext: packageInfoTargetContext);
             }
             else
             {
@@ -1165,9 +1176,11 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
-            // Apply package size (not cached in index — comes from nupkg file)
-            if (packageSize.HasValue)
-                result.PackageSize = packageSize;
+            ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                packageSize,
+                logger.Log);
 
             await PopulatePackageSignatureAsync(
                 result,
@@ -1203,6 +1216,13 @@ public partial class PackageCommand
 
             // Filter output based on options
             FilterResultForOutput(result, options);
+
+            if (!TrySelectPackageSourceLinkFiles(
+                    result,
+                    options.SourceLinkFileRowSelection))
+            {
+                return 1;
+            }
 
             if (wantsSignals && options.Count && !effectiveDiscovery)
             {
@@ -1281,7 +1301,7 @@ public partial class PackageCommand
                             InspectionContext.Default,
                             writerOpts,
                             schemaMap);
-                        schemaMap = DiscoverOutput.FilterSchemaToRenderedFields(
+                        schemaMap = DiscoverOutput.FilterSchemaToRenderedItems(
                             effective,
                             schemaMap,
                             renderManifest,
@@ -1485,5 +1505,30 @@ public partial class PackageCommand
         {
             PackageExtractor.Cleanup(resolution?.TempDir);
         }
+    }
+
+    private static bool TrySelectPackageSourceLinkFiles(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                result.SourceFiles ?? [],
+                "Package SourceLink files",
+                failure =>
+                    $"Package SourceLink file row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<PackageSourceFileInfo> selected))
+        {
+            return false;
+        }
+
+        result.SourceFiles = [.. selected];
+        return true;
     }
 }

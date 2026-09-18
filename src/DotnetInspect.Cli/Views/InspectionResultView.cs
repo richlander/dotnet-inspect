@@ -3,6 +3,7 @@ using InertText;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using Markout;
@@ -31,16 +32,29 @@ public class InspectionResultView
     [
         new("Version", static view => view.Version),
         new("Type", static view => view.PackageType),
-        new("Size", static view =>
-            view._data.PackageSize.HasValue
-                ? new ByteSizeFormatter().Format(view._data.PackageSize.Value)
+        new("Package Size (compressed)", static view =>
+            view.PackageSizeBytes.HasValue
+                ? new ByteSizeFormatter().Format(view.PackageSizeBytes.Value)
                 : null),
-        new("Highest TFM", static view =>
-            !string.IsNullOrEmpty(view.HighestTfm) ? view.HighestTfm : null),
+        new("Selected TFM", static view =>
+            view.PackageMeasurements?.SelectedTargetFramework),
         new("TFM Count", static view =>
-            view.TargetFrameworkCount > 0
-                ? view.TargetFrameworkCount.ToString()
+            view.PackageMeasurements?.AvailableTargetFrameworkCount
+                is { } count
+                ? count.ToString()
                 : null),
+        new("Selected-TFM Size", static view =>
+            view.PackageMeasurements?.SelectedLibraryPayloadBytes
+                is { } selectedBytes
+                ? new ByteSizeFormatter().Format(selectedBytes)
+                : null),
+        new("Selected-TFM Library Count", static view =>
+            view.PackageMeasurements?.SelectedLibraryCount
+                is { } libraryCount
+                ? libraryCount.ToString()
+                : null),
+        new("Selected-TFM Status", static view =>
+            view.PackageMeasurementStatus),
         new("Built", static view =>
             view._data.BuiltDate?.ToString("yyyy-MM-dd")),
         new("Published", static view =>
@@ -511,6 +525,22 @@ public class InspectionResultView
     /// <inheritdoc cref="PackageViewText"/>
     public string? HighestTfm => PackageViewText.Render(Text.HighestTfm);
 
+    [MarkoutIgnore]
+    private PackageInfoMeasurements? PackageMeasurements =>
+        _data.PackageInfoMeasurementInspection?.Content;
+
+    [MarkoutIgnore]
+    private long? PackageSizeBytes =>
+        PackageMeasurements?.CompressedPackageBytes
+        ?? _data.PackageSize;
+
+    [MarkoutIgnore]
+    private string? PackageMeasurementStatus =>
+        PackageMeasurements is { HasSelectedSlice: false } measurements
+            ? measurements.Detail?.ToString()
+                ?? measurements.Status.ToString()
+            : null;
+
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
     /// <inheritdoc cref="PackageViewText"/>
@@ -646,10 +676,16 @@ public class InspectionResultView
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
 
-        if (!string.IsNullOrEmpty(HighestTfm))
-            fields.Add(new("Highest TFM", HighestTfm));
-        if (TargetFrameworkCount > 0)
-            fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
+        if (PackageMeasurements?.SelectedTargetFramework
+            is { Length: > 0 } selectedTfm)
+        {
+            fields.Add(new("Selected TFM", selectedTfm));
+        }
+        if (PackageMeasurements?.AvailableTargetFrameworkCount
+            is { } targetFrameworkCount)
+        {
+            fields.Add(new("TFM Count", targetFrameworkCount.ToString()));
+        }
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
         else if (_data.Published.HasValue)

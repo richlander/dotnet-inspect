@@ -274,16 +274,7 @@ public partial class CommandExecutionTests
         MetadataValue.HeapReference value =
             Assert.IsType<MetadataValue.HeapReference>(entry.Value);
 
-        var legacy = await RunAppAsync(
-            "library",
-            path,
-            "--metadata-root",
-            "r2r-manifest",
-            "--heap",
-            $"#Strings:{entry.Offset}",
-            "--tips",
-            "q");
-        var child = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "library",
             "--metadata-root",
             "r2r-manifest",
@@ -294,12 +285,11 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(legacy, child);
-        Assert.Equal(0, child.Exit);
-        Assert.Empty(child.Error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Contains(
             value.Text!.Value.ToString(),
-            child.Output,
+            output,
             StringComparison.Ordinal);
     }
 
@@ -391,11 +381,12 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "library",
-                path,
                 "--metadata-root",
                 "r2r-manifest",
-                "--heap",
+                "coordinate",
                 $"#Strings:{cliEntry.Offset}",
+                "--library",
+                path,
                 "--tips",
                 "q");
 
@@ -1287,7 +1278,7 @@ public partial class CommandExecutionTests
             output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')));
     }
 
-    // ---- --heap coordinate carrier and heap listings (#3467) ------------------------------
+    // ---- heap coordinate carrier and heap listings (#3467) --------------------------------
 
     /// <summary>
     /// The coordinate carrier resolves one heap value and renders it under the section name.
@@ -1299,47 +1290,33 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task MetadataLens_HeapCoordinate_RendersTheValueAtThatAddress()
     {
-        var legacy = await RunAppAsync(
-            "library", TestAssemblyPath, "--heap", "#Strings:1", "--tips", "q");
-        var child = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "library", "coordinate", "#Strings:1",
             "--library", TestAssemblyPath, "--tips", "q");
 
-        Assert.Equal(legacy, child);
-        Assert.Equal(0, child.Exit);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Contains(
             "## " + MetadataSectionNames.Heap,
-            child.Output,
+            output,
             StringComparison.Ordinal);
         Assert.Contains(
             "| #Strings | 1 |",
-            child.Output,
+            output,
             StringComparison.Ordinal);
 
-        var legacyCount = await RunAppAsync(
-            "library", TestAssemblyPath, "--heap", "#Strings:1", "--count", "--tips", "q");
         var childCount = await RunAppAsync(
             "library", "coordinate", "#Strings:1",
             "--library", TestAssemblyPath, "--count", "--tips", "q");
-        Assert.Equal(legacyCount, childCount);
         Assert.Equal(0, childCount.Exit);
         Assert.Equal("1", childCount.Output.Trim());
         Assert.Empty(childCount.Error);
     }
 
     [Fact]
-    public async Task MetadataLens_HeapCoordinate_TreeDiscoveryMatchesLegacy()
+    public async Task MetadataLens_HeapCoordinate_TreeDiscoveryIsAvailable()
     {
-        var legacy = await RunAppAsync(
-            "library",
-            "--heap",
-            "#Strings:1",
-            "-D",
-            "--schema",
-            "--tree",
-            "--tips",
-            "q");
-        var child = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "library",
             "coordinate",
             "#Strings:1",
@@ -1349,9 +1326,9 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
 
-        Assert.Equal(legacy, child);
-        Assert.Equal(0, child.Exit);
-        Assert.Empty(child.Error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(MetadataSectionNames.Heap, output);
     }
 
     /// <summary>
@@ -1367,17 +1344,15 @@ public partial class CommandExecutionTests
     [InlineData("#Strings:0x01")]
     public async Task MetadataLens_HeapCoordinate_AcceptsEverySpelling(string coordinate)
     {
-        var legacy = await RunAppAsync(
-            "library", TestAssemblyPath, "--heap", coordinate, "--tsv", "--tips", "q");
-        var child = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             "library", "coordinate", coordinate,
             "--library", TestAssemblyPath, "--tsv", "--tips", "q");
 
-        Assert.Equal(legacy, child);
-        Assert.Equal(0, child.Exit);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
         Assert.Contains(
             "#Strings\t1\t",
-            child.Output,
+            output,
             StringComparison.Ordinal);
     }
 
@@ -1394,7 +1369,9 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
 
         Assert.Equal(0, structuralExit);
-        Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(structuralOutput));
+        Assert.DoesNotContain(
+            MetadataSectionNames.Heap,
+            DiscoveryNames(structuralOutput));
 
         var (withoutExit, withoutOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
@@ -1404,8 +1381,10 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
 
         var (withExit, withOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--heap", "#Strings:1", "--effective", "--tsv", "--tips", "q");
+            "library", "coordinate", "#Strings:1",
+            "--library", TestAssemblyPath,
+            "-D", SectionCategoryNames.Metadata,
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, withExit);
         Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(withOutput));
@@ -1423,7 +1402,10 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-S", MetadataSectionNames.Heap, "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("--heap", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "library coordinate",
+            error,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1459,18 +1441,13 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_MalformedHeapCoordinate_NamesTheHalfThatIsWrong(
         string coordinate, string expected)
     {
-        var (legacyExit, _, legacyError) = await RunAppAsync(
-            "library", TestAssemblyPath, "--heap", coordinate, "--tips", "q");
         var (childExit, childOutput, childError) = await RunAppAsync(
             "library", "coordinate", coordinate,
             "--library", TestAssemblyPath, "--tips", "q");
 
-        Assert.Equal(1, legacyExit);
-        Assert.Contains(expected, legacyError, StringComparison.Ordinal);
         Assert.Equal(1, childExit);
         Assert.Empty(childOutput);
         Assert.Contains(expected, childError, StringComparison.Ordinal);
-        Assert.DoesNotContain("--heap", childError, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1488,6 +1465,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
         Assert.Contains("not a walk of the heap", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "library coordinate \"#Strings:<address>\"",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "with --heap",
+            output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1527,6 +1512,10 @@ public partial class CommandExecutionTests
         Assert.Contains("## Metadata: #US", output, StringComparison.Ordinal);
         Assert.Contains("ldstr", output, StringComparison.Ordinal);
         Assert.Contains("cannot be walked", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "library coordinate \"#US:<address>\"",
+            output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1560,14 +1549,12 @@ public partial class CommandExecutionTests
     ///
     /// The distinction the product draws: a bad heap reference inside a projected table row is a
     /// fact about the image and renders as <c>!malformed</c>; a coordinate is the caller's own
-    /// input naming one thing that does not exist. <c>--il-offset</c> already exits 1 here.
+    /// input naming one thing that does not exist. IL coordinates already exit 1 here.
     /// </summary>
     [Fact]
     public async Task MetadataLens_UnresolvableHeapCoordinate_IsAnErrorNotAMalformedRow()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "--heap", "#Strings:999999999", "--tips", "q");
-        var child = await RunAppAsync(
             "library", "coordinate", "#Strings:999999999",
             "--library", TestAssemblyPath, "--tips", "q");
 
@@ -1575,30 +1562,19 @@ public partial class CommandExecutionTests
         Assert.Contains("#Strings", error, StringComparison.Ordinal);
         Assert.Contains("999999999", error, StringComparison.Ordinal);
         Assert.DoesNotContain("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
-        Assert.Equal(1, child.Exit);
-        Assert.Empty(child.Output);
-        Assert.Contains("#Strings", child.Error, StringComparison.Ordinal);
-        Assert.Contains("999999999", child.Error, StringComparison.Ordinal);
-        Assert.DoesNotContain("--heap", child.Error, StringComparison.Ordinal);
 
-        // Discovery must not advertise a section the coordinate cannot produce.
-        var legacyDiscovery = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
-        var childDiscovery = await RunAppAsync(
+        // Effective discovery must not advertise a section the coordinate cannot produce.
+        // Structural discovery intentionally does not acquire the Library or resolve the coordinate.
+        var discovery = await RunAppAsync(
             "library", "coordinate", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", SectionCategoryNames.Metadata,
-            "--tsv", "--tips", "q");
+            "--effective", "--tsv", "--tips", "q");
 
-        Assert.Equal(1, legacyDiscovery.Exit);
+        Assert.Equal(1, discovery.Exit);
         Assert.DoesNotContain(
             MetadataSectionNames.Heap,
-            DiscoveryNames(legacyDiscovery.Output));
-        Assert.Equal(1, childDiscovery.Exit);
-        Assert.DoesNotContain(
-            MetadataSectionNames.Heap,
-            DiscoveryNames(childDiscovery.Output));
+            DiscoveryNames(discovery.Output));
     }
 
     /// <summary>
@@ -1618,17 +1594,13 @@ public partial class CommandExecutionTests
             Assert.Equal(0, primeExit);
         }
 
-        var legacy = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
-        var child = await RunAppAsync(
+        var result = await RunAppAsync(
             "library", "coordinate", "#Strings:999999999",
             "--library", TestAssemblyPath,
             "-D", "--tsv", "--tips", "q");
 
-        Assert.Equal(1, legacy.Exit);
-        Assert.Contains("999999999", legacy.Error, StringComparison.Ordinal);
-        Assert.Equal(1, child.Exit);
-        Assert.Contains("999999999", child.Error, StringComparison.Ordinal);
+        Assert.Equal(1, result.Exit);
+        Assert.Contains("999999999", result.Error, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1721,7 +1693,7 @@ public partial class CommandExecutionTests
     /// The tolerance rule exists for names that may exist in one inspected assembly and not
     /// another. A hex index outside the projection is not that: no image can ever supply it, so
     /// tolerating it would silently drop a selector the caller definitely got wrong. This matches
-    /// the <c>--heap</c> coordinate rule, where input that names nothing is exit 1.
+    /// the heap-coordinate rule, where input that names nothing is exit 1.
     /// </summary>
     [Fact]
     public async Task MetadataLens_BadHexTable_FailsEvenBesideAMatchingSelector()
@@ -1802,7 +1774,7 @@ public partial class CommandExecutionTests
     /// <summary>
     /// Hex must carry its <c>0x</c>. A bare <c>02</c> is a table <em>name</em> position, and
     /// inferring a radix would let one spelling mean two things; the rule matches
-    /// <c>--heap</c>'s address rule. It fails as an unknown section name, not as a bad index.
+    /// the heap-coordinate address rule. It fails as an unknown section name, not as a bad index.
     /// </summary>
     [Fact]
     public async Task MetadataLens_BareDigits_AreNotATableIndex()
