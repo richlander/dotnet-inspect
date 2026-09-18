@@ -45,6 +45,38 @@ export interface RetainedWorkspaceActivationClient {
   observeRetainedWorkspaceSettlement(
     settlementId: string,
   ): Promise<BrowserRetainedWorkspaceSettlementResult>;
+  validateRetainedWorkspaceNavigationAuthority(
+    realizationId: string,
+    publicationOrdinal: number,
+    session: string,
+    revision: string,
+    intent: string,
+    epoch: string,
+  ): boolean | Promise<boolean>;
+  recordRetainedWorkspaceNavigationInstallation(
+    realizationId: string,
+    publicationOrdinal: number,
+    session: string,
+    revision: string,
+    intent: string,
+    epoch: string,
+  ): string | Promise<string>;
+  acknowledgeRetainedWorkspaceNavigation(
+    realizationId: string,
+    publicationOrdinal: number,
+    session: string,
+    revision: string,
+    intent: string,
+    epoch: string,
+  ): string | Promise<string>;
+  abandonRetainedWorkspaceNavigation(
+    realizationId: string,
+    publicationOrdinal: number,
+    session: string,
+    revision: string,
+    intent: string,
+    epoch: string,
+  ): string | Promise<string>;
 }
 
 export interface RetainedWorkspacePredecessorObservation {
@@ -165,6 +197,83 @@ export function createRetainedWorkspaceActivationController(
     );
   }
 
+  function authorityArguments(
+    installation: BrowserRetainedWorkspaceInstallation,
+  ): readonly [string, number, string, string, string, string] {
+    const authority = installation.navigation.authority;
+    if (authority === null) {
+      throw new Error(
+        "A retained Workspace installation requires Navigation effect authority.",
+      );
+    }
+    return [
+      installation.realizationId,
+      installation.publicationOrdinal,
+      authority.session,
+      authority.revision,
+      authority.intent,
+      authority.epoch,
+    ];
+  }
+
+  async function abandonInstallation(
+    installation: BrowserRetainedWorkspaceInstallation,
+  ): Promise<void> {
+    const status = await client.abandonRetainedWorkspaceNavigation(
+      ...authorityArguments(installation),
+    );
+    if (status !== "accepted" && status !== "invalidAuthority") {
+      throw new Error(
+        `Navigation abandonment returned '${status}'.`,
+      );
+    }
+  }
+
+  async function installActivation(
+    installation: BrowserRetainedWorkspaceInstallation,
+  ): Promise<boolean> {
+    const authority = authorityArguments(installation);
+    if (!await client.validateRetainedWorkspaceNavigationAuthority(
+      ...authority,
+    )) {
+      await abandonInstallation(installation);
+      return false;
+    }
+
+    installedPublicationOrdinal = installation.publicationOrdinal;
+    activeDefinitionId = installation.retainedDefinitionId;
+    try {
+      hooks.install(installation);
+      const recorded =
+        await client.recordRetainedWorkspaceNavigationInstallation(
+          ...authority,
+        );
+      if (recorded !== "accepted") {
+        throw new Error(
+          `Navigation installation recording returned '${recorded}'.`,
+        );
+      }
+      const acknowledged =
+        await client.acknowledgeRetainedWorkspaceNavigation(...authority);
+      if (acknowledged !== "accepted") {
+        throw new Error(
+          `Navigation acknowledgement returned '${acknowledged}'.`,
+        );
+      }
+      return true;
+    } catch (error) {
+      try {
+        await abandonInstallation(installation);
+      } catch (abandonmentError) {
+        throw new AggregateError(
+          [error, abandonmentError],
+          "Retained Workspace installation and Navigation abandonment failed.",
+        );
+      }
+      throw error;
+    }
+  }
+
   function retain(
     input: RetainedWorkspaceDefinitionInput,
   ): RetainedWorkspaceDefinition {
@@ -236,10 +345,21 @@ export function createRetainedWorkspaceActivationController(
             );
           }
           observePredecessorOnce(installation);
-          if (installation.publicationOrdinal > installedPublicationOrdinal) {
-            installedPublicationOrdinal = installation.publicationOrdinal;
-            activeDefinitionId = installation.retainedDefinitionId;
-            hooks.install(installation);
+          if (result.status === "activated"
+            && installation.publicationOrdinal
+              > installedPublicationOrdinal) {
+            try {
+              await installActivation(installation);
+            } catch (error) {
+              lastFailure = error instanceof Error
+                ? error.message
+                : "Retained Workspace installation failed.";
+              throw error;
+            }
+          } else if (result.status === "activated"
+            && installation.publicationOrdinal
+              < installedPublicationOrdinal) {
+            await abandonInstallation(installation);
           }
           if (generation === selectionGeneration) {
             pendingDefinitionId = null;

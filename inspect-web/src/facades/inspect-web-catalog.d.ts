@@ -205,6 +205,176 @@ export interface BrowserParameterSurface {
     readonly defaultValue: string | null;
     readonly description: string | null;
 }
+export interface BrowserRetainedNavigationAction {
+    readonly session: string;
+    readonly generation: string;
+    readonly id: string;
+    readonly source: string;
+    readonly kind: string;
+}
+export interface BrowserRetainedNavigationAuthority {
+    readonly session: string;
+    readonly revision: string;
+    readonly intent: string;
+    readonly epoch: string;
+}
+export interface BrowserRetainedNavigationCoordinateOutcome {
+    readonly disposition: string;
+    readonly detail: string;
+    readonly libraryPairing: string | null;
+    readonly typeCorrespondence: string | null;
+    readonly memberCorrespondence: string | null;
+}
+export interface BrowserRetainedNavigationDiagnostic {
+    readonly kind: string;
+    readonly library: string;
+    readonly message: string;
+}
+export interface BrowserRetainedNavigationFacet {
+    readonly id: string;
+    readonly kind: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly order: number;
+    readonly role: string | null;
+}
+export interface BrowserRetainedNavigationLens {
+    readonly id: string;
+    readonly subject: BrowserRetainedNavigationSubject;
+    readonly facet: string;
+}
+export interface BrowserRetainedNavigationLensDescriptor {
+    readonly facet: BrowserRetainedNavigationFacet;
+    readonly state: string;
+    readonly isCurrent: boolean;
+    readonly target: BrowserRetainedNavigationLens | null;
+    readonly unavailability: string | null;
+    readonly message: string | null;
+    readonly action: BrowserRetainedNavigationAction | null;
+}
+export interface BrowserRetainedNavigationLensOutcome {
+    readonly kind: string;
+    readonly basis: string;
+    readonly subject: BrowserRetainedNavigationSubject;
+    readonly effectiveLens: BrowserRetainedNavigationLens | null;
+    readonly request: BrowserRetainedNavigationLens | null;
+    readonly preferredRole: string | null;
+    readonly policyFailure: string | null;
+    readonly resolution: BrowserRetainedNavigationResolution | null;
+    readonly suspension: BrowserRetainedNavigationRealization | null;
+}
+export interface BrowserRetainedNavigationLibraryDescriptor {
+    readonly navigation: BrowserRetainedNavigationSubjectDescriptor;
+    readonly assetId: string | null;
+    readonly isAggregate: boolean;
+    readonly isPrimary: boolean;
+}
+export interface BrowserRetainedNavigationMemberDescriptor {
+    readonly navigation: BrowserRetainedNavigationSubjectDescriptor;
+    readonly library: string;
+    readonly containingType: string;
+    readonly declaringType: string;
+    readonly accessibility: string | null;
+    readonly memberKind: string;
+    readonly signature: string | null;
+    readonly descendantLenses: ReadonlyArray<BrowserRetainedNavigationLensDescriptor>;
+}
+export interface BrowserRetainedNavigationOutcome {
+    readonly kind: string;
+    readonly rejection: string | null;
+    readonly failureSource: string | null;
+    readonly message: string | null;
+    readonly request: BrowserRetainedNavigationRequest | null;
+    readonly resolution: BrowserRetainedNavigationResolution | null;
+    readonly scope: BrowserRetainedNavigationScopeOutcome | null;
+    readonly diagnostics: ReadonlyArray<BrowserRetainedNavigationDiagnostic>;
+    readonly coordinateRetention: BrowserRetainedNavigationCoordinateOutcome | null;
+}
+export interface BrowserRetainedNavigationPackageDescriptor {
+    readonly order: number;
+    readonly subject: BrowserRetainedNavigationSubject;
+    readonly packageId: string;
+    readonly version: string;
+    readonly framework: string | null;
+    readonly runtimeIdentifier: string | null;
+    readonly realization: string;
+    readonly realizationFailure: string | null;
+    readonly state: string;
+    readonly isCurrent: boolean;
+    readonly action: BrowserRetainedNavigationAction | null;
+}
+export interface BrowserRetainedNavigationRealization {
+    readonly kind: string;
+    readonly failure: string | null;
+}
+export interface BrowserRetainedNavigationRequest {
+    readonly source: BrowserRetainedNavigationSubject;
+    readonly destination: BrowserRetainedNavigationSubject;
+    readonly lens: BrowserRetainedNavigationLens | null;
+}
+export interface BrowserRetainedNavigationResolution {
+    readonly kind: string;
+    readonly descriptor: BrowserRetainedNavigationFacet | null;
+    readonly unavailability: string | null;
+    readonly message: string | null;
+}
+export interface BrowserRetainedNavigationResult {
+    readonly operation: string;
+    readonly request: string;
+    readonly snapshot: BrowserRetainedNavigationSnapshot;
+    readonly outcome: BrowserRetainedNavigationOutcome;
+    readonly synchronization: string;
+    readonly authority: BrowserRetainedNavigationAuthority | null;
+}
+export interface BrowserRetainedNavigationScopeOutcome {
+    readonly kind: string;
+    readonly operation: string;
+    readonly rejection: string | null;
+    readonly failure: string | null;
+}
+export interface BrowserRetainedNavigationScopeStatus {
+    readonly kind: string;
+    readonly runtimeFailure: string | null;
+}
+export interface BrowserRetainedNavigationSnapshot {
+    readonly generation: string;
+    readonly scope: BrowserRetainedNavigationScopeStatus;
+    readonly workspace: BrowserRetainedNavigationSubject;
+    readonly activePackage: string | null;
+    readonly activeSubject: BrowserRetainedNavigationSubject;
+    readonly typeInventoryLibraryContext: BrowserRetainedNavigationSubject | null;
+    readonly packages: ReadonlyArray<BrowserRetainedNavigationPackageDescriptor>;
+    readonly hierarchy: ReadonlyArray<BrowserRetainedNavigationSubjectDescriptor>;
+    readonly libraries: ReadonlyArray<BrowserRetainedNavigationLibraryDescriptor>;
+    readonly types: ReadonlyArray<BrowserRetainedNavigationTypeDescriptor>;
+    readonly members: ReadonlyArray<BrowserRetainedNavigationMemberDescriptor>;
+    readonly lenses: ReadonlyArray<BrowserRetainedNavigationLensDescriptor>;
+    readonly lensOutcome: BrowserRetainedNavigationLensOutcome;
+    readonly diagnostics: ReadonlyArray<BrowserRetainedNavigationDiagnostic>;
+}
+export interface BrowserRetainedNavigationSubject {
+    readonly id: string;
+    readonly kind: string;
+    readonly label: string;
+    readonly summary: string | null;
+    readonly parent: string | null;
+}
+export interface BrowserRetainedNavigationSubjectDescriptor {
+    readonly kind: string;
+    readonly label: string;
+    readonly subject: BrowserRetainedNavigationSubject | null;
+    readonly state: string;
+    readonly isActive: boolean;
+    readonly isRetained: boolean;
+    readonly action: BrowserRetainedNavigationAction | null;
+}
+export interface BrowserRetainedNavigationTypeDescriptor {
+    readonly navigation: BrowserRetainedNavigationSubjectDescriptor;
+    readonly library: string;
+    readonly accessibility: string | null;
+    readonly typeKind: string;
+    readonly descendantLenses: ReadonlyArray<BrowserRetainedNavigationLensDescriptor>;
+}
 export interface BrowserRetainedWorkspaceActivationFailure {
     readonly kind: string;
     readonly message: string;
@@ -213,6 +383,9 @@ export interface BrowserRetainedWorkspaceActivationResult {
     readonly status: string;
     readonly installation: BrowserRetainedWorkspaceInstallation | null;
     readonly failure: BrowserRetainedWorkspaceActivationFailure | null;
+}
+export interface BrowserRetainedWorkspaceCleanup {
+    readonly message: string;
 }
 export interface BrowserRetainedWorkspaceDeactivationResult {
     readonly status: string;
@@ -226,12 +399,15 @@ export interface BrowserRetainedWorkspaceInstallation {
     readonly canonicalPacket: string;
     readonly realizationId: string;
     readonly publicationOrdinal: number;
-    readonly navigation: BrowserRetainedWorkspaceNavigation;
+    readonly navigation: BrowserRetainedNavigationResult;
+    readonly packages: ReadonlyArray<BrowserRetainedWorkspacePackage>;
     readonly predecessor: BrowserRetainedWorkspacePredecessor | null;
+    readonly cleanup: BrowserRetainedWorkspaceCleanup | null;
 }
-export interface BrowserRetainedWorkspaceNavigation {
-    readonly activeStateIndex: number | null;
-    readonly states: ReadonlyArray<BrowserRetainedWorkspaceView>;
+export interface BrowserRetainedWorkspacePackage {
+    readonly navigationId: string;
+    readonly consumerPackageSubjectId: string;
+    readonly surface: BrowserPackageSurface;
 }
 export interface BrowserRetainedWorkspacePredecessor {
     readonly settlementId: string;
@@ -245,11 +421,6 @@ export interface BrowserRetainedWorkspaceSettlement {
 export interface BrowserRetainedWorkspaceSettlementResult {
     readonly status: string;
     readonly settlement: BrowserRetainedWorkspaceSettlement | null;
-}
-export interface BrowserRetainedWorkspaceView {
-    readonly navigationId: string | null;
-    readonly subjectKind: string | null;
-    readonly facet: string | null;
 }
 export interface BrowserTypeSurface {
     readonly id: string;
@@ -338,6 +509,8 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function abandonRetainedWorkspaceNavigation(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string;
+export declare function acknowledgeRetainedWorkspaceNavigation(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string;
 export declare function activateRetainedWorkspaceDefinition(retainedDefinitionId: string, label: string, canonicalLocation: string, canonicalPacket: string): Promise<BrowserRetainedWorkspaceActivationResult>;
 export declare function canonicalizeWorkspaceSharePacket(encoded: string): BrowserWorkspaceShareEncodeResult;
 export declare function deactivateRetainedWorkspaceDefinition(retainedDefinitionId: string): Promise<BrowserRetainedWorkspaceDeactivationResult>;
@@ -346,5 +519,7 @@ export declare function encodeWorkspaceShareState(stateJson: string): BrowserWor
 export declare function listHomeDemos(): BrowserHomeDemoCatalog;
 export declare function listVocabulary(): BrowserVocabularyDocument;
 export declare function observeRetainedWorkspaceSettlement(settlementId: string): Promise<BrowserRetainedWorkspaceSettlementResult>;
+export declare function recordRetainedWorkspaceNavigationInstallation(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): string;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;
+export declare function validateRetainedWorkspaceNavigationAuthority(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): boolean;

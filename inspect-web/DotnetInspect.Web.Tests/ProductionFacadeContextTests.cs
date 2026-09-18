@@ -136,6 +136,8 @@ public sealed class ProductionFacadeContextTests
         ],
         [CatalogAssembly] =
         [
+            "AbandonRetainedWorkspaceNavigation",
+            "AcknowledgeRetainedWorkspaceNavigation",
             "ActivateRetainedWorkspaceDefinition",
             "CanonicalizeWorkspaceSharePacket",
             "DeactivateRetainedWorkspaceDefinition",
@@ -144,8 +146,10 @@ public sealed class ProductionFacadeContextTests
             "ListHomeDemos",
             "ListVocabulary",
             "ObserveRetainedWorkspaceSettlement",
+            "RecordRetainedWorkspaceNavigationInstallation",
             "ResolveHomeDemo",
             "RunHomeDemo",
+            "ValidateRetainedWorkspaceNavigationAuthority",
         ],
     };
 
@@ -190,10 +194,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 80 operations, and no operation name in two modules: a move that forgot to delete its
+        // 84 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(80, everyExport.Length);
+        Assert.Equal(84, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

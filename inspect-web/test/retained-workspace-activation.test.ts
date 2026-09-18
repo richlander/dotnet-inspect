@@ -36,15 +36,82 @@ function installation(
     realizationId,
     publicationOrdinal: Number(realizationId.split("-").at(-1)),
     navigation: {
-      activeStateIndex: null,
-      states: [],
+      operation: "Initialize",
+      request: `request-${realizationId}`,
+      snapshot: {
+        generation: `generation-${realizationId}`,
+        scope: {
+          kind: "Current",
+          runtimeFailure: null,
+        },
+        workspace: {
+          id: `workspace-${realizationId}`,
+          kind: "Workspace",
+          label: retainedDefinitionId,
+          summary: null,
+          parent: null,
+        },
+        activePackage: null,
+        activeSubject: {
+          id: `workspace-${realizationId}`,
+          kind: "Workspace",
+          label: retainedDefinitionId,
+          summary: null,
+          parent: null,
+        },
+        typeInventoryLibraryContext: null,
+        packages: [],
+        hierarchy: [],
+        libraries: [],
+        types: [],
+        members: [],
+        lenses: [],
+        lensOutcome: {
+          kind: "Applied",
+          basis: "Recommendation",
+          subject: {
+            id: `workspace-${realizationId}`,
+            kind: "Workspace",
+            label: retainedDefinitionId,
+            summary: null,
+            parent: null,
+          },
+          effectiveLens: null,
+          request: null,
+          preferredRole: null,
+          policyFailure: null,
+          resolution: null,
+          suspension: null,
+        },
+        diagnostics: [],
+      },
+      outcome: {
+        kind: "Applied",
+        rejection: null,
+        failureSource: null,
+        message: null,
+        request: null,
+        resolution: null,
+        scope: null,
+        diagnostics: [],
+        coordinateRetention: null,
+      },
+      synchronization: "SynchronizationRequired",
+      authority: {
+        session: `session-${realizationId}`,
+        revision: `revision-${realizationId}`,
+        intent: `intent-${realizationId}`,
+        epoch: `epoch-${realizationId}`,
+      },
     },
+    packages: [],
     predecessor: settlementId === null
       ? null
       : {
         settlementId,
         reason: "Replaced",
       },
+    cleanup: null,
   };
 }
 
@@ -63,6 +130,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     promise: Promise<BrowserRetainedWorkspaceDeactivationResult>;
     resolve(value: BrowserRetainedWorkspaceDeactivationResult): void;
   }> = [];
+  readonly lifecycle: string[] = [];
 
   activateRetainedWorkspaceDefinition():
   Promise<BrowserRetainedWorkspaceActivationResult> {
@@ -107,9 +175,37 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
       },
     });
   }
+
+  validateRetainedWorkspaceNavigationAuthority(
+    realizationId: string,
+  ): boolean {
+    this.lifecycle.push(`validate:${realizationId}`);
+    return true;
+  }
+
+  recordRetainedWorkspaceNavigationInstallation(
+    realizationId: string,
+  ): string {
+    this.lifecycle.push(`record:${realizationId}`);
+    return "accepted";
+  }
+
+  acknowledgeRetainedWorkspaceNavigation(
+    realizationId: string,
+  ): string {
+    this.lifecycle.push(`acknowledge:${realizationId}`);
+    return "accepted";
+  }
+
+  abandonRetainedWorkspaceNavigation(
+    realizationId: string,
+  ): string {
+    this.lifecycle.push(`abandon:${realizationId}`);
+    return "accepted";
+  }
 }
 
-function createFixture() {
+function createFixture(failInstallation = false) {
   const client = new ActivationClient();
   const installed: BrowserRetainedWorkspaceInstallation[] = [];
   const settled: Array<{
@@ -122,7 +218,13 @@ function createFixture() {
   }> = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
-    install: value => installed.push(value),
+    install: value => {
+      client.lifecycle.push(`install:${value.realizationId}`);
+      if (failInstallation) {
+        throw new Error("Injected installation failure.");
+      }
+      installed.push(value);
+    },
     clear: () => clears++,
     predecessorSettled: (observation, result) =>
       settled.push({ observation, result }),
@@ -138,6 +240,58 @@ function createFixture() {
     clears: () => clears,
   };
 }
+
+test("installation records and acknowledges exact authority in order", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(definition.id, "realization-1"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(fixture.client.lifecycle, [
+    "validate:realization-1",
+    "install:realization-1",
+    "record:realization-1",
+    "acknowledge:realization-1",
+  ]);
+});
+
+test("post-cutover installation failure abandons authority without rolling back active identity", async () => {
+  const fixture = createFixture(true);
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(definition.id, "realization-1"),
+    failure: null,
+  });
+  await assert.rejects(activation, /Injected installation failure/);
+
+  assert.equal(fixture.controller.state.activeDefinitionId, definition.id);
+  assert.equal(
+    fixture.controller.state.lastFailure,
+    "Injected installation failure.",
+  );
+  assert.deepEqual(fixture.client.lifecycle, [
+    "validate:realization-1",
+    "install:realization-1",
+    "abandon:realization-1",
+  ]);
+});
 
 test("superseded activation cannot install over the latest selection", async () => {
   const fixture = createFixture();
@@ -212,6 +366,9 @@ test("publication order rejects a late response from an older cutover", async ()
   assert.deepEqual(
     fixture.installed.map(value => value.realizationId),
     ["realization-2"],
+  );
+  assert.ok(
+    fixture.client.lifecycle.includes("abandon:realization-1"),
   );
 });
 
@@ -411,6 +568,7 @@ test("repeated no-effect evidence observes predecessor once", async () => {
     failure: null,
   });
   await selectSecond;
+  const lifecycleAfterInstallation = [...fixture.client.lifecycle];
 
   const selectSecondAgain = fixture.controller.activate(second.id);
   fixture.client.activations[2]!.resolve({
@@ -423,6 +581,7 @@ test("repeated no-effect evidence observes predecessor once", async () => {
 
   assert.deepEqual(fixture.client.settlements, ["settlement-first"]);
   assert.equal(fixture.settled.length, 1);
+  assert.deepEqual(fixture.client.lifecycle, lifecycleAfterInstallation);
 });
 
 test("displaced activation blocks deletion and exposes cleanup failure", async () => {
