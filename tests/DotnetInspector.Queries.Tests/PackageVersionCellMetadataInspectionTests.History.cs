@@ -44,6 +44,18 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 Assert.True(transition.IsPopulationAdjacent);
                 Assert.False(transition.Comparison.IsExact);
             });
+        var removal = Assert.IsType<
+            FindingComparison<ApiMemberHandle>.Complete>(
+                document.Transitions[0].Comparison.Value);
+        Assert.Contains(
+            removal.Pairs,
+            static pair => pair.Kind == PairKind.Removed);
+        var restoration = Assert.IsType<
+            FindingComparison<ApiMemberHandle>.Complete>(
+                document.Transitions[1].Comparison.Value);
+        Assert.Contains(
+            restoration.Pairs,
+            static pair => pair.Kind == PairKind.Added);
         Assert.Equal(
             [
                 DiffHistoryChangedVersionState.Changed,
@@ -55,6 +67,9 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             [1, 2],
             document.ChangedVersions
                 .Select(static address => address.Position));
+        Assert.DoesNotContain(
+            population[0].Cell.Address,
+            document.ChangedVersions);
         Assert.True(
             document.Correlation.Compare("#1", "#3").IsExact);
     }
