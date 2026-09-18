@@ -1221,9 +1221,26 @@ test.describe("Package Query website over real Wasm", () => {
     const firstValue =
       page.locator('[data-query-term-form="0"] [data-query-term-value]');
     await firstValue.fill("Microsoft.Extensions.DependencyInjection");
-    await page.locator('[data-query-term-add="depends"]').click();
+    await firstValue.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error("Active Package Query term editor is missing.");
+      }
+      element.setSelectionRange(10, 30, "backward");
+    });
+    await page.locator('[data-query-term-add="depends"]')
+      .evaluate(element => {
+        if (!(element instanceof HTMLButtonElement)) {
+          throw new Error("Package Query term action is missing.");
+        }
+        element.click();
+      });
     await expect(firstValue)
       .toHaveValue("Microsoft.Extensions.DependencyInjection");
+    await expect(firstValue).toHaveJSProperty("selectionStart", 10);
+    await expect(firstValue).toHaveJSProperty("selectionEnd", 30);
+    await expect(firstValue).toHaveJSProperty(
+      "selectionDirection",
+      "backward");
     await page.locator("[data-query-term-draft-cancel]").click();
     await firstValue.fill("not a package id");
     const beforeInvalid = searchRequests;

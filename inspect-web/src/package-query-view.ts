@@ -15,6 +15,12 @@ import {
   resolvePackageQueryRowWindow,
   type PackageQueryViewportSnapshot,
 } from "./package-query-window.ts";
+import {
+  bindPackageQueryEditor,
+  capturePackageQueryEditor,
+  restorePackageQueryEditor,
+  type PackageQueryEditorSnapshot,
+} from "./package-query-editor-lifecycle.ts";
 import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
 
@@ -55,21 +61,17 @@ export interface PackageQueryBindingActions {
     selection: Partial<QuerySourceSelection>,
     searchText: string,
   ) => void;
+  onEditorCompositionEnd?: () => void;
 }
 
 export type PackageQueryFocusSnapshot =
   | {
       kind: "prefix" | "library-tfm";
-      selectionStart: number | null;
-      selectionEnd: number | null;
-      selectionDirection: QuerySelectionDirection | null;
+      editor: PackageQueryEditorSnapshot;
     }
   | {
       kind: "library-literal";
-      selectionStart: number | null;
-      selectionEnd: number | null;
-      selectionDirection: QuerySelectionDirection | null;
-      editorValue: string;
+      editor: PackageQueryEditorSnapshot;
     }
   | { kind: "product" }
   | { kind: "back" }
@@ -82,28 +84,16 @@ export type PackageQueryFocusSnapshot =
       kind: "term";
       index: number;
       control: "operator" | "value" | "apply" | "remove";
+      editor: PackageQueryEditorSnapshot | null;
     }
   | {
       kind: "term-draft";
       control: "operator" | "value" | "apply" | "cancel";
+      editor: PackageQueryEditorSnapshot | null;
     }
   | { kind: "row"; packageId: string; version: string }
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
-
-interface SelectableQueryElement extends HTMLElement {
-  setSelectionRange(
-    start: number,
-    end: number,
-    direction?: QuerySelectionDirection,
-  ): void;
-}
-
-interface EditableQueryElement extends SelectableQueryElement {
-  value: string;
-}
-
-type QuerySelectionDirection = "forward" | "backward" | "none";
 
 function isFocusableQueryElement(
   element: Element | null,
@@ -112,35 +102,6 @@ function isFocusableQueryElement(
     && "dataset" in element
     && "focus" in element
     && typeof element.focus === "function";
-}
-
-function supportsSelectionRange(
-  element: HTMLElement,
-): element is SelectableQueryElement {
-  return "setSelectionRange" in element
-    && typeof element.setSelectionRange === "function";
-}
-
-function supportsEditableValue(
-  element: HTMLElement,
-): element is EditableQueryElement {
-  return supportsSelectionRange(element)
-    && "value" in element
-    && typeof element.value === "string";
-}
-
-function captureSelectionDirection(
-  element: HTMLElement,
-): QuerySelectionDirection | null {
-  if (!("selectionDirection" in element)) return null;
-  switch (element.selectionDirection) {
-    case "forward":
-    case "backward":
-    case "none":
-      return element.selectionDirection;
-    default:
-      return null;
-  }
 }
 
 function revealLibraryLiteralControl(element: Element | null): void {
@@ -184,37 +145,22 @@ export function capturePackageQueryFocus(
   if (!isFocusableQueryElement(active)) return null;
   if (active === root.body) return null;
   if (active.id === "package-query-library-literal") {
+    const editor = capturePackageQueryEditor(active);
+    if (!editor) return { kind: "fallback" };
     return {
       kind: "library-literal",
-      selectionStart: "selectionStart" in active
-        && typeof active.selectionStart === "number"
-        ? active.selectionStart
-        : null,
-      selectionEnd: "selectionEnd" in active
-        && typeof active.selectionEnd === "number"
-        ? active.selectionEnd
-        : null,
-      selectionDirection: captureSelectionDirection(active),
-      editorValue: "value" in active && typeof active.value === "string"
-        ? active.value
-        : "",
+      editor,
     };
   }
   if (active.id === "package-query-prefix"
     || active.id === "package-query-library-tfm") {
+    const editor = capturePackageQueryEditor(active);
+    if (!editor) return { kind: "fallback" };
     return {
       kind: active.id === "package-query-prefix"
         ? "prefix"
         : "library-tfm",
-      selectionStart: "selectionStart" in active
-        && typeof active.selectionStart === "number"
-        ? active.selectionStart
-        : null,
-      selectionEnd: "selectionEnd" in active
-        && typeof active.selectionEnd === "number"
-        ? active.selectionEnd
-        : null,
-      selectionDirection: captureSelectionDirection(active),
+      editor,
     };
   }
   if (active.id === "package-query-product") return { kind: "product" };
@@ -236,6 +182,9 @@ export function capturePackageQueryFocus(
         kind: "term",
         index,
         control: activeTermControl,
+        editor: activeTermControl === "value"
+          ? capturePackageQueryEditor(active)
+          : null,
       };
     }
   }
@@ -245,6 +194,9 @@ export function capturePackageQueryFocus(
     return {
       kind: "term-draft",
       control: activeDraftControl,
+      editor: activeDraftControl === "value"
+        ? capturePackageQueryEditor(active)
+        : null,
     };
   }
   if (active.dataset.queryRowOpen && active.dataset.queryRowVersion) {
@@ -350,22 +302,15 @@ export function restorePackageQueryFocus(
   if (!isFocusableQueryElement(target)) return "none";
   if (usedFallback
     && !focusRenderedElement(target, { preventScroll: true })) return "none";
-  if (!usedFallback
-    && snapshot.kind === "library-literal"
-    && supportsEditableValue(target)) {
-    target.value = snapshot.editorValue;
-  }
-  if (!usedFallback
-    && (snapshot.kind === "prefix"
-      || snapshot.kind === "library-literal"
-      || snapshot.kind === "library-tfm")
-    && supportsSelectionRange(target)
-    && snapshot.selectionStart !== null
-    && snapshot.selectionEnd !== null) {
-    target.setSelectionRange(
-      snapshot.selectionStart,
-      snapshot.selectionEnd,
-      snapshot.selectionDirection ?? undefined);
+  if (!usedFallback) {
+    const editor = snapshot.kind === "prefix"
+        || snapshot.kind === "library-literal"
+        || snapshot.kind === "library-tfm"
+      ? snapshot.editor
+      : snapshot.kind === "term" || snapshot.kind === "term-draft"
+        ? snapshot.editor
+        : null;
+    restorePackageQueryEditor(target, editor);
   }
   return usedFallback ? "fallback" : "restored";
 }
@@ -396,10 +341,13 @@ export function bindPackageQueryView(
       event.preventDefault();
       actions.onRun(prefixInput()?.value ?? "");
     });
-  prefixInput()?.addEventListener("input", event => {
-    const input = event.currentTarget;
-    if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
-  });
+  const prefix = prefixInput();
+  if (prefix) {
+    bindPackageQueryEditor(
+      prefix,
+      () => actions.onPrefixInput(prefix.value),
+      actions.onEditorCompositionEnd);
+  }
   root.querySelectorAll<HTMLElement>("[data-query-preset]").forEach(button =>
     button.addEventListener("click", () => actions.onPresetToggle(
       button.dataset.queryPreset ?? "",
@@ -426,12 +374,18 @@ export function bindPackageQueryView(
   const updateLibraryLiteral = () => actions.onLibraryLiteralInput(
     decodeLibraryLiteralEditorValue(literal?.value ?? ""),
     targetFramework?.value ?? "");
-  literal?.addEventListener("input", event => {
-    if ("isComposing" in event && event.isComposing) return;
-    updateLibraryLiteral();
-  });
-  literal?.addEventListener("compositionend", updateLibraryLiteral);
-  targetFramework?.addEventListener("input", updateLibraryLiteral);
+  if (literal) {
+    bindPackageQueryEditor(
+      literal,
+      updateLibraryLiteral,
+      actions.onEditorCompositionEnd);
+  }
+  if (targetFramework) {
+    bindPackageQueryEditor(
+      targetFramework,
+      updateLibraryLiteral,
+      actions.onEditorCompositionEnd);
+  }
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
   const reportResultPressure = () => {
@@ -481,7 +435,10 @@ function bindPackageQueryTerms(
           termValue.setCustomValidity("");
           retainEdit();
         };
-        termValue.addEventListener("input", updateValue);
+        bindPackageQueryEditor(
+          termValue,
+          updateValue,
+          actions.onEditorCompositionEnd);
         termValue.addEventListener("change", updateValue);
       }
       termOperator?.addEventListener("change", retainEdit);

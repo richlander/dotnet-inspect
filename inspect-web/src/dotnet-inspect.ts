@@ -514,6 +514,10 @@ import {
   type PackageQueryBindingActions,
 } from "./package-query-view.ts";
 import {
+  createPackageQueryStreamRenderScheduler,
+  packageQueryEditorCompositionActive,
+} from "./package-query-editor-lifecycle.ts";
+import {
   capturePackageQueryViewport,
   restorePackageQueryViewport,
   type PackageQueryViewportSnapshot,
@@ -12662,6 +12666,7 @@ const packageQueryActions: PackageQueryBindingActions = {
   onTermDraftCancel: cancelPackageQueryTermDraft,
   onTermRemove: removePackageQueryTerm,
   onSourceChange: changePackageQuerySource,
+  onEditorCompositionEnd: resumePackageQueryStreamRender,
   onPrefixInput: prefix => {
     state.packageQueryPrefix = prefix;
     const current = state.packageQueryState.request
@@ -12688,23 +12693,30 @@ const packageChangesActions = {
   onRun: runPackageChanges,
 };
 
-let packageQueryStreamRenderFrame: number | null = null;
 let packageActivityStreamRenderFrame: number | null = null;
 let packageQueryViewport: PackageQueryViewportSnapshot | null = null;
 let packageChangesViewport: PackageChangesViewportSnapshot | null = null;
 
+const packageQueryStreamRender =
+  createPackageQueryStreamRenderScheduler({
+    requestFrame: callback => requestAnimationFrame(callback),
+    cancelFrame: frame => cancelAnimationFrame(frame),
+    shouldRender: () => state.packageQueryOpen,
+    compositionActive: () =>
+      packageQueryEditorCompositionActive(document),
+    render: patchPackageQueryPage,
+  });
+
 function cancelPackageQueryStreamRender() {
-  if (packageQueryStreamRenderFrame === null) return;
-  cancelAnimationFrame(packageQueryStreamRenderFrame);
-  packageQueryStreamRenderFrame = null;
+  packageQueryStreamRender.cancel();
+}
+
+function resumePackageQueryStreamRender() {
+  packageQueryStreamRender.resume();
 }
 
 function schedulePackageQueryStreamRender() {
-  if (packageQueryStreamRenderFrame !== null) return;
-  packageQueryStreamRenderFrame = requestAnimationFrame(() => {
-    packageQueryStreamRenderFrame = null;
-    if (state.packageQueryOpen) patchPackageQueryPage();
-  });
+  packageQueryStreamRender.schedule();
 }
 
 function cancelPackageActivityStreamRender() {

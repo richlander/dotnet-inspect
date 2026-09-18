@@ -1122,7 +1122,7 @@ test("Package query and Activity are routed Spotlight actions", () => {
   assert.doesNotMatch(streamPatch, /app\.innerHTML/);
   assert.match(
     appSource,
-    /function schedulePackageQueryStreamRender\(\) \{\s*if \(packageQueryStreamRenderFrame !== null\) return;\s*packageQueryStreamRenderFrame = requestAnimationFrame\(/);
+    /const packageQueryStreamRender =\s*createPackageQueryStreamRenderScheduler\(\{[\s\S]*requestFrame: callback => requestAnimationFrame\(callback\),[\s\S]*compositionActive: \(\) =>\s*packageQueryEditorCompositionActive\(document\),[\s\S]*render: patchPackageQueryPage,[\s\S]*function schedulePackageQueryStreamRender\(\) \{\s*packageQueryStreamRender\.schedule\(\);/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
