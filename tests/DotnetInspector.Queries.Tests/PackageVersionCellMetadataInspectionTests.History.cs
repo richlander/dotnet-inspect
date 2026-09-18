@@ -349,6 +349,50 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
+    public async Task
+        HistoryInapplicableAdjacencyDoesNotBecomeChangedOrUnchanged()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0");
+        IPackageContent[] contents =
+        [
+            population[0].Content(($"ref/{Framework}/_._", [])),
+            population[1].Content(($"ref/{Framework}/_._", [])),
+            population[2].Content(
+                ($"lib/{Framework}/DiffFixtureSample.dll",
+                    File.ReadAllBytes(
+                        FixtureCatalog.DiffV1.AssemblyPath()))),
+        ];
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            return population[position].Realize(
+                execution,
+                contents[position]);
+        });
+
+        DiffHistoryApiMemberDocument document =
+            await InspectHistoryAsync(
+                HistoryRequest(population, HistoryType),
+                executor);
+
+        Assert.Equal(
+            [
+                DiffHistoryChangedVersionState.Inapplicable,
+                DiffHistoryChangedVersionState.Inapplicable,
+            ],
+            document.ChangedVersionAssessments
+                .Select(static assessment => assessment.State));
+        Assert.True(document.Transitions[0].Comparison.IsExact);
+        Assert.False(document.Transitions[1].Comparison.IsExact);
+        Assert.Empty(document.ChangedVersions);
+    }
+
+    [Fact]
     public async Task HistoryProjectionTruncationRemainsFailureEvidence()
     {
         CellFixture fixture =

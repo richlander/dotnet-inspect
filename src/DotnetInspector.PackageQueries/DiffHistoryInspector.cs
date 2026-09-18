@@ -390,6 +390,12 @@ public static class DiffHistoryInspector
                 {
                     FindingComparison<ApiMemberHandle>.Failed =>
                         DiffHistoryChangedVersionState.Failed,
+                    FindingComparison<ApiMemberHandle>.Complete complete
+                        when complete.Transition.Old
+                                == FindingInspectionState.NoApplicableInput
+                            || complete.Transition.New
+                                == FindingInspectionState.NoApplicableInput =>
+                        DiffHistoryChangedVersionState.Inapplicable,
                     FindingComparison<ApiMemberHandle>.Complete =>
                         comparison.IsExact
                             ? DiffHistoryChangedVersionState.Unchanged

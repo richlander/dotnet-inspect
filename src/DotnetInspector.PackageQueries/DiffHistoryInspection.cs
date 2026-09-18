@@ -386,6 +386,7 @@ public enum DiffHistoryChangedVersionState
 {
     Changed,
     Unchanged,
+    Inapplicable,
     Failed,
     Unevaluated,
 }
@@ -426,6 +427,19 @@ public sealed record DiffHistoryChangedVersionAssessment<T>
                 {
                     throw new ArgumentException(
                         "A changed or unchanged assessment requires a completed comparison.",
+                        nameof(comparison));
+                }
+                break;
+            case DiffHistoryChangedVersionState.Inapplicable:
+                if (comparison?.Value
+                        is not FindingComparison<T>.Complete complete
+                    || (complete.Transition.Old
+                            != FindingInspectionState.NoApplicableInput
+                        && complete.Transition.New
+                            != FindingInspectionState.NoApplicableInput))
+                {
+                    throw new ArgumentException(
+                        "An inapplicable assessment requires a completed comparison with an inapplicable endpoint.",
                         nameof(comparison));
                 }
                 break;
