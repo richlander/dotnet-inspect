@@ -131,6 +131,9 @@ folds, not additional Findings.
 `MemberSourceLocationCollector` consumes member-source Findings by metadata
 token. Member queries now use
 [shared authored acquisition](member-source-acquisition.md) through SourceHouse.
+The [type query](type-source-acquisition.md) uses the same internal handoff with
+its own bounds and primary-document projection, preserving the correlation and
+fallback semantics below.
 `PdbSourceHouse` remains the legacy consumer of the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a

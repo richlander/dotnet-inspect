@@ -205,9 +205,11 @@ public static class OutputFormatter
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
-        RowWindow? maxRows = null)
+        RowWindow? maxRows = null,
+        IReadOnlyList<string>? sectionOrder = null)
     {
         var writerOptions = CreateProjectedWriterOptions(columns, fields, maxRows);
+        writerOptions.SectionOrder = sectionOrder;
         // Ask Markout for the JSONL flavor of the header names. The formatter is ours, so this
         // does not change who renders the table -- it changes the vocabulary handed to the
         // renderer, which is how --jsonl and the pre-lowered --json both get machine keys
@@ -234,8 +236,16 @@ public static class OutputFormatter
         string[]? fields,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         bool indented = true,
-        RowWindow? maxRows = null) =>
-        output.WriteLine(RenderProjectedJson(columns, fields, serialize, indented, maxRows));
+        RowWindow? maxRows = null,
+        IReadOnlyList<string>? sectionOrder = null) =>
+        output.WriteLine(
+            RenderProjectedJson(
+                columns,
+                fields,
+                serialize,
+                indented,
+                maxRows,
+                sectionOrder));
 
     /// <summary>
     /// Serializes a view with <c>--rows</c> applied at the writer seam and writes the result.
