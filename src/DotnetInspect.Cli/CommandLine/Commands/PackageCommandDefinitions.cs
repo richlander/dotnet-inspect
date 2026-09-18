@@ -462,6 +462,14 @@ public static class PackageCommandDefinitions
                 envelopeOutput
                     ? OutputFormat.Json
                     : opts.ResolveFormat(parseResult);
+            if (format == OutputFormat.Json
+                && parseResult.GetValue(opts.Tree)
+                && discover is null)
+            {
+                CommandError.Write(
+                    "--tree with package query --json requires schema discovery.");
+                return 1;
+            }
             string? libraryLiteral =
                 parseResult.GetValue(libraryLiteralOption);
             string? inheritedTfm =

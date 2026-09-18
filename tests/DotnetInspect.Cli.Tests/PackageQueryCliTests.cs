@@ -1331,6 +1331,37 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task CliImplicitJsonRejectsTreeOutsideDiscovery()
+    {
+        string? previous =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            var result = await Run(
+                "package",
+                "query",
+                "System.Text.Json",
+                "--tree");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--tree with package query --json requires schema discovery",
+                result.Error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                previous);
+        }
+    }
+
+    [Fact]
     public async Task EnvelopeRetainsFailedPackageQueryContent()
     {
         using var source = Source(out var fixture);
