@@ -10,6 +10,7 @@ using System.Text;
 using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -283,6 +284,88 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             CompiledDocumentationSourceKind.Package,
             source.Source.Kind);
+    }
+
+    [Theory]
+    [InlineData(
+        "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+        "Reads documentation from a non-public type.",
+        1)]
+    [InlineData(
+        "M:InspectWeb.DocumentationFixtures.WidgetExtensions.Measure(InspectWeb.DocumentationFixtures.Widget,System.Int32)",
+        "Measures a widget through its declaring extension member.",
+        2)]
+    public async Task
+        QueryMemberDocumentation_SelectableDeclarationShapesReturnAvailable(
+            string documentationId,
+            string expectedSummary,
+            int expectedSurfaceOccurrences)
+    {
+        string packageId =
+            $"Browser.Documentation.Shapes.{Guid.NewGuid():N}";
+        byte[] packageBytes = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>1.0.0</version>
+                     <authors>Tests</authors>
+                     <description>Inspect Web documentation declaration shapes.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.dll",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssemblyPath())),
+            ("lib/net11.0/InspectWeb.DocumentationFixtures.xml",
+                File.ReadAllBytes(
+                    FixtureCatalog.InspectWebDocumentation.AssetPath(
+                        "documentation"))));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false));
+
+        BrowserPackageSurface surface = await QueryPackageSurface(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        Assert.Equal(
+            expectedSurfaceOccurrences,
+            surface.Types
+                .SelectMany(type => type.Api)
+                .Count(member => member.DocumentationId == documentationId));
+
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                packageBytes,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "InspectWeb.DocumentationFixtures.dll",
+                    documentationId);
+        CompiledDocumentationOutcome outcome =
+            Assert.IsAssignableFrom<CompiledDocumentationOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    CompiledDocumentationQueryJsonContext.Default
+                        .CompiledDocumentationOutcome));
+
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(expectedSummary, available.Documentation.Summary);
     }
 
     [Fact]

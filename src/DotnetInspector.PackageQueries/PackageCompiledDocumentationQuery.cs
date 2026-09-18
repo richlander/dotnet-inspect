@@ -140,7 +140,7 @@ public static class PackageCompiledDocumentationQuery
             LibraryApiSurfaceInspection.Execute(
                 new(
                     materialized.Receipt.Library,
-                    ApiSurfaceExtractionScope.Public,
+                    ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
                     bounds),
                 operation,
                 cancellationToken);
@@ -170,8 +170,8 @@ public static class PackageCompiledDocumentationQuery
         {
             throw new InvalidOperationException(
                 matches.Length == 0
-                    ? $"The selected package Library has no public member '{documentationId}'."
-                    : $"The selected package Library has multiple public members '{documentationId}'.");
+                    ? $"The selected package Library has no member '{documentationId}'."
+                    : $"The selected package Library has multiple members '{documentationId}'.");
         }
 
         return DocumentationSubjectReference.ForMember(

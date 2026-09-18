@@ -1013,7 +1013,11 @@ package and requires the Queries-owned `available` case and expected member
 summary.
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence`
 gates the neighboring package-without-companion case as typed authoritative
-`absent` evidence rather than empty browser documentation. The generated
+`absent` evidence rather than empty browser documentation.
+`BrowserEngineBoundaryTests.QueryMemberDocumentation_SelectableDeclarationShapesReturnAvailable`
+uses a compiled package fixture to gate both documentation on a non-public type
+exposed by the browser accessibility surface and declaration selection when an
+extension-method projection shares its compiler XML identity. The generated
 Inspect Web facade and frontend member-detail tests gate exhaustive consumption
 of the same discriminated contract across the C#-to-TypeScript JSON-string
 boundary.
