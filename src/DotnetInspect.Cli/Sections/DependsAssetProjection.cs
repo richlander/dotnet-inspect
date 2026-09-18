@@ -159,19 +159,43 @@ internal sealed record DependsAssetProjection(
 {
     internal DependencyInspectionContent Content { get; } =
         new(
-            Summary,
+            ContentSummary(Summary),
             ContentGraph(Graph),
             [.. Roots.Select(static root => root.Content)],
             Dependencies,
             [.. Pruning.Select(ContentPruning)],
             [.. Failures.Select(ContentFailure)]);
 
+    private static DependencyInspectionSummary ContentSummary(
+        DependencyInspectionSummary summary) =>
+        summary.PackagePrefix is { } prefix
+            ? summary with
+            {
+                PackagePrefix =
+                    new PackageDependencyEvidencePackagePrefixCompletion(
+                        prefix.Prefix,
+                        prefix.Source.WithoutRuntimeAssociation(),
+                        prefix.Candidates,
+                        prefix.Matches,
+                        prefix.Failures,
+                        prefix.TruncationReason),
+            }
+            : summary;
+
     private static DependencyGraphDocument ContentGraph(
         DependencyGraphDocument graph)
     {
         if (!graph.PackageProjections.Any(static projection =>
                 projection.RuntimeCandidate is not null
-                || !projection.RuntimeDiagnostics.IsEmpty)
+                || !projection.RuntimeDiagnostics.IsEmpty
+                || projection.Evidence is
+                {
+                    Provenance:
+                        PackageDependencyEvidenceRootProvenance.Package
+                        {
+                            Source: not null,
+                        },
+                })
             && !graph.Edges.Any(static edge =>
                 !edge.RuntimePackageDiagnostics.IsEmpty))
         {
@@ -185,6 +209,9 @@ internal sealed record DependsAssetProjection(
                 .. graph.PackageProjections.Select(static projection =>
                     projection with
                     {
+                        Evidence = projection.Evidence is { } evidence
+                            ? ContentRoot(evidence)
+                            : null,
                         RuntimeCandidate = null,
                         RuntimeDiagnostics = [],
                     }),
@@ -201,6 +228,10 @@ internal sealed record DependsAssetProjection(
         DependencyInspectionPruning pruning) =>
         pruning with
         {
+            Applicability = pruning.Applicability with
+            {
+                Root = ContentRoot(pruning.Applicability.Root),
+            },
             RuntimeCandidateOutcome = null,
             RuntimeResult = null,
         };
@@ -209,6 +240,13 @@ internal sealed record DependsAssetProjection(
         DependencyInspectionFailure failure) =>
         failure switch
         {
+            DependencyInspectionFailure.Evidence evidence =>
+                new DependencyInspectionFailure.Evidence(
+                    evidence.Value with
+                    {
+                        Source = evidence.Value.Source?
+                            .WithoutRuntimeAssociation(),
+                    }),
             DependencyInspectionFailure.Traversal traversal =>
                 new DependencyInspectionFailure.Traversal(
                     traversal.Value with
@@ -223,4 +261,31 @@ internal sealed record DependsAssetProjection(
                 candidate with { RuntimeOutcome = null }),
             _ => failure,
         };
+
+    private static PackageDependencyEvidenceRoot ContentRoot(
+        PackageDependencyEvidenceRoot root)
+    {
+        if (root.Provenance is not
+            PackageDependencyEvidenceRootProvenance.Package
+            {
+                Source: { } source,
+            } package)
+        {
+            return root;
+        }
+
+        return new PackageDependencyEvidenceRoot(
+            root.Identity,
+            package with
+            {
+                Source = source.WithoutRuntimeAssociation(),
+            },
+            root.Display,
+            root.Declaration,
+            root.Selection,
+            root.RestoredTarget,
+            root.Relationships,
+            root.Processing,
+            root.RuntimeTarget);
+    }
 }

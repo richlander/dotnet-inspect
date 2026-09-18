@@ -267,6 +267,21 @@ public sealed record PackageDependencyEvidenceSourceIdentity
             RuntimeAssociation);
 
     /// <summary>
+    /// Returns the portable document identity without request-local source
+    /// correspondence.
+    /// </summary>
+    public PackageDependencyEvidenceSourceIdentity WithoutRuntimeAssociation() =>
+        RuntimeAssociation is null
+            ? this
+            : new(
+                Association,
+                ProducerKey,
+                PortableProducerKey,
+                TransportKind,
+                ProducerDisplay,
+                runtimeAssociation: null);
+
+    /// <summary>
     /// Reports whether this live outcome source came from
     /// <paramref name="association"/>. A deserialized source has no runtime
     /// association and returns <see langword="false"/>.

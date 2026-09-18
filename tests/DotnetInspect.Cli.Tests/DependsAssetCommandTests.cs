@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Cache;
 using DotnetInspector.Fixtures;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -191,6 +192,190 @@ public sealed class DependsAssetCommandTests
                 .RuntimeDiagnostics);
         Assert.Single(
             projection.Content.Graph.PackageProjections[0].Diagnostics);
+    }
+
+    [Fact]
+    public void AssetProjectionDetachesLivePackageSourcesFromContent()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        PackageDependencyEvidenceRootFailure.PackageProfile failure =
+            PackageDependencyEvidenceQuery.CreatePackageProfileFailure(
+                new PackageProfileFailure(
+                    "Example.Bad",
+                    "1.0.0",
+                    source.Source,
+                    PackageProfileFailureKind.SearchContract,
+                    "Search failed"));
+        var completion = new PackageDependencyEvidencePackagePrefixCompletion(
+            new InertString(TextPolicy.Field, "Example."),
+            failure.Source,
+            candidates: 1,
+            matches: 0,
+            failures: 1,
+            PackageSearchTruncationReason.None);
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                new PackageDependencyEvidenceRequest(
+                    [],
+                    [failure],
+                    packagePrefixCompletion: completion));
+        PackageDependencyEvidenceSourceIdentity liveSource =
+            outcome.RootSet.PackagePrefixCompletion!.Source;
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("Example.Root", "1.0.0");
+        var rootIdentity =
+            new PackageDependencyEvidenceRootIdentity.Package(coordinate);
+        var evidenceRoot = new PackageDependencyEvidenceRoot(
+            rootIdentity,
+            new PackageDependencyEvidenceRootProvenance.Package(
+                PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
+                PackageManifestIdentityProvenance.ExpectedCoordinate,
+                new InertString(TextPolicy.Field, "Example.Root"),
+                liveSource),
+            new InertString(TextPolicy.Field, "Example.Root@1.0.0"),
+            new PackageDependencyEvidenceDeclarationResult.NotApplicable(),
+            new PackageDependencyEvidenceSelection(
+                PackageDependencyEvidenceSelectionStatus.NoDependencyGroups,
+                SelectedGroup: null,
+                SelectedSourceOccurrence: null,
+                RequestedFramework: null,
+                SelectedFramework: null),
+            RestoredTarget: null,
+            new PackageDependencyEvidenceRelationshipResult.NotApplicable(),
+            new PackageDependencyEvidenceProcessingResult.NotApplicable());
+        var groupIdentity = new PackageDependencyEvidenceGroupIdentity.Package(
+            rootIdentity,
+            IsImplicitManifestGroup: true,
+            FirstSourceOccurrence: 0);
+        var declarationIdentity =
+            new PackageDependencyEvidenceDeclarationIdentity(
+                groupIdentity,
+                "example.dependency");
+        var declaration = new PackageDependencyEvidenceDeclaration(
+            declarationIdentity,
+            "example.dependency",
+            "[1.0.0]",
+            new InertString(TextPolicy.Field, "Example.Dependency"),
+            new InertString(TextPolicy.Field, "[1.0.0]"),
+            SourceOccurrenceCount: 1,
+            PackageDependencyEvidenceAuthorship.LibraryDeclared);
+        var applicability = new PackageHouseDependencyPruningApplicability(
+            evidenceRoot,
+            declaration,
+            PackageHouseDependencyPruningApplicabilityState.CandidateRequired,
+            Processing: null,
+            TargetUnavailableReason: null);
+        var graph = new DependencyGraphDocument(
+            [],
+            [],
+            [],
+            [
+                new DependencyGraphPackageProjection(
+                    0,
+                    0,
+                    PackageDependencyTraversalProjectionKind.RootSupplied,
+                    PackageDependencyTraversalProjectionExpansion.Expanded,
+                    evidenceRoot,
+                    Candidate: null,
+                    RootOccurrence: 1,
+                    Diagnostics: []),
+            ],
+            []);
+        var summary = new DependencyInspectionSummary(
+            DependencyInspectionRootSetCompletion.Partial,
+            RequestedRoots: 1,
+            AdmittedRoots: 0,
+            FailedRoots: 1,
+            DependencyInspectionTraversalCompletion.Complete,
+            RequestedDepth: null,
+            GraphNodes: 0,
+            GraphEdges: 0,
+            DependencyInspectionEvidencePhaseCompletion.NotApplicable,
+            DependencyInspectionEvidencePhaseCompletion.NotApplicable,
+            DependencyInspectionPruningSummary.NotRequested,
+            IsPrefixRootSet: true,
+            outcome.RootSet.PackagePrefixCompletion);
+        var pruning = new DependencyInspectionPruning(
+            RootOccurrence: 1,
+            rootIdentity,
+            evidenceRoot.Display,
+            declarationIdentity,
+            new InertString(TextPolicy.Field, "net8.0"),
+            new InertString(TextPolicy.Field, "net8.0"),
+            "example.dependency",
+            new InertString(TextPolicy.Field, "Example.Dependency"),
+            "[1.0.0]",
+            new InertString(TextPolicy.Field, "[1.0.0]"),
+            CandidateVersion: null,
+            PlatformFamily: null,
+            PlatformTargetFramework: null,
+            PlatformVersion: null,
+            PlatformProvidedVersion: null,
+            DependencyInspectionPruningDisposition.NotEvaluated,
+            "Candidate required.",
+            applicability,
+            CandidateOutcome: null,
+            Result: null);
+        var projectedFailure = new DependencyInspectionFailure.Evidence(
+            new DependencyEvidenceFailureRow(
+                DependencyEvidenceFailurePhase.PackageProfile,
+                PackageProfileFailureKind.SearchContract.ToString(),
+                PackageDependencyEvidenceAcquisitionForm.PackageSourceManifest,
+                RootIndex: null,
+                RootIdentity: null,
+                Group: null,
+                GroupIndex: null,
+                liveSource,
+                Subject: null,
+                PackageId: "example.bad",
+                PackageVersion: "1.0.0",
+                SourceLabel: liveSource.ProducerDisplay,
+                new InertString(TextPolicy.Prose, "Search failed"),
+                Occurrences: 1));
+        var projection = new DependsAssetProjection(
+            summary,
+            graph,
+            GraphRows: [],
+            Roots: [],
+            Dependencies: [],
+            [pruning],
+            RestoredEdges: [],
+            [projectedFailure],
+            DependencyGroups: [],
+            RestoredPackages: [],
+            new DependencyInspectionEvidenceDocument(outcome, [], [null]));
+
+        Assert.True(
+            projection.Evidence.PackageInputs.RootSet
+                .PackagePrefixCompletion!.Source
+                .MatchesRuntimeAssociation(source.Source.Association));
+        Assert.False(
+            projection.Content.Summary.PackagePrefix!.Source
+                .MatchesRuntimeAssociation(source.Source.Association));
+        Assert.False(GraphContentSource(projection.Content.Graph)
+            .MatchesRuntimeAssociation(source.Source.Association));
+        Assert.False(
+            Assert.IsType<DependencyInspectionFailure.Evidence>(
+                    Assert.Single(projection.Content.Failures))
+                .Value.Source!
+                .MatchesRuntimeAssociation(source.Source.Association));
+        Assert.False(
+            RootContentSource(Assert.Single(projection.Content.Pruning)
+                    .Applicability.Root)
+                .MatchesRuntimeAssociation(source.Source.Association));
+
+        static PackageDependencyEvidenceSourceIdentity GraphContentSource(
+            DependencyGraphDocument graph) =>
+            RootContentSource(
+                Assert.Single(graph.PackageProjections).Evidence!);
+
+        static PackageDependencyEvidenceSourceIdentity RootContentSource(
+            PackageDependencyEvidenceRoot root) =>
+            Assert.IsType<PackageDependencyEvidenceRootProvenance.Package>(
+                    root.Provenance)
+                .Source!;
     }
 
     [Fact]
