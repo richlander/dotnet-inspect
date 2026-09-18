@@ -76,23 +76,11 @@ public partial class PackageCommand
                 return 1;
             }
 
-            StructuralRoute route = options.AllLibraries
-                ? StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate)
-                : StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageSingleLibrary,
-                    InspectionCatalogIdentity.Library);
-            StructuralOutputShape shape =
-                options.AllLibraries
-                && options.TabularExplicitlySet
-                && !options.Count
-                    ? StructuralOutputShape.Rows
-                    : StructuralOutputShape.Document;
             return StructuralViewRegistry.Execute(
-                route,
-                StructuralDiscoveryRequest.From(options),
-                shape);
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageSingleLibrary,
+                    InspectionCatalogIdentity.Library),
+                StructuralDiscoveryRequest.From(options));
         }
 
         if (!packageLibraryMode
@@ -1100,17 +1088,12 @@ public partial class PackageCommand
 
             if (options.AllLibraries)
             {
-                // Authority-backed input must not be reacquired through a legacy producer key.
                 return await ExecutePackageAllLibrariesAsync(
-                    client,
-                    extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
+                    resolution.NupkgPath,
                     packageName,
                     version,
-                    resolution,
-                    nuspec?.PackageName,
-                    nuspec?.Version,
                     options);
             }
 

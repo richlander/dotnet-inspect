@@ -44,12 +44,6 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.Library)),
                 (
-                    StructuralViewIdentity.PackageAllLibraries,
-                    PackageCommand.Name,
-                    "all-libraries",
-                    ImmutableArray.Create(
-                        InspectionCatalogIdentity.LibraryAggregate)),
-                (
                     StructuralViewIdentity.DirectLibrary,
                     "library",
                     "library",
@@ -144,52 +138,6 @@ public sealed class InspectionPlanningTests
             pair => Assert.Equal(
                 StructuralSectionInput.None,
                 pair.Value));
-    }
-
-    [Fact]
-    public void PackageAllLibraries_DoesNotDeclareFieldOrColumnProjection()
-    {
-        StructuralViewDescriptor view =
-            StructuralViewRegistry.Get(
-                StructuralViewIdentity.PackageAllLibraries);
-
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Fields));
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Columns));
-    }
-
-    [Fact]
-    public void PackageAllLibrariesRowSchema_MatchesRendererDeclarations()
-    {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate),
-                StructuralOutputShape.Rows);
-
-        Assert.Equal(
-            PackageCommand.AllLibrariesRowSchemas.Select(
-                row => row.Section),
-            projection.Schema.SectionNames);
-        foreach (PackageCommand.AllLibrariesRowSchema rowSchema in
-                 PackageCommand.AllLibrariesRowSchemas)
-        {
-            Assert.Equal(
-                ["Package", "Version", "Library", "TFM"],
-                rowSchema.Headers[..4]);
-            Assert.Equal(
-                rowSchema.Headers
-                    .Concat(rowSchema.AlternateHeaders ?? [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase),
-                projection.Schema
-                    .GetSection(rowSchema.Section)!
-                    .Items
-                    .Select(item => item.Name));
-        }
     }
 
     [Theory]
@@ -1791,37 +1739,6 @@ public sealed class InspectionPlanningTests
             result.Error);
         Assert.DoesNotContain(
             "File not found",
-            result.Error);
-    }
-
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task PackageAllLibraries_StaticSchemaRejectsUnsupportedProjection(
-        string projection)
-    {
-        string target =
-            $"Missing.Package.{Guid.NewGuid():N}";
-
-        var result = await RunAppAsync(
-            "package",
-            target,
-            "--all-libraries",
-            "-D",
-            "Library Info",
-            "--schema",
-            projection,
-            "NoSuchValue",
-            "--tips",
-            "q");
-
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            $"--all-libraries cannot be combined with {projection}",
-            result.Error);
-        Assert.DoesNotContain(
-            target,
             result.Error);
     }
 

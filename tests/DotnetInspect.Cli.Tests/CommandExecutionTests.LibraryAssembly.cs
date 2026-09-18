@@ -3598,13 +3598,6 @@ public partial class CommandExecutionTests
                 },
                 LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
-        Assert.Equal(
-            1,
-            PackageCommand.AllLibrariesCompletionExitCode(
-                incomplete: false,
-                options,
-                LibrarySections.CreatePipeline(),
-                FailedResourceTriageInspection()));
     }
 
     [Fact]

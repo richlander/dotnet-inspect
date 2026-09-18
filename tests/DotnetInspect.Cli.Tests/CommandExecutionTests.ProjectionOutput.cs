@@ -1710,29 +1710,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task ProjectedJsonRoutingAudit_PackageAllLibrariesLensRejectsProjection()
-    {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--all-libraries",
-                "-S", "Library Info", "--json", "--fields", "Assembly Version",
-                "--tips", "q");
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "--all-libraries cannot be combined with --fields",
-                error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task ProjectedJsonRoutingAudit_PackageDiscoveryOwnsProjectedJson()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

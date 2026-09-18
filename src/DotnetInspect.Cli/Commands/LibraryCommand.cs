@@ -926,8 +926,11 @@ public class LibraryCommand
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
                 // Extract from package
+                bool aggregatePackageSelection =
+                    assemblyPath is { Length: 0 };
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath, options.PackagePath, options.Tfm,
+                    aggregatePackageSelection,
                     options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
                 if (extractResult == null)
                 {
@@ -936,8 +939,42 @@ public class LibraryCommand
 
                 var (assemblyPaths, extractPath, extractTempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion) = extractResult.Value;
                 tempDir = extractTempDir;
-                packageName = resolvedPackageName;
-                packageVersion = resolvedPackageVersion;
+                packageName = resolvedPackageName ?? packageName;
+                packageVersion = resolvedPackageVersion ?? packageVersion;
+
+                if (aggregatePackageSelection
+                    && options.Tree)
+                {
+                    CommandError.Write(
+                        "The selected Library operation requires one exact "
+                        + "Library. Narrow the package with "
+                        + "--library <asset>.");
+                    return 1;
+                }
+                if (aggregatePackageSelection
+                    && (options.Print
+                        || options.Value
+                        || options.Urls
+                        || options.Paths))
+                {
+                    CommandError.Write(
+                        "Scalar Library projections require one exact Library. "
+                        + "Narrow the package with --library <asset>.");
+                    return 1;
+                }
+                if (aggregatePackageSelection
+                    && (options.CoordinateRequest is not null
+                        || options.ExtractResources is not null
+                        || CloneCandidatesCommand.IsSelected(
+                            options.IncludeSections)
+                        || discoveryInspection))
+                {
+                    CommandError.Write(
+                        "The selected Library operation requires one exact "
+                        + "Library. Narrow the package with "
+                        + "--library <asset>.");
+                    return 1;
+                }
 
                 if (options.CoordinateRequest
                         is LibraryCoordinateRequest.FilePopulation
@@ -990,7 +1027,9 @@ public class LibraryCommand
                                 packageName,
                                 packageVersion),
                             integrations?.AssemblyForInspection(
-                                path)))
+                                path),
+                            classifyPackageParticipant:
+                                aggregatePackageSelection))
                     .ToList();
                 LibraryInspectionSubjectSelection.Ready? primaryReady =
                     subjectSelections
@@ -1068,9 +1107,14 @@ public class LibraryCommand
                     extractPath, context.HttpClient, signatureResult,
                     queryPlan, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace,
-                    subjectSelections);
+                    subjectSelections,
+                    preservePackageRelativeFileName:
+                        aggregatePackageSelection);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
+                bool libraryInspectionIncomplete =
+                    WritePackageLibraryFailures(
+                        collection.LibraryFailures);
                 int descriptorSelectionExitCode =
                     collection.DescriptorSelectionFailures.Count > 0 ? 1 : 0;
 
@@ -1079,6 +1123,19 @@ public class LibraryCommand
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
                     CommandError.Write("No libraries could be read from the package.");
+                    return 1;
+                }
+                if (aggregatePackageSelection
+                    && options.Count
+                    && (libraryInspectionIncomplete
+                        || collection.IdentifierAuditFailures.Count > 0
+                        || descriptorSelectionExitCode != 0))
+                {
+                    PackageCommand.WriteIdentifierAuditFailures(
+                        collection.IdentifierAuditFailures);
+                    CommandError.Write(
+                        "Count output is unavailable because one or more "
+                        + "selected package Libraries could not be inspected.");
                     return 1;
                 }
 
@@ -1094,8 +1151,11 @@ public class LibraryCommand
                 bool identifierAuditIncomplete =
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
-                int identifierAuditExitCode =
-                    identifierAuditIncomplete ? 1 : 0;
+                int evidenceExitCode =
+                    identifierAuditIncomplete
+                    || libraryInspectionIncomplete
+                        ? 1
+                        : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0],
@@ -1110,7 +1170,7 @@ public class LibraryCommand
                 if (discoveryInspection)
                     return Math.Max(
                         Math.Max(
-                            identifierAuditExitCode,
+                            evidenceExitCode,
                             descriptorSelectionExitCode),
                         WriteEffectiveSections(
                             collection.Subjects[0].Path,
@@ -1128,7 +1188,7 @@ public class LibraryCommand
                     return IntegrityExitCode(
                         Math.Max(
                             Math.Max(
-                                identifierAuditExitCode,
+                                evidenceExitCode,
                                 descriptorSelectionExitCode),
                             await WriteLibraryPrintProjectionAsync(
                                 inspections[0],
@@ -1139,7 +1199,7 @@ public class LibraryCommand
                     return IntegrityExitCode(
                         Math.Max(
                             Math.Max(
-                                identifierAuditExitCode,
+                                evidenceExitCode,
                                 descriptorSelectionExitCode),
                             WriteLibraryShapeProjection(
                                 inspections[0],
@@ -1157,19 +1217,36 @@ public class LibraryCommand
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
-                if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
+                if (!aggregatePackageSelection
+                    && inspections.Count == 1
+                    && !IsAllTfmPackageSelection(options))
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
                 {
-                    if (RejectMultiAssemblyMetadataSelection(inspections, options))
+                    if (RejectMultiAssemblyMetadataSelection(
+                            inspections,
+                            options,
+                            aggregatePackageSelection))
                         return 1;
-                    OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                    string documentTitle =
+                        aggregatePackageSelection
+                            ? packageName
+                                ?? throw new InvalidOperationException(
+                                    "Package identity was not resolved.")
+                            : Path.GetFileNameWithoutExtension(
+                                inspections[0].FileName);
+                    if (!OutputFormatter.WriteLibraryResults(
+                            inspections,
+                            documentTitle,
+                            options,
+                            pipeline))
+                        return 1;
                 }
 
                 return Math.Max(
                     IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            evidenceExitCode,
                             descriptorSelectionExitCode),
                         !identifierAuditIncomplete,
                         [.. inspections]),
@@ -1942,18 +2019,16 @@ public class LibraryCommand
     /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
-    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
-    /// direct-library rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests; all-libraries
-    /// provenance is gated by
-    /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
+    /// do not expose image-relative row identities. The rejection and count allowance are gated
+    /// by <c>MetadataLens_MultipleAssemblies_IsRejected</c> in DotnetInspect.Cli.Tests.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
-        IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
+        IReadOnlyCollection<LibraryInspection> inspections,
+        LibraryOptions options,
+        bool aggregateSelection)
     {
         if (options.Count
-            || inspections.Count <= 1
+            || !aggregateSelection && inspections.Count <= 1
             || options.IncludeSections is not { Count: > 0 } selected)
             return false;
 
@@ -1962,7 +2037,9 @@ public class LibraryCommand
 
         CommandError.Write(
             $"{SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
-            $"but this package resolved to {inspections.Count} assemblies.",
+            (aggregateSelection
+                ? "but this package selected an aggregate Library subject."
+                : $"but this package resolved to {inspections.Count} assemblies."),
             "Select one assembly with --library <path> and retry.");
         return true;
     }
@@ -3667,7 +3744,8 @@ public class LibraryCommand
             IdentifierAuditFailures,
         List<(
             string FileName,
-            CandidateOpenFailure Failure)> DescriptorSelectionFailures);
+            CandidateOpenFailure Failure)> DescriptorSelectionFailures,
+        List<(string FileName, string Reason)> LibraryFailures);
 
     private static async Task<PackageInspectionCollection>
         CollectPackageInspectionsAsync(
@@ -3678,7 +3756,8 @@ public class LibraryCommand
         AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null,
         IReadOnlyList<LibraryInspectionSubjectSelection>?
-            subjectSelections = null)
+            subjectSelections = null,
+        bool preservePackageRelativeFileName = false)
     {
         List<LibraryInspection> inspections = [];
         List<LibraryInspectionSubject> subjects = [];
@@ -3689,6 +3768,7 @@ public class LibraryCommand
         List<(
             string FileName,
             CandidateOpenFailure Failure)> descriptorSelectionFailures = [];
+        List<(string FileName, string Reason)> libraryFailures = [];
 
         for (int index = 0; index < assemblyPaths.Count; index++)
         {
@@ -3716,12 +3796,14 @@ public class LibraryCommand
                     (relativePath, rejected.Failure));
                 CommandError.WriteWarning(
                     $"Could not select library descriptor for "
-                    + $"'{targetPath}': {rejected.Failure.Detail}");
+                    + $"'{relativePath}': {rejected.Failure.Detail}");
                 continue;
             }
             LibraryInspectionSubject subject =
                 ((LibraryInspectionSubjectSelection.Ready)subjectSelection)
                     .Subject;
+            if (subject.AssemblyReference is null)
+                continue;
 
             LibraryInspection? inspection;
             try
@@ -3752,10 +3834,13 @@ public class LibraryCommand
             }
             if (inspection == null)
             {
-                logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
+                libraryFailures.Add((
+                    relativePath,
+                    "managed assembly inspection failed"));
                 continue;
             }
-            if (options.CollectIdentifierConfusionReferenceTree
+            if ((options.CollectIdentifierConfusionReferenceTree
+                    || assemblyPaths.Count > 1)
                 && inspection.IdentifierConfusionFailure is { } failure)
             {
                 identifierAuditFailures.Add(
@@ -3763,6 +3848,8 @@ public class LibraryCommand
             }
 
             // Populate TFM from path for multi-TFM display
+            if (preservePackageRelativeFileName)
+                inspection.FileName = relativePath;
             inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
 
             if (signatureResult != null)
@@ -3781,7 +3868,23 @@ public class LibraryCommand
             inspections,
             subjects,
             identifierAuditFailures,
-            descriptorSelectionFailures);
+            descriptorSelectionFailures,
+            libraryFailures);
+    }
+
+    private static bool WritePackageLibraryFailures(
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
+    {
+        var failures = groupedFailures
+            .Distinct()
+            .ToList();
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Library inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
     }
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
@@ -3811,6 +3914,7 @@ public class LibraryCommand
         string? assemblyName,
         string packageSource,
         string? tfm,
+        bool aggregatePackageSelection,
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
         VerboseLogger logger,
@@ -3856,6 +3960,82 @@ public class LibraryCommand
                 resolvedPackageVersion = resolution.Version;
                 allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
             }
+        }
+
+        if (aggregatePackageSelection)
+        {
+            string packageId =
+                resolution.PackageName
+                ?? PackageExtractor.ParsePackageReference(packageSource).name;
+            IPackageContent content =
+                resolution.AcquiredPayload?.Content
+                ?? new FileSystemPackageContent(
+                    extractPath,
+                    resolution.NupkgPath,
+                    resolution.FromCache,
+                    resolution.ProducerKey ?? "local-package");
+            IReadOnlyList<PackageCompileAssetSelection> frameworkSelections =
+                SelectPackageCompileAssets(
+                    content,
+                    packageId,
+                    tfm);
+            PackageCompileAssetSelection[] selectionFailures =
+            [
+                .. frameworkSelections.Where(selection =>
+                    selection.Status
+                    != PackageCompileAssetSelectionStatus.Selected),
+            ];
+            if (selectionFailures.Length > 0)
+            {
+                foreach (PackageCompileAssetSelection selection
+                    in selectionFailures)
+                {
+                    WritePackageCompileSelectionFailure(
+                        packageId,
+                        tfm,
+                        selection);
+                }
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            List<PackageCompileAsset> selectedAssets =
+            [
+                .. frameworkSelections.SelectMany(
+                    selection => selection.Assets),
+            ];
+            if (selectedAssets.Count == 0)
+            {
+                CommandError.Write(
+                    $"Package '{packageId}' has no selected compile libraries.");
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            foreach (PackageCompileAssetSelection selection
+                in frameworkSelections)
+            {
+                if (selection.TargetFramework is not null)
+                    logger.Log($"Using TFM: {selection.TargetFramework}");
+            }
+            List<string> selectedPaths =
+            [
+                .. selectedAssets.Select(asset =>
+                    PackageAssetPath(extractPath, asset)),
+            ];
+            foreach (string path in selectedPaths)
+            {
+                logger.Log(
+                    $"Found: {Path.GetRelativePath(extractPath, path)}");
+            }
+
+            return (
+                selectedPaths,
+                extractPath,
+                tempDir,
+                nupkgPath,
+                resolvedPackageName,
+                resolvedPackageVersion);
         }
 
         // --tfm all: return all assemblies from every TFM
@@ -3928,6 +4108,112 @@ public class LibraryCommand
         logger.Log($"Using TFM: {selectedTfm}");
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
+
+    private static IReadOnlyList<PackageCompileAssetSelection>
+        SelectPackageCompileAssets(
+            IPackageContent content,
+            string packageId,
+            string? targetFramework)
+    {
+        if (!string.Equals(
+                targetFramework,
+                "all",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return
+            [
+                PackageCompileAssetSelector.Evaluate(
+                    content,
+                    packageId,
+                    targetFramework is null
+                        ? PackageCompileAssetSelectionPolicy
+                            .HighestAvailable
+                        : PackageCompileAssetSelectionPolicy
+                            .ExplicitTarget,
+                    targetFramework)
+                    .Selection,
+            ];
+        }
+
+        PackageCompileAssetSelection inventory =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                packageId,
+                PackageCompileAssetSelectionPolicy.HighestAvailable)
+            .Selection;
+        if (inventory.AvailableSlices.Count == 0)
+            return [inventory];
+
+        return
+        [
+            .. inventory.AvailableSlices.Select(slice =>
+                PackageCompileAssetSelector.Evaluate(
+                    content,
+                    packageId,
+                    PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    slice.TargetFramework)
+                .Selection),
+        ];
+    }
+
+    private static void WritePackageCompileSelectionFailure(
+        string packageId,
+        string? requestedFramework,
+        PackageCompileAssetSelection selection)
+    {
+        switch (selection.Status)
+        {
+            case PackageCompileAssetSelectionStatus.EmptyCompileGroup:
+                CommandError.Write(
+                    $"Package '{packageId}' declares an empty compile group"
+                    + FrameworkSuffix(selection.TargetFramework
+                        ?? requestedFramework)
+                    + ".");
+                break;
+            case PackageCompileAssetSelectionStatus.NoMatchingTargetFramework:
+                CommandError.Write(
+                    $"No compile libraries were selected for TFM "
+                    + $"'{requestedFramework}' in package '{packageId}'.");
+                WriteAvailableFrameworks(
+                    selection.AvailableTargetFrameworks);
+                break;
+            case PackageCompileAssetSelectionStatus
+                .InvalidImplementationAssets:
+                CommandError.Write(
+                    selection.Message
+                    ?? $"Package '{packageId}' has invalid implementation assets.");
+                break;
+            default:
+                CommandError.Write(
+                    $"Package '{packageId}' has no selected compile libraries.");
+                break;
+        }
+    }
+
+    private static string FrameworkSuffix(string? framework) =>
+        string.IsNullOrWhiteSpace(framework)
+            ? string.Empty
+            : $" for TFM '{framework}'";
+
+    private static void WriteAvailableFrameworks(
+        IReadOnlyList<string> frameworks)
+    {
+        if (frameworks.Count == 0)
+            return;
+
+        CommandError.WriteLine("Available TFMs:");
+        foreach (string framework in frameworks)
+            CommandError.WriteLine($"  {framework}");
+    }
+
+    private static string PackageAssetPath(
+        string extractPath,
+        PackageCompileAsset asset) =>
+        Path.Combine(
+            extractPath,
+            asset.Path.Replace(
+                '/',
+                Path.DirectorySeparatorChar));
 
     private sealed record ToolPayloadResolution(PackageExtractionResult? Result, string? Error);
 
@@ -4043,7 +4329,8 @@ internal sealed record LibraryInspectionSubject(
     internal static LibraryInspectionSubjectSelection Select(
         string path,
         AssemblyResolutionProvenance provenance,
-        ResolvedAssemblyReference? preferredAssembly = null)
+        ResolvedAssemblyReference? preferredAssembly = null,
+        bool classifyPackageParticipant = false)
     {
         if (preferredAssembly is not null)
         {
@@ -4051,20 +4338,28 @@ internal sealed record LibraryInspectionSubject(
                 new LibraryInspectionSubject(path, preferredAssembly));
         }
 
-        return ResolvedAssemblyReference.SelectFromPath(path, provenance)
-            switch
-            {
-                AssemblyDescriptorSelectionResult.Ready ready =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, ready.Reference)),
-                AssemblyDescriptorSelectionResult.Descriptorless =>
-                    new LibraryInspectionSubjectSelection.Ready(
-                        new LibraryInspectionSubject(path, null)),
-                AssemblyDescriptorSelectionResult.Rejected rejected =>
-                    new LibraryInspectionSubjectSelection.Rejected(
-                        rejected.Failure),
-                _ => throw new UnreachableException(),
-            };
+        AssemblyDescriptorSelectionResult selection =
+            ResolvedAssemblyReference.SelectFromPath(path, provenance);
+        if (selection is AssemblyDescriptorSelectionResult.Ready ready)
+        {
+            return new LibraryInspectionSubjectSelection.Ready(
+                new LibraryInspectionSubject(path, ready.Reference));
+        }
+        if (selection is AssemblyDescriptorSelectionResult.Rejected rejected)
+        {
+            return new LibraryInspectionSubjectSelection.Rejected(
+                rejected.Failure);
+        }
+        if (classifyPackageParticipant)
+        {
+            return new LibraryInspectionSubjectSelection.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected package asset does not expose a readable managed assembly descriptor."));
+        }
+
+        return new LibraryInspectionSubjectSelection.Ready(
+            new LibraryInspectionSubject(path, null));
     }
 
     internal SourceLinkService OpenSourceLink(Action<string>? log = null) =>
