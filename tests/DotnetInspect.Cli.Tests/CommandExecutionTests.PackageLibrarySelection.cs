@@ -1122,6 +1122,48 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task LibraryAndPackageCommands_AllTfmsRetainNestedCompileLibraries()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalNestedMultiTfmLibraryPackage();
+        try
+        {
+            var results = new[]
+            {
+                await RunAppAsync(
+                    "library", packagePath,
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+                await RunAppAsync(
+                    "package", packagePath,
+                    "--tfm", "all",
+                    "-S", "Library Info",
+                    "--markdown", "--tips", "q"),
+            };
+
+            foreach (var result in results)
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Contains(
+                    "lib/net8.0/Direct.dll (net8.0)",
+                    result.Output);
+                Assert.Contains(
+                    "lib/net8.0/x64/Nested.dll (net8.0)",
+                    result.Output);
+                Assert.Contains(
+                    "lib/net10.0/x64/Nested.dll (net10.0)",
+                    result.Output);
+                Assert.Empty(result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     private static (string PackagePath, string TempDir)
         CreateLocalIntegrationPackage(params string[] assemblyNames)
     {
@@ -1210,6 +1252,38 @@ public partial class CommandExecutionTests
 
         string packagePath =
             Path.Combine(tempDir, $"{packageId}.1.0.0.nupkg");
+        System.IO.Compression.ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalNestedMultiTfmLibraryPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach (string framework in new[] { "net8.0", "net10.0" })
+        {
+            string libDir =
+                Path.Combine(packageRoot, "lib", framework);
+            string nestedDir = Path.Combine(libDir, "x64");
+            Directory.CreateDirectory(nestedDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(nestedDir, "Nested.dll"));
+            if (framework == "net8.0")
+            {
+                File.Copy(
+                    TestAssemblyPath,
+                    Path.Combine(libDir, "Direct.dll"));
+            }
+        }
+
+        string packagePath =
+            Path.Combine(tempDir, "Nested.Tfm.All.1.0.0.nupkg");
         System.IO.Compression.ZipFile.CreateFromDirectory(
             packageRoot,
             packagePath);

@@ -3791,7 +3791,7 @@ public class LibraryCommand
                 PackageCompileAssetSelector.Evaluate(
                     content,
                     packageId,
-                    PackageCompileAssetSelectionPolicy.ExactTarget,
+                    PackageCompileAssetSelectionPolicy.ExplicitTarget,
                     slice.TargetFramework)
                 .Selection),
         ];
