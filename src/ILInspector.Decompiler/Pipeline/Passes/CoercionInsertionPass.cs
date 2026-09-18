@@ -350,6 +350,9 @@ public static class CoercionSinks
                 case ChainedAssignment { Value: { } value } chain:
                     yield return new(value, chain.InnermostTargetType);
                     break;
+                case PointerElementCompoundAssignment assignment:
+                    yield return new(assignment.Value, assignment.ElementType);
+                    break;
                 case NullCoalescingAssignment { Value: { } value, LocalType: { } type }:
                     yield return new(value, type);
                     break;

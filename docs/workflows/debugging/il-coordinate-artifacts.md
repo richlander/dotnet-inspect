@@ -119,9 +119,9 @@ Explain these debugger IL coordinates from my crash dump.
 ```
 
 ```bash
-"$INSPECT" library \
-  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --il-offsets "$COORD_WORKFLOW/debugger.coords" \
+"$INSPECT" library coordinate \
+  --file "$COORD_WORKFLOW/debugger.coords" \
+  --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
 ```
 
@@ -262,9 +262,9 @@ normalize the frames:
 Then run `dotnet-inspect` on the normalized coordinate file:
 
 ```bash
-"$INSPECT" library \
-  "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
-  --il-offsets "$COORD_WORKFLOW/crash.coords" \
+"$INSPECT" library coordinate \
+  --file "$COORD_WORKFLOW/crash.coords" \
+  --library "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
   --markdown --tips q
 ```
 
@@ -287,9 +287,9 @@ Explain these profiler sample coordinates without doing a full triage.
 ```
 
 ```bash
-"$INSPECT" library \
-  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --il-offsets "$COORD_WORKFLOW/profiler.coords" \
+"$INSPECT" library coordinate \
+  --file "$COORD_WORKFLOW/profiler.coords" \
+  --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
 ```
 
@@ -314,9 +314,9 @@ Explain this analyzer artifact and keep bad lines visible.
 ```
 
 ```bash
-"$INSPECT" library \
-  artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
-  --il-offsets "$COORD_WORKFLOW/analyzer.coords" \
+"$INSPECT" library coordinate \
+  --file "$COORD_WORKFLOW/analyzer.coords" \
+  --library artifacts/bin/DotnetInspect.Cli.Tests/release/DotnetInspect.Cli.Tests.dll \
   --markdown --tips q
 ```
 
@@ -336,6 +336,7 @@ normalization step:
 1. Identify the producer format (debugger/dump, profiler/trace, analyzer/CI).
 2. Extract or symbolize method identity + IL offset.
 3. Write the neutral coordinate file.
-4. Run `library --il-offsets`.
+4. Run `library coordinate --file <path> --library <library>`.
 5. Decide whether the output is enough or whether to drill into individual
-   sections with `--il-offset -S "<Context>"`.
+   sections with `library coordinate <coordinate> --library <library>
+   -S "<Context>"`.
