@@ -227,8 +227,8 @@ has a dormant realization.
 The active selection associates:
 
 - one retained-definition identity,
-- one exact `WorkspaceRealizationIdentity` issued by the realization
-  coordinator,
+- one exact `InspectionWorkspaceIdentity` issued by the realization
+  coordinator and represented to the Browser by a host-issued realization ID,
 - the complete definition snapshot captured by that realization, and
 - presentation and Navigation state evaluated for that realization.
 
