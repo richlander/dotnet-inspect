@@ -67,8 +67,8 @@ public sealed record EcosystemPackId
 /// <summary>Canonical identities for shipped ecosystem packs.</summary>
 public static class EcosystemPackIds
 {
-    public static EcosystemPackId Platform { get; } =
-        EcosystemPackId.Create("ecosystem.platform");
+    public static EcosystemPackId Runtime { get; } =
+        EcosystemPackId.Create("ecosystem.runtime");
 
     public static EcosystemPackId MicrosoftExtensions { get; } =
         EcosystemPackId.Create("ecosystem.microsoft-extensions");
