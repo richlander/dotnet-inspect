@@ -31,7 +31,7 @@ export function resolveEffectiveDiffTarget(
   }
   const { previousVersion, previousVersionUnavailableReason } =
     versions.inventory;
-  if (previousVersion !== null)
+  if (previousVersion !== undefined)
     return { kind: "available", version: previousVersion };
   return {
     kind: "unavailable",
@@ -131,15 +131,15 @@ export function renderPackageComparisonTargets<T extends ComparisonPackage>(
       ? `${packageLabel(clone.package)} is no longer in this Workspace. Choose another target.`
       : "All libraries in the selected Package";
   const automaticDiffLabel = versions.status === "available"
-    ? versions.inventory.previousVersionUnavailableReason
+    ? versions.inventory.previousVersionUnavailableReason !== undefined
       ? "Automatic: listing unavailable"
-      : versions.inventory.previousVersion
+      : versions.inventory.previousVersion !== undefined
         ? `Automatic: ${versions.inventory.previousVersion}`
         : "Automatic: no earlier version"
     : "Automatic: previous listed version";
   const retry = supported && (versions.status === "failed"
     || (versions.status === "available"
-      && versions.inventory.previousVersionUnavailableReason));
+      && versions.inventory.previousVersionUnavailableReason !== undefined));
   const diffStatusClass = versions.status === "failed"
     ? " comparison-target-status-error" : "";
 

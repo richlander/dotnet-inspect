@@ -24,6 +24,45 @@ public sealed partial class DesktopPackageSourceComposition
         IssueHouseOperation(cancellationToken);
 
     /// <summary>
+    /// Realizes one exact package compile selection with payload authority
+    /// retained through the returned settlement.
+    /// </summary>
+    public ValueTask<PackageHouseSettlement> RealizePinnedCompileAsync(
+        PackageSourceCoordinate coordinate,
+        string targetFramework,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        string? requiredProducerKey = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        ArgumentNullException.ThrowIfNull(createStore);
+
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(coordinate),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize,
+                _options.RequestTimeout,
+                _options.OperationTimeout),
+            PackageHouseTargetContext.Exact(targetFramework),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+        return new(
+            ExecuteHouseAsync(
+                request,
+                coordinate.PackageId,
+                sourceOptions,
+                new PackagePayloadAcquisitionPlan(
+                    createStore,
+                    log: log),
+                cancellationToken,
+                requiredProducerKey,
+                log));
+    }
+
+    /// <summary>
     /// Settles one exact coordinate through PackageHouse when the composition
     /// owns the operation lifetime.
     /// </summary>
