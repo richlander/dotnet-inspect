@@ -94,7 +94,8 @@ public sealed class CompiledDocumentationQueryTests
             (
                 typeof(CompiledDocumentationOutcome.ContentAccessFailed),
                 "contentAccessFailed",
-                [nameof(CompiledDocumentationOutcome.Subject)]),
+                [nameof(CompiledDocumentationOutcome.ContentAccessFailed.Source),
+                    nameof(CompiledDocumentationOutcome.Subject)]),
         ];
 
         JsonPolymorphicAttribute polymorphic =
@@ -734,38 +735,56 @@ public sealed class CompiledDocumentationQueryTests
         LibraryOperationLease disposedOperation =
             malformedLibrary.IssueOperation();
         disposedOperation.Dispose();
+        IReadOnlyList<CompiledXmlContribution> contentAccessContributions =
+            DirectLibraryDocumentationHouseAdapter
+                .CreateCompiledXmlContributions(
+                    malformedLibrary.Reference,
+                    malformedSubject);
         CompiledDocumentationQueryResult contentAccessFailed =
             await CompiledDocumentationQuery.ExecuteAsync(
                 Request(
                     malformedSubject,
-                    DirectLibraryDocumentationHouseAdapter
-                        .CreateCompiledXmlContributions(
-                            malformedLibrary.Reference,
-                            malformedSubject)),
+                    contentAccessContributions),
                 disposedOperation,
                 TestContext.Current.CancellationToken);
-        Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
-            contentAccessFailed.Content);
+        DocumentationHouseOutcome.Failed houseFailure =
+            Assert.IsType<DocumentationHouseOutcome.Failed>(
+                contentAccessFailed.Outcome);
+        Assert.Same(
+            Assert.Single(contentAccessContributions),
+            houseFailure.Failure.Selected);
+        CompiledDocumentationOutcome.ContentAccessFailed portableFailure =
+            Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
+                contentAccessFailed.Content);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.DirectLibrary,
+            portableFailure.Source.Kind);
         byte[] contentAccessPayload = Serialize(contentAccessFailed.Content);
         using JsonDocument contentAccessJson =
             JsonDocument.Parse(contentAccessPayload);
         AssertPropertyNames(
             contentAccessJson.RootElement,
             "kind",
-            "subject");
+            "subject",
+            "source");
         Assert.Equal(
             "contentAccessFailed",
             contentAccessJson.RootElement
                 .GetProperty("kind")
                 .GetString());
-        CompiledDocumentationOutcome contentAccessCopy =
-            JsonSerializer.Deserialize(
-                contentAccessPayload,
-                CompiledDocumentationQueryJsonContext
-                    .Default
-                    .CompiledDocumentationOutcome)!;
-        Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
-            contentAccessCopy);
+        CompiledDocumentationOutcome.ContentAccessFailed contentAccessCopy =
+            Assert.IsType<CompiledDocumentationOutcome.ContentAccessFailed>(
+                JsonSerializer.Deserialize(
+                    contentAccessPayload,
+                    CompiledDocumentationQueryJsonContext
+                        .Default
+                        .CompiledDocumentationOutcome));
+        Assert.Equal(portableFailure.Source, contentAccessCopy.Source);
+        Assert.True(
+            contentAccessPayload.Length
+                <= MaximumBoundedNonAvailablePayloadBytes,
+            $"Content-access failure payload was "
+                + $"{contentAccessPayload.Length} bytes.");
     }
 
     [Fact]

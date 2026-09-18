@@ -749,9 +749,10 @@ candidate prioritizes that candidate before the other observed contributions;
 a companion-selection-partial result similarly prioritizes partial
 contributions.
 Malformed or unreadable contributed XML and top-level content-access failure
-are separate singleton wire cases. Their concrete discriminators encode the
-failure reason without a redundant reason property or a shared enum that would
-admit cross-case combinations the producer cannot emit.
+are separate singleton-cause wire cases. Their concrete discriminators encode
+the failure reason without a redundant reason property or a shared enum that
+would admit cross-case combinations the producer cannot emit. Both retain the
+selected source that established the terminal case.
 
 Request, operation-plan, policy-generation, demand, work-charge, lease-consumer,
 duplicate type/member anchors, full contribution history, and nullable
@@ -977,7 +978,8 @@ source-generated JSON contract round trips the separately copied portable
 outcome. Neighboring absent, unavailable, contribution-rejected,
 malformed-document, content-access-failed, and top-level lease-rejected results
 each retain a discriminator-specific shape rather than becoming empty
-documentation.
+documentation. Both failure shapes retain the selected source and round trip
+without a redundant reason property.
 The absent gates cover both a selected document without the requested member
 and a package-shaped authoritative missing-companion contribution preceded by
 eight distinct unavailable sources; each preserves its applicable source

@@ -182,7 +182,8 @@ public abstract record CompiledDocumentationOutcome(
         : CompiledDocumentationOutcome(Subject);
 
     public sealed record ContentAccessFailed(
-        CompiledDocumentationSubject Subject)
+        CompiledDocumentationSubject Subject,
+        CompiledDocumentationSource Source)
         : CompiledDocumentationOutcome(Subject);
 }
 
@@ -247,7 +248,7 @@ public static class CompiledDocumentationQuery
                     subject,
                     Snapshot(rejected.Rejection.Kind)),
             DocumentationHouseOutcome.Failed failed =>
-                ContentAccessFailed(subject, failed.Failure.Kind),
+                ContentAccessFailed(subject, failed.Failure),
             DocumentationHouseOutcome.Incomplete incomplete =>
                 Incomplete(
                     subject,
@@ -292,11 +293,11 @@ public static class CompiledDocumentationQuery
     private static CompiledDocumentationOutcome.ContentAccessFailed
         ContentAccessFailed(
             CompiledDocumentationSubject subject,
-            DocumentationCompiledXmlFailureKind kind) =>
-        kind switch
+            DocumentationHouseFailure failure) =>
+        failure.Kind switch
         {
             DocumentationCompiledXmlFailureKind.ContentAccessFailed =>
-                new(subject),
+                new(subject, Snapshot(failure.Selected)),
             _ => throw new InvalidOperationException(
                 "Unexpected top-level compiled-XML failure kind."),
         };

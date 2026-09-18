@@ -243,7 +243,8 @@ public static class DocumentationHouse
                     DocumentationHouseFailureStage
                         .CompiledXmlSnapshot,
                     DocumentationCompiledXmlFailureKind
-                        .ContentAccessFailed),
+                        .ContentAccessFailed,
+                    selected),
                 selectionWork);
         }
 
