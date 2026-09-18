@@ -945,7 +945,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void EnumConstantConditionalArms_IntoCrossAssemblyEnum_CastsEachArm()
+    public void EnumConstantConditionalArms_IntoUnresolvedCrossAssemblyEnum_CastsEachArm()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumConditional));
 
@@ -956,7 +956,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void BitwiseCompound_IntoCrossAssemblyFlagsEnum_CastsRightOperand()
+    public void BitwiseCompound_IntoUnresolvedCrossAssemblyFlagsEnum_CastsRightOperand()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumFlagsCompound));
 
@@ -988,7 +988,7 @@ public class EnumCastPrinterTests
     }
 
     [Fact]
-    public void EnumCoalesce_IntoCrossAssemblyEnum_CastsFallback()
+    public void EnumCoalesce_IntoUnresolvedCrossAssemblyEnum_CastsFallback()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumCoalesce));
 

@@ -267,6 +267,12 @@ public class ReferenceEqualityMetadataFactsTests
 
             Assert.Equal(new Version(1, 0, 0, 0), type.ResolutionAssembly?.Version);
             Assert.Equal(TypeShapeKind.Enum, source.ClassifyResolvedType(type));
+            var members = source.ResolveEnumMembers(type);
+            Assert.NotNull(members);
+            Assert.Equal("Named", members![7]);
+            Assert.Equal(
+                "Int32",
+                source.ResolveEnumUnderlyingType(type)?.Name);
             Assert.True(function.TypeShapes.TryGetValue(type, out var shape));
             Assert.Equal(TypeShape.Unknown, shape);
             Assert.Equal(
@@ -275,6 +281,22 @@ public class ReferenceEqualityMetadataFactsTests
             string output = CSharpPrinter.Print(function).Output!;
             Assert.Contains("return left == right;", output);
             Assert.DoesNotContain("(object)", output);
+
+            var wrongResolver = TestAssemblyReferenceResolvers.SingleAssembly(v2);
+            using var wrongContext = new MetadataContext(wrongResolver);
+            using var wrongSource = MetadataSource.OpenWithoutSymbols(
+                v2,
+                wrongResolver,
+                wrongContext);
+            var wrongFunction = IrImporter.Import(
+                wrongSource,
+                "Collision.Cases",
+                "Compare");
+            Assert.NotNull(wrongFunction);
+            var unresolvedType = Assert.Single(
+                wrongFunction!.Descendants.OfType<Comparison>()).Left.ResultType!;
+            Assert.Null(wrongSource.ResolveEnumMembers(unresolvedType));
+            Assert.Null(wrongSource.ResolveEnumUnderlyingType(unresolvedType));
         }
         finally
         {
@@ -1383,6 +1405,23 @@ public class ReferenceEqualityMetadataFactsTests
             enumType,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06);
+        fieldSignature.WriteByte((byte)SignatureTypeCode.Int32);
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.SpecialName
+                | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            metadata.GetOrAddBlob(fieldSignature));
+        var literal = metadata.AddFieldDefinition(
+            FieldAttributes.Public
+                | FieldAttributes.Static
+                | FieldAttributes.Literal
+                | FieldAttributes.HasDefault,
+            metadata.GetOrAddString("Named"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddConstant(literal, 7);
         return Serialize(metadata, new BlobBuilder());
     }
 
