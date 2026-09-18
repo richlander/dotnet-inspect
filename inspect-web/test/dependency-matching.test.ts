@@ -16,6 +16,7 @@ import {
   resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 import type {
+  BrowserDependencyCoordinateCandidate,
   BrowserDependencyCoordinateMatch,
   BrowserPackageDependencyGroup,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -135,7 +136,9 @@ class Container {
 }
 
 type Match = (
-  id: string, range: string | null, candidates: string,
+  id: string,
+  range: string | null,
+  candidates: ReadonlyArray<BrowserDependencyCoordinateCandidate>,
 ) => Promise<BrowserDependencyCoordinateMatch>;
 
 function harness(match: Match = async id => id === "Dependency" ? unique : noMatch) {
@@ -153,8 +156,10 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
     atLibraryRoot: false, packageLens: "dependencies",
   };
   const navigationSequence = createNavigationSequence();
-  const calls: [string, string | null, string][] = [];
-  const classifications: [string, string][] = [];
+  const calls:
+    [string, string | null, ReadonlyArray<BrowserDependencyCoordinateCandidate>][]
+      = [];
+  const classifications: [string, readonly string[]][] = [];
   const switches: string[] = [];
   const notices: string[] = [];
   const versions: string[] = [];
@@ -167,14 +172,9 @@ function harness(match: Match = async id => id === "Dependency" ? unique : noMat
     engineClient: { package: {
       classifyPackageGraphIdentities: async (
         inspectedPackageId: string,
-        packageIdsJson: string,
+        packageIds: readonly string[],
       ) => {
-        classifications.push([inspectedPackageId, packageIdsJson]);
-        const packageIds: unknown = JSON.parse(packageIdsJson);
-        if (!Array.isArray(packageIds)
-          || !packageIds.every(packageId => typeof packageId === "string")) {
-          throw new Error("Expected a package ID array.");
-        }
+        classifications.push([inspectedPackageId, packageIds]);
         return exactIdentityClassifier(inspectedPackageId, packageIds)
           .map(role => role === "inspected" ? "Inspected" : "External");
       },
@@ -267,7 +267,7 @@ test("dependency links await matching once and retain exact coordinate inputs", 
   assert.equal(h.calls.length, 1);
   assert.deepEqual(h.calls[0], [
     "Dependency", "[2.0,3.0)",
-    JSON.stringify(dependencyCoordinateCandidates([root, dependency])),
+    dependencyCoordinateCandidates([root, dependency]),
   ]);
   assert.equal(h.bindings, 0);
   assert.equal(h.list.outerHTML, "");
@@ -386,7 +386,7 @@ test("duplicate dependency graphs share pending matching and do not cancel their
   assert.equal(h.diagrams.length, 1);
   assert.deepEqual(h.classifications, [[
     "Root",
-    JSON.stringify(["Root", "Dependency"]),
+    ["Root", "Dependency"],
   ]]);
   await h.host.renderDependencyGraph();
   assert.equal(h.calls.length, 1);

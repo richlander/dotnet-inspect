@@ -693,6 +693,58 @@ public sealed class DtsEmitterTests
                 diagnostic.Location == "Ping delegate parameters");
     }
 
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public void Emit_RejectsInvalidJsonInputParameterAssociations(
+        int parameterIndex,
+        bool duplicate)
+    {
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+        JsExportParameterWireBinding fact = new()
+        {
+            ParameterIndex = parameterIndex,
+            WireType = "System.Int32",
+        };
+        var facts = new List<JsExportParameterWireBinding> { fact };
+        if (duplicate)
+            facts.Add(fact);
+
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "ReadCount",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "CountJson",
+                            Type = "string",
+                        },
+                    ],
+                    ParameterWireBindings = facts,
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function readCount("
+                + "countJson: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location
+                    == "ReadCount JSON input parameters");
+    }
+
     [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {
@@ -982,12 +1034,42 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
+    public void Emit_WithWireContracts_ProjectsOnlyAuthenticatedJsonInputParameter()
     {
         string dts = EmitFixtureDtsWithWireContracts();
 
         Assert.Contains(
-            "export declare function renameWidget(widgetJson: string, newName: string): WidgetDto;",
+            "export declare function renameWidget("
+                + "widgetJson: WidgetDto, newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function renameWidgetForOwner("
+                + "owner: string, widgetJson: WidgetDto, "
+                + "newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function renameNormalizedWidget("
+                + "widgetJson: string, newName: string): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_ProjectsIndependentJsonInputParameters()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function widgetMatchesAudit("
+                + "widgetJson: WidgetDto, auditJson: WidgetAudit): boolean;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function readWidgetOrAudit("
+                + "payload: string, summaryJson: string, "
+                + "readAudit: boolean): string;",
             dts,
             StringComparison.Ordinal);
     }

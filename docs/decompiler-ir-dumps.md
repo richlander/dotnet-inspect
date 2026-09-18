@@ -144,8 +144,8 @@ Common nodes you will see:
 | `Constant` | a literal, with its type |
 | `UnsupportedNode` | IL with no C# spelling — caps fidelity at `Partial`, rendered honestly |
 
-When in doubt, the authoritative node set is `IrNodes.cs` and the pass order is
-`IrPass.cs` in `src/ILInspector.Decompiler/Pipeline/`.
+When in doubt, the authoritative node set is the `IrNodes*.cs` family and the
+pass order is `IrPass.cs` in `src/ILInspector.Decompiler/Pipeline/`.
 
 ### Fidelity levels
 

@@ -192,7 +192,11 @@ may throw.
 
 Table scans, name resolution, and relationship traversal take explicit work
 bounds. Exhaustion produces **Budget-limited**, not `Malformed`, absence, or an
-escaping budget exception.
+escaping budget exception. Type-definition lookup publishes
+`TypeDeclarationResult.BudgetExceeded`; the runtime `System.Enum` lookup and
+the repeated-long-name boundary are gated by
+`ProbeDefinition_MaterializesCoreEnumAsSpecialClass` and
+`ProbeDefinition_ReportsRepeatedLongLeafWorkAsBudgetExceeded`.
 
 Caching belongs to the consumer. A consumer may create a substrate per
 operation or retain one for a reader's lifetime. The substrate introduces no
@@ -235,7 +239,6 @@ registration row, registry service, naming convention, or maintained census.
 
 | Gap | Tracker | Relation to this contract |
 | --- | --- | --- |
-| Declaration-probe budget exhaustion is published as artifact malformation | [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) | Deviation |
 | Reachable outcome distinctions are collapsed across existing components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
 | Whole-table declaration construction lacks a work bound | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) | Deviation |
 | Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |

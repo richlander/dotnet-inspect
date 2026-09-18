@@ -209,7 +209,7 @@ test("Spotlight uses local type matches until the engine is ready", () => {
     appSource.match(/function spotlightTypeMatches[\s\S]*?\n}\n\n\/\/ Flat member index/)?.[0] ?? "";
   assert.match(
     typeMatches,
-    /if \(!state\.engineReady\) return spotlightFallbackMatches\(query, cache\.pool\);[\s\S]*inspectSearchTypes\(query, cache\.candidatesJson\)/);
+    /if \(!state\.engineReady\) return spotlightFallbackMatches\(query, cache\.pool\);[\s\S]*inspectSearchTypes\(query, cache\.candidates\)/);
 });
 
 test("loading brand links back to the site root", () => {
@@ -312,7 +312,7 @@ test("shared member views use portable product identity and omit UI-local filter
   const capture = appSource.match(
     /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nasync function buildStateUrl/)?.[0] ?? "";
   const encoder = workspaceNavigationSource.match(
-    /function workspaceShareStateJson\([\s\S]*?\n}\n\nfunction encodedWorkspaceSharePacket/)?.[0] ?? "";
+    /function workspaceShareState\([\s\S]*?\n}\n\nfunction encodedWorkspaceSharePacket/)?.[0] ?? "";
   const deepLink = appSource.match(
     /function applyDeepLink\([\s\S]*?\n}\n\n\/\/ Kick off/)?.[0] ?? "";
   assert.match(
@@ -362,7 +362,7 @@ test("the frontend delegates compact packet syntax to the product codec", () => 
     /decodeWorkspaceShareResult\((?:await )?decode\(value\)\)/);
   assert.match(
     workspaceNavigationSource,
-    /encodedWorkspaceSharePacket\(\s*(?:await )?encode\(workspaceShareStateJson\(state\)\)\)/);
+    /encodedWorkspaceSharePacket\(\s*(?:await )?encode\(workspaceShareState\(state\)\)\)/);
 });
 
 test("the selected canonical context bounds call graph workspace membership", () => {
@@ -1737,7 +1737,7 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     /packageIdentityKey\(await uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
-    /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange \?\? null,\s+JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)\)/);
+    /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange \?\? null,\s+dependencyCoordinateCandidates\(packages\)\)/);
   assert.doesNotMatch(appSource, /dependencyVersionSatisfies/);
 });
 

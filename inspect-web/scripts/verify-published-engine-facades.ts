@@ -343,13 +343,13 @@ export function inspectWebRuntimeObservation() {
     )(
       "Fixture.Root",
       "[1.0.0,2.0.0)",
-      JSON.stringify([{
+      [{
         key: "fixture",
         provenance: "NuGetPackage",
         packageId: "Fixture.Root",
         version: "1.5.0",
         targetFramework: framework,
-      }]),
+      }],
     );
     assert.ok(
       isRecord(coordinate) && coordinate.candidateKey === "fixture",
