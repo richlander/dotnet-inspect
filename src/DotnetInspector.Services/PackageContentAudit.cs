@@ -205,6 +205,7 @@ public static class PackageContentAudit
                 {
                     stream.ReadExactly(
                         bytes.AsSpan(0, contentLength));
+                    scannedBytes += contentLength;
                     if (stream.ReadByte() >= 0)
                     {
                         collector.AddIncomplete(ToolFinding(
@@ -239,7 +240,6 @@ public static class PackageContentAudit
                 continue;
             }
 
-            scannedBytes += contentLength;
             scannedFiles++;
             using var lineReader = new StringReader(content!);
             int lineNumber = 0;

@@ -150,12 +150,26 @@ public class AnnotatedSourceJsonTests
         AssertContained(error);
     }
 
-    [Fact]
-    public void StrictDocumentReader_RejectsDuplicateProperties()
+    [Theory]
+    [InlineData(
+        "\"text\":\"return;\"",
+        "\"text\":\"return;\",\"text\":\"return;\"")]
+    [InlineData(
+        "\"start\":0,\"length\":7",
+        "\"start\":0,\"start\":1,\"length\":6")]
+    [InlineData(
+        "\"id\":0,\"descriptor\":\"test.fact\"",
+        "\"id\":0,\"id\":1,\"descriptor\":\"test.fact\"")]
+    [InlineData(
+        "\"fact_id\":0,\"node_id\":0",
+        "\"fact_id\":0,\"fact_id\":1,\"node_id\":0")]
+    public void StrictDocumentReader_RejectsDuplicateProperties(
+        string oldValue,
+        string newValue)
     {
         string json = CompactJson().Replace(
-            "\"text\":\"return;\"",
-            "\"text\":\"return;\",\"text\":\"return;\"",
+            oldValue,
+            newValue,
             StringComparison.Ordinal);
 
         Assert.Throws<JsonException>(() => AnnotatedSourceJson.DeserializeDocument(json));
@@ -181,6 +195,39 @@ public class AnnotatedSourceJsonTests
 
         Assert.Equal(expectedMessage, error.Message);
         Assert.DoesNotContain(HostilePropertyName, error.Message, StringComparison.Ordinal);
+        AssertContained(error);
+    }
+
+    [Theory]
+    [InlineData(
+        "\"start\":0,\"length\":7",
+        "\"start\":0,\"length\":7,\"ATTACKER_TOKEN\":0")]
+    [InlineData(
+        "\"id\":0,\"descriptor\":\"test.fact\"",
+        "\"id\":0,\"descriptor\":\"test.fact\",\"ATTACKER_TOKEN\":0")]
+    [InlineData(
+        "\"fact_id\":0,\"node_id\":0",
+        "\"fact_id\":0,\"node_id\":0,\"ATTACKER_TOKEN\":0")]
+    public void StrictDocumentReader_RejectsUnknownPropertiesInConverterOwnedValues(
+        string oldValue,
+        string newValue)
+    {
+        const string HostilePropertyName = "ATTACKER_TOKEN";
+        string json = CompactJson().Replace(
+            oldValue,
+            newValue,
+            StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => AnnotatedSourceJson.DeserializeDocument(json));
+
+        Assert.Equal(
+            "Annotated-source JSON violates the JSON contract.",
+            error.Message);
+        Assert.DoesNotContain(
+            HostilePropertyName,
+            error.Message,
+            StringComparison.Ordinal);
         AssertContained(error);
     }
 

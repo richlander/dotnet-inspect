@@ -10,7 +10,7 @@ if [[ "$rid" == win-* ]]; then
   executable="$executable.exe"
 fi
 
-for mode in coreclr single-file nativeaot; do
+for mode in coreclr single-file nativeaot nativeaot-net10; do
   publish_args=(-p:PublishAot=false -p:PublishSingleFile=false --self-contained false)
   expected="CoreCLR"
   case "$mode" in
@@ -19,6 +19,14 @@ for mode in coreclr single-file nativeaot; do
       ;;
     nativeaot)
       publish_args=(-p:PublishAot=true -p:PublishSingleFile=false --self-contained true)
+      expected="NativeAOT"
+      ;;
+    nativeaot-net10)
+      publish_args=(
+        -p:DefaultTargetFramework=net10.0
+        -p:PublishAot=true
+        -p:PublishSingleFile=false
+        --self-contained true)
       expected="NativeAOT"
       ;;
   esac

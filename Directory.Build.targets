@@ -30,7 +30,7 @@
        NativeAOT publish; ordinary builds of PublishAot projects remain CoreCLR. -->
   <Target Name="DefineDotnetInspectNativeAotCompilation"
           BeforeTargets="CoreCompile"
-          Condition="'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true' and '$(_IsPublishing)' == 'true'">
+          Condition="'$(PublishAot)' == 'true' and '$(_IsPublishing)' == 'true'">
     <PropertyGroup>
       <DefineConstants>$(DefineConstants);DOTNET_INSPECT_NATIVEAOT</DefineConstants>
     </PropertyGroup>

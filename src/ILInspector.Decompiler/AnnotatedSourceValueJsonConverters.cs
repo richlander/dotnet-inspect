@@ -18,6 +18,7 @@ sealed class AnnotatedSourceSpanJsonConverter
 
         int start = 0;
         int length = 0;
+        int seenProperties = 0;
         string startName = JsonName(options, nameof(AnnotatedSourceSpan.Start));
         string lengthName = JsonName(options, nameof(AnnotatedSourceSpan.Length));
 
@@ -28,12 +29,29 @@ sealed class AnnotatedSourceSpanJsonConverter
                     ref reader,
                     nameof(AnnotatedSourceSpan));
 
-            if (propertyName == startName)
+            if (PropertyMatches(propertyName, startName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 0,
+                    options,
+                    nameof(AnnotatedSourceSpan));
                 start = reader.GetInt32();
-            else if (propertyName == lengthName)
+            }
+            else if (PropertyMatches(propertyName, lengthName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 1,
+                    options,
+                    nameof(AnnotatedSourceSpan));
                 length = reader.GetInt32();
+            }
             else
-                reader.Skip();
+                SkipUnknown(
+                    ref reader,
+                    options,
+                    nameof(AnnotatedSourceSpan));
         }
 
         AnnotatedSourceJsonConverterHelpers.RequireEndObject(
@@ -55,6 +73,35 @@ sealed class AnnotatedSourceSpanJsonConverter
 
     static string JsonName(JsonSerializerOptions options, string name)
         => AnnotatedSourceJsonConverterHelpers.JsonName(options, name);
+
+    static bool PropertyMatches(
+        string actual,
+        string expected,
+        JsonSerializerOptions options)
+        => AnnotatedSourceJsonConverterHelpers.PropertyMatches(
+            actual,
+            expected,
+            options);
+
+    static void ObserveProperty(
+        ref int seenProperties,
+        int property,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.ObserveProperty(
+            ref seenProperties,
+            property,
+            options,
+            typeName);
+
+    static void SkipUnknown(
+        ref Utf8JsonReader reader,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.SkipUnknown(
+            ref reader,
+            options,
+            typeName);
 }
 
 sealed class AnnotatedSourceFactJsonConverter
@@ -76,6 +123,7 @@ sealed class AnnotatedSourceFactJsonConverter
         string? detail = null;
         int sourceOffset = 0;
         var origin = default(AnnotatedSourceFactOrigin);
+        int seenProperties = 0;
         string idName = JsonName(options, nameof(AnnotatedSourceFact.Id));
         string descriptorName =
             JsonName(options, nameof(AnnotatedSourceFact.Descriptor));
@@ -97,22 +145,80 @@ sealed class AnnotatedSourceFactJsonConverter
                     ref reader,
                     nameof(AnnotatedSourceFact));
 
-            if (propertyName == idName)
+            if (PropertyMatches(propertyName, idName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 0,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 id = reader.GetInt32();
-            else if (propertyName == descriptorName)
+            }
+            else if (PropertyMatches(propertyName, descriptorName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 1,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 descriptor = reader.GetString()!;
-            else if (propertyName == categoryName)
+            }
+            else if (PropertyMatches(propertyName, categoryName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 2,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 category = reader.GetString()!;
-            else if (propertyName == conditionalityName)
+            }
+            else if (PropertyMatches(
+                propertyName,
+                conditionalityName,
+                options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 3,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 conditionality = ReadConditionality(ref reader);
-            else if (propertyName == detailName)
+            }
+            else if (PropertyMatches(propertyName, detailName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 4,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 detail = reader.GetString();
-            else if (propertyName == sourceOffsetName)
+            }
+            else if (PropertyMatches(
+                propertyName,
+                sourceOffsetName,
+                options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 5,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 sourceOffset = reader.GetInt32();
-            else if (propertyName == originName)
+            }
+            else if (PropertyMatches(propertyName, originName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 6,
+                    options,
+                    nameof(AnnotatedSourceFact));
                 origin = ReadOrigin(ref reader);
+            }
             else
-                reader.Skip();
+                SkipUnknown(
+                    ref reader,
+                    options,
+                    nameof(AnnotatedSourceFact));
         }
 
         AnnotatedSourceJsonConverterHelpers.RequireEndObject(
@@ -227,6 +333,35 @@ sealed class AnnotatedSourceFactJsonConverter
 
     static string JsonName(JsonSerializerOptions options, string name)
         => AnnotatedSourceJsonConverterHelpers.JsonName(options, name);
+
+    static bool PropertyMatches(
+        string actual,
+        string expected,
+        JsonSerializerOptions options)
+        => AnnotatedSourceJsonConverterHelpers.PropertyMatches(
+            actual,
+            expected,
+            options);
+
+    static void ObserveProperty(
+        ref int seenProperties,
+        int property,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.ObserveProperty(
+            ref seenProperties,
+            property,
+            options,
+            typeName);
+
+    static void SkipUnknown(
+        ref Utf8JsonReader reader,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.SkipUnknown(
+            ref reader,
+            options,
+            typeName);
 }
 
 sealed class AnnotatedSourceTargetJsonConverter
@@ -243,6 +378,7 @@ sealed class AnnotatedSourceTargetJsonConverter
 
         int factId = 0;
         int nodeId = 0;
+        int seenProperties = 0;
         string factIdName =
             JsonName(options, nameof(AnnotatedSourceTarget.FactId));
         string nodeIdName =
@@ -255,12 +391,29 @@ sealed class AnnotatedSourceTargetJsonConverter
                     ref reader,
                     nameof(AnnotatedSourceTarget));
 
-            if (propertyName == factIdName)
+            if (PropertyMatches(propertyName, factIdName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 0,
+                    options,
+                    nameof(AnnotatedSourceTarget));
                 factId = reader.GetInt32();
-            else if (propertyName == nodeIdName)
+            }
+            else if (PropertyMatches(propertyName, nodeIdName, options))
+            {
+                ObserveProperty(
+                    ref seenProperties,
+                    1 << 1,
+                    options,
+                    nameof(AnnotatedSourceTarget));
                 nodeId = reader.GetInt32();
+            }
             else
-                reader.Skip();
+                SkipUnknown(
+                    ref reader,
+                    options,
+                    nameof(AnnotatedSourceTarget));
         }
 
         AnnotatedSourceJsonConverterHelpers.RequireEndObject(
@@ -286,6 +439,35 @@ sealed class AnnotatedSourceTargetJsonConverter
 
     static string JsonName(JsonSerializerOptions options, string name)
         => AnnotatedSourceJsonConverterHelpers.JsonName(options, name);
+
+    static bool PropertyMatches(
+        string actual,
+        string expected,
+        JsonSerializerOptions options)
+        => AnnotatedSourceJsonConverterHelpers.PropertyMatches(
+            actual,
+            expected,
+            options);
+
+    static void ObserveProperty(
+        ref int seenProperties,
+        int property,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.ObserveProperty(
+            ref seenProperties,
+            property,
+            options,
+            typeName);
+
+    static void SkipUnknown(
+        ref Utf8JsonReader reader,
+        JsonSerializerOptions options,
+        string typeName)
+        => AnnotatedSourceJsonConverterHelpers.SkipUnknown(
+            ref reader,
+            options,
+            typeName);
 }
 
 static class AnnotatedSourceJsonConverterHelpers
@@ -294,6 +476,48 @@ static class AnnotatedSourceJsonConverterHelpers
         JsonSerializerOptions options,
         string name)
         => options.PropertyNamingPolicy?.ConvertName(name) ?? name;
+
+    public static bool PropertyMatches(
+        string actual,
+        string expected,
+        JsonSerializerOptions options)
+        => string.Equals(
+            actual,
+            expected,
+            options.PropertyNameCaseInsensitive
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+
+    public static void ObserveProperty(
+        ref int seenProperties,
+        int property,
+        JsonSerializerOptions options,
+        string typeName)
+    {
+        if (!options.AllowDuplicateProperties
+            && (seenProperties & property) != 0)
+        {
+            throw new JsonException(
+                $"{typeName} contains a duplicate property.");
+        }
+
+        seenProperties |= property;
+    }
+
+    public static void SkipUnknown(
+        ref Utf8JsonReader reader,
+        JsonSerializerOptions options,
+        string typeName)
+    {
+        if (options.UnmappedMemberHandling
+            == JsonUnmappedMemberHandling.Disallow)
+        {
+            throw new JsonException(
+                $"{typeName} contains an unknown property.");
+        }
+
+        reader.Skip();
+    }
 
     public static void RequireObject(
         Utf8JsonReader reader,
