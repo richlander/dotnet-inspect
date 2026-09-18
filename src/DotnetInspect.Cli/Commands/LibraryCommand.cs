@@ -1252,11 +1252,12 @@ public class LibraryCommand
                                 ?? throw new InvalidOperationException(
                                     "Package identity was not resolved.")
                             : Path.GetFileNameWithoutExtension(assemblyPath);
-                    OutputFormatter.WriteLibraryResults(
-                        inspections,
-                        documentTitle,
-                        options,
-                        pipeline);
+                    if (!OutputFormatter.WriteLibraryResults(
+                            inspections,
+                            documentTitle,
+                            options,
+                            pipeline))
+                        return 1;
                 }
 
                 return Math.Max(

@@ -827,7 +827,7 @@ public static class OutputFormatter
         }
     }
 
-    public static void WriteLibraryResults(
+    public static bool WriteLibraryResults(
         List<LibraryInspection> inspections,
         string documentTitle,
         LibraryOptions options,
@@ -847,17 +847,79 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var projection = new CountProjection();
-            foreach (var inspection in inspections)
+            var frameworkGroups = inspections
+                .GroupBy(
+                    inspection => inspection.Tfm,
+                    StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview);
+            if (frameworkGroups.Length == 1)
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                projection.Merge(CaptureLibraryCountProjection(
-                    auditView, inspection, WriterOptions(inspection), options.Rows, options.Fields, options.Columns));
+                var projection = CaptureLibraryCountProjection(
+                    frameworkGroups[0],
+                    topFieldsOnly,
+                    WriterOptions,
+                    options);
+                CountOutput.Write(
+                    projection,
+                    ordered,
+                    options.Format,
+                    options.NoHeader,
+                    options.OutputPath,
+                    options.Rows);
+                return true;
             }
-            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-            CountOutput.Write(
-                projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
-            return;
+
+            if (!CountOutput.ValidateRowSetTableFormat(
+                    options.Format,
+                    options.Tree))
+                return false;
+
+            string? selectedSection = ordered is null
+                ? options.IncludeSections is { Count: 1 } selected
+                    ? selected.Single()
+                    : throw new InvalidOperationException(
+                        "A single-section count must retain its selected section.")
+                : null;
+            var rowSetCounts = new List<RowSetCount>();
+            foreach (var frameworkGroup in frameworkGroups)
+            {
+                var projection = CaptureLibraryCountProjection(
+                    frameworkGroup,
+                    topFieldsOnly,
+                    WriterOptions,
+                    options);
+                string framework = frameworkGroup.Key
+                    ?? throw new InvalidOperationException(
+                        "A multi-framework count must retain framework identity.");
+                if (ordered is null)
+                {
+                    rowSetCounts.Add(
+                        new RowSetCount(
+                            $"{framework} / {selectedSection}",
+                            projection.Total));
+                    continue;
+                }
+
+                foreach (string section in ordered)
+                {
+                    rowSetCounts.Add(
+                        new RowSetCount(
+                            $"{framework} / {section}",
+                            projection.SectionCounts.GetValueOrDefault(section)));
+                }
+            }
+
+            CountOutput.WriteRowSetCounts(
+                rowSetCounts,
+                options.Format,
+                options.NoHeader,
+                options.OutputPath,
+                options.Rows);
+            return true;
         }
 
         OutputDestination.Write(
@@ -948,6 +1010,31 @@ public static class OutputFormatter
                     }
                 }
             });
+        return true;
+    }
+
+    private static CountProjection CaptureLibraryCountProjection(
+        IEnumerable<LibraryInspection> inspections,
+        bool topFieldsOnly,
+        Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+        LibraryOptions options)
+    {
+        var projection = new CountProjection();
+        foreach (LibraryInspection inspection in inspections)
+        {
+            var auditView = new LibraryInspectionView(
+                inspection,
+                topFieldsOnly);
+            projection.Merge(CaptureLibraryCountProjection(
+                auditView,
+                inspection,
+                writerOptions(inspection),
+                options.Rows,
+                options.Fields,
+                options.Columns));
+        }
+
+        return projection;
     }
 
     private static string RenderMarkdownHeading(int level, string title)

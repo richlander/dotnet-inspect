@@ -5344,12 +5344,19 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);
-            Assert.Equal(0, multiTreeCountExit);
+            Assert.Equal(1, multiTreeCountExit);
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
-            Assert.Empty(multiTreeCountError);
-            Assert.Equal(singleCountOutput, multiCountOutput);
-            Assert.Equal(singleCountOutput, multiTreeCountOutput);
+            Assert.Equal(
+                $"row_set\tcount{Environment.NewLine}"
+                + $"net10.0 / Async Methods\t0{Environment.NewLine}"
+                + $"net8.0 / Async Methods\t{singleCountOutput.Trim()}"
+                + Environment.NewLine,
+                multiCountOutput);
+            Assert.Empty(multiTreeCountOutput);
+            Assert.Contains(
+                "requires one",
+                multiTreeCountError);
             Assert.Equal(1, multiTreeMapExit);
             Assert.Empty(multiTreeMapOutput);
             Assert.Contains("exactly one", multiTreeMapError);

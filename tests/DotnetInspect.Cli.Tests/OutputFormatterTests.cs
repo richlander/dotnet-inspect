@@ -2888,6 +2888,55 @@ public class OutputFormatterTests
         }
     }
 
+    [Theory]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.PlainText)]
+    public void CountProjection_RowSetRowsRenderThroughEveryCompatibleFormat(
+        OutputFormat format)
+    {
+        RowSetCount[] counts =
+        [
+            new("net9.0 / Signals", 17),
+            new("net8.0 / Signals", 23)
+        ];
+
+        var output = CountOutput.RenderRowSetCounts(counts, format);
+
+        Assert.Contains("net9.0 / Signals", output, StringComparison.Ordinal);
+        Assert.Contains("17", output, StringComparison.Ordinal);
+        Assert.Contains("net8.0 / Signals", output, StringComparison.Ordinal);
+        Assert.Contains("23", output, StringComparison.Ordinal);
+
+        if (format == OutputFormat.Json)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "net9.0 / Signals",
+                document.RootElement[0].GetProperty("row_set").GetString());
+            Assert.Equal(
+                17,
+                document.RootElement[0].GetProperty("count").GetInt32());
+        }
+        else if (format == OutputFormat.Jsonl)
+        {
+            var lines = output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            using var first = JsonDocument.Parse(lines[0]);
+            Assert.Equal(
+                "net9.0 / Signals",
+                first.RootElement.GetProperty("row_set").GetString());
+            Assert.Equal(
+                17,
+                first.RootElement.GetProperty("count").GetInt32());
+        }
+    }
+
     [Fact]
     public void AssertMarkdownTablesHaveUniformColumnCounts_CatchesMalformedRows()
     {
@@ -3714,9 +3763,9 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public async Task MultiAssemblyReport_CountAggregatesChildSections()
+    public async Task MultiAssemblyReport_CountAggregatesLibrariesWithinFramework()
     {
-        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var inspections = CreateTestAudits("net9.0", "net9.0");
         var pipeline = LibrarySections.CreatePipeline();
 
         var scalarOptions = new LibraryOptions
@@ -3741,6 +3790,48 @@ public class OutputFormatterTests
         Assert.Contains("| Library Info |", map);
         Assert.DoesNotContain("| Library Info | 0 |", map);
         Assert.Contains("| Signals | 2 |", map);
+    }
+
+    [Fact]
+    public async Task MultiFrameworkReport_CountPreservesFrameworkScopes()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var options = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = ["Signals"]
+        };
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                pipeline));
+
+        Assert.Empty(error);
+        Assert.Contains("| Row Set | Count |", output);
+        Assert.Contains("| net9.0 / Signals | 1 |", output);
+        Assert.Contains("| net8.0 / Signals | 1 |", output);
+        Assert.DoesNotContain("| 2 |", output);
+
+        var mapOptions = options with
+        {
+            IncludeSections = ["Library Info", "Signals"]
+        };
+        var (map, mapError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                mapOptions,
+                pipeline));
+
+        Assert.Empty(mapError);
+        Assert.Contains("| net9.0 / Library Info |", map);
+        Assert.Contains("| net9.0 / Signals | 1 |", map);
+        Assert.Contains("| net8.0 / Library Info |", map);
+        Assert.Contains("| net8.0 / Signals | 1 |", map);
     }
 
     [Fact]
