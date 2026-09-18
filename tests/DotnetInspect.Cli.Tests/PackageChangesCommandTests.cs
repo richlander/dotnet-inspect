@@ -485,7 +485,7 @@ public sealed class PackageChangesCommandTests
             () => PackageChangesCommand.ExecuteAsync(
                 Options(OutputFormat.Json) with
                 {
-                    Ecosystem = "platform",
+                    Ecosystem = "dotnet",
                 },
                 source,
                 new GitHubNuGetAdvisoryService(advisoryClient),
