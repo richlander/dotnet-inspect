@@ -1187,24 +1187,27 @@ public static partial class ApiSurfaceExtractor
                     methodHandle,
                     method,
                     typeNullableContext,
+                    apiType.DefinitionName,
+                    currentAssemblyIdentity,
+                    apiType.TypeParameters.Count,
+                    apiType.Kind switch
+                    {
+                        "class" => true,
+                        "struct" => false,
+                        _ => null,
+                    },
                     isExtensionMethod,
                     observeText,
                     observeDecodeWork,
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
-                var modifiers = ApiMethodModifiers.FromAttributes(
-                    methodAttributes,
-                    isExplicitInterfaceImplementation);
 
-                // A class finalizer is the `object.Finalize` override the C#
-                // `~Type()` destructor compiles to. It is detected by the
-                // overridden slot (not by name/signature shape), which excludes
-                // the false positives a shape heuristic admits: an implicit
-                // generic `Finalize<T>()`, an override of an unrelated
-                // base/interface `Finalize()` slot, and an explicit
-                // `IFoo.Finalize()` implementation. There are two slot-anchored
-                // shapes:
+                // A class finalizer is the destructor-shaped `object.Finalize`
+                // override the C# `~Type()` declaration compiles to. Both the
+                // overridden slot and the body MethodDef shape are required,
+                // excluding generic, static, new-slot, inaccessible, and
+                // unrelated Finalize methods. There are two slot-anchored shapes:
                 //   * Roslyn (C#) emits an explicit `.override` MethodImpl
                 //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
                 //     carries those.
@@ -1212,17 +1215,24 @@ public static partial class ApiSurfaceExtractor
                 //     with NO MethodImpl — it reuses the inherited object.Finalize
                 //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
                 //     that slot roots at `System.Object` over metadata alone.
-                // A finalizer is never generic, so a method that overrides
-                // object.Finalize while declaring its own type parameters is still
-                // rejected — rendering it `~Type()` would erase `<T>`.
+                // Keep the declaration-shape check before the per-type MethodImpl
+                // scan so ordinary methods stay off that path.
                 var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
                     && (objectFinalizeOverrides.Contains(methodHandle)
                         || IsImplicitObjectFinalizeOverride(
                             reader,
                             typeDefHandle,
                             method,
+                            observeDecodeWork)
+                        && !HasMethodImplementationBody(
+                            reader,
+                            typeDef,
+                            methodHandle,
+                            method,
                             observeDecodeWork));
+                var modifiers = ApiMethodModifiers.FromAttributes(
+                    methodAttributes,
+                    isExplicitInterfaceImplementation && !isFinalizer);
 
                 var member = new ApiMember
                 {
@@ -1267,7 +1277,18 @@ public static partial class ApiSurfaceExtractor
                             observeDecodeWork),
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                    AccessibilityIsRepresentable =
+                        isExplicitInterfaceImplementation
+                            && !isOperator
+                            && !isFinalizer
+                            ? methodAccess == MethodAttributes.Private
+                            : IsRepresentableMethodAccessibility(methodAccess),
+                    Accessibility =
+                        isExplicitInterfaceImplementation
+                            && !isOperator
+                            && !isFinalizer
+                            ? null
+                            : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     HasRuntimeJsExport =

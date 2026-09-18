@@ -546,6 +546,66 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
+    public void SemanticEquality_DetectsMethodAdmissionFacts()
+    {
+        ApiMember first = Member();
+        ApiMember second = Member();
+
+        second.AccessibilityIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.SignatureModel!.MethodDeclarationHeaderIsRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.SignatureModel!.ReturnTypeCustomModifiersAreRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.SignatureModel!.ReturnTypeMatchesDeclaringType = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.SignatureModel!.Parameters[0].CustomModifiersAreRepresentable =
+            false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.SignatureModel!.Parameters[0].MatchesDeclaringType = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        static ApiMember Member()
+        {
+            ApiMember member = NavigationSnapshotTestData.Member("Run");
+            member.AccessibilityIsRepresentable = true;
+            member.SignatureModel = new()
+            {
+                MethodDeclarationHeaderIsRepresentable = true,
+                ReturnTypeCustomModifiersAreRepresentable = true,
+                ReturnTypeMatchesDeclaringType = true,
+                Parameters =
+                [
+                    new()
+                    {
+                        Name = "value",
+                        Type = "Widget",
+                        CustomModifiersAreRepresentable = true,
+                        MatchesDeclaringType = true,
+                    },
+                ],
+            };
+            return member;
+        }
+    }
+
+    [Fact]
     public void FilteredJsonPropertyNames_CompareOrdinalOrderedValuesAndAllFactFields()
     {
         var original = new FilteredJsonPropertyNameFact(

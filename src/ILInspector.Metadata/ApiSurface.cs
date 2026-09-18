@@ -580,14 +580,35 @@ public class ApiSignature
     public string? CanonicalReturnType { get; set; }
 
     /// <summary>
+    /// Whether this MethodDef signature header has an exact C# declaration
+    /// representation. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodDeclarationHeaderIsRepresentable { get; set; }
+
+    /// <summary>
     /// Opaque structural return-type identity for call-graph selectors. Null on
     /// older serialized surfaces and members whose normalized display spelling
     /// already supplies the complete selector identity.
     /// </summary>
     public string? StructuralReturnType { get; set; }
 
+    /// <summary>
+    /// Whether custom modifiers in the return type have an exact C# declaration
+    /// spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ReturnTypeCustomModifiersAreRepresentable { get; set; }
+
     [JsonIgnore]
     public List<ApiTypeReferenceIdentity> ReturnTypeReferences { get; set; } = [];
+
+    /// <summary>
+    /// Whether the exact return-type signature is the open constructed
+    /// declaring type. Null means this relative identity was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? ReturnTypeMatchesDeclaringType { get; set; }
 
     [JsonIgnore]
     public ApiTypeReferenceIdentity? ReturnTypeDefinitionReference
@@ -602,6 +623,7 @@ public class ApiSignature
 
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
+
     public bool IsRequired { get; set; }
     public List<TypeParameter> TypeParameters { get; set; } = [];
     public List<ApiParameter> Parameters { get; set; } = [];
@@ -658,6 +680,16 @@ public class ApiParameter
     /// already supplies the complete selector identity.
     /// </summary>
     public string? StructuralType { get; set; }
+
+    /// <summary>
+    /// Whether custom modifiers in this parameter type have an exact C#
+    /// declaration spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? CustomModifiersAreRepresentable { get; set; }
+
+    [JsonIgnore]
+    public bool? MatchesDeclaringType { get; set; }
 
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
@@ -1124,6 +1156,13 @@ public class ApiMember
 
     [JsonIgnore]
     public ApiSignature? SignatureModel { get; set; }
+
+    /// <summary>
+    /// Whether this MethodDef's accessibility mask has an exact C#
+    /// representation. Null means the fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? AccessibilityIsRepresentable { get; set; }
 
     /// <summary>
     /// Number of index parameters on a property. Null means older or
