@@ -18,13 +18,213 @@ public static class InspectionGraphCommandDefinitions
             "Inspect typed relationships across an explicit workspace");
         var integrations = CreateIntegrationsCommand(opts);
         var libraries = CreateLibrariesCommand(opts);
+        var calls = CreateCallsCommand(opts);
         command.Subcommands.Add(integrations);
         command.Subcommands.Add(libraries);
+        command.Subcommands.Add(calls);
         command.SetAction(_ =>
         {
             HelpWriter.WriteHelp(command);
             return 0;
         });
+        return command;
+    }
+
+    static Command CreateCallsCommand(SharedOptions opts)
+    {
+        var command = new Command(
+            ExternalCallGraphCommand.Name,
+            "Show external package calls with shortest local connectors");
+        var typeArgument = new Argument<string?>("type")
+        {
+            Description = "Type containing the focus member",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var memberArgument = new Argument<string?>("member")
+        {
+            Description = "Member selector (Name, Name:N, or Name~digest)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var rootPackageOption = new Option<string>("--root-package")
+        {
+            Description =
+                "Root package containing the selected member (name or name@version)",
+        };
+        var packageOption = new Option<string[]>("--package")
+        {
+            Description =
+                "External participant package (name or name@version). Repeat for each package.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var tfmOption = new Option<string?>("--tfm")
+        {
+            Description =
+                "Shared target framework for the package set (for example net10.0)",
+        };
+        var allOption = new Option<bool>("--all")
+        {
+            Description =
+                "Include non-public types and members in focus selection",
+        };
+        var depthOption = new Option<int>("--depth")
+        {
+            Description = "Maximum outgoing call depth",
+            DefaultValueFactory = _ => 3,
+        };
+        var maxNodesOption = new Option<int>("--max-nodes")
+        {
+            Description = "Maximum call-graph nodes",
+            DefaultValueFactory = _ => 25,
+        };
+
+        command.Arguments.Add(typeArgument);
+        command.Arguments.Add(memberArgument);
+        command.Options.Add(rootPackageOption);
+        command.Options.Add(packageOption);
+        command.Options.Add(tfmOption);
+        command.Options.Add(allOption);
+        command.Options.Add(depthOption);
+        command.Options.Add(maxNodesOption);
+        command.Options.Add(opts.Json);
+        command.Options.Add(opts.Markdown);
+        command.Options.Add(opts.PlainText);
+        command.Options.Add(opts.Mermaid);
+        opts.AddTableOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: static _ => false);
+        command.Options.Add(opts.Tree);
+        opts.AddCountOptionTo(command);
+        opts.AddNuGetOptionsTo(command);
+
+        command.Validators.Add(result =>
+        {
+            if (result.GetResult(depthOption) is { Implicit: false }
+                && result.GetValue(depthOption) < 0)
+            {
+                result.AddError("--depth must be non-negative.");
+            }
+            if (result.GetResult(maxNodesOption) is { Implicit: false }
+                && result.GetValue(maxNodesOption) < 1)
+            {
+                result.AddError("--max-nodes must be positive.");
+            }
+            if (result.GetValue(opts.Tree)
+                && result.GetValue(opts.Mermaid))
+            {
+                result.AddError(
+                    "--tree and --mermaid are alternate graph renderings; choose one.");
+            }
+            if (result.GetValue(opts.Tree)
+                && (result.GetValue(opts.Json)
+                    || result.GetValue(opts.Markdown)
+                    || result.GetValue(opts.PlainText)
+                    || result.GetValue(opts.Table)
+                    || result.GetValue(opts.Tsv)
+                    || result.GetValue(opts.Jsonl)
+                    || result.GetResult(opts.Verbosity)
+                        is { Implicit: false }))
+            {
+                result.AddError(
+                    "--tree is a standalone graph rendering and cannot combine with another output format.");
+            }
+        });
+
+        command.SetAction(async (parseResult, cancellationToken) =>
+        {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "External call graph",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
+            string? rootPackage =
+                parseResult.GetValue(rootPackageOption);
+            string? tfm = parseResult.GetValue(tfmOption);
+            string? type = parseResult.GetValue(typeArgument);
+            string? member = parseResult.GetValue(memberArgument);
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                CommandError.Write("A focus type is required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph calls --help' for usage.");
+                return 1;
+            }
+            if (string.IsNullOrWhiteSpace(member))
+            {
+                CommandError.Write("A focus member is required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph calls --help' for usage.");
+                return 1;
+            }
+            if (string.IsNullOrWhiteSpace(rootPackage))
+            {
+                CommandError.Write("--root-package is required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph calls --help' for usage.");
+                return 1;
+            }
+            if (string.IsNullOrWhiteSpace(tfm))
+            {
+                CommandError.Write("A shared --tfm is required.");
+                CommandError.WriteLine(
+                    "Run 'dotnet-inspect graph calls --help' for usage.");
+                return 1;
+            }
+
+            return await ExternalCallGraphCommand.ExecuteAsync(
+                new ExternalCallGraphOptions
+                {
+                    TypeName = type,
+                    Member = member,
+                    RootPackage = rootPackage,
+                    Packages =
+                        parseResult.GetValue(packageOption) ?? [],
+                    Tfm = tfm,
+                    IncludeAll = parseResult.GetValue(allOption),
+                    Depth = parseResult.GetValue(depthOption),
+                    MaxNodes = parseResult.GetValue(maxNodesOption),
+                    Format = opts.ResolveFormat(parseResult),
+                    EmbeddedMermaid =
+                        opts.IsEmbeddedMermaid(parseResult),
+                    Tree = parseResult.GetValue(opts.Tree),
+                    Count = parseResult.GetValue(opts.Count),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
+                    NoHeader = parseResult.GetValue(opts.NoHeaders),
+                    Verbose = parseResult.GetValue(opts.Verbose),
+                    SourceOptions =
+                        opts.ParseNuGetSourceOptions(parseResult),
+                },
+                cancellationToken);
+        });
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: static _ => true,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return command;
     }
 

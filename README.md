@@ -180,6 +180,7 @@ stderr rather than mixed into structured output.
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
+| `graph calls TYPE MEMBER` | Explain one package member's outgoing calls that cross assembly boundaries, retaining only boundary calls and their shortest local connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -805,6 +806,7 @@ generation, action, and authority identities are omitted.
 ```bash
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills
 dotnet-inspect project ./src/DotnetInspect.Cli -S @Project
+dotnet-inspect project ./src/DotnetInspect.Cli -S Skills -n 1 --tail
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --print --row 1
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file"
 dotnet-inspect project ./src/DotnetInspect.Cli -S "Package README file" --print --row 1
@@ -819,7 +821,12 @@ directory only locates that file; dotnet-inspect does not restore or build.
 The `project` command reads only valid package Skills and root `README.md`
 documents listed by the existing restore output. It does not interpret package
 `AGENTS.md` or `PROJECT.md` files. Select `@Project` to compose both document
-inventories; bare `-S` retains the focused `Skills` overview.
+inventories; bare `-S` retains the focused `Skills` overview. With exactly one
+document section selected, `-n`, `--tail`, and `--rows A..B` select complete
+document rows before Count, structured output, projection, or print/bare
+lowering. Add `--lines` only to clip rendered text. Multi-section `@Project`
+output retains its independent section row sets and rendered-line `-n`
+fallback.
 
 ### Types, members, and source
 
@@ -1037,6 +1044,13 @@ dotnet-inspect graph integrations \
   --tfm net10.0 \
   --relationship integration.observed \
   -n 10 --tail --table
+dotnet-inspect graph calls \
+  Microsoft.Extensions.DependencyInjection.ProviderBuilderServiceCollectionExtensions \
+  AddOpenTelemetrySharedProviderBuilderServices~4d95928639 \
+  --root-package OpenTelemetry@1.18.0 \
+  --package OpenTelemetry.Api@1.18.0 \
+  --tfm net10.0 \
+  --all
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -1051,12 +1065,33 @@ dotnet-inspect graph libraries \
   --table
 ```
 
-For `graph integrations`, one semantic row is one logical graph edge in the
-completed induced-set document. Head/Tail and strict Window select those edges
-before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph, or Count
-lowering; selection does not reduce package acquisition or hide retained graph
-failures. Add `--lines` only to clip rendered text explicitly. `graph libraries`
-retains its independent section row sets and rendered-line `-n` fallback.
+For `graph integrations` and `graph calls`, one semantic row is one logical
+graph edge in the completed typed document. Head/Tail and strict Window select
+those edges before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph,
+or Count lowering; selection does not reduce package acquisition or hide
+retained graph failures. Add `--lines` only to clip rendered text explicitly.
+`graph libraries` retains its independent section row sets and rendered-line
+`-n` fallback.
+
+`graph calls` is the integration-style complement to the general
+`member -S "Call Graph"` view. It starts from one exact member in
+`--root-package`, treats repeatable `--package` values as explicit external
+participants, and shows only calls crossing out of the focus assembly plus the
+shortest local paths needed to reach them. Each edge is typed as `connector`,
+`boundary`, or `unclassified-boundary`, and row-oriented output retains the
+physical MVID, MethodDef token, IL offset, operand token, call kind, dispatch
+kind, and loop state.
+
+The OpenTelemetry example reduces the ordinary 28-edge bounded neighborhood to
+nine explanatory edges. Two local connectors retain the path from
+`AddOpenTelemetrySharedProviderBuilderServices` through
+`Sdk.get_SuppressInstrumentation` and
+`SuppressInstrumentationScope.get_IsSuppressed` to
+`OpenTelemetry.Api`'s `RuntimeContextSlot<T>.Get`. Calls into assemblies not
+declared by `--package` remain visible as `unclassified-boundary` edges with an
+incompleteness warning instead of being silently dropped. Use `--table`,
+`--jsonl`, or `--json` for exact receipts; `-n`, `--tail`, and `--rows` select
+complete logical edges after graph construction.
 
 For positional type dependencies, `--json` writes the complete
 `TypeDependencySectionResult` Content, and `--envelope` writes the identical

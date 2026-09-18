@@ -567,11 +567,23 @@ public sealed record DirectionalOutputDto(string Name)
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string AlwaysPresent { get; init; } = "";
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? AlwaysNullable { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int DefaultHidden { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int? NullableDefaultHidden { get; init; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? NullHidden { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NonNullableNullHidden { get; init; } = "";
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DirectionalNote?[]? NullableItems { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DirectionalConditionalNote? ConditionalNote { get; init; }

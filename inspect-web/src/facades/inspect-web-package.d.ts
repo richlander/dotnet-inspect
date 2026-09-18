@@ -882,21 +882,21 @@ export interface BrowserWorkspacePackageOccurrenceView {
 }
 export interface CompiledDocumentationAssemblyIdentity {
     readonly name?: string;
-    readonly version?: string | null;
-    readonly culture?: string | null;
-    readonly publicKeyToken?: string | null;
+    readonly version?: string;
+    readonly culture?: string;
+    readonly publicKeyToken?: string;
 }
 export interface CompiledDocumentationEntry {
-    readonly summary?: string | null;
-    readonly remarks?: string | null;
-    readonly returns?: string | null;
+    readonly summary?: string;
+    readonly remarks?: string;
+    readonly returns?: string;
     readonly parameters: ReadonlyArray<CompiledDocumentationParameter>;
     readonly exceptions: ReadonlyArray<CompiledDocumentationException>;
     readonly samples: ReadonlyArray<CompiledDocumentationSample>;
 }
 export interface CompiledDocumentationException {
-    readonly reference?: string | null;
-    readonly description?: string | null;
+    readonly reference?: string;
+    readonly description?: string;
 }
 export interface CompiledDocumentationParameter {
     readonly name?: string;
@@ -904,13 +904,13 @@ export interface CompiledDocumentationParameter {
 }
 export interface CompiledDocumentationSample {
     readonly code?: string;
-    readonly title?: string | null;
-    readonly region?: string | null;
+    readonly title?: string;
+    readonly region?: string;
 }
 export interface CompiledDocumentationSource {
     readonly kind: CompiledDocumentationSourceKind;
     readonly name?: string;
-    readonly precedence?: number | null;
+    readonly precedence?: number;
 }
 export interface CompiledDocumentationSourceEvidence {
     readonly source: CompiledDocumentationSource;

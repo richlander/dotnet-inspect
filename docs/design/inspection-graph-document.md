@@ -18,6 +18,8 @@ Related documents:
   composition](external-focused-inspection-graph.md) owns exact
   assembly-generation classification and the cross-library member-neighborhood
   default.
+- [External-focused CLI call graph](external-focused-cli-call-graph.md) owns
+  explicit package/member selection and Markout lowering for the CLI consumer.
 - [Member body substrate](member-body-substrate.md) owns
   `AnnotatedSourceDocument` and the fact-to-target join that motivates this
   design.

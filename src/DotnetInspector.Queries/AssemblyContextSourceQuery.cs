@@ -52,6 +52,8 @@ public sealed class AssemblyContextSourceQueryContext
     public ISourceLinkIndexCache? SourceLinkCache { get; init; }
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
+    /// <summary>Optional PDB acquisition fallback; authoritative package/Platform provenance takes precedence.</summary>
+    public PackageCoordinate? PdbFallbackPackage { get; init; }
     public bool CacheOnly { get; init; }
     public SymbolAcquisitionLimits? SymbolAcquisitionLimits { get; init; }
     public int MaxDecompilerBodyProjections { get; init; } =
@@ -102,7 +104,8 @@ public sealed class AssemblyContextSourceQueryContext
 }
 
 /// <summary>
-/// Exact type request for a PDB-mapped-or-decompiled source query.
+/// Exact type request for a PDB-mapped-or-decompiled source query, or one
+/// explicitly selected authored document without decompiler substitution.
 /// Printer options affect only decompiled fallback; PDB source remains
 /// unchanged.
 /// </summary>
@@ -119,6 +122,15 @@ public sealed record AssemblyTypeSourceRequest
 
     public MetadataTypeDefinitionName Type { get; }
     public PrinterOptions? PrinterOptions { get; }
+    public string? OriginalDocumentPath { get; private init; }
+
+    public static AssemblyTypeSourceRequest AuthoredDocument(
+        MetadataTypeDefinitionName type,
+        string originalDocumentPath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(originalDocumentPath);
+        return new(type) { OriginalDocumentPath = originalDocumentPath };
+    }
 
     public static AssemblyTypeSourceRequest From(
         ApiType type,
@@ -251,6 +263,7 @@ public enum AssemblySourceFailureKind
     TargetNotFound,
     PdbAndDecompiledUnavailable,
     InspectionFailed,
+    AuthoredDocumentUnavailable,
 }
 
 public sealed record AssemblySourceFailure(
@@ -921,7 +934,7 @@ public static partial class AssemblyContextSourceQuery
                     context.TypeSourceLimits,
                     context.TypeSourceTimeout,
                     cancellationToken,
-                    retainSymbols: true)
+                    retainSymbols: request.OriginalDocumentPath is null)
                 .ConfigureAwait(false);
         if (pdb.Inspection.IsComplete
             && pdb.Inspection.Text is { } pdbText
@@ -944,6 +957,20 @@ public static partial class AssemblyContextSourceQuery
         EnsureBindingPolicyVersion(
             participant,
             bindingPolicyVersion);
+        if (request.OriginalDocumentPath is not null)
+        {
+            return new AssemblyTypeSourceEntry.Unavailable(
+                subject,
+                request,
+                new(
+                    AssemblySourceFailureKind.AuthoredDocumentUnavailable,
+                    "The selected authored source document is unavailable."),
+                pdb.Inspection)
+            {
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
+        }
         var bindingPolicy =
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy);
@@ -1006,7 +1033,9 @@ public static partial class AssemblyContextSourceQuery
             context.CacheOnly,
             context.NuGetSourceOptions,
             cancellationToken,
-            context.SymbolAcquisitionLimits);
+            context.SymbolAcquisitionLimits,
+            context.PdbFallbackPackage?.PackageId,
+            context.PdbFallbackPackage?.Version);
 
     internal static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,

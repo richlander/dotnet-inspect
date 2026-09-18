@@ -38,6 +38,14 @@ public class InspectionResultView
                 : null),
         new("Selected TFM", static view =>
             view.PackageMeasurements?.SelectedTargetFramework),
+        new("Selected-TFM Folders", static view =>
+            view.PackageMeasurements?.SelectedTargetFrameworkFolders
+                is { Count: > 0 } folders
+                ? InertString.Join(
+                    ", ",
+                    TextPolicy.Field,
+                    folders).ToString()
+                : null),
         new("TFM Count", static view =>
             view.PackageMeasurements?.AvailableTargetFrameworkCount
                 is { } count
