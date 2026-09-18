@@ -242,6 +242,8 @@ public static class IrImporter
             MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName);
         if (result is TypeDeclarationResult.Missing)
             return null;
+        if (result is TypeDeclarationResult.BudgetExceeded budget)
+            throw new TypeDeclarationBudgetExceededException(budget.Detail);
         if (result is TypeDeclarationResult.Rejected rejected)
             throw new BadImageFormatException(rejected.Rejection.Detail);
         if (result is TypeDeclarationResult.Ambiguous)
@@ -269,6 +271,9 @@ public static class IrImporter
             overloadIndex,
             publicOnly);
     }
+
+    sealed class TypeDeclarationBudgetExceededException(string message)
+        : Exception(message);
 
     /// <summary>
     /// Type-handle form of <see cref="ResolveMethodHandle(MetadataReader, string, string, int, bool)"/>.

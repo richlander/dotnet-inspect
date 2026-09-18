@@ -236,13 +236,13 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
-    public void Probe_MaterializesCoreEnumAsSpecialClass()
+    public void ProbeDefinition_MaterializesCoreEnumAsSpecialClass()
     {
         using var pe =
             new PEReader(File.OpenRead(typeof(object).Assembly.Location));
 
         var defined = Assert.IsType<TypeDeclarationResult.Defined>(
-            MetadataTypeDeclarationProbe.Probe(
+            MetadataTypeDeclarationProbe.ProbeDefinition(
                 pe.GetMetadataReader(),
                 Name("System", "Enum")));
 
@@ -371,7 +371,7 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
-    public void ProbeDefinition_RejectsRepeatedLongLeafWork()
+    public void ProbeDefinition_ReportsRepeatedLongLeafWorkAsBudgetExceeded()
     {
         string leaf = new(
             'X',
@@ -392,10 +392,16 @@ public class MetadataTypeDeclarationProbeTests
             }
         });
 
-        Assert.IsType<TypeDeclarationResult.Rejected>(
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
             MetadataTypeDeclarationProbe.ProbeDefinition(
                 image.Reader,
                 Name("N0", leaf)));
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxStructuralSignatureWorkChars,
+            exceeded.Budget);
+        Assert.Contains("work budget", exceeded.Detail);
     }
 
     [Fact]
@@ -1175,6 +1181,7 @@ public class MetadataTypeDeclarationProbeTests
             typeof(TypeDeclarationResult.ExportedFromModule),
             typeof(TypeDeclarationResult.Missing),
             typeof(TypeDeclarationResult.Ambiguous),
+            typeof(TypeDeclarationResult.BudgetExceeded),
             typeof(TypeDeclarationResult.Rejected),
             typeof(TypeDeclarationCandidate.Definition),
             typeof(TypeDeclarationCandidate.Forwarder),
