@@ -2879,6 +2879,44 @@ public partial class CommandExecutionTests
         Assert.Contains(missingCoordinates, error);
     }
 
+    [Fact]
+    public async Task LibraryCoordinateCommand_FileEffectiveDiscoveryPreservesFailureDetails()
+    {
+        string coordinatePath = Path.Combine(
+            Path.GetTempPath(),
+            $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            coordinatePath,
+            "0x06FFFFFF+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "coordinate",
+                "--file",
+                coordinatePath,
+                "--platform",
+                "System.Text.Json",
+                "-D",
+                "@Context",
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("0x06FFFFFF+0x0", error);
+            Assert.Contains("Could not resolve member context", error);
+            Assert.Contains("MethodDef row", error);
+            Assert.DoesNotContain(": could not resolve.", error);
+        }
+        finally
+        {
+            File.Delete(coordinatePath);
+        }
+    }
+
     [Theory]
     [InlineData("0x06000001+0x0", "Context: Member")]
     [InlineData("#Strings:0x1", "@Context")]

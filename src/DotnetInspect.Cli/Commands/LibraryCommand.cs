@@ -1574,7 +1574,13 @@ public class LibraryCommand
                 logger);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
-                : new ILCoordinateBatchRow(coordinate.Value, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
+                : new ILCoordinateBatchRow(
+                    coordinate.Value,
+                    coordinate.Label,
+                    null,
+                    null,
+                    "error",
+                    ILOffsetQuery.FormatFailure(resolved.Failure)));
         }
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
@@ -1627,7 +1633,7 @@ public class LibraryCommand
     private static Task<(
         int ExitCode,
         ILOffsetProjection? Result,
-        string? Error)> ResolveILCoordinateAsync(
+        ILOffsetProjectionFailure? Failure)> ResolveILCoordinateAsync(
         SourceLinkService service,
         ILCoordinatePopulationRecord.Coordinate coordinate,
         HashSet<string> sections,
@@ -2307,7 +2313,7 @@ public class LibraryCommand
             {
                 CommandError.Write(
                     $"Could not resolve coordinate '{coordinate.Value}': "
-                    + $"{resolved.Error ?? "unknown failure"}.");
+                    + ILOffsetQuery.FormatFailure(resolved.Failure));
                 failed = true;
             }
         }

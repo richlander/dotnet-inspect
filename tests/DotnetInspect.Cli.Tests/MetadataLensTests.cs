@@ -1465,6 +1465,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: #Strings", output, StringComparison.Ordinal);
         Assert.Contains("not a walk of the heap", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "library coordinate \"#Strings:<address>\"",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "with --heap",
+            output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1504,6 +1512,10 @@ public partial class CommandExecutionTests
         Assert.Contains("## Metadata: #US", output, StringComparison.Ordinal);
         Assert.Contains("ldstr", output, StringComparison.Ordinal);
         Assert.Contains("cannot be walked", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "library coordinate \"#US:<address>\"",
+            output,
+            StringComparison.Ordinal);
     }
 
     /// <summary>

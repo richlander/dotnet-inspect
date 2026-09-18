@@ -219,6 +219,8 @@ Release CLI gates cover:
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryReadsCoordinateInput` and
   `LibraryCoordinateCommand_FileEffectiveDiscoveryRendersDiscovery` for the
   materializing effective-discovery boundary and discovery-shaped result; and
+- `LibraryCoordinateCommand_FileEffectiveDiscoveryPreservesFailureDetails` for
+  retaining producer-owned failure diagnostics through population context; and
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsPopulationEvidence`
   for population-wide evidence availability; and
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryFiltersNonMemberFields` and
@@ -227,7 +229,10 @@ Release CLI gates cover:
   population-wide field presence across list and scalar contexts; and
 - `LibraryCoordinateCommand_FileEffectiveDiscoveryUnionsHeterogeneousEvidence`
   for preserving section evidence when a coordinate is not an instruction
-  boundary.
+  boundary; and
+- `MetadataLens_StringHeapListing_MarksItselfReferencedOnly` and
+  `MetadataLens_UserStringHeapListing_ExplainsWhyItIsEmpty` for child-command
+  guidance from Library heap-listing caveats.
 
 ## Other candidate surfaces
 

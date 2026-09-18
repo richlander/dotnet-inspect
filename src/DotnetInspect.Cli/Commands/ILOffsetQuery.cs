@@ -16,7 +16,32 @@ internal static class ILOffsetQuery
 {
     internal const int MaximumCoordinatePopulation = 1024;
 
-    internal static Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+    internal static async Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+        SourceLinkService service,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+    {
+        var (exitCode, result, _) = await ResolveAsync(
+            service,
+            packageName,
+            packageVersion,
+            isPlatformAssembly,
+            options,
+            httpClient,
+            logger,
+            writeErrors: true,
+            allowNonBoundaryContextAbsence: false);
+        return (exitCode, result);
+    }
+
+    internal static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)> ResolveBatchAsync(
         SourceLinkService service,
         string? packageName,
         string? packageVersion,
@@ -32,32 +57,13 @@ internal static class ILOffsetQuery
             options,
             httpClient,
             logger,
-            writeErrors: true,
-            allowNonBoundaryContextAbsence: false);
-
-    internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)> ResolveBatchAsync(
-        SourceLinkService service,
-        string? packageName,
-        string? packageVersion,
-        bool isPlatformAssembly,
-        LibraryOptions options,
-        HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        var (exitCode, result) = await ResolveAsync(
-            service,
-            packageName,
-            packageVersion,
-            isPlatformAssembly,
-            options,
-            httpClient,
-            logger,
             writeErrors: false,
             allowNonBoundaryContextAbsence: false);
-        return (exitCode, result, exitCode == 0 ? null : "could not resolve");
-    }
 
-    internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)>
+    internal static Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)>
         ResolveDiscoveryAsync(
             SourceLinkService service,
             string? packageName,
@@ -65,9 +71,8 @@ internal static class ILOffsetQuery
             bool isPlatformAssembly,
             LibraryOptions options,
             HttpClient httpClient,
-            VerboseLogger logger)
-    {
-        var (exitCode, result) = await ResolveAsync(
+            VerboseLogger logger) =>
+        ResolveAsync(
             service,
             packageName,
             packageVersion,
@@ -77,10 +82,11 @@ internal static class ILOffsetQuery
             logger,
             writeErrors: false,
             allowNonBoundaryContextAbsence: true);
-        return (exitCode, result, exitCode == 0 ? null : "could not resolve");
-    }
 
-    static async Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+    static async Task<(
+        int ExitCode,
+        ILOffsetProjection? Result,
+        ILOffsetProjectionFailure? Failure)> ResolveAsync(
         SourceLinkService service,
         string? packageName,
         string? packageVersion,
@@ -138,11 +144,18 @@ internal static class ILOffsetQuery
                 if (failure.Detail is { Length: > 0 } detail)
                     WriteError(writeErrors, detail);
             }
-            return (1, null);
+            return (1, null, failure);
         }
 
-        return (0, outcome.Projection);
+        return (0, outcome.Projection, null);
     }
+
+    internal static string FormatFailure(ILOffsetProjectionFailure? failure)
+        => failure is null
+            ? "unknown failure"
+            : failure.Detail is { Length: > 0 } detail
+                ? $"{failure.Message} {detail}"
+                : failure.Message;
 
     static ILOffsetProjectionCapabilities ProjectionCapabilities(LibraryOptions options)
     {
