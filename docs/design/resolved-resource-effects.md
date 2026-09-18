@@ -966,10 +966,13 @@ must not:
 - silently downgrade ambiguity, unsupported metadata, or incomplete
   definition resolution to unmatched.
 
-Issue #6730 consumes occurrence-bound effects to generalize method-local
-ownership flow. #6731 owns lifecycle and Finding migration. #6732 owns
-Research migration. Their algorithms and public evidence shapes are not
-specified here.
+Issue #6730 consumes occurrence-bound effects to publish additive root-bound
+`ResourceOccurrenceAnalysisResult` evidence without modifying the existing
+ArrayPool analyzers. #6731 owns generic lifecycle evidence and Resource Triage
+migration. #6732 owns the compact generic Research summary and path migration.
+The unchanged ArrayPool lifecycle and Research paths remain final fidelity
+oracles and retire only in separately reviewed focused cutovers. Their
+algorithms and public evidence shapes are not specified here.
 
 ## Non-claims
 
