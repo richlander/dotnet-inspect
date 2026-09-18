@@ -392,6 +392,11 @@ public class FidelityCheckGeneratedFilterTests
                 target =>
                     target.Type == "MalformedFinalizerFixture"
                     && target.Method == "Finalize");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "UnauthenticatedFinalizerFixture"
+                    && target.Method == "Finalize");
         }
         finally
         {
@@ -3110,11 +3115,18 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString("Object"));
         BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
             new byte[] { 0x20, 0x00, 0x01 });
+        BlobHandle instanceIntSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x20, 0x00, 0x08 });
         MemberReferenceHandle objectFinalize =
             metadata.AddMemberReference(
                 objectRef,
                 metadata.GetOrAddString("Finalize"),
                 instanceVoidSignature);
+        MemberReferenceHandle mismatchedObjectFinalize =
+            metadata.AddMemberReference(
+                objectRef,
+                metadata.GetOrAddString("Finalize"),
+                instanceIntSignature);
 
         metadata.AddTypeDefinition(
             default,
@@ -3153,6 +3165,14 @@ public class FidelityCheckGeneratedFilterTests
             objectRef,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(4));
+        TypeDefinitionHandle unauthenticatedType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("UnauthenticatedFinalizerFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(5));
 
         var methodBodies = new BlobBuilder();
         var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
@@ -3217,6 +3237,18 @@ public class FidelityCheckGeneratedFilterTests
                 new byte[] { 0x00, 0x00, 0x08 }),
             AddIntBody(),
             MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            finalizerAttributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Finalize"),
+            instanceVoidSignature,
+            AddVoidBody(),
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle unauthenticatedBody =
+            metadata.AddMemberReference(
+                unauthenticatedType,
+                metadata.GetOrAddString("Finalize"),
+                instanceVoidSignature);
         metadata.AddMethodImplementation(
             validType,
             validFinalizer,
@@ -3225,6 +3257,10 @@ public class FidelityCheckGeneratedFilterTests
             malformedType,
             malformedFinalizer,
             objectFinalize);
+        metadata.AddMethodImplementation(
+            unauthenticatedType,
+            unauthenticatedBody,
+            mismatchedObjectFinalize);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

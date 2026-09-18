@@ -112,12 +112,8 @@ public static class CSharpMemberArtifactEligibility
         ApiMember member,
         ApiSignature signature)
     {
-        if (member.Kind != "finalizer" && !member.IsFinalizer)
-            return true;
-
-        return member.Kind == "finalizer"
-            && member.IsFinalizer
-            && member.Name == "Finalize"
+        bool hasFinalizerDeclarationShape =
+            member.Name == "Finalize"
             && member.Accessibility == "protected"
             && !member.IsStatic
             && member.IsVirtual
@@ -128,6 +124,11 @@ public static class CSharpMemberArtifactEligibility
             && signature.TypeParameters.Count == 0
             && signature.Parameters.Count == 0
             && IsVoid(signature.ReturnTypeShape);
+
+        if (!hasFinalizerDeclarationShape)
+            return member.Kind != "finalizer" && !member.IsFinalizer;
+
+        return member.Kind == "finalizer" && member.IsFinalizer;
     }
 
     static bool IsMemberAccessibilityRepresentable(ApiMember member) =>
