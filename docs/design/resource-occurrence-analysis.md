@@ -244,8 +244,9 @@ This owner is step 7 of the 26-step #6544 adoption plan:
    ArrayPool semantics only after their focused fidelity gates pass.
 
 The Analysis test harness is this service's first host. The production adoption
-path reaches the existing CLI Resource Triage surface through #6731 and reaches
-the existing Research-backed product paths through #6732. The host-neutral
+path reaches generic Resource Triage through #6731 and Research-backed product
+paths through #6732. The overall #6544 plan then exposes host-neutral Resource
+Triage through the CLI in step 12 and Inspect Web Browser/Wasm in step 13. The
 result adds no renderer, Markout schema, serialization format, CLI option, or
 Browser/Wasm interop surface in this slice.
 
