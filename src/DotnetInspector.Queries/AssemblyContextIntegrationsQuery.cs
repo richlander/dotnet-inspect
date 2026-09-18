@@ -25,6 +25,11 @@ public sealed class AssemblyContextSubject
 }
 
 /// <summary>One participant's outcome in a group-scoped Integrations query.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(AssemblyIntegrationsEntry.Available), "available")]
+[JsonDerivedType(typeof(AssemblyIntegrationsEntry.Selected), "selected")]
+[JsonDerivedType(typeof(AssemblyIntegrationsEntry.Rejected), "rejected")]
+[JsonDerivedType(typeof(AssemblyIntegrationsEntry.Failed), "failed")]
 public abstract record AssemblyIntegrationsEntry(
     AssemblyContextSubject Subject)
 {
@@ -57,8 +62,21 @@ public abstract record AssemblyIntegrationsEntry(
     /// </remarks>
     public sealed record Failed(
         AssemblyContextSubject Subject,
+        [property: JsonIgnore]
         BadImageFormatException Error)
-        : AssemblyIntegrationsEntry(Subject);
+        : AssemblyIntegrationsEntry(Subject)
+    {
+        [JsonConstructor]
+        public Failed(
+            AssemblyContextSubject subject,
+            string errorMessage)
+            : this(
+                subject,
+                new BadImageFormatException(errorMessage))
+            => ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+
+        public string ErrorMessage => Error.Message;
+    }
 }
 
 /// <summary>
