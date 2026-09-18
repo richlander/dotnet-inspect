@@ -204,6 +204,7 @@ internal static class NavigationWorkspaceSnapshotEquality
         && a.MemberName == b.MemberName
         && a.MethodDeclarationHeaderIsRepresentable
             == b.MethodDeclarationHeaderIsRepresentable
+        && a.IsIndexerDeclaration == b.IsIndexerDeclaration
         && a.IsRequired == b.IsRequired
         && Sequence(a.TypeParameters, b.TypeParameters, TypeParameter)
         && Sequence(a.Parameters, b.Parameters, (x, y) =>
@@ -222,6 +223,13 @@ internal static class NavigationWorkspaceSnapshotEquality
             && x.DeclarationModifiersAreRepresentable == y.DeclarationModifiersAreRepresentable
             && x.IsReadOnly == y.IsReadOnly && x.IsExplicitInterfaceImplementation == y.IsExplicitInterfaceImplementation
             && x.Name == y.Name && x.StructuralReturnType == y.StructuralReturnType
+            && x.CustomModifiersAreRepresentable
+                == y.CustomModifiersAreRepresentable
+            && x.MethodDeclarationHeaderIsRepresentable
+                == y.MethodDeclarationHeaderIsRepresentable
+            && x.NameMatchesDeclaration == y.NameMatchesDeclaration
+            && x.SignatureMatchesDeclaration
+                == y.SignatureMatchesDeclaration
             && x.SignatureMatchesProperty == y.SignatureMatchesProperty);
 
     static bool TypeParameter(TypeParameter a, TypeParameter b) =>

@@ -1,5 +1,7 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.CSharp;
+using ILInspector.Metadata;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
 
@@ -270,18 +272,252 @@ public class FidelityCheckGeneratedFilterTests
         string assemblyPath = CompileFixture("""
             public static class ReadOnlyByRefFixture
             {
+                private static int _value;
+
                 public static ref readonly int Read(in int value)
                     => ref value;
+
+                public static ref readonly int Value => ref _value;
+
+                public static ref int Mutable => ref _value;
             }
             """);
         try
         {
-            var target = Assert.Single(
-                FidelityCheck.SelectReturnToSenderTargets(
-                    [assemblyPath],
-                    cap: int.MaxValue));
+            ApiType type = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "ReadOnlyByRefFixture");
+            foreach (string propertyName in new[] { "Value", "Mutable" })
+            {
+                ApiMember property = Assert.Single(
+                    type.Members,
+                    member => member.Name == propertyName);
+                ApiAccessor getter = Assert.Single(
+                    property.SignatureModel!.Accessors);
+                Assert.True(
+                    property.SignatureModel
+                        .ReturnTypeCustomModifiersAreRepresentable);
+                Assert.Equal(
+                    ApiPrimitiveType.Int32,
+                    property.SignatureModel.ReturnTypeShape!.Primitive);
+                Assert.True(getter.CustomModifiersAreRepresentable);
+                Assert.True(getter.SignatureMatchesDeclaration);
+            }
 
-            Assert.Equal("Read", target.Method);
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(selected, target => target.Method == "Read");
+            Assert.Contains(selected, target => target.Method == "get_Value");
+            Assert.Contains(selected, target => target.Method == "get_Mutable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsMalformedPropertyDeclarationsBeforeSampling()
+    {
+        string assemblyPath = CreateMalformedPropertyFixture();
+        try
+        {
+            ApiType type = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "MalformedPropertyFixture");
+            AssertAccessorFacts("this[]", expected: true);
+            AssertAccessorFacts("Vararg", expected: false);
+            AssertAccessorFacts("ModifiedRef", expected: false);
+            AssertAccessorFacts("MismatchedRef", expected: false);
+            AssertAccessorFacts("GoodEvent", expected: true);
+            AssertAccessorFacts("VarargEvent", expected: false);
+            AssertAccessorFacts("BadEventSignature", expected: false);
+
+            ApiMember voidProperty = Assert.Single(
+                type.Members,
+                member => member.Name == "Void");
+            Assert.False(
+                CSharpMemberArtifactEligibility.IsRepresentable(
+                    type,
+                    voidProperty));
+
+            ApiType malformedIndexerType = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "MalformedIndexerShapeFixture");
+            List<ApiMember> malformedIndexers =
+                malformedIndexerType.Members
+                    .Where(member => member.Kind == "property")
+                    .OrderBy(
+                        member =>
+                            member.SignatureModel!.Parameters.Count)
+                    .ToList();
+            Assert.Equal(2, malformedIndexers.Count);
+            Assert.Null(
+                malformedIndexers[0].SignatureModel!
+                    .IsIndexerDeclaration);
+            Assert.True(
+                malformedIndexers[1].SignatureModel!
+                    .IsIndexerDeclaration);
+            Assert.All(
+                malformedIndexers,
+                member => Assert.False(
+                    CSharpMemberArtifactEligibility.IsRepresentable(
+                        malformedIndexerType,
+                        member)));
+
+            void AssertAccessorFacts(string name, bool expected)
+            {
+                List<ApiAccessor> accessors = Assert.Single(
+                        type.Members,
+                        member => member.Name == name)
+                    .SignatureModel!
+                    .Accessors;
+                Assert.NotEmpty(accessors);
+                if (expected)
+                {
+                    Assert.All(
+                        accessors,
+                        accessor =>
+                        {
+                            Assert.True(
+                                accessor
+                                    .MethodDeclarationHeaderIsRepresentable);
+                            Assert.True(
+                                accessor.CustomModifiersAreRepresentable);
+                            Assert.True(
+                                accessor.SignatureMatchesDeclaration);
+                        });
+                }
+                else
+                {
+                    Assert.Contains(
+                        accessors,
+                        accessor =>
+                            accessor.MethodDeclarationHeaderIsRepresentable
+                                != true
+                            || accessor.CustomModifiersAreRepresentable
+                                != true
+                            || accessor.SignatureMatchesDeclaration != true);
+                }
+            }
+
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(selected, target => target.Method == "Good");
+            Assert.Contains(
+                selected,
+                target => target.Method == "get_Item");
+            Assert.Contains(
+                selected,
+                target => target.Method == "add_GoodEvent");
+            Assert.Contains(
+                selected,
+                target => target.Method == "remove_GoodEvent");
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method is
+                    "get_BadIndexer"
+                    or "get_Ordinary"
+                    or "get_Vararg"
+                    or "get_ModifiedRef"
+                    or "get_MismatchedRef"
+                    or "get_Void"
+                    or "get_BadItem"
+                    or "add_VarargEvent"
+                    or "remove_VarargEvent"
+                    or "add_BadEventSignature"
+                    or "remove_BadEventSignature");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsMalformedAccessorNamesBeforeSampling()
+    {
+        string assemblyPath = CreateAccessorNameFixture();
+        try
+        {
+            ApiType type = Assert.Single(
+                AssemblyReader.ExtractApiSurface(
+                    assemblyPath,
+                    includeAll: true)!
+                    .Types,
+                type => type.Name == "AccessorNameFixture");
+            foreach (string name in new[]
+            {
+                "Value",
+                "Changed",
+                "INameProperty.Value",
+                "INameEvent.Changed",
+            })
+            {
+                ApiMember member = Assert.Single(
+                    type.Members,
+                    member => member.Name == name);
+                Assert.All(
+                    member.SignatureModel!.Accessors,
+                    accessor => Assert.True(
+                        accessor.NameMatchesDeclaration));
+                Assert.True(
+                    CSharpMemberArtifactEligibility.IsRepresentable(
+                        type,
+                        member));
+            }
+            foreach (string name in new[]
+            {
+                "BadGetter",
+                "BadSetter",
+                "BadAdder",
+                "BadRemover",
+            })
+            {
+                Assert.Contains(
+                    Assert.Single(
+                            type.Members,
+                            member => member.Name == name)
+                        .SignatureModel!
+                        .Accessors,
+                    accessor => accessor.NameMatchesDeclaration != true);
+            }
+
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: 4,
+                typeFilter: "AccessorNameFixture");
+
+            Assert.True(
+                selected.Count == 4,
+                $"Selected: {string.Join(", ", selected.Select(target => target.Method))}");
+            Assert.Equal(
+                [
+                    "add_Changed",
+                    "get_Value",
+                    "remove_Changed",
+                    "set_Value",
+                ],
+                selected.Select(target => target.Method)
+                    .Order(StringComparer.Ordinal));
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method.Contains(
+                    "Wrong",
+                    StringComparison.Ordinal));
         }
         finally
         {
@@ -3058,6 +3294,546 @@ public class FidelityCheckGeneratedFilterTests
         fixtureType.CreateType();
         assembly.Save(path);
         return path;
+    }
+
+    static string CreateMalformedPropertyFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "MalformedProperties.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("MalformedProperties"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule(
+            "MalformedProperties");
+        TypeBuilder fixtureType = module.DefineType(
+            "MalformedPropertyFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+        FieldBuilder intField = fixtureType.DefineField(
+            "_intValue",
+            typeof(int),
+            FieldAttributes.Private | FieldAttributes.Static);
+        FieldBuilder longField = fixtureType.DefineField(
+            "_longValue",
+            typeof(long),
+            FieldAttributes.Private | FieldAttributes.Static);
+        fixtureType.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(DefaultMemberAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["Item"]));
+
+        DefineConstantMethod(fixtureType, "Good", typeof(int));
+        MethodBuilder validIndexerGetter = fixtureType.DefineMethod(
+            "get_Item",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            [typeof(int)]);
+        validIndexerGetter.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "index");
+        ILGenerator validIndexerGetterBody =
+            validIndexerGetter.GetILGenerator();
+        validIndexerGetterBody.Emit(OpCodes.Ldarg_1);
+        validIndexerGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder validIndexer = fixtureType.DefineProperty(
+            "Item",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(int),
+            [typeof(int)]);
+        validIndexer.SetGetMethod(validIndexerGetter);
+
+        MethodBuilder malformedIndexerGetter = fixtureType.DefineMethod(
+            "get_BadIndexer",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator malformedIndexerGetterBody =
+            malformedIndexerGetter.GetILGenerator();
+        malformedIndexerGetterBody.Emit(OpCodes.Ldc_I4_1);
+        malformedIndexerGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder malformedIndexer = fixtureType.DefineProperty(
+            "this[]",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(int),
+            Type.EmptyTypes);
+        malformedIndexer.SetGetMethod(malformedIndexerGetter);
+
+        MethodBuilder ordinaryGetter = fixtureType.DefineMethod(
+            "get_Ordinary",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(int),
+            [typeof(int)]);
+        ordinaryGetter.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "index");
+        ILGenerator ordinaryGetterBody = ordinaryGetter.GetILGenerator();
+        ordinaryGetterBody.Emit(OpCodes.Ldarg_1);
+        ordinaryGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder ordinary = fixtureType.DefineProperty(
+            "Ordinary",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(int),
+            [typeof(int)]);
+        ordinary.SetGetMethod(ordinaryGetter);
+
+        MethodBuilder varargGetter = fixtureType.DefineMethod(
+            "get_Vararg",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            CallingConventions.HasThis | CallingConventions.VarArgs,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator varargGetterBody = varargGetter.GetILGenerator();
+        varargGetterBody.Emit(OpCodes.Ldc_I4_1);
+        varargGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder varargProperty = fixtureType.DefineProperty(
+            "Vararg",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(int),
+            Type.EmptyTypes);
+        varargProperty.SetGetMethod(varargGetter);
+
+        const MethodAttributes staticAccessorAttributes =
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        MethodBuilder modifiedRefGetter = fixtureType.DefineMethod(
+            "get_ModifiedRef",
+            staticAccessorAttributes,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            [typeof(ObsoleteAttribute)],
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator modifiedRefGetterBody =
+            modifiedRefGetter.GetILGenerator();
+        modifiedRefGetterBody.Emit(OpCodes.Ldsflda, intField);
+        modifiedRefGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder modifiedRefProperty = fixtureType.DefineProperty(
+            "ModifiedRef",
+            PropertyAttributes.None,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        modifiedRefProperty.SetGetMethod(modifiedRefGetter);
+
+        MethodBuilder mismatchedRefGetter = fixtureType.DefineMethod(
+            "get_MismatchedRef",
+            staticAccessorAttributes,
+            CallingConventions.Standard,
+            typeof(long).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator mismatchedRefGetterBody =
+            mismatchedRefGetter.GetILGenerator();
+        mismatchedRefGetterBody.Emit(OpCodes.Ldsflda, longField);
+        mismatchedRefGetterBody.Emit(OpCodes.Ret);
+        PropertyBuilder mismatchedRefProperty = fixtureType.DefineProperty(
+            "MismatchedRef",
+            PropertyAttributes.None,
+            CallingConventions.Standard,
+            typeof(int).MakeByRefType(),
+            null,
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        mismatchedRefProperty.SetGetMethod(mismatchedRefGetter);
+
+        const MethodAttributes eventAccessorAttributes =
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        MethodBuilder goodAdder = fixtureType.DefineMethod(
+            "add_GoodEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        goodAdder.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder goodRemover = fixtureType.DefineMethod(
+            "remove_GoodEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        goodRemover.GetILGenerator().Emit(OpCodes.Ret);
+        EventBuilder goodEvent = fixtureType.DefineEvent(
+            "GoodEvent",
+            EventAttributes.None,
+            typeof(Action));
+        goodEvent.SetAddOnMethod(goodAdder);
+        goodEvent.SetRemoveOnMethod(goodRemover);
+
+        MethodBuilder varargAdder = fixtureType.DefineMethod(
+            "add_VarargEvent",
+            eventAccessorAttributes,
+            CallingConventions.HasThis | CallingConventions.VarArgs,
+            typeof(void),
+            [typeof(Action)]);
+        varargAdder.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder varargRemover = fixtureType.DefineMethod(
+            "remove_VarargEvent",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        varargRemover.GetILGenerator().Emit(OpCodes.Ret);
+        EventBuilder varargEvent = fixtureType.DefineEvent(
+            "VarargEvent",
+            EventAttributes.None,
+            typeof(Action));
+        varargEvent.SetAddOnMethod(varargAdder);
+        varargEvent.SetRemoveOnMethod(varargRemover);
+
+        MethodBuilder badSignatureAdder = fixtureType.DefineMethod(
+            "add_BadEventSignature",
+            eventAccessorAttributes,
+            typeof(int),
+            [typeof(Action)]);
+        ILGenerator badSignatureAdderBody =
+            badSignatureAdder.GetILGenerator();
+        badSignatureAdderBody.Emit(OpCodes.Ldc_I4_1);
+        badSignatureAdderBody.Emit(OpCodes.Ret);
+        MethodBuilder badSignatureRemover = fixtureType.DefineMethod(
+            "remove_BadEventSignature",
+            eventAccessorAttributes,
+            typeof(void),
+            [typeof(string)]);
+        badSignatureRemover.GetILGenerator().Emit(OpCodes.Ret);
+        EventBuilder badSignatureEvent = fixtureType.DefineEvent(
+            "BadEventSignature",
+            EventAttributes.None,
+            typeof(Action));
+        badSignatureEvent.SetAddOnMethod(badSignatureAdder);
+        badSignatureEvent.SetRemoveOnMethod(badSignatureRemover);
+
+        MethodBuilder voidGetter = fixtureType.DefineMethod(
+            "get_Void",
+            eventAccessorAttributes,
+            typeof(void),
+            Type.EmptyTypes);
+        voidGetter.GetILGenerator().Emit(OpCodes.Ret);
+        PropertyBuilder voidProperty = fixtureType.DefineProperty(
+            "Void",
+            PropertyAttributes.None,
+            CallingConventions.HasThis,
+            typeof(void),
+            Type.EmptyTypes);
+        voidProperty.SetGetMethod(voidGetter);
+
+        fixtureType.CreateType();
+
+        TypeBuilder malformedIndexerType = module.DefineType(
+            "MalformedIndexerShapeFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+        malformedIndexerType.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(DefaultMemberAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["BadItem"]));
+        MethodBuilder zeroParameterGetter = malformedIndexerType.DefineMethod(
+            "get_BadItem",
+            eventAccessorAttributes,
+            typeof(int),
+            Type.EmptyTypes);
+        ILGenerator zeroParameterBody =
+            zeroParameterGetter.GetILGenerator();
+        zeroParameterBody.Emit(OpCodes.Ldc_I4_1);
+        zeroParameterBody.Emit(OpCodes.Ret);
+        PropertyBuilder zeroParameterIndexer =
+            malformedIndexerType.DefineProperty(
+                "BadItem",
+                PropertyAttributes.None,
+                CallingConventions.HasThis,
+                typeof(int),
+                Type.EmptyTypes);
+        zeroParameterIndexer.SetGetMethod(zeroParameterGetter);
+
+        MethodBuilder byRefParameterGetter =
+            malformedIndexerType.DefineMethod(
+                "get_BadItem",
+                eventAccessorAttributes,
+                typeof(int),
+                [typeof(int).MakeByRefType()]);
+        byRefParameterGetter.DefineParameter(
+            1,
+            ParameterAttributes.None,
+            "index");
+        ILGenerator byRefParameterBody =
+            byRefParameterGetter.GetILGenerator();
+        byRefParameterBody.Emit(OpCodes.Ldc_I4_1);
+        byRefParameterBody.Emit(OpCodes.Ret);
+        PropertyBuilder byRefParameterIndexer =
+            malformedIndexerType.DefineProperty(
+                "BadItem",
+                PropertyAttributes.None,
+                CallingConventions.HasThis,
+                typeof(int),
+                [typeof(int).MakeByRefType()]);
+        byRefParameterIndexer.SetGetMethod(byRefParameterGetter);
+        malformedIndexerType.CreateType();
+
+        assembly.Save(path);
+        return path;
+    }
+
+    static string CreateAccessorNameFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "AccessorNames.dll");
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("AccessorNames"),
+            typeof(object).Assembly);
+        ModuleBuilder module = assembly.DefineDynamicModule("AccessorNames");
+        var interfaceProperty = DefinePropertyInterface(module);
+        var interfaceEvent = DefineEventInterface(module);
+        TypeBuilder fixtureType = module.DefineType(
+            "AccessorNameFixture",
+            TypeAttributes.Public | TypeAttributes.Class);
+        fixtureType.AddInterfaceImplementation(interfaceProperty.Type);
+        fixtureType.AddInterfaceImplementation(interfaceEvent.Type);
+
+        const MethodAttributes ordinaryAccessorAttributes =
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        DefineProperty(
+            fixtureType,
+            "Value",
+            "get_Value",
+            "set_Value",
+            ordinaryAccessorAttributes);
+        DefineEvent(
+            fixtureType,
+            "Changed",
+            "add_Changed",
+            "remove_Changed",
+            ordinaryAccessorAttributes);
+        DefineProperty(
+            fixtureType,
+            "BadGetter",
+            "get_WrongGetter",
+            "set_BadGetter",
+            ordinaryAccessorAttributes);
+        DefineProperty(
+            fixtureType,
+            "BadSetter",
+            "get_BadSetter",
+            "set_WrongSetter",
+            ordinaryAccessorAttributes);
+        DefineEvent(
+            fixtureType,
+            "BadAdder",
+            "add_WrongAdder",
+            "remove_BadAdder",
+            ordinaryAccessorAttributes);
+        DefineEvent(
+            fixtureType,
+            "BadRemover",
+            "add_BadRemover",
+            "remove_WrongRemover",
+            ordinaryAccessorAttributes);
+
+        const MethodAttributes explicitAccessorAttributes =
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
+        (MethodBuilder getter, MethodBuilder setter) = DefineProperty(
+            fixtureType,
+            "INameProperty.Value",
+            "INameProperty.get_Value",
+            "INameProperty.set_Value",
+            explicitAccessorAttributes);
+        fixtureType.DefineMethodOverride(
+            getter,
+            interfaceProperty.Getter);
+        fixtureType.DefineMethodOverride(
+            setter,
+            interfaceProperty.Setter);
+        (MethodBuilder adder, MethodBuilder remover) = DefineEvent(
+            fixtureType,
+            "INameEvent.Changed",
+            "INameEvent.add_Changed",
+            "INameEvent.remove_Changed",
+            explicitAccessorAttributes);
+        fixtureType.DefineMethodOverride(
+            adder,
+            interfaceEvent.Adder);
+        fixtureType.DefineMethodOverride(
+            remover,
+            interfaceEvent.Remover);
+
+        fixtureType.CreateType();
+        assembly.Save(path);
+        return path;
+
+        static (
+            Type Type,
+            MethodBuilder Getter,
+            MethodBuilder Setter) DefinePropertyInterface(
+                ModuleBuilder module)
+        {
+            TypeBuilder type = module.DefineType(
+                "INameProperty",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            const MethodAttributes attributes =
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig;
+            MethodBuilder getter = type.DefineMethod(
+                "get_Value",
+                attributes,
+                typeof(int),
+                Type.EmptyTypes);
+            MethodBuilder setter = type.DefineMethod(
+                "set_Value",
+                attributes,
+                typeof(void),
+                [typeof(int)]);
+            PropertyBuilder property = type.DefineProperty(
+                "Value",
+                PropertyAttributes.None,
+                CallingConventions.HasThis,
+                typeof(int),
+                Type.EmptyTypes);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+            return (type.CreateType()!, getter, setter);
+        }
+
+        static (
+            Type Type,
+            MethodBuilder Adder,
+            MethodBuilder Remover) DefineEventInterface(
+                ModuleBuilder module)
+        {
+            TypeBuilder type = module.DefineType(
+                "INameEvent",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            const MethodAttributes attributes =
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig;
+            MethodBuilder adder = type.DefineMethod(
+                "add_Changed",
+                attributes,
+                typeof(void),
+                [typeof(Action)]);
+            MethodBuilder remover = type.DefineMethod(
+                "remove_Changed",
+                attributes,
+                typeof(void),
+                [typeof(Action)]);
+            EventBuilder @event = type.DefineEvent(
+                "Changed",
+                EventAttributes.None,
+                typeof(Action));
+            @event.SetAddOnMethod(adder);
+            @event.SetRemoveOnMethod(remover);
+            return (type.CreateType()!, adder, remover);
+        }
+
+        static (MethodBuilder Getter, MethodBuilder Setter) DefineProperty(
+            TypeBuilder type,
+            string propertyName,
+            string getterName,
+            string setterName,
+            MethodAttributes attributes)
+        {
+            MethodBuilder getter = type.DefineMethod(
+                getterName,
+                attributes,
+                typeof(int),
+                Type.EmptyTypes);
+            ILGenerator getterBody = getter.GetILGenerator();
+            getterBody.Emit(OpCodes.Ldc_I4_1);
+            getterBody.Emit(OpCodes.Ret);
+            MethodBuilder setter = type.DefineMethod(
+                setterName,
+                attributes,
+                typeof(void),
+                [typeof(int)]);
+            setter.GetILGenerator().Emit(OpCodes.Ret);
+            PropertyBuilder property = type.DefineProperty(
+                propertyName,
+                PropertyAttributes.None,
+                CallingConventions.HasThis,
+                typeof(int),
+                Type.EmptyTypes);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+            return (getter, setter);
+        }
+
+        static (MethodBuilder Adder, MethodBuilder Remover) DefineEvent(
+            TypeBuilder type,
+            string eventName,
+            string adderName,
+            string removerName,
+            MethodAttributes attributes)
+        {
+            MethodBuilder adder = type.DefineMethod(
+                adderName,
+                attributes,
+                typeof(void),
+                [typeof(Action)]);
+            adder.GetILGenerator().Emit(OpCodes.Ret);
+            MethodBuilder remover = type.DefineMethod(
+                removerName,
+                attributes,
+                typeof(void),
+                [typeof(Action)]);
+            remover.GetILGenerator().Emit(OpCodes.Ret);
+            EventBuilder @event = type.DefineEvent(
+                eventName,
+                EventAttributes.None,
+                typeof(Action));
+            @event.SetAddOnMethod(adder);
+            @event.SetRemoveOnMethod(remover);
+            return (adder, remover);
+        }
     }
 
     static string CreatePrivateScopeMemberFixture()

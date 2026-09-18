@@ -624,6 +624,14 @@ public class ApiSignature
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
 
+    /// <summary>
+    /// Whether this property is an exact C# indexer declaration, authenticated
+    /// by the declaring type's DefaultMemberAttribute. Null means the fact was
+    /// not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? IsIndexerDeclaration { get; set; }
+
     public bool IsRequired { get; set; }
     public List<TypeParameter> TypeParameters { get; set; } = [];
     public List<ApiParameter> Parameters { get; set; } = [];
@@ -782,6 +790,34 @@ public class ApiAccessor
     /// <c>modreq(IsExternalInit)</c> here so call-graph selectors match MemberRef.
     /// </summary>
     public string? StructuralReturnType { get; set; }
+
+    /// <summary>
+    /// Whether custom modifiers in this accessor signature have an exact C#
+    /// declaration spelling. Null means this admission fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? CustomModifiersAreRepresentable { get; set; }
+
+    /// <summary>
+    /// Whether this accessor MethodDef signature header has an exact C#
+    /// declaration representation. Null means this fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodDeclarationHeaderIsRepresentable { get; set; }
+
+    /// <summary>
+    /// Whether the raw accessor MethodDef name corresponds exactly to the raw
+    /// property or event metadata name. Null means this fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? NameMatchesDeclaration { get; set; }
+
+    /// <summary>
+    /// Whether this accessor's callable signature corresponds exactly to its
+    /// declaring property or event. Null means this fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? SignatureMatchesDeclaration { get; set; }
 
     /// <summary>
     /// Whether this accessor's callable signature corresponds exactly to its
