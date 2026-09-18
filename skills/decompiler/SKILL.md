@@ -174,7 +174,8 @@ Use `library coordinate 0x06000001+0x5 --library Foo.dll` (MethodDef token plus
 IL offset) to compose its default source-location, member, instruction,
 exception, callsite, and return-address sections. Allocation, safety, and cost
 are opt-in; request them with `-S
-"Context: Allocation,Context: Safety,Context: Cost"`. Sparse batches continue
-to use `library Foo.dll --il-offsets coordinates.txt` until coordinate-file
-mode is available. For call edges (what a method calls, who calls it), see the
-`relationships` skill.
+"Context: Allocation,Context: Safety,Context: Cost"`. Use `library coordinate
+--file coordinates.txt --library Foo.dll` for a sparse file of up to 1,024
+significant records; blank and comment lines do not count, and malformed rows
+remain visible in source-file order. For call edges (what a method calls, who
+calls it), see the `relationships` skill.
