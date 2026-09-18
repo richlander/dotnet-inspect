@@ -459,6 +459,8 @@ internal static class TypeScriptFacadeEmitter
             var moduleBindings = new HashSet<string>(
                 InfrastructureBindings,
                 StringComparer.Ordinal);
+            if (DtsEmitter.UsesJsonValue(surface))
+                moduleBindings.Add("JsonValue");
             ApiTypeReferenceIdentity? inertStringIdentity =
                 DtsEmitter.FindInertStringIdentity(surface);
             string? inertStringName = inertStringIdentity is null
