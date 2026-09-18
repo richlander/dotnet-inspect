@@ -31,6 +31,17 @@ public sealed class PackagingSurfaceTests
         "src/ts-jsexport/ts-jsexport.csproj",
     ];
 
+    static readonly string[] GeneratedUnsafeProductProjects =
+    [
+        "inspect-web/DotnetInspect.Web.Interop.Analysis/DotnetInspect.Web.Interop.Analysis.csproj",
+        "inspect-web/DotnetInspect.Web.Interop.CallGraph/DotnetInspect.Web.Interop.CallGraph.csproj",
+        "inspect-web/DotnetInspect.Web.Interop.Catalog/DotnetInspect.Web.Interop.Catalog.csproj",
+        "inspect-web/DotnetInspect.Web.Interop.Metadata/DotnetInspect.Web.Interop.Metadata.csproj",
+        "inspect-web/DotnetInspect.Web.Interop.Package/DotnetInspect.Web.Interop.Package.csproj",
+        "inspect-web/DotnetInspect.Web.Interop.Source/DotnetInspect.Web.Interop.Source.csproj",
+        "inspect-web/DotnetInspect.Web/DotnetInspect.Web.csproj",
+    ];
+
     /// <summary>
     /// The tool-project census. All and only the CLI projects declare
     /// <c>IsTool</c>, <c>IsPackable</c>, and <c>PackAsTool</c>. The first controls
@@ -90,13 +101,46 @@ public sealed class PackagingSurfaceTests
                     "'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true'",
                     StringComparison.Ordinal));
 
-        AssertProperty(nativeAotGroup, "AllowUnsafeBlocks", "true");
+        Assert.DoesNotContain(
+            nativeAotGroup.Elements(),
+            static element =>
+                element.Name.LocalName == "AllowUnsafeBlocks");
         XElement features = Assert.Single(
             nativeAotGroup.Elements(),
             static element => element.Name.LocalName == "Features");
         Assert.Contains(
             "updated-memory-safety-rules",
             features.Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public void CliUsesPatchedSystemTextJsonGeneratorAsAnalyzerOnly()
+    {
+        string root = FindRepositoryRoot();
+        var project = XDocument.Load(
+            Path.Combine(
+                root,
+                "src",
+                "DotnetInspect.Cli",
+                "DotnetInspect.Cli.csproj"));
+        XElement packageReference = Assert.Single(
+            project.Descendants(),
+            static element =>
+                element.Name.LocalName == "PackageReference"
+                && string.Equals(
+                    element.Attribute("Include")?.Value,
+                    "System.Text.Json",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(
+            "analyzers;build;buildTransitive",
+            packageReference.Attribute("IncludeAssets")?.Value);
+        Assert.Equal(
+            "compile;runtime",
+            packageReference.Attribute("ExcludeAssets")?.Value);
+        Assert.Equal(
+            "all",
+            packageReference.Attribute("PrivateAssets")?.Value);
     }
 
     /// <summary>
@@ -118,6 +162,36 @@ public sealed class PackagingSurfaceTests
     public void PublishingIsOffByDefaultForEveryProject()
     {
         AssertShippingPropertyIsOffByDefault("IsPublishable");
+    }
+
+    [Fact]
+    public void UnsafeBlocksAreOffByDefaultForEveryProject()
+    {
+        AssertShippingPropertyIsOffByDefault("AllowUnsafeBlocks");
+    }
+
+    [Fact]
+    public void OnlyJsExportProductProjectsOverrideUnsafeBlocks()
+    {
+        var (unsafeProjects, scanned) =
+            ScanProjectsForProperty("AllowUnsafeBlocks");
+        string[] productOverrides = unsafeProjects
+            .Where(static path =>
+                path.StartsWith("src/", StringComparison.Ordinal)
+                || (path.StartsWith(
+                        "inspect-web/",
+                        StringComparison.Ordinal)
+                    && !path.Contains(
+                        "-canary/",
+                        StringComparison.Ordinal)))
+            .ToArray();
+
+        Assert.True(
+            scanned > 0,
+            "Scanned no project files; the census would pass vacuously.");
+        Assert.Equal(
+            GeneratedUnsafeProductProjects,
+            productOverrides);
     }
 
     /// <summary>

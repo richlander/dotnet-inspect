@@ -4,7 +4,6 @@
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPublishable>true</IsPublishable>
     <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
