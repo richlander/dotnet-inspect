@@ -92,7 +92,7 @@ public static class TypeCommand
             DocsExplicitlySet = options.DocsExplicitlySet,
             UseLocalDocs = options.UseLocalDocs,
             ShowSamples = options.ShowSamples,
-            BrowsableUrls = options.BrowsableUrls,
+            PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
             JsonOutput = options.JsonOutput,
             CompactJson = options.CompactJson,
@@ -772,7 +772,7 @@ public static class TypeCommand
             || options.ShowDocs
             || options.DocsExplicitlySet
             || options.ShowSamples
-            || options.BrowsableUrls
+            || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
             || options.UnsafeOnly
@@ -840,7 +840,7 @@ public static class TypeCommand
             || options.ShowDocs
             || options.DocsExplicitlySet
             || options.ShowSamples
-            || options.BrowsableUrls
+            || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
             || options.KindFilter.Count > 0
             || options.UnsafeOnly

@@ -199,9 +199,13 @@ public static class ILOffsetProjectionProducer
             }
         }
 
-        string? url = request.BrowsableUrls ? source?.GitHubBrowseUrl : source?.SourceUrl;
+        string? url = source?.SourceUrl;
         if (url is not null)
-            url += $"#L{source!.Line}";
+        {
+            if (request.BrowsableUrls)
+                url = SourceLinkUrlPresentation.PreferRenderedUrl(url);
+            url = new UriBuilder(url) { Fragment = $"L{source!.Line}" }.Uri.AbsoluteUri;
+        }
 
         return ILOffsetProjectionOutcome.Success(new ILOffsetProjection
         {

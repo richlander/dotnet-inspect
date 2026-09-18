@@ -674,7 +674,7 @@ public partial class PackageCommand
                     List<SourceFileInfo> rows = await SourceFileCollector.CollectAsync(
                         source,
                         libraryPath,
-                        browsableUrls: options.BrowsableUrls,
+                        preferRenderedUrls: options.PreferRenderedUrls,
                         typeFilter: options.TypeFilter).ConfigureAwait(false);
                     result.SourceFiles!.AddRange(rows.Select(row => new PackageSourceFileInfo(
                         relativePath,
@@ -891,7 +891,7 @@ public partial class PackageCommand
                     version,
                     file,
                     options.ContentScope,
-                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
                     includeExactContent))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
@@ -1513,7 +1513,7 @@ public partial class PackageCommand
             version,
             files[0],
             PackageFileContentScope.Full,
-            normalizeGithubLinksToRaw: !options.BrowsableUrls,
+            normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
         ContainmentDiagnosticOutput.Write(content.SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))

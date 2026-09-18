@@ -384,8 +384,7 @@ public static class TypeOptionsParser
             MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
-            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
-                && !parseResult.GetValue(opts.RawUrls),
+            PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = opts.ResolveTabular(parseResult),

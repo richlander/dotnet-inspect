@@ -621,8 +621,7 @@ public static class MemberOptionsParser
             Limit = memberLimit,
             ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
             DocsExplicitlySet = false,
-            BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
-                && !parseResult.GetValue(opts.RawUrls),
+            PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = outputFormat == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular = outputFormat is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,
@@ -653,9 +652,8 @@ public static class MemberOptionsParser
             OverloadIndex = explicitIndex ?? shorthandIndex,
             OverloadIndexExplicitlySet =
                 parseResult.GetResult(args.IndexOption) is { Implicit: false },
-            LegacyUrlModeExplicitlySet =
-                parseResult.GetResult(opts.RawUrls) is { Implicit: false }
-                || parseResult.GetResult(opts.BrowsableUrls)
+            UrlPreferenceExplicitlySet =
+                parseResult.GetResult(opts.PreferRenderedUrls)
                     is { Implicit: false },
             LineWindowExplicitlySet =
                 parseResult.GetResult(opts.Limit) is { Implicit: false }
