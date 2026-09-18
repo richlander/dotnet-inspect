@@ -24,6 +24,22 @@ public class EnumCastPrinterTests
             "public enum ExternalKeyword { @default = 1 }");
     }
 
+    [Fact]
+    public void UnspellableEnumMemberName_UsesCastAndCompiles()
+    {
+        string body = RenderKnownEnumReturnConstant(
+            1,
+            TypeRef.CoreLib("System", "Int32"),
+            "Bad-Name");
+
+        Assert.Contains("return (Tiny)1;", body);
+        Assert.DoesNotContain("Bad-Name", body);
+        AssertCompiles(
+            "public static Tiny M()",
+            body,
+            "public enum Tiny { Other = 2 }");
+    }
+
     // #3011: an enum-typed value shifted has no predefined C# shift operator
     // (CS0019); the printer reinterprets the enum left operand to its underlying
     // integer so the shift type-checks and the shr/shr.un opcode round-trips.
@@ -1442,7 +1458,10 @@ public class EnumCastPrinterTests
         return CSharpPrinter.Print(function).Output!.Trim();
     }
 
-    static string RenderKnownEnumReturnConstant(int value, TypeRef underlying)
+    static string RenderKnownEnumReturnConstant(
+        int value,
+        TypeRef underlying,
+        string? memberName = null)
     {
         var enumType = TypeRef.Definition("synthetic", "", "Tiny");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -1455,6 +1474,12 @@ public class EnumCastPrinterTests
         {
             TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
             EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = underlying },
+            EnumMembers = memberName is null
+                ? new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>()
+                : new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+                {
+                    [enumType] = new Dictionary<long, string> { [value] = memberName },
+                },
         };
 
         return CSharpPrinter.Print(function).Output!.Trim();
