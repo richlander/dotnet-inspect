@@ -462,6 +462,12 @@ API-associated compiled-XML content materialized by PackageHouse. A present
 companion becomes one candidate contribution; a completed materialization
 without that companion becomes authoritative absence.
 
+The implemented package adapter consumes PackageHouse's compile
+materialization. A configured in-package assembly outside the exact selected
+compile-asset set is not relabeled as a direct Library: the host preserves its
+ordinary inspection result without compiled-documentation enrichment until an
+owner-issued adapter exists for that asset kind.
+
 The adapter creates only resource-free contribution evidence. It does not
 retain the PackageHouse payload, `LibraryContentOwner`, `ArtifactSetSession`,
 or a `LibraryOperationLease`, and it does not invoke LibraryMetadata or
@@ -1035,7 +1041,10 @@ its receiver type to receive the exact declaration-owned compiled
 documentation, and require a direct Library without a companion to omit both
 documentation and `XmlDoc` source-resolution provenance. The neighboring
 declaring extension type, explicit `--all` non-public member, malformed
-companion, and configured-package paths retain their established outcomes.
+companion, and configured-package compile-asset paths retain their established
+outcomes. A configured runtime-only package asset gates the non-compile
+boundary: detailed inspection remains successful without relabeling its
+package evidence as direct-Library evidence.
 
 `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesSharedPackageDocumentationContract`
 executes the production package export over the real `System.Text.Json` 10.0.0

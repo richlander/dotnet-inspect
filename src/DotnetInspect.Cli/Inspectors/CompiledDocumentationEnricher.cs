@@ -71,8 +71,10 @@ internal static class CompiledDocumentationEnricher
             if (targets.Ids.Count == 0)
                 continue;
 
+            PackageDocumentationRoute packageRoute =
+                GetPackageDocumentationRoute(source, group.Key);
             IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes;
-            if (CanUsePackageHouse(source, group.Key))
+            if (packageRoute == PackageDocumentationRoute.PackageHouse)
             {
                 outcomes = await QueryPackageAsync(
                         source,
@@ -81,6 +83,14 @@ internal static class CompiledDocumentationEnricher
                         options,
                         cancellationToken)
                     .ConfigureAwait(false);
+            }
+            else if (packageRoute
+                == PackageDocumentationRoute.UnsupportedPackageAsset)
+            {
+                source.Context.Logger.Log(
+                    "Compiled documentation requires an exact selected "
+                        + $"compile asset; skipping '{group.Key}'.");
+                continue;
             }
             else
             {
@@ -131,29 +141,57 @@ internal static class CompiledDocumentationEnricher
         }
     }
 
-    private static bool CanUsePackageHouse(
+    private static PackageDocumentationRoute GetPackageDocumentationRoute(
         ApiSourceResult source,
         string assemblyPath)
     {
         if (source.ApiSource != SourceKind.NuGet
             || source.PackageExtractPath is null
-            || source.PackageAuthority is null
-            || string.IsNullOrWhiteSpace(source.PackageName)
-            || string.IsNullOrWhiteSpace(source.PackageVersion)
-            || string.IsNullOrWhiteSpace(source.SelectedTfm)
-            || string.IsNullOrWhiteSpace(source.PackageProducerKey))
+            || source.PackageAuthority is null)
         {
-            return false;
+            return PackageDocumentationRoute.DirectLibrary;
         }
 
         string relative = Path.GetRelativePath(
             source.PackageExtractPath,
             assemblyPath);
-        return relative != ".."
-            && !relative.StartsWith(
+        if (relative == ".."
+            || relative.StartsWith(
                 $"..{Path.DirectorySeparatorChar}",
                 StringComparison.Ordinal)
-            && !Path.IsPathRooted(relative);
+            || Path.IsPathRooted(relative))
+        {
+            return PackageDocumentationRoute.DirectLibrary;
+        }
+
+        if (string.IsNullOrWhiteSpace(source.PackageName)
+            || string.IsNullOrWhiteSpace(source.PackageVersion)
+            || string.IsNullOrWhiteSpace(source.SelectedTfm)
+            || string.IsNullOrWhiteSpace(source.PackageProducerKey))
+        {
+            return PackageDocumentationRoute.UnsupportedPackageAsset;
+        }
+
+        var content = new FileSystemPackageContent(
+            source.PackageExtractPath,
+            nupkgPath: null,
+            fromCache: true,
+            source.PackageProducerKey);
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                source.PackageName,
+                source.SelectedTfm);
+        if (!selection.IsSelected)
+            return PackageDocumentationRoute.UnsupportedPackageAsset;
+
+        string selectedPath = Path.GetFullPath(assemblyPath);
+        return selection.Assets.Any(asset =>
+                PathComparer().Equals(
+                    AssetPath(source.PackageExtractPath, asset),
+                    selectedPath))
+            ? PackageDocumentationRoute.PackageHouse
+            : PackageDocumentationRoute.UnsupportedPackageAsset;
     }
 
     private static async ValueTask<
@@ -599,6 +637,13 @@ internal static class CompiledDocumentationEnricher
         OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
+
+    private enum PackageDocumentationRoute
+    {
+        DirectLibrary,
+        PackageHouse,
+        UnsupportedPackageAsset,
+    }
 
     private sealed class DocumentationTargetSet
     {

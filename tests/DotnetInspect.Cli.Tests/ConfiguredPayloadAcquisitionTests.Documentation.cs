@@ -6,6 +6,52 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     [Fact]
     public async Task
+        TypeCommand_ConfiguredRuntimeAssetPreservesInspectionWithoutDocumentation()
+    {
+        string id =
+            $"Package.RuntimeDocumentation.{Guid.NewGuid():N}";
+        string source = Path.Combine(_root, "runtime-documentation-feed");
+        string assemblyName =
+            FixtureCatalog.InspectWebDocumentation.AssemblyFileName;
+        const string AssetDirectory =
+            "runtimes/linux-x64/lib/net11.0";
+        WriteLocalPackage(
+            source,
+            id,
+            "Runtime-only package fixture.",
+            library: await File.ReadAllBytesAsync(
+                FixtureCatalog.InspectWebDocumentation.AssemblyPath(),
+                TestContext.Current.CancellationToken),
+            libraryName: assemblyName,
+            libraryDirectory: AssetDirectory);
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "type",
+                "InspectWeb.DocumentationFixtures.Widget",
+                "--package",
+                $"{id}@{Version}",
+                "--library",
+                $"{AssetDirectory}/{assemblyName}",
+                "--source",
+                source,
+                "-v:d",
+                "--tips",
+                "q",
+            ]);
+
+        Assert.True(exit == 0, $"Exit {exit}\n{output}\n{error}");
+        Assert.Empty(error);
+        Assert.Contains(
+            "class InspectWeb.DocumentationFixtures.Widget",
+            output);
+        Assert.DoesNotContain(
+            "A receiver for projected extension methods.",
+            output);
+    }
+
+    [Fact]
+    public async Task
         MemberCommand_ConfiguredPackageUsesPackageDocumentationHouse()
     {
         string id =

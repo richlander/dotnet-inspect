@@ -903,7 +903,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string? redirectId = null, string version = Version,
         byte[]? library = null,
         string libraryName = "Npgsql.dll",
-        byte[]? documentation = null)
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0")
     {
         string directory = hierarchical ? Path.Combine(root, id.ToLowerInvariant(), version) : root;
         Directory.CreateDirectory(directory);
@@ -916,7 +917,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 version,
                 library,
                 libraryName,
-                documentation));
+                documentation,
+                libraryDirectory));
     }
 
     private static HttpContent PackageContent(string id, string readme) =>
@@ -926,7 +928,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         string id, string readme, string? redirectId = null,
         string version = Version, byte[]? library = null,
         string libraryName = "Npgsql.dll",
-        byte[]? documentation = null)
+        byte[]? documentation = null,
+        string libraryDirectory = "lib/net11.0")
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
@@ -942,13 +945,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(
-                    $"lib/net11.0/{libraryName}").Open();
+                    $"{libraryDirectory}/{libraryName}").Open();
                 entry.Write(library);
             }
             if (documentation is not null)
             {
                 using Stream entry = archive.CreateEntry(
-                    $"lib/net11.0/{Path.ChangeExtension(libraryName, ".xml")}")
+                    $"{libraryDirectory}/"
+                        + Path.ChangeExtension(libraryName, ".xml"))
                     .Open();
                 entry.Write(documentation);
             }
