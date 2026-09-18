@@ -140,7 +140,10 @@ const hostNames = new Set([
   "beginManagedCompatibilityCommit", "commitManagedCompatibilityOpen",
   "finishManagedCompatibilityOpen", "cancelPendingManagedCompatibilityOpen",
   "activateLegacyRetainedWorkspaceAfterManaged",
-  "deleteRetainedWorkspaceCore",
+  "selectRetainedWorkspaceCore", "publishRetainedWorkspaceSelectionHistory",
+  "deleteRetainedWorkspaceCore", "waitForPendingWorkspaceCommit",
+  "navigateWithinCurrentWorkspace", "restorePlatformScopeThenDeepLink",
+  "applyPlatformLibraryScope",
   "clearInstalledManagedWorkspaceAssociation",
   "restoreWorkspaceCatalogEntry", "restoreWorkspaceFromLocation",
   "parseWorkspaceHref", "beginDemoNavigation", "stageDemoNavigation",
@@ -1072,6 +1075,61 @@ function harness() {
   };
 }
 
+function wireBrowserHistory(h: ReturnType<typeof harness>) {
+  let handler: ((event: { state: unknown }) => void) | null = null;
+  const errors: string[] = [];
+  Object.assign(h.context, {
+    window: {
+      addEventListener: (
+        _name: string,
+        callback: (event: { state: unknown }) => void,
+      ) => {
+        handler = callback;
+      },
+    },
+    document: {
+      ...h.context.document,
+      querySelector: () => null,
+    },
+    isDiagnosticsPath: () => false,
+    isPackageQueryPath: () => false,
+    isPackageActivityPath: () => false,
+    isCreditsPath: () => false,
+    dismissModalsForRoutedNavigation: () => false,
+    invalidateMemberDestinationWork: () => {},
+    retainedWorkspaceIdFromHistory: (value: unknown) =>
+      value !== null
+        && typeof value === "object"
+        && "id" in value
+        && typeof value.id === "string"
+        ? value.id
+        : null,
+    historyReferencesRetainedWorkspace: (value: unknown) =>
+      value !== null
+        && typeof value === "object"
+        && "id" in value
+        && typeof value.id === "string",
+    withPlatformRootParentHistory: (value: unknown) => value,
+    navigationSnapshotHasPlatformRootParent: () => false,
+    clearNavigationError: () => {},
+    clearWorkspaceRouteFailure: () => true,
+    reportAsyncFailure: (_name: string, error: unknown) => {
+      errors.push(String(error));
+    },
+  });
+  const popstate = appSource.match(
+    /window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  runInNewContext(stripTypeScriptTypes(popstate), h.context);
+  return {
+    dispatch(state: unknown) {
+      assert.ok(handler);
+      handler({ state });
+    },
+    errors,
+  };
+}
+
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
   const runtimeDiagnostic = [
@@ -1612,6 +1670,70 @@ test("browser traversal captures identity before waiting and blocks staged pushe
   assert.equal(h.context.pendingWorkspaceHistoryTraversal, traversal);
 });
 
+test("compatibility selection yields history publication to browser traversal", async () => {
+  const h = harness();
+  h.open(completeSaved);
+  await h.settle();
+
+  const browserHistory = wireBrowserHistory(h);
+  const managedId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.notEqual(managedId, null);
+  const entries: { url: string; state: { id: string | null } }[] = [
+    { url: "/demos", state: { id: "workspace-1" } },
+    { url: completeSaved.canonicalLocation, state: { id: managedId } },
+  ];
+  let index = 1;
+  const originalRestore = h.context.restoreRetainedWorkspaceSnapshot;
+  h.context.restoreRetainedWorkspaceSnapshot = snapshot => {
+    originalRestore(snapshot);
+    h.context.activeWorkspaceUrl =
+      "/?package=Source&version=1.0.0#workspace";
+  };
+  h.context.workspaceLocation.push = (destination, state) => {
+    const id = state !== null
+      && typeof state === "object"
+      && "id" in state
+      && typeof state.id === "string"
+      ? state.id
+      : null;
+    entries.splice(index + 1);
+    entries.push({ url: destination, state: { id } });
+    index++;
+    h.location.href = new URL(destination, h.location).href;
+    h.history.state = state;
+    return true;
+  };
+  const deactivation = deferred<void>();
+  h.controls.deactivateRetained = () => deactivation.promise;
+
+  const selection: unknown = runInNewContext(
+    'selectRetainedWorkspaceCore("workspace-1")',
+    h.context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(
+    h.context.pendingManagedCompatibilityOpen?.committing,
+    true);
+
+  index = 0;
+  h.location.href = "https://inspect.test/demos";
+  h.history.state = entries[index]!.state;
+  browserHistory.dispatch(h.history.state);
+  await new Promise(resolve => setImmediate(resolve));
+  const captured = h.context.pendingWorkspaceHistoryTraversal?.href;
+
+  deactivation.resolve();
+  await Promise.resolve(selection);
+  await new Promise(resolve => setImmediate(resolve));
+  await h.settle();
+
+  assert.deepEqual(browserHistory.errors, []);
+  assert.equal(captured, "https://inspect.test/demos");
+  assert.equal(h.location.href, captured);
+  assert.equal(
+    entries.some(entry => entry.state.id === managedId),
+    true);
+});
+
 test("retained selection and history share managed-to-compatibility cutover", () => {
   const selection = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
@@ -1624,7 +1746,7 @@ test("retained selection and history share managed-to-compatibility cutover", ()
 
   assert.match(
     selectionSource,
-    /active\?\.kind === "managed"[\s\S]*activateLegacyRetainedWorkspaceAfterManaged\(\s*workspaceId,\s*active,\s*navigationSeq,\s*\(\) => \{[\s\S]*workspaceLocation\.push[\s\S]*render\(\);[\s\S]*restartRestoredWorkspaceSelectionData\(\)/);
+    /active\?\.kind === "managed"[\s\S]*activateLegacyRetainedWorkspaceAfterManaged\(\s*workspaceId,\s*active,\s*navigationSeq,\s*\(\) => \{[\s\S]*publishRetainedWorkspaceSelectionHistory\(\);[\s\S]*render\(\);[\s\S]*restartRestoredWorkspaceSelectionData\(\)/);
   assert.match(
     popstate,
     /active\?\.kind === "managed"[\s\S]*activateLegacyRetainedWorkspaceAfterManaged\(\s*historyWorkspace\.id,\s*active,\s*navigationSeq\)/);
@@ -1737,6 +1859,76 @@ test("mixed complete Open preserves inactive Platform through Save", async () =>
 
   assert.equal(captured.coordinateCount, 2);
   assert.deepEqual(h.completeEncoded, [definition]);
+});
+
+test("managed Platform history reuses exact installed presentation", async () => {
+  const h = harness();
+  const definition: BrowserWorkspaceShareState = {
+    tabs: [
+      {
+        id: "platform",
+        kind: "group",
+        source: ":Platform",
+        version: "11.0.6",
+        framework: "net11.0",
+        runtimeIdentifier: null,
+      },
+      {
+        id: "System.Text.Json",
+        kind: "package",
+        source: "nuget.org",
+        version: "9.0.4",
+        framework: "net10.0",
+        runtimeIdentifier: null,
+      },
+    ],
+    contexts: [{
+      id: "mixed-context",
+      tabIds: ["platform", "System.Text.Json"],
+    }],
+    activeTabId: "platform",
+    selectedContextId: "mixed-context",
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+    },
+  };
+  h.controls.share = definition;
+  h.controls.retainedActivation = {
+    status: "activated",
+    installation: retainedInstallation(definition),
+    failure: null,
+  };
+  h.open({ ...completeSaved, activeTabIndex: 0 });
+  await h.settle();
+  const realization =
+    h.context.installedRetainedWorkspaceRealizationId;
+  const savedUrl = h.location.href;
+  const browserHistory = wireBrowserHistory(h);
+
+  h.state.home = true;
+  h.location.href = "https://inspect.test/";
+  h.location.href = savedUrl;
+  h.history.state = {
+    id: h.context.retainedWorkspaces.activeWorkspaceId,
+  };
+  browserHistory.dispatch(h.history.state);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  await h.settle();
+
+  assert.deepEqual(browserHistory.errors, []);
+  assert.deepEqual(h.acquisitions, []);
+  assert.equal(
+    h.context.installedRetainedWorkspaceRealizationId,
+    realization);
+  assert.equal(h.state.package?.source.kind, "platform");
+  assert.equal(h.state.rootKind, "platform");
+  assert.equal(h.context.managedWorkspaceOccurrenceActions.size, 1);
 });
 
 test("managed Workspace root uses exact admitted occurrence actions without a legacy Workspace", async () => {

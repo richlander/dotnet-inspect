@@ -1951,6 +1951,16 @@ function selectRetainedWorkspace(workspaceId: string): void {
     "Activating retained Workspace");
 }
 
+function publishRetainedWorkspaceSelectionHistory(): void {
+  if (pendingWorkspaceHistoryTraversal !== null) return;
+  workspaceLocation.push(
+    activeWorkspaceUrl ?? "/demos",
+    withPlatformRootParentHistory(
+      history.state,
+      navigationSnapshotHasPlatformRootParent(
+        navigationHistory.snapshot())));
+}
+
 async function activateLegacyRetainedWorkspaceAfterManaged(
     workspaceId: string,
     incumbent: ManagedRetainedWorkspace,
@@ -2025,12 +2035,7 @@ async function selectRetainedWorkspaceCore(
         active,
         navigationSeq,
         () => {
-          workspaceLocation.push(
-            activeWorkspaceUrl ?? "/demos",
-            withPlatformRootParentHistory(
-              history.state,
-              navigationSnapshotHasPlatformRootParent(
-                navigationHistory.snapshot())));
+          publishRetainedWorkspaceSelectionHistory();
           render();
           restartRestoredWorkspaceSelectionData();
         });
@@ -2038,12 +2043,7 @@ async function selectRetainedWorkspaceCore(
     } else if (!activateRetainedWorkspaceProjection(workspaceId, false)) {
       return;
     }
-    workspaceLocation.push(
-      activeWorkspaceUrl ?? "/demos",
-      withPlatformRootParentHistory(
-        history.state,
-        navigationSnapshotHasPlatformRootParent(
-          navigationHistory.snapshot())));
+    publishRetainedWorkspaceSelectionHistory();
     render();
     restartRestoredWorkspaceSelectionData();
   } catch (error) {
@@ -17669,8 +17669,9 @@ function refreshPackageStats() {
 async function navigateWithinCurrentWorkspace(
   loc: ParsedLocation,
   navigationSeq: number,
+  preservePlatformMembership = false,
 ): Promise<void> {
-  if (loc.rootKind === "platform") {
+  if (loc.rootKind === "platform" && !preservePlatformMembership) {
     await restoreRetainedWorkspaceFromHistory(loc, navigationSeq);
     return;
   }
@@ -17679,15 +17680,25 @@ async function navigateWithinCurrentWorkspace(
     : null;
   state.credits = false;
   resetLocationFilters();
-  const target = loc.package
+  const target = loc.rootKind === "platform"
     ? state.packages.find(candidate =>
-      packageCoordinateMatchesLocation(candidate, loc))
-    : null;
-  if (loc.package && !target) {
+      candidate.source.kind === "platform"
+      && (!loc.version
+        || candidate.version.toLowerCase() === loc.version.toLowerCase())
+      && (!loc.framework
+        || candidate.activeFramework.toLowerCase()
+          === loc.framework.toLowerCase()))
+    : loc.package
+      ? state.packages.find(candidate =>
+        packageCoordinateMatchesLocation(candidate, loc))
+      : null;
+  if ((loc.package || loc.rootKind === "platform") && !target) {
     failCanonicalWorkspaceRestore(
       loc,
       loc,
-      "The selected package is not available in this Workspace.",
+      loc.rootKind === "platform"
+        ? "The selected Platform is not available in this Workspace."
+        : "The selected package is not available in this Workspace.",
       canonicalSnapshot);
     return;
   }
@@ -18581,6 +18592,10 @@ window.addEventListener("popstate", (event: PopStateEvent) => {
         || "The shared workspace packet could not be restored.",
       invalidSnapshot,
       null);
+    return;
+  }
+  if (historyWorkspace?.kind === "managed") {
+    await navigateWithinCurrentWorkspace(loc, navigationSeq, true);
     return;
   }
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);

@@ -440,8 +440,10 @@ package-occurrence surface.
 
 A browser traversal records its selected URL and retained-definition identity
 before waiting for an in-progress commit. Staged Workspace history publication
-yields to that recorded traversal, so the commit cannot replace its destination
-or truncate the forward entries that existed when the person navigated.
+yields to that recorded traversal, including direct publication after
+managed-to-compatibility selection, so the commit cannot replace its
+destination or truncate the forward entries that existed when the person
+navigated.
 
 The managed-to-compatibility commit boundary is shared by Saved Open,
 retained-list selection, browser-history traversal, and active deletion whose
@@ -493,6 +495,10 @@ effects. This design constrains the realization input to that owner:
   The current page stays interactive until cutover.
 - History traversal does not revive a stored application snapshot or managed
   scope.
+- A Platform-root destination in a managed retained definition applies its
+  resource-free Navigation state to the exact installed Platform/package
+  evidence; it does not enter compatibility package acquisition while
+  retaining managed realization identity.
 
 If a history entry refers to a retained definition that no longer exists, the
 retained-realization owner returns that exact missing-selection outcome.
