@@ -69,6 +69,40 @@ public class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
+        UnsafeEvidencePresence_ReusesValidatedLookalikeCallerGenericRows()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeGenericCallerIdentityAssembly(
+                methodCount: 4);
+
+        Assert.False(
+            LibraryBodyIndex.HasUnsafeEvidence(
+                "LargeGenericCallerIdentity.dll",
+                image));
+    }
+
+    [Fact]
+    public void
+        UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget()
+    {
+        ImmutableArray<byte> image =
+            BuildLargeGenericCallerIdentityAssembly(
+                methodCount: 5);
+
+        InvalidDataException exception =
+            Assert.Throws<InvalidDataException>(
+                () => LibraryBodyIndex.HasUnsafeEvidence(
+                    "LargeGenericCallerIdentity.dll",
+                    image));
+
+        Assert.Contains(
+            "metadata-row budget",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
         UnsafeEvidencePresence_MalformedTypeSpecParentFailsVisibly()
     {
         ImmutableArray<byte> image =
@@ -2119,6 +2153,93 @@ public class UnsafeEvidencePresenceTests
                 metadata.GetOrAddString($"T{index}"),
                 index);
         }
+
+        return Serialize(metadata, bodies);
+    }
+
+    static ImmutableArray<byte>
+        BuildLargeGenericCallerIdentityAssembly(
+            int methodCount)
+    {
+        const int GenericParameterCount = 32 * 1024;
+        MetadataBuilder metadata =
+            CreateMetadata("LargeGenericCallerIdentity");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("Unsafe"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Target"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(
+                methodCount + 1));
+
+        var genericSignature = new BlobBuilder();
+        new BlobEncoder(genericSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount:
+                    GenericParameterCount,
+                isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle callerSignature =
+            metadata.GetOrAddBlob(genericSignature);
+        var bodies = new BlobBuilder();
+        var callerCode = new BlobBuilder();
+        callerCode.WriteByte((byte)ILOpCode.Call);
+        callerCode.WriteInt32(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(
+                    methodCount + 1)));
+        callerCode.WriteByte((byte)ILOpCode.Ret);
+        int callerBody =
+            new MethodBodyStreamEncoder(bodies)
+                .AddMethodBody(
+                    new InstructionEncoder(callerCode),
+                    maxStack: 0);
+        for (int methodIndex = 0;
+            methodIndex < methodCount;
+            methodIndex++)
+        {
+            MethodDefinitionHandle caller =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(
+                        $"Call{methodIndex}"),
+                    callerSignature,
+                    callerBody,
+                    MetadataTokens.ParameterHandle(1));
+            for (int parameterIndex = 0;
+                parameterIndex < GenericParameterCount;
+                parameterIndex++)
+            {
+                metadata.AddGenericParameter(
+                    caller,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    parameterIndex);
+            }
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            AddVoidMethodSignature(metadata),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
 
         return Serialize(metadata, bodies);
     }

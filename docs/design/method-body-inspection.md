@@ -485,6 +485,10 @@ the bounded absence claim.
 `UnsafeEvidencePresence_InvalidPhysicalCallerGenericDeclarationFailsVisibly`,
 and `UnsafeEvidencePresence_ChargesRepeatedTargetGenericParameterRows` gate
 the direct token, physical scope, and bounded-work paths.
+`UnsafeEvidencePresence_ReusesValidatedLookalikeCallerGenericRows` and
+`UnsafeEvidencePresence_RejectsLookalikeCallerGenericRowsAboveBudget` gate
+presence-mode caller identity at and beyond the aggregate row boundary without
+repeating the validated scope's generic-row traversal.
 `UnsafeEvidencePresence_AmbiguousLocalDeclaringTypeFailsVisibly` and
 `UnsafeEvidencePresence_AmbiguousLocalMethodFailsVisibly` gate visible
 ambiguity rather than successful absence.

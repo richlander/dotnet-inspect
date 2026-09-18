@@ -316,7 +316,6 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
     {
-        var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
         ImmutableArray<TypeRef> parameterTypes;
         TypeRef returnType;
         byte signatureHeader;
@@ -347,20 +346,96 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             hasInvalidGenericParameterDeclaration =
                 !HasExactGenericParameterDeclaration(methodDef);
         }
-        return new MethodIdentity(
-            _assemblyName,
-            _mvid,
-            declaringType,
+        return CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            methodDef,
+            TypeRefDecoder.Instance.GetTypeFromDefinition(
+                _reader,
+                typeHandle,
+                0),
             _reader.GetString(methodDef.Name),
             parameterTypes,
             returnType,
+            signatureHeader,
+            requiredParameterCount,
+            genericArity,
+            GenericParameterNames(methodDef),
+            hasInvalidGenericParameterDeclaration);
+    }
+
+    internal MethodIdentity CreatePresenceMethodIdentity(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        GenericScope scope,
+        UnsafePresenceWorkBudget workBudget)
+    {
+        workBudget.ReserveCorrespondenceBytes(
+            _reader.GetBlobReader(method.Signature).Length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "A method signature exceeds the safe decoding "
+                    + "limits.");
+        }
+
+        var decoder = new TypeRefDecoder(
+            workBudget.ReserveCorrespondenceBytes);
+        MethodSignature<TypeRef> signature =
+            method.DecodeSignature(
+                decoder,
+                scope);
+        return CreateMethodIdentity(
+            typeHandle,
+            methodHandle,
+            method,
+            decoder.GetTypeFromDefinition(
+                _reader,
+                typeHandle,
+                0),
+            ReadPresenceString(
+                method.Name,
+                workBudget),
+            signature.ParameterTypes,
+            signature.ReturnType,
+            signature.Header.RawValue,
+            signature.RequiredParameterCount,
+            scope.MethodParameters.Length,
+            scope.MethodParameters,
+            hasInvalidGenericParameterDeclaration: false);
+    }
+
+    MethodIdentity CreateMethodIdentity(
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        TypeRef declaringType,
+        string methodName,
+        ImmutableArray<TypeRef> parameterTypes,
+        TypeRef returnType,
+        byte signatureHeader,
+        int requiredParameterCount,
+        int genericArity,
+        ImmutableArray<string> genericParameterNames,
+        bool hasInvalidGenericParameterDeclaration)
+        => new(
+            _assemblyName,
+            _mvid,
+            declaringType,
+            methodName,
+            parameterTypes,
+            returnType,
             MetadataTokens.GetToken(methodHandle),
-            (methodDef.Attributes & MethodAttributes.Static) != 0,
-            IsExtensionMethod(typeHandle, methodDef),
+            (method.Attributes & MethodAttributes.Static) != 0,
+            IsExtensionMethod(typeHandle, method),
             CallerUnsafeModeFromContract(
                 _memorySafety.GetMemberContract(methodHandle)),
             genericArity,
-            GenericParameterNames(methodDef))
+            genericParameterNames)
         {
             SignatureHeader = signatureHeader,
             RequiredParameterCount = requiredParameterCount,
@@ -369,9 +444,8 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             IsVirtualDispatchOpen =
                 DispatchCanTargetOverride(
                     _reader.GetTypeDefinition(typeHandle),
-                    methodDef),
+                    method),
         };
-    }
 
     internal static bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
