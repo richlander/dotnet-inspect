@@ -334,6 +334,32 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Plan_ReferencesTermReachesTheProductContentPlan()
+    {
+        var term = new PortableQueryTerm(
+            PackageQuery.ReferencesTermKey,
+            PortableQueryOperator.Equal,
+            "Microsoft.Extensions.DependencyInjection.Abstractions");
+
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Microsoft.Extensions.*",
+                [term],
+                maximumCandidates:
+                    PackageQuery.MaximumPackageContentCandidates,
+                maximumMatches: 10,
+                includePrerelease: false));
+
+        BoundPackageQueryTerm bound =
+            Assert.Single(accepted.Plan.BoundTerms);
+        Assert.Same(term, Assert.Single(accepted.Plan.Terms));
+        Assert.Equal(
+            PackageQueryPredicateKind.AssemblyReference,
+            bound.Predicate.Kind);
+        Assert.True(accepted.Plan.RequiresPackageContent);
+    }
+
+    [Fact]
     public void Catalog_ProjectsDependsPrefixAsNuspecPreset()
     {
         BrowserPackageQueryPresetDescriptor preset =
@@ -347,6 +373,22 @@ public sealed class BrowserPackageQueryOperationsTests
         Assert.Equal(
             BrowserPackageQueryAcquisitionTier.Nuspec,
             preset.Tier);
+    }
+
+    [Fact]
+    public void Catalog_ProjectsReferencesAsPackageContentFreeTerm()
+    {
+        BrowserPackageQueryTermDescriptor term =
+            Assert.Single(
+                BrowserPackageQueryOperations.Catalog().Terms,
+                candidate =>
+                    candidate.Key == PackageQuery.ReferencesTermKey);
+
+        Assert.Equal("eq", Assert.Single(term.Operators));
+        Assert.Equal("assembly simple name", term.ValueKind);
+        Assert.Equal(
+            BrowserPackageQueryAcquisitionTier.PackageContent,
+            term.Tier);
     }
 
     [Fact]

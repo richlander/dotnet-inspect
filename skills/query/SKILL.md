@@ -207,6 +207,9 @@ dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "dependency-target=netstandard2.0"
 dnx dotnet-inspect -y -- package query 'Azure.*' \
   --where "depends-prefix=true"
+dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -220,6 +223,10 @@ by default; use `dependency-target=<TFM>` to select one compatible group, or
 `all` remains distinct from a manifest's `any` group and does not request
 traversal. `depends-prefix=true` matches a direct declaration whose first
 dot-delimited package-ID segment differs from the package's own segment.
+`references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
+assemblies from every target-framework group, matches `AssemblyRef` simple
+names case-insensitively, and reports framework/path evidence without resolving
+or traversing the reference.
 `--take` bounds candidate work, while `-n` and `--rows` select final
 matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
 execution: direct package rows use an effective candidate bound of N, while

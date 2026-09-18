@@ -473,11 +473,25 @@ dotnet-inspect package query 'Azure.*' \
   --where "depends-prefix=true"
 ```
 
+Use `references=<simple-assembly-name>` to find packages whose managed `ref/`
+or `lib/` assemblies declare that `AssemblyRef` across any target-framework
+group:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
+```
+
+This package-content term matches simple names case-insensitively and reports
+the matching framework and archive path. It does not resolve or traverse the
+reference.
+
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and product-authored evidence. The initial CLI
 vocabulary covers package metadata, dependencies, cross-prefix dependencies,
-downloads, README presence, .NET tools and their CLI v1/v2 format, and skill
-packages. Discover the
+downloads, README presence, .NET tools and their CLI v1/v2 format, assembly
+references, and skill packages. Discover the
 admitted keys and values before constructing a query:
 
 ```bash
