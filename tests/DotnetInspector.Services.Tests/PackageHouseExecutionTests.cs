@@ -1192,6 +1192,22 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Same(
             acquired.Payload.Content.GenerationIdentity,
             realization.Receipt.Generation);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<
+                PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+        Assert.Equal(
+            "net8.0",
+            realization.Selection.ImplementationTargetFramework);
+        Assert.False(
+            realization.Selection.UsesCompatibleImplementationSelection);
+        Assert.Equal("net10.0", rootRequest.CompileTargetFramework);
+        Assert.Equal("net8.0", rootRequest.SelectionTargetFramework);
+        Assert.False(rootRequest.AllowsCompatibleTargetSelection);
+        Assert.False(rootRequest.UsesCompatibleImplementationSelection);
         await environment.AssertRootSettledAsync();
     }
 

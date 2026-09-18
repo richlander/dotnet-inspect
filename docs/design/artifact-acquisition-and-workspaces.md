@@ -2182,7 +2182,12 @@ The binding also retains compatible target-selection authorization separately
 from the observed selection outcome. Exact-only construction retains neither.
 Compatible construction retains authorization even when the exact compile
 slice wins, and additionally records compatible implementation use only when
-that path governs the frozen outcome. The compile selector issues the selected
+that path governs the frozen outcome. Different compile and implementation
+targets do not by themselves grant authorization or record compatible use:
+owner-default `HighestAvailable` selection may choose `ref/net10.0` and
+independently choose `lib/net8.0` without evaluating a caller-requested target.
+That Root preserves both selected targets while retaining false authorization
+and false observed use. The compile selector issues the selected
 implementation-universe target and compatible-use outcome as typed selection
 facts, including compatible ambiguity where no unique implementation target
 exists. Root binding consumes those facts directly rather than deriving
@@ -3190,24 +3195,27 @@ The request preserves six facts separately:
   froze the binding's implementation universe; and
 - whether the caller or owner-issued selection policy authorized compatible
   target selection; and
-- whether implementation selection used a compatible universe relative to the
-  requested compile target, including when compatible selection produced no
-  unique universe.
+- whether implementation selection used a compatible universe relative to a
+  caller-requested compile target, including when compatible selection
+  produced no unique universe.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
-pair a requested compile target with an older implementation target. Collapsing
-either pair, omitting authorization when an exact compile slice wins, or
+pair a requested compile target with an older implementation target.
+Owner-default selection may also pair independently selected compile and
+implementation targets while authorizing and observing no compatible
+selection. Collapsing either pair, inferring compatibility merely from
+different targets, omitting authorization when an exact compile slice wins, or
 omitting the observed compatible outcome when no unique universe exists would
-fail with `MissingAcquisitionTarget`, prevent a later consumer from applying
-the authorized policy, or silently select a different compile or
-implementation outcome.
+fail with `MissingAcquisitionTarget`, misstate the selection policy, prevent a
+later consumer from applying the authorized policy, or silently select a
+different compile or implementation outcome.
 
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
 therefore safe to hold across candidate Workspace disposal and to observe a
 replacement physical generation, while never silently changing the requested
-target.
+or owner-selected compile and implementation targets.
 
 ##### One acquisition entry for both request forms
 
@@ -3349,8 +3357,12 @@ In `PackageRootAcquisitionTests`:
 compatible-selection authorization and observed-use fields plus `pkgroot1`,
 `pkgroot2`, and `pkgroot3` migration. `Token_RejectsMalformedOrNonCanonicalInput`
 rejects an observed compatible-use claim without its authorization and rejects
-compatible authorization without compile and selection targets through the
-decoder's total `false` result.
+compatible authorization without compile and selection targets, plus blank or
+padded target fields, through the decoder's total `false` result.
+
+In `ArtifactRootCorrespondenceTests`,
+`PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility` gates
+independent target and compatibility facts.
 
 In `PackageAssemblyContextRealizationTests`,
 `PackageRootBinding_SourceSelectionPreservesCompatibleTargetAuthorization`
@@ -3359,6 +3371,12 @@ observed;
 `PackageRootBinding_SourceSelectionPreservesImplementationUniverseTarget`
 gates an exact `ref/net10.0` compile slice paired with its selected
 `lib/net8.0` implementation universe;
+`PackageRootBinding_OwnerDefaultPreservesImplementationUniverseTarget` gates
+the same split under owner-default selection while both compatibility facts
+remain false;
+`OwnerDefaultImplementationRequest_RejectsReplacementImplementationTarget`
+gates rejection when owner-default replacement content changes the frozen
+implementation universe from `lib/net8.0` to `lib/net7.0`;
 `PackageRootBinding_CompatibleAuthorizationSurvivesExactSelection` gates
 authorization retention when exact target selection wins;
 `PackageRootBinding_CompatibleSelectionPreservesLowerImplementationTarget`
@@ -3389,6 +3407,9 @@ target, compatible-selection authorization, and observed compatible use.
 `ExactCompileRealizePreservesCompatibleImplementationUniverse` gates the
 production adapter when an exact `ref/net10.0` compile slice uses a
 `lib/net8.0` implementation universe.
+`OwnerDefaultCompileRealizePreservesHighestAvailableInventory` gates the
+production adapter's owner-default `ref/net10.0` and `lib/net8.0` split with
+neither compatible authorization nor observed compatible use.
 
 Acquisition against a live feed over the network is **unverified** in this
 slice: the gates serve exact versions from a cached store and fail the test

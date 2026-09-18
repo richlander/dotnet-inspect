@@ -379,6 +379,11 @@ public sealed class PackageRootReacquisitionRequest :
         string? compileTargetFramework = fields[5];
         string? selectionTargetFramework =
             legacy ? fields[5] : fields[6];
+        if (IsBlankOrPadded(compileTargetFramework)
+            || IsBlankOrPadded(selectionTargetFramework))
+        {
+            return false;
+        }
         if ((compileTargetFramework is null)
             != (selectionTargetFramework is null))
         {
@@ -472,6 +477,11 @@ public sealed class PackageRootReacquisitionRequest :
         request = new PackageRootReacquisitionRequest(decoded);
         return true;
     }
+
+    static bool IsBlankOrPadded(string? value) =>
+        value is not null
+        && (string.IsNullOrWhiteSpace(value)
+            || !value.Equals(value.Trim(), StringComparison.Ordinal));
 
     public bool Equals(PackageRootReacquisitionRequest? other) =>
         other is not null && _request == other._request;

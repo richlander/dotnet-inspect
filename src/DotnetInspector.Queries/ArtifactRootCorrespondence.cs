@@ -92,19 +92,14 @@ internal readonly record struct PackageArtifactRootRequest(
                 nameof(allowsCompatibleTargetSelection));
         }
 
-        bool usesCompatibleSelection =
-            usesCompatibleImplementationSelection
-            || !string.Equals(
-                normalizedCompileTarget,
-                normalizedSelectionTarget,
-                StringComparison.Ordinal);
         return new(
             coordinate,
             normalizedCompileTarget,
             normalizedSelectionTarget,
             NormalizeRuntime(selectionRuntimeIdentifier),
-            usesCompatibleSelection,
-            allowsCompatibleTargetSelection || usesCompatibleSelection);
+            usesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection
+                || usesCompatibleImplementationSelection);
     }
 
     internal static string? NormalizeFramework(string? framework)

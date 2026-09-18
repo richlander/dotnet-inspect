@@ -169,6 +169,8 @@ public sealed class PackageRootBinding
             ValidateSourceSelection(payload, receipt);
         string? selectionTargetFramework =
             ReceiptSelectionTargetFramework(receipt);
+        string? compileTargetFramework =
+            ReceiptCompileTargetFramework(receipt);
         bool usesCompatibleImplementationSelection =
             ReceiptUsesCompatibleImplementationSelection(receipt);
         return Create(
@@ -185,7 +187,7 @@ public sealed class PackageRootBinding
             selectionTargetFramework,
             receipt.RequestedRuntimeIdentifier,
             assetSelection: receipt.Selection,
-            compileTargetFramework: receipt.RequestedTargetFramework,
+            compileTargetFramework: compileTargetFramework,
             usesCompatibleImplementationSelection:
                 usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection:
@@ -213,6 +215,8 @@ public sealed class PackageRootBinding
         }
         string? selectionTargetFramework =
             ReceiptSelectionTargetFramework(receipt);
+        string? compileTargetFramework =
+            ReceiptCompileTargetFramework(receipt);
         return TryCreate(
             payload,
             payload.Coordinate.PackageId,
@@ -227,7 +231,7 @@ public sealed class PackageRootBinding
             selectionTargetFramework,
             receipt.RequestedRuntimeIdentifier,
             receipt.Selection,
-            compileTargetFramework: receipt.RequestedTargetFramework,
+            compileTargetFramework: compileTargetFramework,
             usesCompatibleImplementationSelection:
                 ReceiptUsesCompatibleImplementationSelection(receipt),
             allowsCompatibleTargetSelection:
@@ -244,12 +248,17 @@ public sealed class PackageRootBinding
 
     static string? ReceiptSelectionTargetFramework(
         PackageCompileAssetSelectionReceipt receipt) =>
-        receipt.Policy == PackageCompileAssetSelectionPolicy.ExplicitTarget
+        receipt.Policy != PackageCompileAssetSelectionPolicy.ExactTarget
             ? receipt.Selection.ImplementationTargetFramework
                 ?? receipt.Selection.TargetFramework
                 ?? receipt.RequestedTargetFramework
             : receipt.Selection.TargetFramework
                 ?? receipt.RequestedTargetFramework;
+
+    static string? ReceiptCompileTargetFramework(
+        PackageCompileAssetSelectionReceipt receipt) =>
+        receipt.RequestedTargetFramework
+        ?? receipt.Selection.TargetFramework;
 
     private static string? ValidateSourceSelection(
         AcquiredPackageSourcePayload payload,
@@ -383,7 +392,7 @@ public sealed class PackageRootBinding
             selection.TargetFramework,
             coordinate.RuntimeIdentifier,
             selection.Value,
-            request.CompileTargetFramework,
+            selection.CompileTargetFramework,
             selection.UsesCompatibleImplementationSelection,
             request.AllowsCompatibleTargetSelection);
     }
@@ -410,7 +419,7 @@ public sealed class PackageRootBinding
             selection.TargetFramework,
             coordinate.RuntimeIdentifier,
             selection.Value,
-            request.CompileTargetFramework,
+            selection.CompileTargetFramework,
             selection.UsesCompatibleImplementationSelection,
             request.AllowsCompatibleTargetSelection);
     }
@@ -575,6 +584,7 @@ public sealed class PackageRootBinding
 
     readonly record struct ReacquiredSelection(
         PackageCompileAssetSelection? Value,
+        string? CompileTargetFramework,
         string? TargetFramework,
         bool UsesCompatibleImplementationSelection);
 
@@ -588,6 +598,7 @@ public sealed class PackageRootBinding
         {
             return new(
                 Value: null,
+                request.CompileTargetFramework,
                 request.SelectionTargetFramework,
                 UsesCompatibleImplementationSelection: false);
         }
@@ -596,8 +607,29 @@ public sealed class PackageRootBinding
         {
             if (!request.AllowsCompatibleTargetSelection)
             {
+                if (!compileTargetFramework.Equals(
+                        selectionTargetFramework,
+                        StringComparison.Ordinal))
+                {
+                    PackageCompileAssetSelection ownerDefaultSelection =
+                        PackageCompileAssetSelector
+                            .SelectForCompatibleImplementation(
+                                content,
+                                packageId,
+                                compileTargetFramework,
+                                selectionTargetFramework,
+                                request.SelectionRuntimeIdentifier);
+                    return new(
+                        ownerDefaultSelection,
+                        ownerDefaultSelection.TargetFramework,
+                        ownerDefaultSelection
+                            .ImplementationTargetFramework,
+                        UsesCompatibleImplementationSelection: false);
+                }
+
                 return new(
                     Value: null,
+                    compileTargetFramework,
                     selectionTargetFramework,
                     UsesCompatibleImplementationSelection: false);
             }
@@ -616,6 +648,7 @@ public sealed class PackageRootBinding
                 ?? selectionTargetFramework;
             return new(
                 selection,
+                compileTargetFramework,
                 targetFramework,
                 UsesCompatibleImplementationSelection:
                     selection.UsesCompatibleImplementationSelection);
@@ -647,6 +680,7 @@ public sealed class PackageRootBinding
                 compatibleSelection ?? exactSelection;
             return new(
                 selection,
+                compileTargetFramework,
                 SelectionTargetFramework(
                     selection,
                     selectionTargetFramework),
@@ -664,6 +698,7 @@ public sealed class PackageRootBinding
                 request.SelectionRuntimeIdentifier);
         return new(
             reselected,
+            compileTargetFramework,
             SelectionTargetFramework(
                 reselected,
                 selectionTargetFramework),

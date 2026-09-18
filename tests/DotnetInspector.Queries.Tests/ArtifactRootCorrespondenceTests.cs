@@ -215,6 +215,27 @@ public sealed class ArtifactRootCorrespondenceTests
     }
 
     [Fact]
+    public void PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility()
+    {
+        PackageArtifactRootRequest request =
+            PackageArtifactRootRequest.Create(
+                new RealizedMemberCoordinate.Package(
+                    "owner.default",
+                    "1.0.0",
+                    "tests",
+                    framework: null,
+                    runtimeIdentifier: null),
+                compileTargetFramework: "net10.0",
+                selectionTargetFramework: "net8.0",
+                selectionRuntimeIdentifier: null);
+
+        Assert.Equal("net10.0", request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.False(request.AllowsCompatibleTargetSelection);
+        Assert.False(request.UsesCompatibleImplementationSelection);
+    }
+
+    [Fact]
     public async Task PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance()
     {
         PackageRootBinding binding =
