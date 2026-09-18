@@ -16,7 +16,7 @@ import {
   type PackageQueryBindingActions,
 } from "../src/package-query-view.ts";
 import {
-  createPackageQueryStreamRenderScheduler,
+  createPackageQueryRenderScheduler,
   packageQueryEditorCompositionActive,
 } from "../src/package-query-editor-lifecycle.ts";
 import {
@@ -1786,13 +1786,14 @@ test("bindPackageQueryView ignores an unpaired term compositionend", () => {
   assert.deepEqual(calls, []);
 });
 
-test("Package Query stream rendering resumes once after composition settles", () => {
+test("Package Query rendering resumes once after composition settles", () => {
   let frameCallback: (() => void) | null = null;
   let composing = true;
   let open = true;
-  let renderCount = 0;
+  let streamRenderCount = 0;
+  let fullRenderCount = 0;
   const cancelled: number[] = [];
-  const scheduler = createPackageQueryStreamRenderScheduler({
+  const scheduler = createPackageQueryRenderScheduler({
     requestFrame: callback => {
       assert.equal(frameCallback, null);
       frameCallback = callback;
@@ -1804,7 +1805,8 @@ test("Package Query stream rendering resumes once after composition settles", ()
     },
     shouldRender: () => open,
     compositionActive: () => composing,
-    render: () => renderCount++,
+    renderStream: () => streamRenderCount++,
+    renderFull: () => fullRenderCount++,
   });
   const runFrame = () => {
     const callback = frameCallback;
@@ -1813,42 +1815,103 @@ test("Package Query stream rendering resumes once after composition settles", ()
     callback?.();
   };
 
-  scheduler.schedule();
+  scheduler.scheduleStream();
   runFrame();
-  assert.equal(renderCount, 0);
+  assert.equal(streamRenderCount, 0);
 
-  scheduler.schedule();
+  scheduler.scheduleStream();
   assert.equal(frameCallback, null);
 
   scheduler.cancel();
   composing = false;
-  scheduler.schedule();
+  scheduler.scheduleStream();
   runFrame();
-  assert.equal(renderCount, 1);
+  assert.equal(streamRenderCount, 1);
 
   composing = true;
-  scheduler.schedule();
+  scheduler.scheduleStream();
   runFrame();
-  assert.equal(renderCount, 1);
+  assert.equal(streamRenderCount, 1);
 
   composing = false;
   scheduler.resume();
   assert.notEqual(frameCallback, null);
   runFrame();
-  assert.equal(renderCount, 2);
+  assert.equal(streamRenderCount, 2);
 
   scheduler.resume();
   assert.equal(frameCallback, null);
 
-  scheduler.schedule();
+  scheduler.scheduleStream();
   scheduler.cancel();
   assert.deepEqual(cancelled, [7]);
   assert.equal(frameCallback, null);
 
   open = false;
-  scheduler.schedule();
+  scheduler.scheduleStream();
   runFrame();
-  assert.equal(renderCount, 2);
+  assert.equal(streamRenderCount, 2);
+  assert.equal(fullRenderCount, 0);
+});
+
+test("Package Query full rendering supersedes stream work and defers during composition", () => {
+  let frameCallback: (() => void) | null = null;
+  let composing = true;
+  let open = true;
+  let streamRenderCount = 0;
+  let fullRenderCount = 0;
+  const cancelled: number[] = [];
+  const scheduler = createPackageQueryRenderScheduler({
+    requestFrame: callback => {
+      assert.equal(frameCallback, null);
+      frameCallback = callback;
+      return 11;
+    },
+    cancelFrame: handle => {
+      cancelled.push(handle);
+      frameCallback = null;
+    },
+    shouldRender: () => open,
+    compositionActive: () => composing,
+    renderStream: () => streamRenderCount++,
+    renderFull: () => fullRenderCount++,
+  });
+
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.deepEqual(cancelled, [11]);
+  assert.equal(frameCallback, null);
+  assert.equal(fullRenderCount, 0);
+
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.equal(frameCallback, null);
+  assert.equal(fullRenderCount, 0);
+
+  composing = false;
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+  assert.equal(streamRenderCount, 0);
+
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+
+  composing = true;
+  scheduler.renderFull();
+  open = false;
+  composing = false;
+  scheduler.resume();
+  assert.equal(fullRenderCount, 1);
+
+  open = true;
+  scheduler.scheduleStream();
+  scheduler.renderFull();
+  assert.deepEqual(cancelled, [11, 11]);
+  assert.equal(fullRenderCount, 2);
+
+  open = false;
+  scheduler.renderFull();
+  assert.equal(fullRenderCount, 2);
 });
 
 test("bindPackageQueryView applies exact term values and keeps empty drafts idle", () => {

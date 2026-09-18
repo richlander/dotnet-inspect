@@ -118,8 +118,9 @@ range, and selection direction when an unrelated full or streamed render
 replaces the control. Restoration targets only the same logical editor; if a
 mode switch removes it, fallback focus never receives the removed editor's
 value or selection. Native input-method composition remains in the live
-control, defers streamed replacement rendering, and publishes the committed
-value on `compositionend` before any deferred render resumes.
+control, defers unrelated full or streamed replacement rendering, and
+publishes the committed value on `compositionend` before the latest deferred
+render resumes.
 Cancel discards a draft, Remove discards the corresponding active editor with
 its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID

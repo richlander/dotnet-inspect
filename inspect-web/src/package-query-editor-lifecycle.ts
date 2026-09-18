@@ -8,8 +8,9 @@ export interface PackageQueryEditorSnapshot {
   selectionDirection: PackageQuerySelectionDirection | null;
 }
 
-export interface PackageQueryStreamRenderScheduler {
-  schedule(): void;
+export interface PackageQueryRenderScheduler {
+  scheduleStream(): void;
+  renderFull(): void;
   resume(): void;
   cancel(): void;
 }
@@ -116,43 +117,70 @@ export function bindPackageQueryEditor(
   });
 }
 
-export function createPackageQueryStreamRenderScheduler(
+export function createPackageQueryRenderScheduler(
   options: {
     readonly requestFrame: (callback: () => void) => number;
     readonly cancelFrame: (handle: number) => void;
     readonly shouldRender: () => boolean;
     readonly compositionActive: () => boolean;
-    readonly render: () => void;
+    readonly renderStream: () => void;
+    readonly renderFull: () => void;
   },
-): PackageQueryStreamRenderScheduler {
+): PackageQueryRenderScheduler {
   let frame: number | null = null;
-  let deferred = false;
+  let deferred: "stream" | "full" | null = null;
 
-  const schedule = () => {
-    if (frame !== null || deferred) return;
+  const cancelPendingFrame = () => {
+    if (frame === null) return;
+    options.cancelFrame(frame);
+    frame = null;
+  };
+
+  const cancel = () => {
+    deferred = null;
+    cancelPendingFrame();
+  };
+
+  const scheduleStream = () => {
+    if (frame !== null || deferred !== null) return;
     frame = options.requestFrame(() => {
       frame = null;
       if (!options.shouldRender()) return;
       if (options.compositionActive()) {
-        deferred = true;
+        deferred = "stream";
         return;
       }
-      options.render();
+      options.renderStream();
     });
   };
 
+  const renderFull = () => {
+    if (!options.shouldRender()) {
+      cancel();
+      return;
+    }
+    if (options.compositionActive()) {
+      cancelPendingFrame();
+      deferred = "full";
+      return;
+    }
+    cancel();
+    options.renderFull();
+  };
+
   return {
-    schedule,
+    scheduleStream,
+    renderFull,
     resume: () => {
-      if (!deferred) return;
-      deferred = false;
-      schedule();
+      const pending = deferred;
+      if (pending === null) return;
+      deferred = null;
+      if (pending === "full") {
+        renderFull();
+        return;
+      }
+      scheduleStream();
     },
-    cancel: () => {
-      deferred = false;
-      if (frame === null) return;
-      options.cancelFrame(frame);
-      frame = null;
-    },
+    cancel,
   };
 }
