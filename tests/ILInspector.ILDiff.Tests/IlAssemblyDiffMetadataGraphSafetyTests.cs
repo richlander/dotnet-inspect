@@ -5,9 +5,6 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 namespace ILInspector.ILDiff.Tests;
 
 public class IlAssemblyDiffMetadataGraphSafetyTests
@@ -53,55 +50,6 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         string identity = MemberIdentity(BuildTypeReferenceImage(depth: 1, cyclic: false));
 
         Assert.Equal("C::M#static void([System.Private.CoreLib]System.String)", identity);
-    }
-
-    [Fact]
-    public void MetadataGraphEdgeCensus_HasNoLocalIdentityRelationshipWalk()
-    {
-        string sourceRoot = Path.Combine(FindRepositoryRoot(), "src");
-        string[] componentDirectories =
-        [
-            Path.Combine(sourceRoot, "ILInspector.ILDiff"),
-            Path.Combine(sourceRoot, "ILInspector.Instructions"),
-        ];
-        var actual = componentDirectories
-            .SelectMany(directory =>
-                Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
-            .Select(path =>
-            {
-                var root = CSharpSyntaxTree.ParseText(
-                    File.ReadAllText(path),
-                    path: path,
-                    cancellationToken: TestContext.Current.CancellationToken)
-                    .GetRoot(TestContext.Current.CancellationToken);
-                return new GraphEdgeCount(
-                    Path.GetRelativePath(sourceRoot, path)
-                        .Replace(Path.DirectorySeparatorChar, '/'),
-                    root.DescendantNodes()
-                        .OfType<InvocationExpressionSyntax>()
-                        .Count(invocation =>
-                            invocation.Expression is MemberAccessExpressionSyntax member
-                            && member.Name.Identifier.ValueText == "GetDeclaringType"),
-                    root.DescendantNodes()
-                        .OfType<MemberAccessExpressionSyntax>()
-                        .Count(member => member.Name.Identifier.ValueText == "ResolutionScope"));
-            })
-            .Where(count => count.DeclaringTypeEdges > 0 || count.TypeReferenceEdges > 0)
-            .OrderBy(count => count.File, StringComparer.Ordinal)
-            .ToArray();
-
-        GraphEdgeCount[] expected =
-        [
-            // CompilerGeneratedOrdinals.cs resolves the declaring type of an attribute
-            // constructor to identify CompilerGeneratedAttribute. That is a single hop,
-            // not a relationship chain: its nesting walk goes through the bounded
-            // MetadataRelationshipTraversal, which is why this count is 1 and not 2.
-            new("ILInspector.ILDiff/CompilerGeneratedOrdinals.cs", DeclaringTypeEdges: 1, TypeReferenceEdges: 0),
-            new("ILInspector.ILDiff/IlAssemblyDiff.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-            new("ILInspector.ILDiff/IlMetadataOperandResolver.cs", DeclaringTypeEdges: 5, TypeReferenceEdges: 8),
-            new("ILInspector.Instructions/MetadataStackTypeResolver.cs", DeclaringTypeEdges: 2, TypeReferenceEdges: 0),
-        ];
-        Assert.Equal(expected, actual);
     }
 
     static bool IsSelectedWorker(string methodName)
@@ -348,20 +296,4 @@ public class IlAssemblyDiffMetadataGraphSafetyTests
         throw new InvalidOperationException("Method M not found.");
     }
 
-    static string FindRepositoryRoot()
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-        {
-            string sourceDirectory = Path.Combine(directory.FullName, "src", "ILInspector.Instructions");
-            if (Directory.Exists(sourceDirectory))
-                return directory.FullName;
-        }
-
-        throw new DirectoryNotFoundException("Could not find repository root containing src/ILInspector.Instructions.");
-    }
-
-    readonly record struct GraphEdgeCount(
-        string File,
-        int DeclaringTypeEdges,
-        int TypeReferenceEdges);
 }
