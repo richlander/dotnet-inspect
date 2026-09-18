@@ -234,11 +234,15 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-`LibraryBodyIndex` remains the compatibility query facade over one shared body
-acquisition. `LibraryBodyAnalysisPlan` owns producer dependencies and scope;
-the acquisition returns cohesive method, safety, allocation, optimization, and
-resource-lifecycle results. Topic-specific Analysis services consume those
-results rather than adding more unrelated algorithms to the facade.
+`LibraryBodyIndex` remains the temporary compatibility query facade over one
+shared body acquisition. The
+[library body Analysis service](library-body-analysis-service.md) owns
+stateless path and immutable-image execution, while `LibraryBodyIndex` is the
+detached evidence result. `LibraryBodyAnalysisPlan` owns producer dependencies
+and scope; execution returns cohesive method, safety, allocation,
+optimization, and resource-lifecycle results. Topic-specific Analysis services
+consume those results rather than adding more unrelated algorithms to the
+facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and
 Analysis-owned loop regions and decoded local types, together with the neutral

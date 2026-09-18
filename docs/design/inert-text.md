@@ -475,54 +475,19 @@ re-enters through `InertString.FromEncoded`, which validates the representation
 without recovering the original. Both leave through `ToString` already spelled,
 so the currency namespace is sufficient for every ordinary use.
 
-**The audit is one search, and the string is `InertText.Encoding`.** Reaching the
-decoder means naming its namespace, and that act *is* the opt-in. Decoding is a
-legitimate operation with legitimate callers, so the design does not try to
-prevent it — only to make it impossible to do quietly.
+The compiled API separates ordinary currency use from recovery.
+`InertText.Encoding.VisualEncoder` owns decoding, while public construction and
+composition require only types from the `InertText` currency namespace. The
+currency surface does not return untreated text or accept caller delegates that
+could receive it. Those type-shape properties make accidental disclosure
+unrepresentable through the ordinary API.
 
-A namespace can be named in two places, and both are equally legitimate:
-
-```csharp
-using InertText.Encoding;            // named in the import block
-VisualEncoder.TryDecode(inert.ToString(), out string? original);
-```
-
-```csharp
-// no using directive of any kind in this file. InertText.Encoding here is the
-// namespace; there is no InertText type and no Encoder member on InertString.
-InertText.Encoding.VisualEncoder.TryDecode(inert.ToString(), out string? original);
-```
-
-Neither is evasion. The second names the namespace at the call site rather than
-at the top of the file, in plain sight on the line that uses it. What matters is
-that the *audit* covers both, which is why the search is for the bare namespace
-and not for `using InertText.Encoding`: a fully-qualified call declares itself on
-its own line and needs no directive at all, so a reviewer grepping only the
-import block would read that file as clean and conclude it cannot decode.
-
-There is a third way, and unlike those two it does not name the namespace in the
-file that decodes at all:
-
-```csharp
-// one file, or a <Using Include="InertText.Encoding" /> item in the .csproj
-global using InertText.Encoding;
-```
-
-Every other file in that project can then call `VisualEncoder.TryDecode` with no
-local mention of the namespace. The search still finds the import — it is still
-text in the repository — but it stops answering *which files* can decode and
-starts answering *which projects* can, and the file it points at is not the file
-doing the decoding.
-
-That granularity is therefore an invariant of the build rather than of the
-language, so it is gated by a test
-(`NoProjectImportsTheCapabilityNamespaceForEveryFileAtOnce`) that fails on a
-`global using` or a `<Using>` item naming the capability namespace. Nothing needs
-one: production does not name the namespace at all, and the tests that
-legitimately decode use ordinary per-file directives.
-
-So, with that gate in place: a file that does not mention `InertText.Encoding` at
-all has no path back to the original of any value it handles.
+Decoding remains a legitimate explicit operation. Trusted callers may import or
+invoke the capability through any legal C# or project mechanism; their source
+locations and documentation are governed by design and review rather than a
+repository-wide spelling inventory. The namespace split improves API
+discoverability and keeps routine producers independent of recovery types, but
+it is not a security boundary between cooperating in-process code.
 
 A reflection test enumerates every public member of the `InertText` namespace
 that returns text and accounts for each one: `ToString` (the encoded form),
@@ -531,10 +496,11 @@ that returns text and accounts for each one: `ToString` (the encoded form),
 `int` rather than the character, so a survey can name what it refused without
 echoing it). Adding a decode convenience to the currency type fails that test.
 
-**This is an audit boundary, not a capability barrier.** A file can name the
-namespace either way, and nothing should stop it — decoding is a legitimate
-operation with legitimate callers. What the boundary buys is that the reversing
-half cannot arrive unnoticed *by a reviewer who searches correctly*.
+The reflection gates cover the complete compiled currency surface, not selected
+call sites: construction requires a policy, creation APIs do not require
+capability types, untreated text is not returned, and caller delegates cannot
+receive decoded scalars. `TheDecoderLivesInTheCapabilityNamespace` and the
+round-trip tests keep the recovery operation explicit and functional.
 
 ## Persisting the currency form
 

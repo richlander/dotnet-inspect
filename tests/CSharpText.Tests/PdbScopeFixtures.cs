@@ -46,6 +46,21 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int SequentialPatterns(object first, object second)
+    {
+        {
+            if (first is string value)
+                return PatternValue(value);
+        }
+
+        {
+            if (second is string value)
+                return PatternValue(value);
+        }
+
+        return 0;
+    }
+
     public static void SequentialValueTypeScopeLocals()
     {
         {
@@ -113,4 +128,6 @@ public static class PdbScopeFixtures
     static void KeepAlive(ref string value) => System.GC.KeepAlive(value);
 
     static void KeepGuidAlive(ref System.Guid value) => System.GC.KeepAlive(value);
+
+    static int PatternValue(string value) => value.Length;
 }

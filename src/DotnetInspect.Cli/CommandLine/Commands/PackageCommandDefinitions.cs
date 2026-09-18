@@ -133,9 +133,6 @@ public static class PackageCommandDefinitions
             {
                 string[] packageReferences =
                     result.GetValue(packageNameArg) ?? [];
-                bool hasPopulationGesture =
-                    hasPluralVersionSelector
-                    || result.GetValue(opts.Count);
                 bool isRange =
                     packageReferences is [var packageReference]
                     && PackageVersionRange.TryParse(
@@ -143,11 +140,23 @@ public static class PackageCommandDefinitions
                         out _,
                         out string? rangeError)
                     && rangeError is null;
-                if (!hasPopulationGesture || !isRange)
+                bool isOrdinaryListing =
+                    packageReferences is [var ordinaryReference]
+                    && !File.Exists(ordinaryReference)
+                    && string.IsNullOrEmpty(
+                        PackageExtractor.ParsePackageReference(
+                            ordinaryReference).version);
+                bool hasPopulationGesture =
+                    hasPluralVersionSelector
+                    || (isRange && result.GetValue(opts.Count));
+                if (!hasPopulationGesture
+                    || (!isRange && !isOrdinaryListing))
                 {
                     result.AddError(
-                        "--envelope on package requires one Package@A..B "
-                        + "range and --versions, --versions-with-feed, or --count.");
+                        "--envelope on package requires one unversioned package "
+                        + "with --versions or --versions-with-feed, or one "
+                        + "Package@A..B range with --versions, "
+                        + "--versions-with-feed, or --count.");
                 }
 
                 if (!result.GetValue(opts.Count))
@@ -335,7 +344,7 @@ public static class PackageCommandDefinitions
         };
         var compactOption = new Option<bool>("--compact")
         {
-            Description = "Minified JSON (use with --json)"
+            Description = "Minified JSON (use with --json or --envelope)"
         };
         queryCommand.Arguments.Add(inputArg);
         queryCommand.Options.Add(takeOption);
@@ -361,11 +370,41 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.Select);
         queryCommand.Options.Add(opts.Tree);
         opts.AddNuGetOptionsTo(queryCommand);
+        opts.AddEnvelopeOptionTo(
+            queryCommand,
+            opts.Limit,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Lines,
+            opts.TailLines,
+            opts.Count,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Select);
+        queryCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(compactOption) is { Implicit: false }
+                && !result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--compact requires package query --json or --envelope.");
+            }
+            if (result.GetValue(opts.Json)
+                && result.GetValue(opts.Tree)
+                && result.GetResult(opts.Discover) is not { Implicit: false })
+            {
+                result.AddError(
+                    "--tree with package query --json requires schema discovery.");
+            }
+        });
 
         queryCommand.SetAction(async (parseResult, ct) =>
         {
             var acceptedParentOptions = new HashSet<Option>
             {
+                opts.Envelope,
                 opts.Json,
                 opts.Markdown,
                 opts.Table,
@@ -427,7 +466,19 @@ public static class PackageCommandDefinitions
             }
 
             string[]? discover = opts.ParseDiscover(parseResult);
-            OutputFormat format = opts.ResolveFormat(parseResult);
+            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+            OutputFormat format =
+                envelopeOutput
+                    ? OutputFormat.Json
+                    : opts.ResolveFormat(parseResult);
+            if (format == OutputFormat.Json
+                && parseResult.GetValue(opts.Tree)
+                && discover is null)
+            {
+                CommandError.Write(
+                    "--tree with package query --json requires schema discovery.");
+                return 1;
+            }
             string? libraryLiteral =
                 parseResult.GetValue(libraryLiteralOption);
             string? inheritedTfm =
@@ -501,7 +552,8 @@ public static class PackageCommandDefinitions
                 SelectResult selection = SelectResolver.ResolveSelectAsSections(
                     select,
                     PackageQuerySections.Catalog.SelectableSectionNames,
-                    categories: new Dictionary<string, string[]>());
+                    categories:
+                        PackageQuerySections.Catalog.SelectionCategoryMap);
                 if (SelectOutput.WriteUnresolved(selection))
                     return 1;
                 includeSections = selection.Sections;
@@ -541,10 +593,12 @@ public static class PackageCommandDefinitions
             {
                 Count = parseResult.GetValue(opts.Count),
                 JsonOutput = format == OutputFormat.Json,
+                EnvelopeOutput = envelopeOutput,
                 CompactJson = parseResult.GetValue(compactOption),
-                Tabular = opts.ResolveTabular(parseResult),
-                Tsv = opts.ResolveTsv(parseResult),
-                Jsonl = opts.ResolveJsonl(parseResult),
+                Tabular =
+                    !envelopeOutput && opts.ResolveTabular(parseResult),
+                Tsv = !envelopeOutput && opts.ResolveTsv(parseResult),
+                Jsonl = !envelopeOutput && opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),

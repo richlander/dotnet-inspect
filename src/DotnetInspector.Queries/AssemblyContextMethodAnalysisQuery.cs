@@ -82,12 +82,16 @@ public static class AssemblyContextMethodAnalysisQuery
                 group,
                 subject);
             cancellationToken.ThrowIfCancellationRequested();
-            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisRequest request =
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    new HashSet<int> { methodToken });
+            index = LibraryBodyAnalysisService.AnalyzeImage(
                 AssemblyContextAnalysisSource.Name(subject),
                 snapshot.Content,
-                LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-                resolver,
-                bodyScope: new HashSet<int> { methodToken });
+                request,
+                resolver);
             cancellationToken.ThrowIfCancellationRequested();
 
             MethodIdentity? declaration = index.DeclaredMethods.FirstOrDefault(

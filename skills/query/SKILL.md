@@ -41,9 +41,9 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-Positional `depends <type>` and single-Library API `diff` support presence-only
-`--envelope`. It
-implies JSON and emits the complete service value with
+Positional `depends <type>`, single-Library API `diff`, Package Activity, and
+ordinary or `--library-literal` Package Query support presence-only
+`--envelope`. It implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
 For dependencies, `content` is semantically identical to the owner-issued camelCase
 `TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
@@ -57,7 +57,13 @@ the complete `LibraryApiDiffOutcome` using result kind `library-api-diff`.
 explicit verbosity, row/line controls, and non-API modes are incompatible with
 envelope output. Explicitly projected Diff JSON retains its presentation
 schema. Load `skill compatibility` for outcome and scope details.
-Asset-mode `depends`, other commands, and `--evidence-envelope` remain unadopted.
+Package Activity uses `ecosystem-change-report`; ordinary Package Query uses
+`package-query`; and assembly-semantic Package Query uses
+`package-assembly-semantic-query`. Their unprojected `--json` uses the same
+Content serializer. Query controls remain admitted, while Count, row or section
+selection, projection, discovery, and competing formats are incompatible.
+Asset-mode `depends`, other command routes, internal sub-operations, and
+`--evidence-envelope` remain unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
@@ -121,6 +127,7 @@ evidence unless a category is named.
 | `vocabulary` | `@Vocabulary` | `@API`, `@Decompiler` |
 | `ecosystem` | `@Ecosystem` | none |
 | `graph libraries` | `@Libraries` | none |
+| `package query` | `@Query` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -141,7 +148,8 @@ available after the optional focus operand chooses the route; select exact
 `Integrations` for configured Integration bindings. Graph `@Libraries`
 composes the pair-wide call-site, summary, and direct-use cluster projections;
 coordinate-gated `Public Root Paths` remains exact-name-only. `Switches` is a
-section.
+section. Package Query `@Query` composes `Packages` and `Query Summary`;
+ordinary output remains adaptive and bare `-S` retains `Packages`.
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories.
 
 Library `Unsafe Members` is intentionally standalone rather than category
@@ -228,7 +236,8 @@ Default non-count output shows `Packages` when at least one package matched and
 `Query Summary` otherwise. The summary separates candidate, match, and
 evaluation-failure counts; select a stable shape with `-S Packages` or
 `-S "Query Summary"`. Bare `-S` selects the non-adaptive `Packages` preset, and
-explicit `Packages` preserves its empty schema.
+explicit `Packages` preserves its empty schema. Select `@Query` to compose both
+sections in Markdown or JSON.
 Package Query does not accept API-search scopes, source overrides, or ranking.
 Query-execution flags cannot be combined with `-Q`.
 

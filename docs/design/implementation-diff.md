@@ -163,13 +163,23 @@ evidence, not a conclusion inferred from C# text.
 exact revision-bound `CSharpNodeCorrespondenceResult`, and optional independent
 fidelity evidence. It also retains the generated structural rows so the JSON is
 the diff artifact, not only a recipe for recreating one. Its top-level Before
-and After values are the exact C#-only projections that own those row ids and
-spans; the correspondence payload separately retains the original mixed
-annotated-source documents. Construction and strict deserialization reissue
-correspondence from those originals, derive both projections and the expected
-rows, and require exact agreement before `ToComparison` exposes them. This
-keeps the artifact product-issued rather than accepting caller-authored
-mappings, projections, or rows.
+and After values consume the
+[Annotated Source C# Projection](annotated-source-csharp-projection.md)
+contract and own those row ids and spans; the correspondence payload separately
+retains the original mixed annotated-source documents. Construction and strict
+deserialization reissue correspondence from those originals, derive both
+projections and the expected rows, and require exact agreement before
+`ToComparison` exposes them. The correspondence issuer carries original node
+identity through each projection's explicit map. It never reconstructs that
+identity from text, spans, ordering, or equal document-local ids. This keeps
+the artifact product-issued rather than accepting caller-authored mappings,
+projections, or rows.
+Projection or correspondence changes that alter replayed artifact content
+increment the artifact methodology version.
+`StructuralDiffDocument_RejectsPriorProjectionMethodologyBeforeReplay` gates
+that a version-2 artifact whose C# projection omitted facts and targets is
+rejected by the explicit methodology boundary before replay equality can
+misclassify it as tampering.
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedCorrespondence`
 `CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedProjection`,
 and

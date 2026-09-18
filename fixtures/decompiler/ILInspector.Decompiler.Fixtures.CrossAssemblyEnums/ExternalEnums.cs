@@ -25,3 +25,8 @@ public enum ExternalUInt : uint
     None = 0,
     Top = 0x80000000u,
 }
+
+public enum ExternalKeyword
+{
+    @default = 1,
+}

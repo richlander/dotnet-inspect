@@ -31,6 +31,7 @@ T:ILInspector.SourceLink.SourceLinkService;SourceLink and PDB inspection open de
 T:ILInspector.SourceLink.SourceLinkInspector;Path-based SourceLink inspection belongs to product queries, not the browser host.
 T:ILInspector.Analysis.CallerScopeReachabilityPlan;Caller-scope metadata inspection belongs to product queries, not transitive descriptor openers in the browser host.
 T:ILInspector.Analysis.LibraryBodyIndex;Analysis lifetimes belong to the query that needs them, not to the browser host.
+T:ILInspector.Analysis.LibraryBodyAnalysisService;Library-body execution belongs to product queries, not to the browser host.
 T:ILInspector.Analysis.LibraryBodyAnalysisResult;Body analysis is reached through a query result, never built here.
 T:ILInspector.Analysis.LeakTriageAnalyzer;Path-based body analysis belongs to product queries, not the browser host.
 T:ILInspector.Analysis.ResourceLifecycleAnalysis;Path-based lifecycle analysis belongs to product queries, not the browser host.
@@ -109,3 +110,4 @@ M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.Execute(DotnetInspector
 M:DotnetInspector.Queries.AssemblyContextApiSurfaceQuery.ExecuteParticipant(DotnetInspector.Queries.AssemblyContextGroup,DotnetInspector.Queries.AssemblyContextParticipant,DotnetInspector.Queries.ApiSurfaceScope);Use ExecuteBounded with BrowserApiSurfacePolicy.Limits and a one-participant selection.
 M:DotnetInspector.Sections.ExactTypeInspectionOperation.ExecuteAsync(DotnetInspector.Queries.ExactTypeInspectionRequest,DotnetInspector.Queries.WorkspaceContextLoadOptions,System.Threading.CancellationToken);Browser exact-Type inspection must supply BrowserApiSurfacePolicy.Limits.
 M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest);Browser exact-Type inspection must supply BrowserApiSurfacePolicy.Limits.
+M:DotnetInspector.Sections.SelectedContextExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceDeclarationContext,DotnetInspector.Queries.SelectedContextExactTypeInspectionRequest);Browser exact-Type inspection must supply BrowserApiSurfacePolicy.Limits.

@@ -47,6 +47,10 @@ public static partial class AttributeReader
         "System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute";
     private const string JsonSerializableAttributeName =
         "System.Text.Json.Serialization.JsonSerializableAttribute";
+    private const string JsonPolymorphicAttributeName =
+        "System.Text.Json.Serialization.JsonPolymorphicAttribute";
+    private const string JsonDerivedTypeAttributeName =
+        "System.Text.Json.Serialization.JsonDerivedTypeAttribute";
     private const string FlagsAttributeName = "System.FlagsAttribute";
     private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
     private const string JsonIgnoreAttributeName = "System.Text.Json.Serialization.JsonIgnoreAttribute";
@@ -274,6 +278,23 @@ public static partial class AttributeReader
         CustomAttributeHandleCollection attributes,
         out string? message,
         Action<int>? beforeMaterialize = null)
+        => TryGetObsoleteAttribute(
+            reader,
+            attributes,
+            out message,
+            out _,
+            beforeMaterialize);
+
+    /// <summary>
+    /// Checks if the member has the [Obsolete] attribute, returning the optional
+    /// message and whether the attribute makes references a compile-time error.
+    /// </summary>
+    public static bool TryGetObsoleteAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out string? message,
+        out bool isError,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
@@ -295,13 +316,27 @@ public static partial class AttributeReader
                     beforeMaterialize))
                 {
                     message = null;
+                    isError = false;
                     return false;
                 }
 
+                isError = AttributeDecoder.TryDecode(
+                    reader,
+                    attr,
+                    beforeMaterialize) is
+                    {
+                        FixedArguments:
+                        [
+                            _,
+                            { Value: bool error },
+                        ],
+                    }
+                    && error;
                 return true;
             }
         }
         message = null;
+        isError = false;
         return false;
     }
 
@@ -640,6 +675,133 @@ public static partial class AttributeReader
             attributes,
             JsonExtensionDataAttributeName,
             beforeMaterialize);
+
+    public static ApiJsonPolymorphismEvidence? ReadJsonPolymorphism(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        ApiAssemblyIdentity? currentAssemblyIdentity,
+        Action<int>? beforeMaterialize = null)
+    {
+        int polymorphicAttributeCount = 0;
+        int derivedTypeAttributeCount = 0;
+        string? discriminatorPropertyName = null;
+        string? unsupportedReason = null;
+        var derivedTypes = new List<ApiJsonDerivedType>();
+
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (IsFrameworkAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsonPolymorphicAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                polymorphicAttributeCount++;
+                if (!HasExpectedConstructor(
+                        reader,
+                        attribute.Constructor,
+                        FrameworkConstructorKind.Marker,
+                        beforeMaterialize)
+                    || AttributeDecoder.TryDecode(
+                        reader,
+                        attribute,
+                        beforeMaterialize) is not
+                        {
+                            FixedArguments.Length: 0,
+                            NamedArguments: [var named],
+                        } decoded
+                    || named.Kind
+                        != CustomAttributeNamedArgumentKind.Property
+                    || named.Name != "TypeDiscriminatorPropertyName"
+                    || named.Type != "string"
+                    || named.Value is not string propertyName
+                    || string.IsNullOrEmpty(propertyName))
+                {
+                    unsupportedReason ??=
+                        "JsonPolymorphic metadata is malformed or unsupported";
+                    continue;
+                }
+
+                discriminatorPropertyName = propertyName;
+                continue;
+            }
+
+            if (!IsFrameworkAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    JsonDerivedTypeAttributeName,
+                    SystemTextJsonAssemblyName,
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            derivedTypeAttributeCount++;
+            if (currentAssemblyIdentity is null
+                || !HasExpectedConstructor(
+                    reader,
+                    attribute.Constructor,
+                    FrameworkConstructorKind.SystemTypeString,
+                    beforeMaterialize)
+                || AttributeDecoder
+                    .TryDecodePreservingSerializedTypeNames(
+                        reader,
+                        attribute,
+                        beforeMaterialize) is not
+                    {
+                        FixedArguments:
+                        [
+                            { Value: string serializedTypeName },
+                            { Value: string typeDiscriminator },
+                        ],
+                        NamedArguments.Length: 0,
+                    }
+                || string.IsNullOrEmpty(typeDiscriminator)
+                || ParseJsonSerializableRootShape(
+                    serializedTypeName,
+                    currentAssemblyIdentity) is not
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition: { } derivedType,
+                    })
+            {
+                unsupportedReason ??=
+                    "JsonDerivedType metadata must declare a supported type and string discriminator";
+                continue;
+            }
+
+            derivedTypes.Add(
+                new ApiJsonDerivedType(
+                    derivedType,
+                    typeDiscriminator));
+        }
+
+        if (polymorphicAttributeCount == 0
+            && derivedTypeAttributeCount == 0)
+        {
+            return null;
+        }
+
+        if (polymorphicAttributeCount != 1)
+        {
+            unsupportedReason ??=
+                "exactly one JsonPolymorphic attribute is required";
+        }
+        if (derivedTypeAttributeCount != derivedTypes.Count)
+        {
+            unsupportedReason ??=
+                "JsonDerivedType metadata is malformed or unsupported";
+        }
+
+        return new ApiJsonPolymorphismEvidence(
+            polymorphicAttributeCount,
+            discriminatorPropertyName,
+            derivedTypeAttributeCount,
+            derivedTypes,
+            unsupportedReason);
+    }
 
     public static bool HasRuntimeJsExportAttribute(
         MetadataReader reader,
@@ -1022,10 +1184,29 @@ public static partial class AttributeReader
         out JsonWireNamingPolicy? namingPolicy,
         out JsonSourceGenerationMode generationMode,
         Action<int>? beforeMaterialize = null)
+        => TryGetJsonSourceGenerationWireOptions(
+            reader,
+            attributes,
+            out namingPolicy,
+            out generationMode,
+            out _,
+            out _,
+            beforeMaterialize);
+
+    public static bool TryGetJsonSourceGenerationWireOptions(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out JsonWireNamingPolicy? namingPolicy,
+        out JsonSourceGenerationMode generationMode,
+        out JsonWireIgnoreCondition defaultIgnoreCondition,
+        out bool useStringEnumConverter,
+        Action<int>? beforeMaterialize = null)
     {
         bool found = false;
         namingPolicy = null;
         generationMode = JsonSourceGenerationMode.Default;
+        defaultIgnoreCondition = JsonWireIgnoreCondition.Never;
+        useStringEnumConverter = false;
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
@@ -1058,13 +1239,20 @@ public static partial class AttributeReader
                         beforeMaterialize)
                     : new(
                         JsonWireNamingPolicy.Unsupported,
-                        JsonSourceGenerationMode.Default);
+                        JsonSourceGenerationMode.Default,
+                        JsonWireIgnoreCondition.Never,
+                        UseStringEnumConverter: false);
             namingPolicy = found
                 ? JsonWireNamingPolicy.Unsupported
                 : current.NamingPolicy;
             generationMode = found
                 ? JsonSourceGenerationMode.Default
                 : current.GenerationMode;
+            defaultIgnoreCondition = found
+                ? JsonWireIgnoreCondition.Never
+                : current.DefaultIgnoreCondition;
+            useStringEnumConverter = !found
+                && current.UseStringEnumConverter;
             found = true;
         }
 
@@ -1642,6 +1830,7 @@ public static partial class AttributeReader
         Marker,
         Int32,
         SystemType,
+        SystemTypeString,
         SystemTypeInt32,
         String,
         StringString,
@@ -1770,6 +1959,17 @@ public static partial class AttributeReader
                     signature.ParameterTypes is
                     [
                         NamedTypeNode type,
+                    ]
+                    && IsExpectedTopLevelSignatureType(
+                        type,
+                        "System",
+                        "Type",
+                        IsCoreContractAssembly),
+                FrameworkConstructorKind.SystemTypeString =>
+                    signature.ParameterTypes is
+                    [
+                        NamedTypeNode type,
+                        PrimitiveTypeNode { Name: "string" },
                     ]
                     && IsExpectedTopLevelSignatureType(
                         type,
@@ -2570,12 +2770,17 @@ public static partial class AttributeReader
         {
             return new(
                 JsonWireNamingPolicy.Unsupported,
-                JsonSourceGenerationMode.Default);
+                JsonSourceGenerationMode.Default,
+                JsonWireIgnoreCondition.Never,
+                UseStringEnumConverter: false);
         }
 
         CustomAttributeNamedArgument<string>? propertyNamingPolicy = null;
         JsonSourceGenerationMode generationMode =
             JsonSourceGenerationMode.Default;
+        JsonWireIgnoreCondition defaultIgnoreCondition =
+            JsonWireIgnoreCondition.Never;
+        bool useStringEnumConverter = false;
         var optionNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var named in decoded.NamedArguments)
         {
@@ -2591,7 +2796,9 @@ public static partial class AttributeReader
             {
                 return new(
                     JsonWireNamingPolicy.Unsupported,
-                    JsonSourceGenerationMode.Default);
+                    JsonSourceGenerationMode.Default,
+                    JsonWireIgnoreCondition.Never,
+                    UseStringEnumConverter: false);
             }
 
             if (named.Name == "PropertyNamingPolicy")
@@ -2607,8 +2814,38 @@ public static partial class AttributeReader
                 {
                     return new(
                         JsonWireNamingPolicy.Unsupported,
-                        JsonSourceGenerationMode.Default);
+                        JsonSourceGenerationMode.Default,
+                        JsonWireIgnoreCondition.Never,
+                        UseStringEnumConverter: false);
                 }
+            }
+            else if (named.Name == "DefaultIgnoreCondition")
+            {
+                if (!TryReadInt32(named.Value, out int rawCondition)
+                    || rawCondition
+                        is not (int)JsonWireIgnoreCondition.Never
+                            and not (int)JsonWireIgnoreCondition.WhenWritingNull)
+                {
+                    return new(
+                        JsonWireNamingPolicy.Unsupported,
+                        JsonSourceGenerationMode.Default,
+                        JsonWireIgnoreCondition.Never,
+                        UseStringEnumConverter: false);
+                }
+                defaultIgnoreCondition =
+                    (JsonWireIgnoreCondition)rawCondition;
+            }
+            else if (named.Name == "UseStringEnumConverter")
+            {
+                if (named.Value is not bool enabled)
+                {
+                    return new(
+                        JsonWireNamingPolicy.Unsupported,
+                        JsonSourceGenerationMode.Default,
+                        JsonWireIgnoreCondition.Never,
+                        UseStringEnumConverter: false);
+                }
+                useStringEnumConverter = enabled;
             }
         }
 
@@ -2616,14 +2853,18 @@ public static partial class AttributeReader
         {
             return new(
                 JsonWireNamingPolicy.None,
-                generationMode);
+                generationMode,
+                defaultIgnoreCondition,
+                useStringEnumConverter);
         }
 
         if (!TryReadInt32(policy.Value, out int rawValue))
         {
             return new(
                 JsonWireNamingPolicy.Unsupported,
-                JsonSourceGenerationMode.Default);
+                JsonSourceGenerationMode.Default,
+                JsonWireIgnoreCondition.Never,
+                UseStringEnumConverter: false);
         }
 
         JsonWireNamingPolicy namingPolicy = rawValue switch
@@ -2636,12 +2877,18 @@ public static partial class AttributeReader
             5 => JsonWireNamingPolicy.KebabCaseUpper,
             _ => JsonWireNamingPolicy.Unsupported,
         };
-        return new(namingPolicy, generationMode);
+        return new(
+            namingPolicy,
+            generationMode,
+            defaultIgnoreCondition,
+            useStringEnumConverter);
     }
 
     readonly record struct JsonSourceGenerationOptionsEvidence(
         JsonWireNamingPolicy NamingPolicy,
-        JsonSourceGenerationMode GenerationMode);
+        JsonSourceGenerationMode GenerationMode,
+        JsonWireIgnoreCondition DefaultIgnoreCondition,
+        bool UseStringEnumConverter);
 
     static bool HasUnsupportedWireEffect(
         CustomAttributeNamedArgument<string> option) =>
@@ -2650,11 +2897,14 @@ public static partial class AttributeReader
             "Converters" or "TypeClassifiers" => true,
             "IgnoreReadOnlyFields"
                 or "IgnoreReadOnlyProperties"
-                or "IncludeFields"
-                or "UseStringEnumConverter" =>
+                or "IncludeFields" =>
                 option.Value is not false,
-            "DefaultIgnoreCondition"
-                or "DictionaryKeyPolicy"
+            "DefaultIgnoreCondition" =>
+                !TryReadInt32(option.Value, out int ignoreCondition)
+                || ignoreCondition
+                    is not (int)JsonWireIgnoreCondition.Never
+                        and not (int)JsonWireIgnoreCondition.WhenWritingNull,
+            "DictionaryKeyPolicy"
                 or "NumberHandling"
                 or "PreferredObjectCreationHandling"
                 or "ReferenceHandler" =>

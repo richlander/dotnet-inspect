@@ -402,6 +402,44 @@ public abstract record CompleteRestorationPreparationResult
 /// <summary>Resource-free front door for the complete restoration transaction.</summary>
 public static class CompleteRestorationPreparation
 {
+    internal static CompleteRestorationPreparationResult
+        FromCommittedDefinitions(
+            CommittedScenarioDefinitionSet definitions,
+            ICompleteRestorationIntentAuthority authority,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        ArgumentNullException.ThrowIfNull(authority);
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            definitions.Scenario.Id,
+            definitions.Records);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+
+        return definitions.Scenario.SchemaVersion switch
+        {
+            InspectionDefinitionSchema.Version2 =>
+                PrepareVersion2(definitions, authority, request),
+            InspectionDefinitionSchema.Version3 =>
+                PrepareVersion3(definitions, authority, request),
+            InspectionDefinitionSchema.Version4 =>
+                PrepareVersion4(definitions, authority, request),
+            int version =>
+                new CompleteRestorationPreparationResult.Failed(
+                    authority.Identity,
+                    request,
+                    new CompleteRestorationFailure.UnsupportedVersion(
+                        version,
+                        $"Portable Package-coordinate replacement requires "
+                            + $"schema version "
+                            + $"{InspectionDefinitionSchema.Version2}, "
+                            + $"{InspectionDefinitionSchema.Version3} or "
+                            + $"{InspectionDefinitionSchema.Version4}.")),
+        };
+    }
+
     public static CompleteRestorationPreparationResult FromPacket(
         string encoded,
         ICompleteRestorationIntentAuthority authority,
@@ -501,6 +539,54 @@ public static class CompleteRestorationPreparation
         var request = new CompleteRestorationRequestBasis.DefinitionInput(
             scenarioId,
             registry.Records.ToArray());
+        return FromDefinition(
+            registry,
+            request,
+            authority,
+            cancellationToken);
+    }
+
+    public static CompleteRestorationPreparationResult FromDefinition(
+        CompleteRestorationRequestBasis.DefinitionInput request,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authority);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+
+        var registry = new InspectionDefinitionRegistry();
+        try
+        {
+            foreach (InspectionDefinitionRecord record in request.Records)
+                registry.Add(record);
+        }
+        catch (InspectionDefinitionException failure)
+        {
+            return NonCurrent(authority, request)
+                ?? new CompleteRestorationPreparationResult.Failed(
+                    authority.Identity,
+                    request,
+                    new CompleteRestorationFailure.InvalidDefinitionSet(
+                        failure.Message));
+        }
+
+        return FromDefinition(
+            registry,
+            request,
+            authority,
+            cancellationToken);
+    }
+
+    private static CompleteRestorationPreparationResult FromDefinition(
+        InspectionDefinitionRegistry registry,
+        CompleteRestorationRequestBasis.DefinitionInput request,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken)
+    {
         if (NonCurrent(authority, request) is { } unavailable)
             return unavailable;
         if (cancellationToken.IsCancellationRequested)
@@ -509,7 +595,7 @@ public static class CompleteRestorationPreparation
         InspectionDefinitionScenarioPreparationResult prepared;
         try
         {
-            prepared = registry.PrepareScenario(scenarioId);
+            prepared = registry.PrepareScenario(request.ScenarioId);
         }
         catch (InspectionDefinitionException failure)
         {
@@ -617,9 +703,7 @@ public static class CompleteRestorationPreparation
             InspectionDefinitionRegistry.ResolvePackageNavigationSources(
                 definitions.Workspace,
                 definitions.Navigation,
-                request is CompleteRestorationRequestBasis.PacketInput
-                    ? NavigationTargetMatchMode.Exact
-                    : NavigationTargetMatchMode.InheritOmitted);
+                definitions.NavigationTargetMatchMode);
         return new CompleteRestorationPreparationResult.Ready(
             new CompleteRestorationPlan(
                 authority.Identity,

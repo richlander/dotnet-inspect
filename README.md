@@ -179,7 +179,7 @@ stderr rather than mixed into structured output.
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
-| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
+| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
 | `depends [Type]` | With a positional type, walk its hierarchy inside `--package`, `--library`, `--project`, or platform search scopes. Without a positional type, combine repeatable explicit `--package`, `--nuspec`, `--library`, and `--project` roots, or exclusive `--package-prefix`, into one dependency graph and evidence document. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -314,6 +314,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
+In Inspect Web, **All** also reveals exact direct-call relationships at their
+source locations; these remain outside the default Finding set.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -354,14 +356,15 @@ machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
 Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
-activity`, and online package range-version population support the
-presence-only `--envelope` service-output selector. It implies JSON. For
-`depends`, API Diff, and Package Activity, unprojected `--json` emits the same
-Content without the service frame. Package version `--json` remains an explicit
-row projection; `--envelope` instead exposes the complete directed population
-Document, Share, and diagnostics. Asset-mode `depends`, other Diff modes,
-Discover, Count outside package population, and other commands have not adopted
-this transport.
+activity`, ordinary and `--library-literal` Package Query, and online package
+range-version population support the presence-only `--envelope` service-output
+selector. It implies JSON. For `depends`, API Diff, Package Activity, and
+Package Query, unprojected `--json` emits the same Content without the service
+frame. Package version `--json` remains an explicit row projection;
+`--envelope` instead exposes the complete directed population Document, Share,
+and diagnostics. Asset-mode `depends`, other Diff modes, Discover, Count outside
+package population, projected output, and other commands have not adopted this
+transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -498,7 +501,9 @@ columns, so a missing package (`Candidates=0`) remains distinct from an
 existing package rejected by `--where` (`Candidates=1`, `Matches=0`). Select a
 stable shape explicitly with `-S Packages` or `-S "Query Summary"`; explicit
 `Packages` retains its empty table or array when no package matched. Bare `-S`
-also requests the non-adaptive `Packages` preset.
+also requests the non-adaptive `Packages` preset. Select `@Query` to compose
+`Packages` and `Query Summary` in Markdown or JSON; table, TSV, and JSONL remain
+one-section formats.
 
 **Breaking change:** `package search` and patternless
 `find --package-prefix PREFIX` have been removed. Use `package query` with an
@@ -555,6 +560,14 @@ and method-token/IL-offset previews are evidence on that package Result.
 `-n` and `--rows` select package rows, while `--take` bounds package candidates.
 Candidate failures remain visible and prevent an unqualified Count. Candidate
 packages are disposable: they are never added to the package cache.
+
+For both ordinary Package Query and `--library-literal`, unprojected `--json`
+emits the complete owner-issued Content. `--envelope` emits that same Content
+with Share and diagnostics, using result kind `package-query` or
+`package-assembly-semantic-query`. Query controls such as `--where`, `--take`,
+`--tfm`, and `--library-literal` remain admitted; row selection, Count,
+projection, discovery, section selection, and competing formats are rejected.
+Typed incomplete or failed Content is still emitted before a nonzero exit.
 
 Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:
@@ -618,9 +631,43 @@ re-emits the canonical packet or selected URL without complete restoration.
 The `--share` selection governs this scalar; inventory output formats apply
 only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
-controls, `--root-request`, or Package Navigation selectors. `--preview` and
-explicit NuGet source policy are accepted only with the explicit
-dependency-enrichment transformation.
+controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
+source policy is accepted only for dependency enrichment or coordinate
+replacement; `--preview` is accepted only for dependency enrichment.
+
+To replace one direct Package coordinate in an existing scenario, use its
+one-based **navigation-row order**, not inventory order. Unlike authoring,
+this explicit transformation acquires and realizes the input and destination:
+
+```bash
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-version 12.1.2 --share packet
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-tfm net9.0 --share url
+dotnet-inspect workspace --packet "$w" \
+  --replace-package 1 --to-version 12.1.2 --json --envelope
+```
+
+Use `--to-version`, `--to-tfm`, or both, and select either scalar `--share`
+output or `--json --envelope`. The envelope includes the derived Share,
+actual Scope outcome, retention/fallback decision and diagnostics. Scalar
+output contains only the complete resulting packet/URL; fallback diagnostics
+go to stderr. No input packet is emitted as a successful failure fallback.
+Source options are allowed for this acquisition-backed route.
+
+Replacement preserves unrelated contexts, registrations, row order, focus,
+and committed views. Format 4 can retain an active Library, Type or Member
+and its exact inspector. For example, changing `Avalonia@11.3.14` to `12.1.2`
+on `net8.0` follows `Avalonia.Data.MultiBinding` from `Avalonia.Markup`
+to its defining `Avalonia.Base` Library; its constructor can follow separately.
+An explicitly active Library stays paired with that Library instead.
+Both Versions must be exact pins. Changed TFMs require an unsubscribed
+single-member context; shared-context TFM changes, floating selected sources,
+ambiguous source positions and query-bearing scenarios are visibly refused.
+Do not combine replacement with dependency enrichment, direct construction,
+inventory controls, or
+`--active-package`/Library/Type/Member/inspector selectors: the packet owns that
+intent. Browser coordinate-control and capture adoption remain separate.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -638,10 +685,13 @@ dotnet-inspect workspace \
 ```
 
 Use repeatable `--kind package|exact-library|package-prefix|ecosystem` to
-select inventory kinds without changing Workspace construction. JSON and
-JSONL retain the typed entry arms and their portable details. `--verbose`
-adds each Package producer, requested/selected/effective target, runtime
-identifier, and asset-selection status to human output.
+select inventory kinds without changing Workspace construction. `-n N`,
+`--tail`, and `--rows A..B` select complete typed entries after that filter;
+`--count` observes the selected entries, while `--lines` explicitly selects
+rendered lines. JSON and JSONL retain the typed entry arms and their portable
+details. `--verbose` adds each Package producer,
+requested/selected/effective target, runtime identifier, and asset-selection
+status to human output.
 
 Restore one current-format canonical Workspace packet or exact Inspect Web URL
 for inventory instead of supplying direct construction options:
@@ -654,8 +704,8 @@ Packet input is mutually exclusive with direct Package and registration
 construction. Workspace Definitions performs complete restoration, including
 group and non-Package context intent and retained Navigation state, before the
 CLI enters the inventory operation. CLI refinement of that restored Navigation
-state is intentionally deferred, so `--packet` currently combines only with
-inventory controls when `--share` is absent.
+state is intentionally deferred. Without `--replace-package`, `--packet`
+combines only with inventory controls when `--share` is absent.
 
 `workspace` never selects an occurrence implicitly, even when the Workspace
 contains exactly one Package.
@@ -945,7 +995,8 @@ dotnet-inspect graph integrations \
   --package Microsoft.Extensions.Logging@10.0.0 \
   --package Microsoft.Extensions.Http@10.0.0 \
   --tfm net10.0 \
-  --relationship integration.observed
+  --relationship integration.observed \
+  -n 10 --tail --table
 dotnet-inspect graph libraries \
   --library ./Consumer.dll \
   --library ./Provider.dll
@@ -959,6 +1010,13 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+For `graph integrations`, one semantic row is one logical graph edge in the
+completed induced-set document. Head/Tail and strict Window select those edges
+before Markdown, table, TSV, JSONL, JSON, Mermaid, plaintext graph, or Count
+lowering; selection does not reduce package acquisition or hide retained graph
+failures. Add `--lines` only to clip rendered text explicitly. `graph libraries`
+retains its independent section row sets and rendered-line `-n` fallback.
 
 For positional type dependencies, `--json` writes the complete
 `TypeDependencySectionResult` Content, and `--envelope` writes the identical

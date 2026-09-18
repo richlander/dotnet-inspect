@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 
@@ -39,6 +40,19 @@ public static class WorkspaceCommandDefinitions
             Description =
                 "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
             Arity = ArgumentArity.ExactlyOne,
+        };
+        var replacePackageOption = new Option<int?>("--replace-package")
+        {
+            Description =
+                "Replace one direct Package by its one-based packet navigation-row order",
+        };
+        var replacementVersionOption = new Option<string?>("--to-version")
+        {
+            Description = "Exact destination Version for --replace-package",
+        };
+        var replacementTfmOption = new Option<string?>("--to-tfm")
+        {
+            Description = "Destination TFM for --replace-package (isolated context only)",
         };
         var registerLibraryOption =
             new Option<string[]>("--register-library")
@@ -125,6 +139,9 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(prereleaseOption);
         command.Options.Add(packetOption);
+        command.Options.Add(replacePackageOption);
+        command.Options.Add(replacementVersionOption);
+        command.Options.Add(replacementTfmOption);
         command.Options.Add(registerLibraryOption);
         command.Options.Add(registerPackagePrefixOption);
         command.Options.Add(registerEcosystemOption);
@@ -141,13 +158,36 @@ public static class WorkspaceCommandDefinitions
         command.Options.Add(opts.Markdown);
         command.Options.Add(opts.PlainText);
         command.Options.Add(opts.Json);
+        command.Options.Add(opts.Envelope);
         opts.AddTableOptionsTo(command);
-        opts.AddOutputOptionsTo(command);
+        opts.AddOutputOptionsTo(
+            command,
+            validateLegacyRowWindow: result =>
+                !IsTopLevelInventory(
+                    result,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption,
+                    replacePackageOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Workspace inventory",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
@@ -198,6 +238,10 @@ public static class WorkspaceCommandDefinitions
                     Packages = packages,
                     Tfm = tfm,
                     Packet = packet,
+                    ReplacePackage = parseResult.GetValue(replacePackageOption),
+                    ReplacementVersion = parseResult.GetValue(replacementVersionOption),
+                    ReplacementTfm = parseResult.GetValue(replacementTfmOption),
+                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
                     OrderedRegistrations = orderedRegistrations,
                     RegisteredLibraries =
                         parseResult.GetValue(registerLibraryOption) ?? [],
@@ -217,7 +261,10 @@ public static class WorkspaceCommandDefinitions
                         parseResult.GetValue(prereleaseOption),
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
-                    Rows = opts.ParseRows(parseResult),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
                     ShareFormat =
@@ -231,8 +278,57 @@ public static class WorkspaceCommandDefinitions
                 cancellationToken);
         });
 
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                IsTopLevelInventory(
+                    result.CommandResult,
+                    activePackageOption,
+                    libraryOption,
+                    allLibrariesOption,
+                    typeOption,
+                    memberOption,
+                    lensOption,
+                    shareOption,
+                    replacePackageOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         return command;
     }
+
+    static bool IsTopLevelInventory(
+        CommandResult commandResult,
+        Option<int?> activePackageOption,
+        Option<string?> libraryOption,
+        Option<bool> allLibrariesOption,
+        Option<string?> typeOption,
+        Option<string?> memberOption,
+        Option<string?> lensOption,
+        Option<string?> shareOption,
+        Option<int?> replacePackageOption) =>
+        commandResult.GetValue(activePackageOption) is null
+        && commandResult.GetValue(libraryOption) is null
+        && !commandResult.GetValue(allLibrariesOption)
+        && commandResult.GetValue(typeOption) is null
+        && commandResult.GetValue(memberOption) is null
+        && commandResult.GetValue(lensOption) is null
+        && commandResult.GetResult(shareOption) is null
+        && commandResult.GetValue(replacePackageOption) is null;
 
     static WorkspaceRegistrationInput[] ParseOrderedRegistrations(
         ParseResult parseResult,

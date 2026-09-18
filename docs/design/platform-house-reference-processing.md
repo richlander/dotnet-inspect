@@ -974,6 +974,94 @@ advance the ladder. A completed platform `NoNameOwner` lets the ladder proceed
 under its own contract. `NameOwnedNoMatch`, ambiguity, unavailable evidence,
 rejection, or incomplete work retain their existing terminal meaning.
 
+### Exact source-neutral binding execution
+
+The first executable assembly-reference boundary starts after one authorized
+Platform source has prepared an immutable reference snapshot for an explicit
+Metadata assembly-reference target. It accepts an exact-target
+`ResolveAssemblyReference` request with global binding origin, Reference view,
+one authoritative reference realization for that same request and identity,
+and finite work. Source discovery, target selection, source fallback or
+aggregation, and source-relative ladder continuation remain outside this
+boundary.
+
+PlatformHouse owns the snapshot from acceptance onward. A completed operation
+has these ordered obligations:
+
+1. publish the snapshot into one bounded Artifact generation and preserve the
+   source-issued contribution as its provenance;
+2. construct one reference Library and accept its Artifact content authority;
+3. issue a fresh Library operation lease and supply owner-attested bytes to
+   Metadata only during one synchronous borrow;
+4. obtain a detached `AssemblyBindingDecision.Resolved` whose selected
+   supplier carries the exact Artifact acquisition registration;
+5. settle the operation lease before asynchronously retiring the Library
+   owner; and
+6. retire the adjacent Artifact session before publishing the completed House
+   result.
+
+The returned value is the unchanged detached Metadata decision. Its House
+completion retains the exact request, route-prerequisite identity, target,
+selected source contribution, physical supplier correspondence, and consumed
+work. It transfers no Library owner, Artifact session, operation or content
+lease, descriptor, opener, stream, reader, callback, or disposal obligation.
+
+The result remains provisional until cleanup finishes. Invalid request,
+source, target, identity, authority, or retained correspondence produces
+`Rejected`; insufficient work produces `Incomplete`; Artifact publication,
+Metadata, Library construction or borrow, lease settlement, Library
+retirement, child release, or Artifact retirement failure produces `Failed`.
+When caller cancellation and cleanup failure coexist, `Failed` is primary and
+retains cancellation as causal evidence. Otherwise cancellation is rethrown
+only after every accepted authority has settled or retired.
+
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_DetachesDecisionAndRetiresAuthorities`
+gates the real-framework-assembly completion path and exact physical supplier
+correspondence in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsNonGlobalInputBeforeSourceAccess`
+and
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsMismatchedRouteBeforeSourceAccess`
+gate the focused input and exact route-correspondence boundaries before source
+access in Release.
+`PlatformAssemblyReferenceResolverTests.PublicResultClosure_IsResourceFree`
+gates the completed public type closure in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_ReportsMetadataIdentityFailure`
+gates visible Metadata identity failure in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_ObservesCancellationAfterCleanup`
+gates terminal cancellation after owned cleanup in Release.
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_CleanupFailureRemainsPrimaryOverCancellation`
+gates Artifact publication cleanup failure as primary over cancellation in
+Release.
+
+### Installed successful-result binding adoption
+
+The installed adapter admits the exact one-assembly Reference population
+implied by an applicable `ResolveAssemblyReference` operation. Its authoritative
+contribution preserves the exact House request, target, installed capability,
+source generation, source coordinate identity, and one-assembly population.
+The paired owner-issued value carries the installed generation, reference-pack
+coordinate, file name, assembly identity, and immutable bytes. The installed
+execution adapter binds those facts as Artifact provenance, converts the
+snapshot to the common source-neutral materialization item, and delegates the
+operation unchanged to `PlatformHouseAssemblyReferenceResolver`.
+
+This adapter does not duplicate Artifact publication, Library ownership,
+Metadata projection, terminal precedence, cleanup, or receipt construction.
+The returned decision therefore remains detached terminal data: the shared
+executor settles the exact installed contribution once and retires every
+temporary Library and Artifact authority before publication. Installed
+source-terminal orchestration, source fallback, source-relative lineage, and
+ladder or host composition remain later owner-adoption slices.
+
+`InstalledPlatformHouseAdapterTests.RealizeReference_BindingProducesExactAssemblyContribution`
+gates the authoritative one-assembly installed contribution in Release.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_PreservesInstalledProvenanceAndSettlesContribution`
+gates real installed reference-pack provenance and exact source settlement in
+Release.
+`InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_RejectsSuccessfulResultForDifferentRequest`
+gates exact successful-result correspondence in Release. The source-neutral
+before-source-access validation gates above own the delegated ordering claim.
+
 ## Typed platform delegation from PackageHouse
 
 Package-reference processing remains package-shaped under the
