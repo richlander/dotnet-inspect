@@ -960,6 +960,22 @@ public partial class DependsCommand
         DependencyEvidenceProjection? evidence = enriched is null
             ? null
             : DependencyEvidenceProjection.Create(enriched.Evidence);
+        var liveEvidenceDocument = new DependencyInspectionEvidenceDocument(
+            evidenceOutcome,
+            admittedRootOccurrences,
+            failedRootOccurrences);
+        DependencyEvidenceProjection liveEvidence =
+            DependencyEvidenceProjection.Create(liveEvidenceDocument);
+        ImmutableArray<DependencyInspectionFailure> liveFailures =
+        [
+            .. liveEvidence.Failures
+                .Where(failure =>
+                    IsSelectedEvidenceFailure(failure.Phase, plan))
+                .Select(static failure =>
+                    new DependencyInspectionFailure.Evidence(failure)),
+            .. additionalFailures,
+            .. pruning.Failures,
+        ];
         ImmutableArray<DependsRootRow> roots = BuildPresentationRoots(
             evidenceOutcome,
             evidence,
@@ -969,13 +985,38 @@ public partial class DependsCommand
 
         return new DependsAssetProjection(
             inspection,
+            inspection.Content.Summary with
+            {
+                PackagePrefix =
+                    evidenceOutcome.RootSet.PackagePrefixCompletion,
+            },
+            graph,
             graphRows,
             roots,
+            inspection.Content.Dependencies,
+            pruning.Rows,
             evidence?.RestoredEdges ?? [],
+            liveFailures,
             evidence?.DependencyGroups ?? [],
             evidence?.RestoredPackages ?? [],
             enriched);
     }
+
+    private static bool IsSelectedEvidenceFailure(
+        DependencyEvidenceFailurePhase phase,
+        DependsAssetRequestPlan plan) =>
+        phase switch
+        {
+            DependencyEvidenceFailurePhase.Root
+                or DependencyEvidenceFailurePhase.PackageProfile
+                or DependencyEvidenceFailurePhase.Library => true,
+            DependencyEvidenceFailurePhase.Declaration => plan.Declarations,
+            DependencyEvidenceFailurePhase.Graph =>
+                plan.RestoredRelationships,
+            DependencyEvidenceFailurePhase.Traversal => plan.Traversal,
+            DependencyEvidenceFailurePhase.Pruning => plan.Pruning,
+            _ => false,
+        };
 
     private static DependencyEvidenceAcquisitionOptions EvidenceOptions(
         DependsOptions options) =>
@@ -1091,14 +1132,18 @@ public partial class DependsCommand
                             failed.DeclarationIdentity,
                             failed.CanonicalPackageId,
                             failed.CanonicalVersionConstraint,
-                            failed.Outcome,
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                failed.Outcome),
                             ManifestFailure: null,
                             BudgetKind: null,
                             BudgetLimit: null,
                             RestoredFailure: null,
                             MapAffectedRoots(
                                 packageOccurrences,
-                                failed.AffectedRootOccurrences))));
+                                failed.AffectedRootOccurrences))
+                        {
+                            RuntimeCandidateOutcome = failed.Outcome,
+                        }));
             }
             foreach (PackageDependencyTraversalWorkBudgetNode budget in
                      packageTraversal.WorkBudgetDeclarations)
@@ -1138,7 +1183,8 @@ public partial class DependsCommand
                             coordinate.PackageId,
                             coordinate.Version,
                             CandidateOutcome: null,
-                            failure.Detail,
+                            DependencyInspectionPackageManifestFailure.Create(
+                                failure.Detail),
                             BudgetKind: null,
                             BudgetLimit: failure.Detail
                                 is PackageDependencyTraversalManifestFailureDetail
@@ -1148,7 +1194,10 @@ public partial class DependsCommand
                             RestoredFailure: null,
                             MapAffectedRoots(
                                 packageOccurrences,
-                                failure.AffectedRootOccurrences))));
+                                failure.AffectedRootOccurrences))
+                        {
+                            RuntimeManifestFailure = failure.Detail,
+                        }));
             }
         }
 
@@ -1205,7 +1254,9 @@ public partial class DependsCommand
                                     BudgetKind: null,
                                     BudgetLimit: null,
                                     new DependencyInspectionRestoredTraversalFailure
-                                        .Outcome(failed.Failure),
+                                        .Outcome(
+                                            DependencyInspectionRestoredTraversalOutcomeFailure
+                                                .Create(failed.Failure)),
                                     [acquired.Root.OccurrenceIndex])));
                         break;
                 }

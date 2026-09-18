@@ -121,9 +121,14 @@ internal sealed record DependsRootRow
 /// </summary>
 internal sealed record DependsAssetProjection(
     InspectionEnvelope<DependencyInspectionContent> Inspection,
+    DependencyInspectionSummary Summary,
+    DependencyGraphDocument Graph,
     ImmutableArray<DependencyGraphEdgeRow> GraphRows,
     ImmutableArray<DependsRootRow> Roots,
+    ImmutableArray<DependencyInspectionDependency> Dependencies,
+    ImmutableArray<DependencyInspectionPruning> Pruning,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
+    ImmutableArray<DependencyInspectionFailure> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
     EvidenceInspectionEnvelope<
@@ -131,19 +136,6 @@ internal sealed record DependsAssetProjection(
         DependencyInspectionEvidenceDocument>? Enriched)
 {
     internal DependencyInspectionContent Content => Inspection.Content;
-
-    internal DependencyInspectionSummary Summary => Content.Summary;
-
-    internal DependencyGraphDocument Graph => Content.Graph;
-
-    internal ImmutableArray<DependencyInspectionDependency> Dependencies =>
-        Content.Dependencies;
-
-    internal ImmutableArray<DependencyInspectionPruning> Pruning =>
-        Content.Pruning;
-
-    internal ImmutableArray<DependencyInspectionFailure> Failures =>
-        Content.Failures;
 
     internal DependencyInspectionEvidenceDocument? Evidence =>
         Enriched?.Evidence;

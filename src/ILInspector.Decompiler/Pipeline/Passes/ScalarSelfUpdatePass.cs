@@ -20,7 +20,7 @@ public sealed class ScalarSelfUpdatePass : IIrPass
             };
             ScalarUpdateKind? kind = targetType?.Kind is not (TypeRefKind.Pointer or TypeRefKind.ByRef or TypeRefKind.FunctionPointer)
                 && store.Value is Binary binary
-                && ReadsTarget(store, binary.Left)
+                && ReadsTarget(store, binary.Left, targetType)
                     ? Classify(binary)
                     : null;
             if (store.UpdateKind == kind)
@@ -31,14 +31,19 @@ public sealed class ScalarSelfUpdatePass : IIrPass
         }
     }
 
-    internal static ScalarUpdateKind Classify(Binary binary) => (binary.Kind, binary.Right) switch
+    internal static ScalarUpdateKind Classify(Binary binary)
     {
-        (BinaryKind.Add, Constant { Value: 1 }) => ScalarUpdateKind.Increment,
-        (BinaryKind.Subtract, Constant { Value: 1 }) => ScalarUpdateKind.Decrement,
-        _ => ScalarUpdateKind.Binary,
-    };
+        var right = binary.Right is Coerce { Operand: Constant constant } ? constant : binary.Right;
+        return (binary.Kind, right) switch
+        {
+            (BinaryKind.Add, Constant { Value: 1 }) => ScalarUpdateKind.Increment,
+            (BinaryKind.Subtract, Constant { Value: 1 }) => ScalarUpdateKind.Decrement,
+            _ => ScalarUpdateKind.Binary,
+        };
+    }
 
-    static bool ReadsTarget(ScalarStore store, IrExpression read) => (store, read) switch
+    static bool ReadsTarget(ScalarStore store, IrExpression read, TypeRef? targetType)
+        => (store, read is Coerce coercion && coercion.Target.Equals(targetType) ? coercion.Operand : read) switch
     {
         (StoreLocal s, LoadLocal l) => s.Index == l.Index,
         (StoreArgument s, LoadArgument l) => PlaceIdentity.SameArgument(s.Index, s.Parameter, l.Index, l.Parameter),

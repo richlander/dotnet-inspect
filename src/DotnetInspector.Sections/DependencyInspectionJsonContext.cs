@@ -1,202 +1,167 @@
 using System.Text.Json.Serialization;
-using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
 [JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-    UseStringEnumConverter = true,
-    Converters = [typeof(InertStringJsonConverter)])]
+    Converters = [typeof(InertStringJsonConverter)],
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(DependencyInspectionContent))]
 [JsonSerializable(typeof(DependencyInspectionEvidenceDocument))]
+[JsonSerializable(typeof(InspectionEnvelope<DependencyInspectionContent>))]
+[JsonSerializable(
+    typeof(
+        EvidenceInspectionEnvelope<
+            DependencyInspectionContent,
+            DependencyInspectionEvidenceDocument>))]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceRootFailure.Package),
-    TypeInfoPropertyName = "EvidenceRootFailurePackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootFailure.RestoredProject),
-    TypeInfoPropertyName = "EvidenceRootFailureRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootFailure.AuthoredProject),
-    TypeInfoPropertyName = "EvidenceRootFailureAuthoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootFailure.RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidenceRootFailureRuntimeDependencyManifest")]
+    TypeInfoPropertyName = "PackageEvidenceRootFailurePackage")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceRootIdentity.Package),
-    TypeInfoPropertyName = "EvidenceRootIdentityPackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootIdentity.RestoredProject),
-    TypeInfoPropertyName = "EvidenceRootIdentityRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootIdentity.AuthoredProject),
-    TypeInfoPropertyName = "EvidenceRootIdentityAuthoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidenceRootIdentityRuntimeDependencyManifest")]
+    TypeInfoPropertyName = "PackageEvidenceRootIdentityPackage")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceRootProvenance.Package),
-    TypeInfoPropertyName = "EvidenceRootProvenancePackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootProvenance.RestoredProject),
-    TypeInfoPropertyName = "EvidenceRootProvenanceRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootProvenance.AuthoredProject),
-    TypeInfoPropertyName = "EvidenceRootProvenanceAuthoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRootProvenance.RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidenceRootProvenanceRuntimeDependencyManifest")]
+    TypeInfoPropertyName = "PackageEvidenceRootProvenancePackage")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceGroupIdentity.Package),
-    TypeInfoPropertyName = "EvidenceGroupIdentityPackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceGroupIdentity.RestoredProject),
-    TypeInfoPropertyName = "EvidenceGroupIdentityRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceGroupIdentity.AuthoredProject),
-    TypeInfoPropertyName = "EvidenceGroupIdentityAuthoredProject")]
+    TypeInfoPropertyName = "PackageEvidenceGroupIdentityPackage")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceGroupOccurrence.Package),
-    TypeInfoPropertyName = "EvidenceGroupOccurrencePackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceGroupOccurrence.RestoredProject),
-    TypeInfoPropertyName = "EvidenceGroupOccurrenceRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationFailure.RestoredProject),
-    TypeInfoPropertyName = "EvidenceDeclarationFailureRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationFailure.AuthoredProject),
-    TypeInfoPropertyName = "EvidenceDeclarationFailureAuthoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationResult.Available),
-    TypeInfoPropertyName = "EvidenceDeclarationAvailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationResult.NotApplicable),
-    TypeInfoPropertyName = "EvidenceDeclarationNotApplicable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationResult.Unavailable),
-    TypeInfoPropertyName = "EvidenceDeclarationUnavailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceDeclarationResult.Failed),
-    TypeInfoPropertyName = "EvidenceDeclarationFailed")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidencePackageIdentity.RestoredProject),
-    TypeInfoPropertyName = "EvidencePackageIdentityRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidencePackageIdentity.RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidencePackageIdentityRuntimeDependencyManifest")]
+    TypeInfoPropertyName = "PackageEvidenceGroupOccurrencePackage")]
 [JsonSerializable(
     typeof(PackageDependencyEvidenceRelationshipParentIdentity.Package),
-    TypeInfoPropertyName = "EvidenceRelationshipParentPackage")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipIdentity.RestoredProject),
-    TypeInfoPropertyName = "EvidenceRelationshipIdentityRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipIdentity
-        .RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidenceRelationshipIdentityRuntimeDependencyManifest")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipFailure.RestoredProject),
-    TypeInfoPropertyName = "EvidenceRelationshipFailureRestoredProject")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipFailure
-        .RuntimeDependencyManifest),
-    TypeInfoPropertyName = "EvidenceRelationshipFailureRuntimeDependencyManifest")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipResult.Available),
-    TypeInfoPropertyName = "EvidenceRelationshipAvailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipResult.NotApplicable),
-    TypeInfoPropertyName = "EvidenceRelationshipNotApplicable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipResult.Unavailable),
-    TypeInfoPropertyName = "EvidenceRelationshipUnavailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceRelationshipResult.Failed),
-    TypeInfoPropertyName = "EvidenceRelationshipFailed")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceProcessingResult.Available),
-    TypeInfoPropertyName = "EvidenceProcessingAvailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceProcessingResult.NotApplicable),
-    TypeInfoPropertyName = "EvidenceProcessingNotApplicable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceProcessingResult.Unavailable),
-    TypeInfoPropertyName = "EvidenceProcessingUnavailable")]
-[JsonSerializable(
-    typeof(PackageDependencyEvidenceProcessingResult.Failed),
-    TypeInfoPropertyName = "EvidenceProcessingFailed")]
+    TypeInfoPropertyName = "PackageEvidenceRelationshipParentPackage")]
 [JsonSerializable(
     typeof(DependencyGraphNodeIdentity.Package),
-    TypeInfoPropertyName = "DependencyGraphNodePackage")]
+    TypeInfoPropertyName = "DependencyGraphNodeIdentityPackage")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRootFailure.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootFailureRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRootIdentity.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootIdentityRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRootProvenance.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootProvenanceRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceGroupIdentity.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceGroupIdentityRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceGroupOccurrence.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceGroupOccurrenceRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceDeclarationFailure.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationFailureRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidencePackageIdentity.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidencePackageIdentityRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRelationshipIdentity.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipIdentityRestoredProject")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRelationshipFailure.RestoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipFailureRestoredProject")]
 [JsonSerializable(
     typeof(DependencyGraphNodeIdentity.RestoredProject),
-    TypeInfoPropertyName = "DependencyGraphNodeRestoredProject")]
+    TypeInfoPropertyName = "DependencyGraphNodeIdentityRestoredProject")]
 [JsonSerializable(
-    typeof(DependencyGraphEvidenceIdentity.AssemblyReference),
-    TypeInfoPropertyName = "DependencyGraphEvidenceAssemblyReference")]
+    typeof(RestoredProjectGraphParentIdentity.Root),
+    TypeInfoPropertyName = "RestoredProjectGraphParentRoot")]
 [JsonSerializable(
-    typeof(DependencyGraphEvidenceIdentity.PackageVersionConstraint),
-    TypeInfoPropertyName = "DependencyGraphEvidencePackageVersionConstraint")]
+    typeof(RestoredProjectGraphParentIdentity.Package),
+    TypeInfoPropertyName = "RestoredProjectGraphParentPackage")]
 [JsonSerializable(
-    typeof(DependencyGraphEvidenceIdentity.PackageDeclaration),
-    TypeInfoPropertyName = "DependencyGraphEvidencePackageDeclaration")]
+    typeof(RestoredProjectGraphParentIdentity.Project),
+    TypeInfoPropertyName = "RestoredProjectGraphParentProject")]
 [JsonSerializable(
-    typeof(DependencyGraphEvidenceIdentity.RestoredProjectRelationship),
-    TypeInfoPropertyName = "DependencyGraphEvidenceRestoredProjectRelationship")]
+    typeof(PackageDependencyEvidenceRootFailure.AuthoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootFailureAuthoredProject")]
 [JsonSerializable(
-    typeof(DependencyGraphEvidenceIdentity.RestoredPackageRelationship),
-    TypeInfoPropertyName = "DependencyGraphEvidenceRestoredPackageRelationship")]
+    typeof(PackageDependencyEvidenceRootIdentity.AuthoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootIdentityAuthoredProject")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateFailure.AuthorizationDenied),
-    TypeInfoPropertyName = "PackageCandidateFailureAuthorizationDenied")]
+    typeof(PackageDependencyEvidenceRootProvenance.AuthoredProject),
+    TypeInfoPropertyName = "PackageEvidenceRootProvenanceAuthoredProject")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateFailure.NoMatchingVersion),
-    TypeInfoPropertyName = "PackageCandidateFailureNoMatchingVersion")]
+    typeof(PackageDependencyEvidenceGroupIdentity.AuthoredProject),
+    TypeInfoPropertyName = "PackageEvidenceGroupIdentityAuthoredProject")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateFailure.ResolvedCoordinateMismatch),
-    TypeInfoPropertyName = "PackageCandidateFailureResolvedCoordinateMismatch")]
+    typeof(PackageDependencyEvidenceDeclarationFailure.AuthoredProject),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationFailureAuthoredProject")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateIncomplete.PinnedAuthorization),
-    TypeInfoPropertyName = "PackageCandidateIncompletePinnedAuthorization")]
+    typeof(PackageDependencyEvidenceRootFailure.RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidenceRootFailureRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateIncomplete.VersionDiscovery),
-    TypeInfoPropertyName = "PackageCandidateIncompleteVersionDiscovery")]
+    typeof(PackageDependencyEvidenceRootIdentity.RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidenceRootIdentityRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateResult.Resolved),
-    TypeInfoPropertyName = "PackageCandidateResultResolved")]
+    typeof(PackageDependencyEvidenceRootProvenance.RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidenceRootProvenanceRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateResult.Failed),
-    TypeInfoPropertyName = "PackageCandidateResultFailed")]
+    typeof(PackageDependencyEvidencePackageIdentity.RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidencePackageIdentityRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyCandidateResult.Incomplete),
-    TypeInfoPropertyName = "PackageCandidateResultIncomplete")]
+    typeof(
+        PackageDependencyEvidenceRelationshipIdentity
+            .RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipIdentityRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateFailure.AuthorizationDenied),
-    TypeInfoPropertyName = "TraversalCandidateFailureAuthorizationDenied")]
+    typeof(
+        PackageDependencyEvidenceRelationshipFailure
+            .RuntimeDependencyManifest),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipFailureRuntimeManifest")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateFailure.NoMatchingVersion),
-    TypeInfoPropertyName = "TraversalCandidateFailureNoMatchingVersion")]
+    typeof(RuntimeDependencyGraphParentIdentity.Package),
+    TypeInfoPropertyName = "RuntimeDependencyGraphParentPackage")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateIncomplete.PinnedAuthorization),
-    TypeInfoPropertyName = "TraversalCandidateIncompletePinnedAuthorization")]
+    typeof(RuntimeDependencyGraphParentIdentity.Library),
+    TypeInfoPropertyName = "RuntimeDependencyGraphParentLibrary")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateIncomplete.VersionDiscovery),
-    TypeInfoPropertyName = "TraversalCandidateIncompleteVersionDiscovery")]
+    typeof(PackageDependencyEvidenceDeclarationResult.Available),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationAvailable")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateResult.Resolved),
-    TypeInfoPropertyName = "TraversalCandidateResultResolved")]
+    typeof(PackageDependencyEvidenceRelationshipResult.Available),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipAvailable")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateResult.Failed),
-    TypeInfoPropertyName = "TraversalCandidateResultFailed")]
+    typeof(PackageDependencyEvidenceProcessingResult.Available),
+    TypeInfoPropertyName = "PackageEvidenceProcessingAvailable")]
 [JsonSerializable(
-    typeof(PackageDependencyTraversalCandidateResult.Incomplete),
-    TypeInfoPropertyName = "TraversalCandidateResultIncomplete")]
+    typeof(InspectionShare.Available),
+    TypeInfoPropertyName = "InspectionShareAvailable")]
 [JsonSerializable(
-    typeof(RestoredProjectDependencyTraversalFailure.Document),
-    TypeInfoPropertyName = "RestoredTraversalFailureDocument")]
+    typeof(PackageDependencyEvidenceDeclarationResult.NotApplicable),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationNotApplicable")]
 [JsonSerializable(
-    typeof(RestoredProjectDependencyTraversalFailure.Graph),
-    TypeInfoPropertyName = "RestoredTraversalFailureGraph")]
+    typeof(PackageDependencyEvidenceRelationshipResult.NotApplicable),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipNotApplicable")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceProcessingResult.NotApplicable),
+    TypeInfoPropertyName = "PackageEvidenceProcessingNotApplicable")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceDeclarationResult.Unavailable),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationUnavailable")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRelationshipResult.Unavailable),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipUnavailable")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceProcessingResult.Unavailable),
+    TypeInfoPropertyName = "PackageEvidenceProcessingUnavailable")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceDeclarationResult.Failed),
+    TypeInfoPropertyName = "PackageEvidenceDeclarationFailed")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceRelationshipResult.Failed),
+    TypeInfoPropertyName = "PackageEvidenceRelationshipFailed")]
+[JsonSerializable(
+    typeof(PackageDependencyEvidenceProcessingResult.Failed),
+    TypeInfoPropertyName = "PackageEvidenceProcessingFailed")]
+[JsonSerializable(
+    typeof(DependencyInspectionPackageManifestFailure.Acquisition),
+    TypeInfoPropertyName = "DependencyInspectionManifestAcquisitionFailure")]
+[JsonSerializable(
+    typeof(DependencyInspectionRestoredTraversalOutcomeFailure.Graph),
+    TypeInfoPropertyName = "DependencyInspectionRestoredOutcomeGraphFailure")]
 public partial class DependencyInspectionJsonContext : JsonSerializerContext;

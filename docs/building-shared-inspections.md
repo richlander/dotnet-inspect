@@ -493,10 +493,10 @@ already belong there. A stacked verb should represent a real subordinate
 operation, not compensate for a missing section, mode, or output projection.
 
 A complete serialized-envelope passthrough can be useful for debugging and
-typed automation, but it is a separate CLI output decision. Do not reuse
-`--raw`: that shared option already selects raw/fetchable GitHub URL shape.
+typed automation, but it is a separate CLI output decision. URL preferences
+(`--prefer-rendered-urls`) do not select an envelope or output shape.
 Follow [#6719](https://github.com/richlander/dotnet-inspect/issues/6719) for
-compatibility classification and non-colliding syntax.
+compatibility classification and service-output syntax.
 
 ### Inspect Web adapter
 

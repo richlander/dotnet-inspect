@@ -259,8 +259,14 @@ The package adapter supplies:
 - source and acquisition provenance when available; and
 - the typed completion or failure that governed admission.
 
-One admitted `PackageProfileMatch` supplies the same package-manifest input
-with its `PackageSourceResultIdentity` retained as source provenance.
+One admitted `PackageProfileMatch` supplies the same package-manifest input.
+The adapter consumes its `PackageSourceResultIdentity` and the settled outcome
+retains a `PackageDependencyEvidenceSourceIdentity`: the credential-free
+producer key, portable producer key, inert producer display, transport kind,
+and a one-based document-local association. The association preserves exact
+caller-source correspondence within the outcome without serializing or
+reconstructing the opaque `PackageSourceAssociation`; it grants no source
+authority and has no meaning outside that outcome.
 
 Package archive and direct nuspec inputs produce the same dependency evidence
 when the archive-extracted and direct nuspec content produce the same
@@ -426,15 +432,18 @@ bounds, source pagination, and producer contract validation remain owned by
 the package source and profile query.
 
 A truncated root set is usable bounded evidence, not an exhaustive package
-universe. The evidence query preserves that completion and never manufactures
-an exact prefix total. The normalized root-set summary retains the package
-source identity, inert prefix spelling, candidate/match/failure counts, and
-exact `PackageSearchTruncationReason`.
+universe. The evidence query preserves that completion and never manufactures an exact
+prefix total. The normalized root-set summary retains the portable package
+evidence source identity, inert prefix spelling, candidate/match/failure
+counts, and exact `PackageSearchTruncationReason`.
 
-Package-profile failures retain the owner-issued failure kind, source identity,
-and optional manifest-failure reason. Package ID, version, and diagnostic text
-are contained as `InertString` during adaptation rather than crossing the
-result boundary as raw producer text.
+Package-profile failures retain the owner-issued failure kind, the same
+portable source identity, and optional manifest-failure reason. Source
+associations are numbered over the whole settled outcome in fixed order:
+package-prefix completion, admitted package roots, then package-profile
+failures. Package ID, version, and diagnostic text are contained as
+`InertString` during adaptation rather than crossing the result boundary as
+raw producer text.
 
 ### Owner evidence
 

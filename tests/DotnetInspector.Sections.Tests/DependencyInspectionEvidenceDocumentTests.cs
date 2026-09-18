@@ -165,7 +165,8 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             failedRoots:
             [
                 new PackageDependencyEvidenceRootFailure.PackageProfile(
-                    source.Source,
+                    PackageDependencyEvidenceSourceIdentity.Create(
+                        source.Source).WithAssociation(1),
                     PackageProfileFailureKind.ManifestAcquisition,
                     ManifestFailureReason: null,
                     Coordinate: null,
@@ -487,7 +488,14 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             Reason: PlatformSubsumption.Subsumed.ToString(),
             applicability,
             CandidateOutcome: null,
-            new DependencyInspectionPruningEvaluation(
+            new DependencyInspectionPruningResult.Evaluated(
+                PackageSourceCoordinate.Create(
+                    "Example.Dependency",
+                    "1.0.0"),
+                DotnetInspector.Platforms.PlatformFamily.DotNetRuntime,
+                "net11.0",
+                "11.0.0",
+                "2.0.0",
                 PlatformSubsumption.Subsumed,
                 DelegatesToPlatform: true));
         var content = new DependencyInspectionContent(

@@ -152,24 +152,152 @@ public static class DependencyInspectionOperation
         ImmutableArray<DependencyInspectionRoot> roots =
             ProjectRoots(request, evidence, evidenceDocument);
         DependencyGraphDocument graph = request.Plan.Traversal
-            ? request.Graph
+            ? DetachGraph(request.Graph)
             : new DependencyGraphDocument([], [], [], [], []);
         ImmutableArray<DependencyInspectionFailure> failures =
-            ProjectFailures(request, evidence);
+        [
+            .. ProjectFailures(request, evidence)
+                .Select(DetachFailure),
+        ];
         var content = new DependencyInspectionContent(
-            ProjectSummary(request, evidence, roots, graph),
+            DetachSummary(ProjectSummary(request, evidence, roots, graph)),
             graph,
             roots,
             request.Plan.Declarations
                 ? ProjectDependencies(evidence)
                 : [],
-            request.Plan.Pruning ? request.Pruning : [],
+            request.Plan.Pruning
+                ? [.. request.Pruning.Select(DetachPruning)]
+                : [],
             failures);
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
             content,
             request.Share,
             request.Diagnostics);
         return (inspection, evidenceDocument);
+    }
+
+    private static DependencyInspectionSummary DetachSummary(
+        DependencyInspectionSummary summary) =>
+        summary.PackagePrefix is { } prefix
+            ? summary with
+            {
+                PackagePrefix =
+                    new PackageDependencyEvidencePackagePrefixCompletion(
+                        prefix.Prefix,
+                        prefix.Source.WithoutRuntimeAssociation(),
+                        prefix.Candidates,
+                        prefix.Matches,
+                        prefix.Failures,
+                        prefix.TruncationReason),
+            }
+            : summary;
+
+    private static DependencyGraphDocument DetachGraph(
+        DependencyGraphDocument graph)
+    {
+        if (!graph.PackageProjections.Any(static projection =>
+                projection.RuntimeCandidate is not null
+                || !projection.RuntimeDiagnostics.IsEmpty
+                || projection.Evidence is
+                {
+                    Provenance:
+                        PackageDependencyEvidenceRootProvenance.Package
+                        {
+                            Source: not null,
+                        },
+                })
+            && !graph.Edges.Any(static edge =>
+                !edge.RuntimePackageDiagnostics.IsEmpty))
+        {
+            return graph;
+        }
+
+        return graph with
+        {
+            PackageProjections =
+            [
+                .. graph.PackageProjections.Select(static projection =>
+                    projection with
+                    {
+                        Evidence = projection.Evidence is { } evidence
+                            ? DetachRoot(evidence)
+                            : null,
+                        RuntimeCandidate = null,
+                        RuntimeDiagnostics = [],
+                    }),
+            ],
+            Edges =
+            [
+                .. graph.Edges.Select(static edge =>
+                    edge with { RuntimePackageDiagnostics = [] }),
+            ],
+        };
+    }
+
+    private static DependencyInspectionPruning DetachPruning(
+        DependencyInspectionPruning pruning) =>
+        pruning with
+        {
+            Applicability = pruning.Applicability with
+            {
+                Root = DetachRoot(pruning.Applicability.Root),
+            },
+            RuntimeCandidateOutcome = null,
+            RuntimeResult = null,
+        };
+
+    private static DependencyInspectionFailure DetachFailure(
+        DependencyInspectionFailure failure) =>
+        failure switch
+        {
+            DependencyInspectionFailure.Evidence evidence =>
+                new DependencyInspectionFailure.Evidence(
+                    evidence.Value with
+                    {
+                        Source = evidence.Value.Source?
+                            .WithoutRuntimeAssociation(),
+                    }),
+            DependencyInspectionFailure.Traversal traversal =>
+                new DependencyInspectionFailure.Traversal(
+                    traversal.Value with
+                    {
+                        RuntimeCandidateOutcome = null,
+                        RuntimeManifestFailure = null,
+                    }),
+            DependencyInspectionFailure.Pruning
+            {
+                Value: DependencyInspectionPruningFailure.Candidate candidate,
+            } => new DependencyInspectionFailure.Pruning(
+                candidate with { RuntimeOutcome = null }),
+            _ => failure,
+        };
+
+    private static PackageDependencyEvidenceRoot DetachRoot(
+        PackageDependencyEvidenceRoot root)
+    {
+        if (root.Provenance is not
+            PackageDependencyEvidenceRootProvenance.Package
+            {
+                Source: { } source,
+            } package)
+        {
+            return root;
+        }
+
+        return new PackageDependencyEvidenceRoot(
+            root.Identity,
+            package with
+            {
+                Source = source.WithoutRuntimeAssociation(),
+            },
+            root.Display,
+            root.Declaration,
+            root.Selection,
+            root.RestoredTarget,
+            root.Relationships,
+            root.Processing,
+            root.RuntimeTarget);
     }
 
     private static void ValidateAssociations(

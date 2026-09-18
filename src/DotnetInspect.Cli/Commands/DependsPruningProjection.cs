@@ -330,7 +330,13 @@ public partial class DependsCommand
                                     item.Declaration.CanonicalPackageId,
                                     item.Declaration
                                         .CanonicalVersionConstraint,
-                                    candidateUnavailable.Candidate)));
+                                    DependencyInspectionPackageCandidateOutcome
+                                        .Create(
+                                            candidateUnavailable.Candidate))
+                                {
+                                    RuntimeOutcome =
+                                        candidateUnavailable.Candidate,
+                                }));
                         failed++;
                         continue;
                     }
@@ -473,7 +479,7 @@ public partial class DependsCommand
             DependencyInspectionPruningDisposition.NotEvaluated,
             applicability.State.ToString(),
             CandidateOutcome: null,
-            Evaluation: null);
+            Result: null);
 
     private static DependencyInspectionPruning CreateUnavailableRow(
         int rootOccurrence,
@@ -495,7 +501,7 @@ public partial class DependsCommand
             disposition,
             reason,
             CandidateOutcome: null,
-            Evaluation: null);
+            Result: null);
 
     private static DependencyInspectionPruning CreateCandidateUnavailableRow(
         PendingPruningDeclaration item,
@@ -527,7 +533,7 @@ public partial class DependsCommand
                     "A resolved candidate is not unavailable."),
             },
             outcome.Candidate,
-            Evaluation: null);
+            Result: null);
 
     private static string? PlatformProvidedVersion(
         PlatformPruneInventory inventory,
@@ -557,9 +563,7 @@ public partial class DependsCommand
                 : DependencyInspectionPruningDisposition.PackageRetained,
             pruning.Supply.Subsumption.ToString(),
             outcome.Candidate,
-            new DependencyInspectionPruningEvaluation(
-                pruning.Supply.Subsumption,
-                pruning.Supply.DelegatesToPlatform));
+            outcome.Result);
     }
 
     private static DependencyInspectionPruning CreateRow(
@@ -575,8 +579,9 @@ public partial class DependsCommand
         DependencyInspectionPruningDisposition disposition,
         string reason,
         PackageDependencyCandidateResult? CandidateOutcome,
-        DependencyInspectionPruningEvaluation? Evaluation) =>
-        new(
+        PackageHouseDependencyPruningResult? Result)
+    {
+        return new DependencyInspectionPruning(
             rootOccurrence,
             root.Identity,
             root.Display,
@@ -597,8 +602,20 @@ public partial class DependsCommand
             disposition,
             reason,
             applicability,
-            CandidateOutcome,
-            Evaluation);
+            CandidateOutcome is { } candidateOutcome
+                ? DependencyInspectionPackageCandidateOutcome.Create(
+                    candidateOutcome)
+                : null,
+            Result is { } result
+                ? DependencyInspectionPruningResult.Create(
+                    result,
+                    PlatformProvidedVersion)
+                : null)
+        {
+            RuntimeCandidateOutcome = CandidateOutcome,
+            RuntimeResult = Result,
+        };
+    }
 
     private sealed record PendingPruningDeclaration(
         int RootOccurrence,

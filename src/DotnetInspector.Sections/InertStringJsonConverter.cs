@@ -25,3 +25,25 @@ public sealed class InertStringJsonConverter : JsonConverter<InertString>
         JsonSerializerOptions options) =>
         writer.WriteStringValue(value.ToString());
 }
+
+public sealed class ProseInertStringJsonConverter : JsonConverter<InertString>
+{
+    public override InertString Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Expected an inert string value.");
+
+        return InertString.FromEncoded(
+            TextPolicy.Prose,
+            reader.GetString()!);
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        InertString value,
+        JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString());
+}
