@@ -22,21 +22,22 @@ public abstract record UnsafeEvidenceResult
     public sealed record Failed(Exception Error) : UnsafeEvidenceResult;
 }
 
-/// <summary>Reads unsafe evidence from an already-acquired whole-assembly body index.</summary>
+/// <summary>Reads an already-produced focused safety Analysis result.</summary>
 public static class UnsafeEvidenceQuery
 {
     public static InspectionQuery<UnsafeEvidenceResult> Definition { get; } =
         new("Unsafe evidence", InspectionCost.Unbounded);
 
-    public static UnsafeEvidenceResult Execute(LibraryBodyIndex index)
+    public static UnsafeEvidenceResult Execute(
+        LibrarySafetyAnalysisResult analysis)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         try
         {
             return new UnsafeEvidenceResult.Available(
-                index.UnsafeEvidence,
-                index.Diagnostics);
+                analysis.Evidence,
+                analysis.Receipt.Diagnostics);
         }
         catch (Exception ex)
         {
