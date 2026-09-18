@@ -605,6 +605,8 @@ function harness() {
     catalogRequests, packageComparisonTargets,
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
+    pendingWorkspaceHistoryTraversal:
+      null as { href: string; historyState: unknown } | null,
     pendingWorkspaceConstruction: null,
     packageContentLoadingSequence: null as number | null,
     activeWorkspaceUrl: null as string | null,
@@ -1576,7 +1578,38 @@ test("managed activation publishes its exact retained identity before history co
     ?? "";
   assert.match(
     popstate,
-    /historyWorkspace\.kind === "managed"[\s\S]*activateManagedRetainedWorkspaceProjection\(\s*historyWorkspace,\s*navigationSeq,\s*"adopt",\s*false\);[\s\S]*activeWorkspaceUrl = location\.href;[\s\S]*const loc = await parseLocation\(\)/);
+    /historyWorkspace\.kind === "managed"[\s\S]*activateManagedRetainedWorkspaceProjection\(\s*historyWorkspace,\s*navigationSeq,\s*"adopt",\s*false\);[\s\S]*activeWorkspaceUrl = traversal\.href;[\s\S]*const loc = await parseWorkspaceHref\(traversal\.href\)/);
+});
+
+test("browser traversal captures identity before waiting and blocks staged pushes", () => {
+  const popstate = appSource.match(
+    /window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
+    ?? "";
+  assert.match(
+    popstate,
+    /const traversal = \{[\s\S]*href: location\.href,[\s\S]*historyState: event\.state as unknown,[\s\S]*pendingWorkspaceHistoryTraversal = traversal;[\s\S]*await waitForPendingWorkspaceCommit\(\);[\s\S]*retainedWorkspaceIdFromHistory\(traversal\.historyState\)/);
+
+  const h = harness();
+  const navigationSeq = h.navigationSequence.begin();
+  h.context.pendingDemoNavigation = {
+    navigationSeq,
+    destination: completeSaved.canonicalLocation,
+  };
+  const traversal = {
+    href: "https://inspect.test/back-target",
+    historyState: { destination: "back-target" },
+  };
+  h.context.pendingWorkspaceHistoryTraversal = traversal;
+  const href = h.location.href;
+
+  const blocked: unknown = runInNewContext(
+    "commitDemoNavigation(navigationSeq)",
+    { ...h.context, navigationSeq });
+
+  assert.equal(blocked, false);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.location.href, href);
+  assert.equal(h.context.pendingWorkspaceHistoryTraversal, traversal);
 });
 
 test("retained selection and history share managed-to-compatibility cutover", () => {

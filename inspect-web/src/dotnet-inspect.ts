@@ -101,6 +101,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   parseWorkspaceLocationAsync,
+  parseWorkspaceRoute,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   resolvedPlatformTargetVersion,
@@ -3172,10 +3173,10 @@ let pendingDemoNavigation: {
   navigationSeq: number;
   destination: string;
 } | null = null;
-
-function parseLocation() {
-  return workspaceLocation.parseCurrent();
-}
+let pendingWorkspaceHistoryTraversal: {
+  href: string;
+  historyState: unknown;
+} | null = null;
 
 async function parseWorkspaceHref(href: string): Promise<ParsedLocation> {
   const url = new URL(href, location.href);
@@ -3202,7 +3203,8 @@ function stageDemoNavigation(
 
 function commitDemoNavigation(navigationSeq: number): boolean {
   if (!navigationSequence.isCurrent(navigationSeq)
-    || pendingDemoNavigation?.navigationSeq !== navigationSeq) return false;
+    || pendingDemoNavigation?.navigationSeq !== navigationSeq
+    || pendingWorkspaceHistoryTraversal !== null) return false;
   if (!workspaceLocation.push(pendingDemoNavigation.destination)) return false;
   pendingDemoNavigation = null;
   return true;
@@ -11129,6 +11131,7 @@ let syncUrlRevision = 0;
 
 function syncUrl() {
   if (currentPackageQueryHandoff()) return;
+  if (pendingWorkspaceHistoryTraversal !== null) return;
   if (pendingDemoNavigation
     && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
   if (pendingWorkspaceConstruction
@@ -18341,10 +18344,18 @@ function dismissModalsForRoutedNavigation() {
   return dismissedAnnotatedSourceModal;
 }
 
-window.addEventListener("popstate", () => {
+window.addEventListener("popstate", (event: PopStateEvent) => {
+  const traversal = {
+    href: location.href,
+    historyState: event.state as unknown,
+  };
+  pendingWorkspaceHistoryTraversal = traversal;
   void (async () => {
+  try {
   await waitForPendingWorkspaceCommit();
-  if (!isDiagnosticsPath(location.pathname)
+  if (pendingWorkspaceHistoryTraversal !== traversal) return;
+  const destination = new URL(traversal.href);
+  if (!isDiagnosticsPath(destination.pathname)
     && document.querySelector(".diagnostics-view")) {
     diagnosticsDestinationFocusPending = true;
   }
@@ -18355,9 +18366,9 @@ window.addEventListener("popstate", () => {
   const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation();
   invalidateMemberDestinationWork(state);
   const historyWorkspaceId =
-    retainedWorkspaceIdFromHistory(history.state);
+    retainedWorkspaceIdFromHistory(traversal.historyState);
   const historyWorkspaceReferenced =
-    historyReferencesRetainedWorkspace(history.state);
+    historyReferencesRetainedWorkspace(traversal.historyState);
   const historyWorkspace = historyWorkspaceId === null
     ? null
     : retainedWorkspaces.workspaces.find(
@@ -18373,7 +18384,7 @@ window.addEventListener("popstate", () => {
           "adopt",
           false);
         if (!outcome.activated) return;
-        activeWorkspaceUrl = location.href;
+        activeWorkspaceUrl = traversal.href;
       } else {
         const active = retainedWorkspaces.workspaces.find(
           workspace =>
@@ -18395,17 +18406,17 @@ window.addEventListener("popstate", () => {
   const unavailableGlobalWorkspace =
     historyWorkspaceReferenced
     && !historyWorkspaceAvailable
-    && (isDiagnosticsPath(location.pathname)
-      || isPackageQueryPath(location.pathname)
-      || isPackageActivityPath(location.pathname)
-      || isCreditsPath(location.pathname)
-      || isProductHomeDemosPath(location.pathname));
+    && (isDiagnosticsPath(destination.pathname)
+      || isPackageQueryPath(destination.pathname)
+      || isPackageActivityPath(destination.pathname)
+      || isCreditsPath(destination.pathname)
+      || isProductHomeDemosPath(destination.pathname));
   if (unavailableGlobalWorkspace) {
     unavailableWorkspaceAdmissionRejected =
-      !publishFreshEmptyWorkspaceFromHistory(location.href);
+      !publishFreshEmptyWorkspaceFromHistory(traversal.href);
   }
   if (dismissedAnnotatedSourceModal) render({ synchronizeUrl: false });
-  if (isDiagnosticsPath(location.pathname)) {
+  if (isDiagnosticsPath(destination.pathname)) {
     diagnosticsDestinationFocusPending = false;
     diagnosticsDestinationFocusGeneration = null;
     clearNavigationError();
@@ -18427,9 +18438,9 @@ window.addEventListener("popstate", () => {
     if (state.engineRuntimeReady) refreshPackageStats();
     return;
   }
-  if (isPackageQueryPath(location.pathname)) {
+  if (isPackageQueryPath(destination.pathname)) {
     clearNavigationError();
-    applyPackageQueryHistory(history.state);
+    applyPackageQueryHistory(traversal.historyState);
     packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = true;
     state.packageActivityOpen = false;
@@ -18441,9 +18452,9 @@ window.addEventListener("popstate", () => {
     if (state.engineReady) focusPackageQueryInput();
     return;
   }
-  if (isPackageActivityPath(location.pathname)) {
+  if (isPackageActivityPath(destination.pathname)) {
     clearNavigationError();
-    applyPackageActivityHistory(history.state);
+    applyPackageActivityHistory(traversal.historyState);
     packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = false;
     state.packageActivityOpen = true;
@@ -18466,7 +18477,7 @@ window.addEventListener("popstate", () => {
     state.packageQueryReturnFocusPending =
       state.packageQueryReturnFocus !== null
       && isPackageQueryPredecessor(
-        history.state,
+        traversal.historyState,
         state.packageQueryPredecessorEntryId);
     leftPackageQueryForWorkspaceSuccessor =
       !state.packageQueryReturnFocusPending;
@@ -18477,13 +18488,13 @@ window.addEventListener("popstate", () => {
     state.packageActivityReturnFocusPending =
       state.packageActivityReturnFocus !== null
       && isPackageActivityPredecessor(
-        history.state,
+        traversal.historyState,
         state.packageActivityPredecessorEntryId);
     leftPackageQueryForWorkspaceSuccessor =
       leftPackageQueryForWorkspaceSuccessor
       || !state.packageActivityReturnFocusPending;
   }
-  if (isCreditsPath(location.pathname)) {
+  if (isCreditsPath(destination.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
       render();
@@ -18499,7 +18510,7 @@ window.addEventListener("popstate", () => {
     });
     return;
   }
-  if (isProductHomeDemosPath(location.pathname)) {
+  if (isProductHomeDemosPath(destination.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
       render();
@@ -18527,7 +18538,12 @@ window.addEventListener("popstate", () => {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   if (!state.engineReady) {
-    const pendingWorkspace = workspaceLocation.preflightCurrent();
+    const pendingWorkspace = parseWorkspaceRoute({
+      href: destination.href,
+      pathname: destination.pathname,
+      search: destination.search,
+      hash: destination.hash,
+    });
     const pendingLocation = pendingWorkspace.visible;
     state.queryNotice = pendingLocation.workspaceNotice || "";
     state.queryNoticeRetryAction = null;
@@ -18544,7 +18560,7 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
-  const loc = await parseLocation();
+  const loc = await parseWorkspaceHref(traversal.href);
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
@@ -18571,7 +18587,7 @@ window.addEventListener("popstate", () => {
   if (bareHome) {
     if (historyWorkspaceReferenced && !historyWorkspaceAvailable) {
       unavailableWorkspaceAdmissionRejected =
-        !publishFreshEmptyWorkspaceFromHistory(location.href);
+        !publishFreshEmptyWorkspaceFromHistory(traversal.href);
     }
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
     clearNavigationError();
@@ -18680,6 +18696,11 @@ window.addEventListener("popstate", () => {
     observeAsync(
       restoreHistoryWorkspace(),
       "Restoring package history");
+  }
+  } finally {
+    if (pendingWorkspaceHistoryTraversal === traversal) {
+      pendingWorkspaceHistoryTraversal = null;
+    }
   }
   })().catch((error: unknown) => {
     reportAsyncFailure("Navigating browser history", error);

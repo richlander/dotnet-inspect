@@ -1180,12 +1180,12 @@ public sealed class InspectionDefinitionRegistry
             RuntimeIdentifier = context.RuntimeIdentifier,
             Members =
             [
+                .. context.Members.Select(
+                    DefinitionCoordinateLowering.ToWorkspaceMember),
                 WorkspaceMemberCoordinate.Platform(
                     "runtime",
                     version: version,
                     framework: context.Framework),
-                .. context.Members.Select(
-                    DefinitionCoordinateLowering.ToWorkspaceMember),
             ],
         };
     }

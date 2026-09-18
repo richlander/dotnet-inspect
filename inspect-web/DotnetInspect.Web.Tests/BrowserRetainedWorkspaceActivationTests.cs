@@ -256,6 +256,62 @@ public sealed class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task ProductionOptions_SharedPlatformPackageContextRestoresPackage()
+    {
+        string assets = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "FrameworkActivation");
+        await SeedProductionPackageAsync(
+            "Microsoft.NETCore.App.Ref",
+            "10.0.10",
+            Path.Combine(
+                assets,
+                "microsoft.netcore.app.ref.10.0.10.nupkg"));
+        await SeedProductionPackageAsync(
+            "Microsoft.NETCore.App.Runtime.linux-x64",
+            "10.0.10",
+            Path.Combine(
+                assets,
+                "microsoft.netcore.app.runtime.linux-x64.10.0.10.nupkg"));
+        await SeedProductionPackageAsync(
+            "System.Text.Json",
+            "9.0.4",
+            Path.Combine(
+                FindRepositoryRoot(),
+                "fixtures",
+                "services",
+                "signatures",
+                "system.text.json.9.0.4.nupkg"));
+        await using (
+            var owner = new BrowserRetainedWorkspaceActivationOwner(
+                BrowserCompleteRestorationOptions.Create))
+        {
+            string packet = SharedPlatformPackagePacket();
+            var activated = Assert.IsType<
+                BrowserRetainedWorkspaceActivationResult.Activated>(
+                    await owner.ActivateAsync(
+                        Request(
+                            "shared-platform-package",
+                            packet,
+                            presentationActiveTabIndex: 1),
+                        TestContext.Current.CancellationToken));
+            BrowserRetainedWorkspaceInstallation installation =
+                activated.Installation;
+
+            Assert.Equal(2, installation.Packages.Length);
+            BrowserRetainedWorkspacePackage package = Assert.Single(
+                installation.Packages,
+                candidate => candidate.Kind == "package");
+            Assert.Equal("System.Text.Json", package.Surface.Package);
+            Assert.Equal(
+                package.NavigationId,
+                installation.Definition.ActiveTabId);
+        }
+        await DrainProductionCacheAsync();
+    }
+
+    [Fact]
     public async Task RegistrationOnlyPacket_ActivatesWorkspaceOnlyPresentation()
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();
@@ -879,6 +935,57 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 {"f":3,"t":[[":Platform","10.0.10","net10.0",null]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
                 """,
                 TestContext.Current.CancellationToken));
+
+    static string SharedPlatformPackagePacket()
+    {
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "System.Text.Json",
+            "9.0.4",
+            "net10.0");
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    new WorkspaceDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.WorkspaceId,
+                        [
+                            new WorkspaceContextDefinition(
+                                "g0",
+                                "net10.0",
+                                subscribe: ":Platform@10.0.10",
+                                members: [package]),
+                        ]),
+                    new NavigationDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.NavigationId,
+                        [
+                            new NavigationTabDefinition(
+                                "platform",
+                                subscribe: ":Platform@10.0.10",
+                                framework: "net10.0"),
+                            new NavigationTabDefinition(
+                                "package",
+                                coordinate: package),
+                        ],
+                        "package"),
+                    new ViewDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.ViewId),
+                    new ScenarioDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.ScenarioId,
+                        workspace: WorkspaceSharePacketTransposer.WorkspaceId,
+                        context: "g0",
+                        view: WorkspaceSharePacketTransposer.ViewId,
+                        navigation:
+                            WorkspaceSharePacketTransposer.NavigationId)),
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            projection.Succeeded,
+            projection.Failure?.Message);
+        return WorkspaceSharePacketCodec.Encode(
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet));
+    }
 
     static string FindRepositoryRoot()
     {

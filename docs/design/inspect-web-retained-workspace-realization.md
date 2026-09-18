@@ -438,6 +438,11 @@ installation. Success clears the retired managed-realization association
 before publishing the new compatibility entry, history result, and legacy
 package-occurrence surface.
 
+A browser traversal records its selected URL and retained-definition identity
+before waiting for an in-progress commit. Staged Workspace history publication
+yields to that recorded traversal, so the commit cannot replace its destination
+or truncate the forward entries that existed when the person navigated.
+
 The managed-to-compatibility commit boundary is shared by Saved Open,
 retained-list selection, browser-history traversal, and active deletion whose
 successor is a compatibility definition. Each path validates its compatibility
@@ -530,6 +535,9 @@ Installation preserves every coordinate in the complete definition
 independently of retained package focus. In particular, a Platform coordinate
 and its definition position remain installed when a package coordinate is the
 active presentation, so a subsequent Save does not omit Platform.
+Complete-restoration lowering also preserves package-member correspondence when
+Platform and package coordinates share a context; synthesizing the Platform
+member does not shift the definition-issued package member indexes.
 
 ## Deletion
 

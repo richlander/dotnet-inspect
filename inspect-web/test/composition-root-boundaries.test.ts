@@ -183,7 +183,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /function clearNavigationError\(\) \{\s+if \(state\.engineStartupFailed\) return;\s+state\.error = "";\s+state\.errorTitle = "";\s+state\.errorDetail = "";\s+state\.retryAction = null;\s+\}/);
   assert.match(
     appSource,
-    /if \(isCreditsPath\(location\.pathname\)\) \{\s+clearNavigationError\(\);[\s\S]*if \(bareHome\) \{[\s\S]*clearNavigationError\(\)/);
+    /if \(isCreditsPath\(destination\.pathname\)\) \{\s+clearNavigationError\(\);[\s\S]*if \(bareHome\) \{[\s\S]*clearNavigationError\(\)/);
   assert.match(
     appSource,
     /function toggleCreditsTheme\(\): "light" \| "dark" \{\s+setTheme\(state\.theme === "dark" \? "light" : "dark", false\);\s+return state\.theme === "light" \? "light" : "dark";\s+\}[\s\S]*onToggleTheme: toggleCreditsTheme/);
