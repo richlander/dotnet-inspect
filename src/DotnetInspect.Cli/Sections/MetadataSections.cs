@@ -60,10 +60,10 @@ public static class MetadataSections
             CanRender = HasMetadata,
         });
 
-        // The coordinate-scoped section. Applicable exactly when --heap supplied a coordinate, so
-        // it is listed by -D only then — the same discipline the IL-offset coordinate sections
-        // follow, and for the same reason: a section with no coordinate has nothing to render, and
-        // listing it would advertise a view the command cannot produce.
+        // The coordinate-scoped section. Applicable exactly when library coordinate supplied a
+        // heap point, so it is listed by -D only then — the same discipline the IL-coordinate
+        // sections follow, and for the same reason: a section with no coordinate has nothing to
+        // render, and listing it would advertise a view the command cannot produce.
         pipeline.Add(new SectionEntry<LibraryInspection>
         {
             Name = MetadataSectionNames.Heap,

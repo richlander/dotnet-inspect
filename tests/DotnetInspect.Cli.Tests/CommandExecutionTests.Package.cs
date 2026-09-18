@@ -22,6 +22,63 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
+    public async Task Package_SourceLinkFileLinesRejectJsonBeforePackageResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Source Files",
+            "--lines", "-n", "1", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_NonSourceLinkFileSurfacesRetainLegacyWindowValidation()
+    {
+        var category = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.NotResolve",
+            "-S", "@SourceLink", "--rows", "..1");
+        var mixed = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.NotResolve",
+            "-S", "Source Files,Package Info", "--rows", "..1");
+        var library = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.NotResolve",
+            "-S", "Source Files", "--library", "--rows", "..1");
+        var multiple = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.NotResolve",
+            "Package.That.Also.Must.NotResolve",
+            "-S", "Source Files", "--rows", "..1");
+
+        foreach (var result in new[]
+        {
+            category,
+            mixed,
+            library,
+            multiple,
+        })
+        {
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains("--rows", result.Error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task PackageDocumentDestinations_HonorExplicitLineSelection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -2970,7 +3027,7 @@ public partial class CommandExecutionTests
                 [
                     "Version",
                     "Type",
-                    "Size",
+                    "Package Size (compressed)",
                     "Built",
                     "Source",
                     "Authors",
@@ -2978,7 +3035,7 @@ public partial class CommandExecutionTests
                     "Readme",
                     "Version",
                     "Type",
-                    "Size",
+                    "Package Size (compressed)",
                     "Built",
                     "Source",
                     "Authors",
