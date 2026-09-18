@@ -826,12 +826,16 @@ public sealed class DependsAssetCommandTests
 
         (int markdownExit, string markdown, string markdownError) =
             await RunCapturedAsync(arguments);
+        (int projectedExit, string projected, string projectedError) =
+            await RunCapturedAsync([.. arguments, "--columns", "Target"]);
         (int jsonExit, string json, string jsonError) =
             await RunCapturedAsync([.. arguments, "--json", "--compact"]);
 
         Assert.Equal(0, markdownExit);
+        Assert.Equal(0, projectedExit);
         Assert.Equal(0, jsonExit);
         Assert.Empty(markdownError);
+        Assert.Empty(projectedError);
         Assert.Empty(jsonError);
         Assert.StartsWith(
             "## Dependency Graph",
@@ -848,6 +852,18 @@ public sealed class DependsAssetCommandTests
         Assert.DoesNotContain(
             "# Dependencies",
             markdown.Split(Environment.NewLine),
+            StringComparer.Ordinal);
+        Assert.StartsWith(
+            "## Dependency Graph",
+            projected.TrimStart(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "| Root Set |",
+            projected,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "# Dependencies",
+            projected.Split(Environment.NewLine),
             StringComparer.Ordinal);
 
         using JsonDocument document = JsonDocument.Parse(json);
