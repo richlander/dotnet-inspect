@@ -74,7 +74,7 @@ public class RetainedMergeStructuringTests
     public void RetainedAuditStepLimitStopsBeforeInstallationAndSuccessRecords()
     {
         var function = CreateFunction(
-            SequentialRetainedMerges(),
+            ForwardRetainedRegionWithUnrelatedTailBackEdge(),
             parameters: null,
             usesUpdatedMemorySafetyRules: false,
             out var originalBody);
@@ -592,13 +592,8 @@ public class RetainedMergeStructuringTests
     [Fact]
     public void UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion()
     {
-        var blocks = SequentialRetainedMerges().Take(6).ToList();
-        blocks[5] = Term(40, new StoreLocal(0, I32, new Constant(5, I32)));
-        blocks.Add(Term(48, Cond(64)));
-        blocks.Add(Term(56, new Branch(48)));
-        blocks.Add(Term(64, new Return(new LoadLocal(0, I32))));
-
-        var (function, diagnostics) = Structure([.. blocks]);
+        var (function, diagnostics) = Structure(
+            ForwardRetainedRegionWithUnrelatedTailBackEdge());
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
@@ -763,6 +758,16 @@ public class RetainedMergeStructuringTests
         Term(1, new Return(new Constant(1, I32))),
         Term(2, new Return(new Constant(2, I32))),
     ];
+
+    static Block[] ForwardRetainedRegionWithUnrelatedTailBackEdge()
+    {
+        var blocks = SequentialRetainedMerges().Take(6).ToList();
+        blocks[5] = Term(40, new StoreLocal(0, I32, new Constant(5, I32)));
+        blocks.Add(Term(48, Cond(64)));
+        blocks.Add(Term(56, new Branch(48)));
+        blocks.Add(Term(64, new Return(new LoadLocal(0, I32))));
+        return [.. blocks];
+    }
 
     static Block[] RetainedLoopBlocks() =>
     [

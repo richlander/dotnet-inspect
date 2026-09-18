@@ -367,8 +367,10 @@ a label owner. It also rejects an actual retained-region build that places
 another arm after a terminal retained-merge branch. It then installs that
 candidate transactionally or declines. Structuring rewrite steps are recorded
 only after every candidate check that can decline, and success counters
-increment only after the replacement is installed. Decline diagnostics remain
-before the rewrite step and installation. The direct and retained
+increment only after the replacement is installed. An overall decline publishes
+its diagnostics with the unchanged flat tree and no rewrite step. Rejected
+subcandidate diagnostics in an accepted retained plan become observable only
+after the replacement is installed. The direct and retained
 `*AuditStepLimitStopsBeforeInstallationAndSuccessRecords` tests interrupt the
 real pass at its rewrite step and require the original tree, success counters,
 and diagnostic collections to remain unchanged.
