@@ -47,6 +47,12 @@ public static class SectionCategoryNames
     /// </summary>
     public const string Ecosystem = "@Ecosystem";
 
+    /// <summary>
+    /// Pairwise library call-use projections that compose without an additional coordinate.
+    /// This is the <c>graph libraries</c> command's base category.
+    /// </summary>
+    public const string Libraries = "@Libraries";
+
     /// <summary>Vocabularies consumed by API type and member queries.</summary>
     public const string Api = "@API";
 

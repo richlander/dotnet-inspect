@@ -12,7 +12,9 @@ internal sealed class CliRowSelectionRouteCandidate
         Command expectedCommand,
         IReadOnlyList<string> commandPrefix,
         CliRowSelectionOptionBindings bindings,
-        CliRowSelectionCapabilities capabilities)
+        CliRowSelectionCapabilities capabilities,
+        CliRowSelectionDefaultUnit defaultUnit =
+            CliRowSelectionDefaultUnit.SemanticRows)
     {
         ArgumentNullException.ThrowIfNull(parserRoot);
         ArgumentNullException.ThrowIfNull(expectedCommand);
@@ -25,6 +27,7 @@ internal sealed class CliRowSelectionRouteCandidate
             Array.AsReadOnly(commandPrefix.ToArray());
         Bindings = bindings;
         Capabilities = capabilities;
+        DefaultUnit = defaultUnit;
     }
 
     public Command ParserRoot { get; }
@@ -37,6 +40,8 @@ internal sealed class CliRowSelectionRouteCandidate
     public CliRowSelectionOptionBindings Bindings { get; }
 
     public CliRowSelectionCapabilities Capabilities { get; }
+
+    public CliRowSelectionDefaultUnit DefaultUnit { get; }
 }
 
 internal enum CliRowSelectionRouteEnvelopeOutcome
@@ -390,7 +395,8 @@ internal static class CliRowSelectionRouteEnvelope
         CliRowSelectionLoweringResult<string> lowering =
             CliRowSelectionLowerer.Lower(
                 commonOccurrences,
-                CliRowSelectionCapabilities.All);
+                CliRowSelectionCapabilities.All,
+                observations[0].Candidate.DefaultUnit);
         return lowering.IsSuccess
             ? CliRowSelectionRouteEnvelopeResult.Success(
                 lowering)
@@ -964,7 +970,9 @@ internal static class CliRowSelectionRouteEnvelope
         private bool[] DeclaredKinds { get; }
 
         public bool LineSelection =>
-            Occurrences.Any(
+            Candidate.DefaultUnit
+                == CliRowSelectionDefaultUnit.RenderedLines
+            || Occurrences.Any(
                 occurrence =>
                     occurrence.Kind is
                         CliRowSelectionOccurrenceKind.Lines

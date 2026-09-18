@@ -47,6 +47,16 @@ public class ExtensionsCommand
                 targetType,
                 cancellationToken);
 
+            if (options.TypeFilter is { Length: > 0 } typeFilter)
+            {
+                results = results
+                    .Where(result =>
+                        TypeMatcher.MatchesTypeFilter(
+                            result.ExtensionClass,
+                            typeFilter))
+                    .ToList();
+            }
+
             bool hasSemanticRowSelection =
                 options.RowSelection?.Operations.Count > 0;
             if (hasSemanticRowSelection)

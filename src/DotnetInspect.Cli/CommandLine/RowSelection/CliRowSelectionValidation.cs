@@ -9,7 +9,6 @@ internal static class CliRowSelectionValidation
         CliRowSelectionLowering<string> lowering) =>
         lowering.LineIntent is not null
             && isJsonDocument
-                ? "--lines and --tail-lines cannot be combined with JSON "
-                    + "output; use semantic -n to select complete JSON rows."
+                ? "Rendered-line selection cannot be combined with JSON output."
                 : null;
 }
