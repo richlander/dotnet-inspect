@@ -768,6 +768,11 @@ internal static class BrowserPackageWorkspace
                         acquired,
                         handoff,
                         documentationId,
+                        new PackageCompiledDocumentationQueryLimits
+                        {
+                            ApiSurface =
+                                BrowserApiSurfacePolicy.ExtractionBounds,
+                        },
                         cancellationToken: deadline.Token)
                     .ConfigureAwait(false);
             },

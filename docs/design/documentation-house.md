@@ -1018,9 +1018,12 @@ gates the neighboring package-without-companion case as typed authoritative
 uses a compiled package fixture to gate both documentation on a non-public type
 exposed by the browser accessibility surface and declaration selection when an
 extension-method projection shares its compiler XML identity. The generated
-Inspect Web facade and frontend member-detail tests gate exhaustive consumption
-of the same discriminated contract across the C#-to-TypeScript JSON-string
-boundary.
+`QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable` test
+uses `Microsoft.FluentUI.AspNetCore.Components.Icons` 4.1.0 to require that
+documentation lookup admits the same large API surface as the browser member
+selector. The generated Inspect Web facade and frontend member-detail tests
+gate exhaustive consumption of the same discriminated contract across the
+C#-to-TypeScript JSON-string boundary.
 
 The design-only PR is Markdown-only and requires `markdownlint`. The
 implementation slices add only the gates for the property they adopt.

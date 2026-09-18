@@ -228,6 +228,50 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable()
+    {
+        const string packageId =
+            "Microsoft.FluentUI.AspNetCore.Components.Icons";
+        const string version = "4.1.0";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                File.ReadAllBytes(
+                    Path.Combine(
+                        AppContext.BaseDirectory,
+                        "RealAssets",
+                        "Documentation",
+                        "microsoft.fluentui.aspnetcore.components.icons.4.1.0.nupkg")),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    version,
+                    "net8.0",
+                    "Microsoft.FluentUI.AspNetCore.Components.Icons.dll",
+                    "M:Microsoft.FluentUI.AspNetCore.Components.Icons.GetInstance(Microsoft.FluentUI.AspNetCore.Components.IconInfo)");
+        CompiledDocumentationOutcome outcome =
+            Assert.IsAssignableFrom<CompiledDocumentationOutcome>(
+                JsonSerializer.Deserialize(
+                    json,
+                    CompiledDocumentationQueryJsonContext.Default
+                        .CompiledDocumentationOutcome));
+
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(
+            "Returns a new instance of the icon.",
+            available.Documentation.Summary);
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_MissingCompanionIsAuthoritativeAbsence()
     {
         string packageId =
