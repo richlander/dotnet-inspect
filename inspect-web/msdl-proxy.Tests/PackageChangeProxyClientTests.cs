@@ -102,6 +102,29 @@ public sealed class PackageChangeProxyClientTests
     }
 
     [Fact]
+    public async Task NuGetServiceIndexWithoutContentType_IsBadGateway()
+    {
+        var handler = new RecordingHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(
+                    """{"version":"3.0.0"}"""u8.ToArray()),
+            });
+        using var client = new HttpClient(handler);
+
+        IActionResult result =
+            await PackageChangeProxyClient.GetNuGetJsonAsync(
+                client,
+                new Uri("https://api.nuget.org/v3/index.json"),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            StatusCodes.Status502BadGateway,
+            Assert.IsAssignableFrom<IStatusCodeActionResult>(result)
+                .StatusCode);
+    }
+
+    [Fact]
     public async Task AdvisoryResponseWithoutContentType_IsBadGateway()
     {
         var handler = new RecordingHandler(_ =>

@@ -100,11 +100,11 @@ provider identity rather than the implementation-only same-origin hop.
 ## Response and failure contract
 
 Only an HTTP 200 JSON response becomes a successful bridge result. NuGet
-Catalog pages on the fixed admitted `.json` routes are known to omit
-`Content-Type`; absence is accepted for NuGet only, while an explicit
-non-JSON media type remains a failure. GitHub advisory responses still require
-`application/json`. The Function checks the declared length and actual decoded
-body size before publishing success:
+Catalog documents on the fixed admitted `/v3/catalog0/` routes are known to
+omit `Content-Type`; absence is accepted on those routes only, while the
+service index and GitHub advisory responses still require `application/json`.
+An explicit non-JSON media type remains a failure. The Function checks the
+declared length and actual decoded body size before publishing success:
 
 | Provider response | Maximum decoded body |
 | --- | ---: |
@@ -124,9 +124,10 @@ freshness claim.
 Provider non-success status remains a non-success status. A declared or
 observed oversized response becomes `413`; a transport failure becomes `502`;
 and an upstream timeout becomes `504`. Caller cancellation publishes no
-replacement result. Explicitly wrong media, a missing GitHub advisory media
-type, an unexpected successful status, and an invalid continuation-header
-shape become visible bridge failures rather than empty JSON.
+replacement result. Explicitly wrong media, a missing service-index or GitHub
+advisory media type, an unexpected successful status, and an invalid
+continuation-header shape become visible bridge failures rather than empty
+JSON.
 
 ## Composition and non-claims
 

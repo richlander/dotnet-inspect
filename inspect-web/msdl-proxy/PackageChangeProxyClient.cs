@@ -22,7 +22,10 @@ internal static class PackageChangeProxyClient
             client,
             upstream,
             MaxNuGetDocumentBytes,
-            allowMissingJsonContentType: true,
+            allowMissingJsonContentType:
+                upstream.AbsolutePath.StartsWith(
+                    "/v3/catalog0/",
+                    StringComparison.Ordinal),
             preserveLink: false,
             output: null,
             configureRequest: static request =>

@@ -66,9 +66,10 @@ credential-free requests to compile-time NuGet.org and GitHub origins from
 closed path and query grammars, disable redirects, require JSON, and bound
 decoded responses to the existing consumer limits. Invalid input is rejected
 before outbound traffic; provider status, timeout, transport failure, and
-oversize remain distinct non-success outcomes. NuGet Catalog pages on these
-fixed `.json` routes may omit `Content-Type`; the bridge admits that known
-provider behavior while still rejecting an explicit non-JSON media type.
+oversize remain distinct non-success outcomes. NuGet Catalog documents on the
+fixed `/v3/catalog0/` routes may omit `Content-Type`; the bridge admits that
+known provider behavior while the service index and advisory responses still
+require JSON media types.
 
 `PackageChangeProxyRequestValidatorTests`,
 `PackageChangeProxyClientTests`, `PackageChangeProxyFunctionTests`, and
