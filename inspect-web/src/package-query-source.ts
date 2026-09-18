@@ -531,9 +531,9 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
         id: stringValue(evidence.id, "package-query evidence ID"),
         scope,
         summary: parseEvidenceSummary(evidence.summary),
-        properties: evidence.properties.map(item => {
+        properties: evidence.properties.map(propertyItem => {
           const property = objectValue(
-            item,
+            propertyItem,
             "package-query evidence property");
           return {
             name: stringValue(
