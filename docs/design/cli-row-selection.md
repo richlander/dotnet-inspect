@@ -20,11 +20,11 @@ catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's `Package files` or `SourceLink: Files` section,
-and one selected Project document section have semantic `-n` adoption. Their
-supported Window and direction capabilities remain command-specific. These
-adopters also accept explicit rendered-line selection where their output format
-permits it. Unselected modes of a partially adopted command use the
-rendered-line fallback.
+one selected Project document section, and explicit-source Type catalog
+listings have semantic `-n` adoption. Their supported Window and direction
+capabilities remain command-specific. These adopters also accept explicit
+rendered-line selection where their output format permits it. Unselected modes
+of a partially adopted command use the rendered-line fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -63,8 +63,10 @@ after archive extraction, full file enumeration, and optional path filtering.
 The Project document adoption selects complete restored-package Skill or root
 README rows after inventory construction and validation when exactly one
 section is selected. Multi-section Project output remains outside that
-declaration. Semantic adoption for the remaining command row sets is still
-staged.
+declaration. The Type catalog adoption selects complete `ApiType` entries after
+type, kind, and unsafe filtering when package, library, platform, or project
+source selection makes the catalog interpretation unambiguous. Semantic
+adoption for the remaining command row sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -722,6 +724,54 @@ Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges
 sections are independent row sets with different schemas. It retains its
 legacy `--rows` contract and uses the rendered-line fallback for `-n`.
 
+## Type catalog adoption
+
+An unambiguous explicit-source `type` catalog declares one semantic row per
+`ApiType`. Package, library, platform, or project resolution and complete API
+extraction finish first. Type glob, kind, and unsafe filtering then establish
+the ordered catalog vector before Head/Tail or strict Window stages select from
+it.
+
+```console
+$ dotnet-inspect type --platform System.Text.Json \
+    -n 1 --tail --json
+{
+  ...
+  "public_type_count": 1,
+  "types": [
+    {
+      "name": "Utf8JsonWriter",
+      ...
+    }
+  ]
+}
+```
+
+What to notice: `-n 1 --tail` selects the final complete Type catalog entry.
+Markdown, table, TSV, JSONL, and complete JSON consume the same selected type
+identity, and complete JSON recomputes its public type and member counts.
+Assembly-level companion evidence such as Type forwarders remains visible; it
+is not another selectable Type row sequence. Selection does not reduce source
+resolution or API extraction.
+
+The adoption supports Head/Tail, Window, and explicit Lines. Complete JSON
+rejects explicit line selection before source resolution. One strict Window
+failure withholds every output shape:
+
+```console
+$ dotnet-inspect type --platform System.Text.Json \
+    --rows 92..93 --json
+Error: Type row selection stage 1 requires row 93, but only 91 rows are available.
+```
+
+Exact-type inspection, explicit section selection, structural or effective
+discovery, query help, shape, `--tfm all`, performance and row-query filters,
+pairwise `--match`, and commandless requests without an explicit source remain
+outside this declaration. Those surfaces use rendered-line fallback for bare
+`-n`. Numeric `-t` is an ordinary Type filter literal, not a hidden count;
+numeric `--rows N` is rejected on the adopted catalog because Window requires
+range syntax.
+
 ## Package Files adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -1012,6 +1062,14 @@ The Integration graph adoption is enforced by:
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
 | `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, `LibrariesCommand_RetainsLegacyWindowValidation`, `LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation; `graph libraries` remains outside the declaration, infers Lines for `-n`, and retains legacy Window validation. |
+
+The Type catalog adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats` and `TypeListing_FiltersBeforeSemanticSelection` | An explicit-source Type catalog applies semantic Tail after type filtering; Markdown, table, TSV, JSONL, and complete JSON consume the same selected `ApiType`, complete JSON recomputes selected counts, and assembly-level Type forwarders remain companion evidence. |
+| `CommandExecutionTests.TypeListing_UnavailableWindowWithholdsOutput` and `TypeListing_RejectsInvalidRowsBeforeSourceResolution` | One unavailable strict Window emits no partial output, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before source resolution. |
+| `CommandExecutionTests.TypeListing_ExcludedModesInferRenderedLines`, `TypeListing_NumericTypeFilterIsOrdinaryFilterInput`, `TypeOptionsParserTests.NumericMemberLimit_IsDistinctFromTypeFilter`, `SharedParsersTests`, and `InspectionPlanningTests.CommandlessNumericTypeFilterSelectsTypeListing` | Exact-type and selected-section modes remain outside the declaration and infer rendered Lines; numeric `-t` is preserved as ordinary filter input distinct from numeric member limits, including commandless structural routing. |
 
 The Package SourceLink file adoption is enforced by:
 
