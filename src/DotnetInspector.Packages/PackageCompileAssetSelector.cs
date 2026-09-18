@@ -640,7 +640,7 @@ public static class PackageCompileAssetSelector
                 : null;
     }
 
-    static string? SelectApplicableFramework(
+    internal static string? SelectApplicableFramework(
         IReadOnlyList<string> frameworks,
         string requestedFramework)
     {

@@ -53,6 +53,7 @@ internal sealed class PackageInspectionText
         PackageTypes = collector.Fields(data.PackageTypes, nameof(data.PackageTypes));
         ContentDirectories = collector.Fields(data.ContentDirectories, nameof(data.ContentDirectories));
         TargetFrameworks = collector.Fields(data.TargetFrameworks, nameof(data.TargetFrameworks));
+        Tfm = collector.OptionalField(data.Tfm, nameof(data.Tfm));
         OrderedTargetFrameworks = data.TargetFrameworks is { } targetFrameworks
             && TargetFrameworks is { } containedTargetFrameworks
             ? TfmSelector.OrderByTfmPriorityDescending(
@@ -60,9 +61,6 @@ internal sealed class PackageInspectionText
                     index => targetFrameworks[index])
                 .Select(index => containedTargetFrameworks[index])
                 .ToList()
-            : null;
-        HighestTfm = OrderedTargetFrameworks is { Count: > 0 } orderedTargetFrameworks
-            ? orderedTargetFrameworks[0]
             : null;
         SupportedRids = collector.Fields(data.SupportedRids, nameof(data.SupportedRids));
         ToolFormat = collector.OptionalField(data.ToolFormat, nameof(data.ToolFormat));
@@ -228,8 +226,8 @@ internal sealed class PackageInspectionText
     public List<InertString>? PackageTypes { get; }
     public List<InertString>? ContentDirectories { get; }
     public List<InertString>? TargetFrameworks { get; }
+    public InertString? Tfm { get; }
     public List<InertString>? OrderedTargetFrameworks { get; }
-    public InertString? HighestTfm { get; }
     public List<InertString>? SupportedRids { get; }
     public InertString? ToolFormat { get; }
     public List<InertString>? ToolCommands { get; }

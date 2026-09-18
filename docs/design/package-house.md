@@ -23,9 +23,11 @@ Their adoption remains separately reviewed.
 composition with package-slice policy. Its first focused slice defines only the
 package-local compile inventory and selected projection that PackageHouse
 retains. [#7431](https://github.com/richlander/dotnet-inspect/issues/7431)
-implements the owner-issued selection evidence. Package Dependency Query
-scope, size measurements, traversal targets, call graphs, Navigation, and host
-adoption remain separate slices.
+implements the owner-issued selection evidence.
+[Package Info measurements](package-info-measurements.md) own the focused
+archive-size and selected-slice aggregate consumer. Package Dependency Query
+scope, traversal targets, call graphs, Navigation, and broader host adoption
+remain separate slices.
 
 The first production adopter is shared package realization for
 `Workspace`. The CLI and Inspect Web then consume the same House contract

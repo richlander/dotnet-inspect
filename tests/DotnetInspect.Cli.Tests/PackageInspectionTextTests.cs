@@ -36,14 +36,12 @@ public class PackageInspectionTextTests
     private static readonly HashSet<string> NonPresentedText =
     [
         $"{typeof(RidPackageReference).FullName}.{nameof(RidPackageReference.AvailableDisplay)}",
-        $"{typeof(InspectionResult).FullName}.{nameof(InspectionResult.Tfm)}",
     ];
 
     [Fact]
     public void PresentationProjection_CoversEveryPackageModelTextProperty()
     {
-        // AvailableDisplay is fixed tool text. Tfm is a selection helper ignored by
-        // JSON; the rendered Highest TFM comes from the contained TargetFrameworks.
+        // AvailableDisplay is fixed tool text.
         foreach ((Type modelType, Type textType) in PresentationMappings)
         {
             foreach (PropertyInfo modelProperty in modelType.GetProperties(
@@ -108,6 +106,7 @@ public class PackageInspectionTextTests
             [nameof(InspectionResult.PackageTypes)] = result => result.PackageTypes![0] = Hazard,
             [nameof(InspectionResult.ContentDirectories)] = result => result.ContentDirectories![0] = Hazard,
             [nameof(InspectionResult.TargetFrameworks)] = result => result.TargetFrameworks![0] = Hazard,
+            [nameof(InspectionResult.Tfm)] = result => result.Tfm = Hazard,
             [nameof(InspectionResult.SupportedRids)] = result => result.SupportedRids![0] = Hazard,
             [nameof(InspectionResult.ToolFormat)] = result => result.ToolFormat = Hazard,
             [nameof(InspectionResult.ToolCommands)] = result => result.ToolCommands![0] = Hazard,
@@ -300,6 +299,7 @@ public class PackageInspectionTextTests
             PackageInspectionJsonContext.Default.PackageInspectionJson);
         JsonNode previousNode = JsonNode.Parse(previous)!;
         JsonNode projectedNode = JsonNode.Parse(projected)!;
+        previousNode["selected_tfm"] = result.Tfm;
         foreach (JsonNode? package in projectedNode[
             "runtime_identifier_packages"]!.AsArray())
         {

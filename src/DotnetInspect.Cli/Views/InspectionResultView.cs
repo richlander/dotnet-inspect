@@ -31,12 +31,19 @@ public class InspectionResultView
     [
         new("Version", static view => view.Version),
         new("Type", static view => view.PackageType),
-        new("Size", static view =>
+        new("Package Size", static view =>
             view._data.PackageSize.HasValue
                 ? new ByteSizeFormatter().Format(view._data.PackageSize.Value)
                 : null),
-        new("Highest TFM", static view =>
-            !string.IsNullOrEmpty(view.HighestTfm) ? view.HighestTfm : null),
+        new("Selected TFM", static view =>
+            !string.IsNullOrEmpty(view.SelectedTfm) ? view.SelectedTfm : null),
+        new("Selected TFM Size", static view =>
+            view._data.SelectedTfmSize.HasValue
+                ? new ByteSizeFormatter().Format(
+                    view._data.SelectedTfmSize.Value)
+                : null),
+        new("Selected TFM Libraries", static view =>
+            view._data.SelectedTfmLibraryCount?.ToString()),
         new("TFM Count", static view =>
             view.TargetFrameworkCount > 0
                 ? view.TargetFrameworkCount.ToString()
@@ -96,10 +103,6 @@ public class InspectionResultView
         new("Runtime Identifiers", static view =>
             view.SupportedRidCount > 0
                 ? view.SupportedRidCount.ToString()
-                : null),
-        new("Libraries", static view =>
-            view._data.AssemblyCount > 1
-                ? view._data.AssemblyCount.ToString()
                 : null),
         new("Readme", static view =>
             view._data.HasReadme ? view.ReadmeFile ?? "README.md" : null),
@@ -504,9 +507,15 @@ public class InspectionResultView
     [MarkoutPropertyName("TFM Count")]
     public int TargetFrameworkCount => _data.TargetFrameworks?.Count ?? 0;
 
-    [MarkoutPropertyName("Highest TFM")]
+    [MarkoutPropertyName("Selected TFM")]
     /// <inheritdoc cref="PackageViewText"/>
-    public string? HighestTfm => PackageViewText.Render(Text.HighestTfm);
+    public string? SelectedTfm => PackageViewText.Render(Text.Tfm);
+
+    [MarkoutPropertyName("Selected TFM Size")]
+    public long? SelectedTfmSize => _data.SelectedTfmSize;
+
+    [MarkoutPropertyName("Selected TFM Libraries")]
+    public int? SelectedTfmLibraryCount => _data.SelectedTfmLibraryCount;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
@@ -643,8 +652,8 @@ public class InspectionResultView
         fields.Add(new("Version", Version));
         fields.Add(new("Type", PackageType));
 
-        if (!string.IsNullOrEmpty(HighestTfm))
-            fields.Add(new("Highest TFM", HighestTfm));
+        if (!string.IsNullOrEmpty(SelectedTfm))
+            fields.Add(new("Selected TFM", SelectedTfm));
         if (TargetFrameworkCount > 0)
             fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
         if (_data.BuiltDate.HasValue)

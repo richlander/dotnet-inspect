@@ -53,6 +53,9 @@ internal sealed class PackageInspectionJson
     public List<string>? PackageTypes => Render(_text.PackageTypes);
     public List<string>? ContentDirectories => Render(_text.ContentDirectories);
     public List<string>? TargetFrameworks => Render(_text.TargetFrameworks);
+    public string? SelectedTfm => Render(_text.Tfm);
+    public long? SelectedTfmSize => _data.SelectedTfmSize;
+    public int? SelectedTfmLibraryCount => _data.SelectedTfmLibraryCount;
     public List<string>? SupportedRids => Render(_text.SupportedRids);
     public int AssemblyCount => _data.AssemblyCount;
     public PackageBinarySignals? BinarySignals => _data.BinarySignals;

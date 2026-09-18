@@ -89,11 +89,14 @@ through a lower-owner prerequisite.
 
 ## Composition and adoption
 
-The immediate consumer is the focused PackageHouse package-local compile
-contract in #7423. PackageHouse maps absent and explicit target context to the
-selector policies above and preserves the returned receipt unchanged. The
-aggregate recommendation and exact/namesake narrowing contract remains owned
-by Navigation in #7318.
+The immediate consumers are the focused PackageHouse package-local compile
+contract and the
+[Package Info measurement query](package-info-measurements.md) in #7423.
+PackageHouse maps absent and explicit target context to the selector policies
+above and preserves the returned receipt unchanged. Package Info uses the same
+receipt to measure every selected Library rather than choosing a representative
+assembly. The aggregate recommendation and exact/namesake narrowing contract
+remains owned by Navigation in #7318.
 
 PackageHouse may compare a selector receipt's generation and exact request
 arguments with its acquisition and target-context receipts. It does not

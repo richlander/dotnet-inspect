@@ -274,27 +274,50 @@ public class InspectionResultTests
     }
 
     [Fact]
-    public void PackageInfo_RendersHighestTfmAndTfmCount()
+    public void PackageInfo_RendersSelectedTfmMeasurements()
     {
         var result = new InspectionResult
         {
             PackageName = "Test",
             Version = "1.0.0",
-            TargetFrameworks = ["net8.0", "net10.0", "netstandard2.0"]
+            PackageSize = 4096,
+            TargetFrameworks = ["net8.0", "net10.0", "netstandard2.0"],
+            Tfm = "net8.0",
+            SelectedTfmSize = 1536,
+            SelectedTfmLibraryCount = 2,
         };
 
         var output = MarkoutSerializer.Serialize(new InspectionResultView(result), InspectionContext.Default);
 
-        Assert.Contains("| Highest TFM | net10.0 |", output);
+        Assert.Contains("| Package Size | 4 KB |", output);
+        Assert.Contains("| Selected TFM | net8.0 |", output);
+        Assert.Contains("| Selected TFM Size | 1.5 KB |", output);
+        Assert.Contains("| Selected TFM Libraries | 2 |", output);
         Assert.Contains("| TFM Count | 3 |", output);
         Assert.Contains("## Target Frameworks", output);
         Assert.Contains("| TFM |", output);
         Assert.DoesNotContain("| TFM | net10.0 |", output);
         Assert.DoesNotContain("| Target Frameworks | 3 |", output);
+
+        string json = JsonSerializer.Serialize(
+            PackageInspectionJson.Create(result),
+            PackageInspectionJsonContext.Default.PackageInspectionJson);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            "net8.0",
+            document.RootElement.GetProperty("selected_tfm").GetString());
+        Assert.Equal(
+            1536,
+            document.RootElement.GetProperty("selected_tfm_size").GetInt64());
+        Assert.Equal(
+            2,
+            document.RootElement
+                .GetProperty("selected_tfm_library_count")
+                .GetInt32());
     }
 
     [Fact]
-    public void PackageInfo_HighestTfm_RemainsIndependentOfSelectionOverride()
+    public void PackageInfo_SelectedTfmUsesSelectionOverride()
     {
         var result = new InspectionResult
         {
@@ -302,7 +325,7 @@ public class InspectionResultTests
             Tfm = "net8.0",
         };
 
-        Assert.Equal("net10.0", new InspectionResultView(result).HighestTfm);
+        Assert.Equal("net8.0", new InspectionResultView(result).SelectedTfm);
     }
 
     [Fact]
@@ -351,9 +374,9 @@ public class InspectionResultTests
 
         Assert.True(
             packageInfo.IndexOf("| Authors |", StringComparison.Ordinal) < packageInfo.IndexOf("| Content |", StringComparison.Ordinal)
-            && packageInfo.IndexOf("| Content |", StringComparison.Ordinal) < packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal)
-            && packageInfo.IndexOf("| Highest TFM |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
-            && packageInfo.IndexOf("| License |", StringComparison.Ordinal) < packageInfo.IndexOf("| Version |", StringComparison.Ordinal),
+            && packageInfo.IndexOf("| Content |", StringComparison.Ordinal) < packageInfo.IndexOf("| License |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| License |", StringComparison.Ordinal) < packageInfo.IndexOf("| Selected TFM |", StringComparison.Ordinal)
+            && packageInfo.IndexOf("| Selected TFM |", StringComparison.Ordinal) < packageInfo.IndexOf("| Version |", StringComparison.Ordinal),
             output);
     }
 

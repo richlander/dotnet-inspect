@@ -1164,6 +1164,11 @@ public partial class PackageCommand
             // Apply package size (not cached in index — comes from nupkg file)
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
+            PackageInspector.ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                options.Tfm,
+                logger);
 
             await PopulatePackageSignatureAsync(
                 result,

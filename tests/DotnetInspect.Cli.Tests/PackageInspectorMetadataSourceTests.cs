@@ -178,6 +178,110 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyPackageInfoMeasurements_AggregatesSelectedLibraries()
+    {
+        const string packageId = "Aggregate.Size.Package";
+        string root = Path.Combine(_root, "aggregate-size");
+        string reference = Path.Combine(root, "ref", "net9.0");
+        string implementation = Path.Combine(root, "lib", "net9.0");
+        Directory.CreateDirectory(reference);
+        Directory.CreateDirectory(implementation);
+        await File.WriteAllBytesAsync(
+            Path.Combine(reference, $"{packageId}.dll"),
+            new byte[4],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(reference, $"{packageId}.More.dll"),
+            new byte[5],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(implementation, $"{packageId}.dll"),
+            new byte[40],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(implementation, $"{packageId}.More.dll"),
+            new byte[50],
+            TestContext.Current.CancellationToken);
+
+        string nupkgPath = Path.Combine(_root, $"{packageId}.1.0.0.nupkg");
+        await File.WriteAllBytesAsync(
+            nupkgPath,
+            CreatePackage(packageId),
+            TestContext.Current.CancellationToken);
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: "1.0.0",
+            NupkgPath: nupkgPath,
+            ProducerKey: "aggregate-size");
+        var result = new InspectionResult
+        {
+            PackageName = packageId,
+            Version = "1.0.0",
+        };
+
+        PackageInspector.ApplyPackageInfoMeasurements(
+            result,
+            resolution,
+            requestedTargetFramework: null,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal(new FileInfo(nupkgPath).Length, result.PackageSize);
+        Assert.Equal("net9.0", result.Tfm);
+        Assert.Equal(["net9.0"], result.TargetFrameworks);
+        Assert.Equal(90, result.SelectedTfmSize);
+        Assert.Equal(2, result.SelectedTfmLibraryCount);
+    }
+
+    [Fact]
+    public async Task ApplyPackageInfoMeasurements_AggregatesToolLibraries()
+    {
+        const string packageId = "Aggregate.Tool.Package";
+        string root = Path.Combine(_root, "aggregate-tool");
+        string tools = Path.Combine(root, "tools", "net10.0", "any");
+        Directory.CreateDirectory(tools);
+        await File.WriteAllBytesAsync(
+            Path.Combine(tools, "Alpha.dll"),
+            new byte[10],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(tools, "Beta.dll"),
+            new byte[20],
+            TestContext.Current.CancellationToken);
+        string culture = Path.Combine(tools, "fr");
+        Directory.CreateDirectory(culture);
+        await File.WriteAllBytesAsync(
+            Path.Combine(culture, "Alpha.resources.dll"),
+            new byte[100],
+            TestContext.Current.CancellationToken);
+
+        var resolution = new PackageExtractionResult(
+            root,
+            TempDir: null,
+            PackageName: packageId,
+            Version: "1.0.0",
+            ProducerKey: "aggregate-tool");
+        var result = new InspectionResult
+        {
+            PackageName = packageId,
+            Version = "1.0.0",
+            IsToolPackage = true,
+        };
+
+        PackageInspector.ApplyPackageInfoMeasurements(
+            result,
+            resolution,
+            requestedTargetFramework: null,
+            new VerboseLogger(enabled: false));
+
+        Assert.Equal("net10.0", result.Tfm);
+        Assert.Equal(["net10.0"], result.TargetFrameworks);
+        Assert.Equal(30, result.SelectedTfmSize);
+        Assert.Equal(2, result.SelectedTfmLibraryCount);
+    }
+
+    [Fact]
     public async Task InspectAsync_PreservesToolWrapperClassificationOnPayload()
     {
         string wrapperRoot = Path.Combine(_root, "wrapper");

@@ -15,6 +15,70 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal static class PackageInspector
 {
+    public static void ApplyPackageInfoMeasurements(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        string? requestedTargetFramework,
+        VerboseLogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(resolution);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        IPackageContent content = resolution.AcquiredPayload?.Content
+            ?? new FileSystemPackageContent(
+                resolution.ExtractPath,
+                resolution.NupkgPath,
+                resolution.FromCache,
+                resolution.CacheScopeKey ?? "package-info");
+        PackageInfoMeasurementReceipt receipt =
+            PackageInfoMeasurementQuery.Evaluate(
+                content,
+                result.PackageName,
+                result.IsToolPackage
+                    ? PackageInfoSliceProfile.Tool
+                    : PackageInfoSliceProfile.Compile,
+                requestedTargetFramework);
+
+        if (receipt.ArchiveSize
+            is PackageArchiveSizeMeasurement.Available archive)
+        {
+            result.PackageSize = archive.Bytes;
+        }
+        else if (result.PackageSize is null
+            && receipt.ArchiveSize
+                is PackageArchiveSizeMeasurement.Unavailable archiveUnavailable)
+        {
+            logger.LogWarning(archiveUnavailable.Failure.Message);
+        }
+
+        if (!receipt.AvailableTargetFrameworks.IsEmpty
+            || result.TargetFrameworks is null)
+        {
+            result.TargetFrameworks =
+                [.. receipt.AvailableTargetFrameworks];
+        }
+
+        result.SelectedTfmSize = null;
+        result.SelectedTfmLibraryCount = null;
+        switch (receipt.SelectedTargetFramework)
+        {
+            case PackageSelectedTfmMeasurement.Available selected:
+                result.Tfm = selected.TargetFramework;
+                result.SelectedTfmSize = selected.UncompressedSize;
+                result.SelectedTfmLibraryCount = selected.LibraryCount;
+                break;
+            case PackageSelectedTfmMeasurement.Unavailable unavailable:
+                result.Tfm = null;
+                logger.LogWarning(unavailable.Failure.Message);
+                break;
+            case PackageSelectedTfmMeasurement.Invalid invalid:
+                result.Tfm = null;
+                logger.LogWarning(invalid.Failure.Message);
+                break;
+        }
+    }
+
     public static async Task<InspectionResult> InspectAsync(
         PackageExtractionResult resolution,
         string fallbackPackageName,

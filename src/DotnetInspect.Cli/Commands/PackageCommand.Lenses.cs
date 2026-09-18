@@ -43,15 +43,16 @@ public partial class PackageCommand
 
     private static void FilterResultForOutput(InspectionResult result, InspectionOptions options)
     {
-        // Filter dependency groups and set TFM when --tfm is requested
+        // Filter dependency groups using the actual package-local selection.
         if (!string.IsNullOrEmpty(options.Tfm))
         {
-            result.Tfm = options.Tfm;
-
             if (result.DependencyGroups is { Count: > 0 })
             {
+                string targetFramework = result.Tfm ?? options.Tfm;
                 result.DependencyGroups = result.DependencyGroups
-                    .Where(g => g.TargetFramework.Equals(options.Tfm, StringComparison.OrdinalIgnoreCase))
+                    .Where(g => g.TargetFramework.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
         }

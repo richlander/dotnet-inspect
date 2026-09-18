@@ -44,6 +44,11 @@ Some commands or contexts should not get a default preset until there is a clear
 | `diff` | No preset yet | Existing flags (`--breaking`, `--additive`, filters) already define the question. |
 | relationship commands | No preset yet | Their default outputs are already focused answers. |
 
+Package Info measurements distinguish compressed whole-package size from the
+uncompressed aggregate size and Library count of the actual package-local
+selected TFM. They never summarize a multi-Library slice with one
+representative assembly.
+
 ## Relationship to other selectors
 
 | Syntax | Question answered |

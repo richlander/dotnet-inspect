@@ -127,20 +127,41 @@ public class InspectionResult
     public List<string>? TargetFrameworks { get; set; }
 
     /// <summary>
-    /// The highest-priority target framework in the package (computed from TargetFrameworks),
-    /// or the explicit TFM override when --tfm is specified.
+    /// The actual package-local target framework selected for this inspection.
+    /// Before selection evidence is applied, the highest available framework is
+    /// used as a compatibility fallback for existing consumers.
     /// </summary>
     [JsonIgnore]
     public string? Tfm
     {
-        get => TfmOverride ?? (TargetFrameworks is { Count: > 0 }
-            ? TfmSelector.SelectHighestTfm(TargetFrameworks)
-            : null);
-        set => TfmOverride = value;
+        get => HasTfmOverride
+            ? TfmOverride
+            : TargetFrameworks is { Count: > 0 }
+                ? TfmSelector.SelectHighestTfm(TargetFrameworks)
+                : null;
+        set
+        {
+            TfmOverride = value;
+            HasTfmOverride = true;
+        }
     }
 
     [JsonIgnore]
     private string? TfmOverride { get; set; }
+
+    [JsonIgnore]
+    private bool HasTfmOverride { get; set; }
+
+    /// <summary>
+    /// Aggregate uncompressed size of every selected Library entry in
+    /// <see cref="Tfm"/>.
+    /// </summary>
+    public long? SelectedTfmSize { get; set; }
+
+    /// <summary>
+    /// Number of Libraries in the selected target-framework slice.
+    /// </summary>
+    public int? SelectedTfmLibraryCount { get; set; }
 
     public List<string>? SupportedRids { get; set; }
 

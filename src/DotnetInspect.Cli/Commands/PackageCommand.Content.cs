@@ -330,6 +330,11 @@ public partial class PackageCommand
 
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
+            PackageInspector.ApplyPackageInfoMeasurements(
+                result,
+                resolution,
+                options.Tfm,
+                logger);
 
             await PopulatePackageSignatureAsync(
                 result,
