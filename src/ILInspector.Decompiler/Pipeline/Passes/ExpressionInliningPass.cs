@@ -30,6 +30,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="SpilledReceiverFold.RunPreservesEffectOrder"/> to require the
 /// direct argument loads to remain unconditional and in store order.</para>
 ///
+/// <para>The same ordered-run proof folds two direct binary operand spills into
+/// a local or argument store. See docs/design/ordered-binary-spills.md.</para>
+///
 /// <para><c>slotsOnly</c> restricts <see cref="InlineOnce"/> to synthetic stack
 /// slots (never user locals). This is the F2 mode (#2386): the pass runs a third
 /// time late in the pipeline — before <see cref="SlotMaterializationPass"/> — to
@@ -60,10 +63,48 @@ public sealed class ExpressionInliningPass : IIrPass
     {
         bool functionContainsAwait = UnsafeAwaitOperand.ContainsAwait(function);
         while (InlineReturnedCallArgumentRunOnce(function, context)
+            || InlineBinaryOperandRunOnce(function, context)
             || InlineOnce(function, context, _slotsOnly, functionContainsAwait)
             || InlineLiveRangeOnce(function, context, functionContainsAwait))
         {
         }
+    }
+
+    static bool InlineBinaryOperandRunOnce(IrFunction function, PassContext context)
+    {
+        var usage = SpilledReceiverFold.CountPlaces(function);
+        foreach (var binary in function.Descendants.OfType<Binary>())
+        {
+            if (binary.Parent is not (StoreLocal or StoreArgument)
+                || binary.Parent is not { Parent: Block block, ChildIndex: >= 2 } statement
+                || binary.Left is not LoadStackSlot left
+                || binary.Right is not LoadStackSlot right
+                || block.Children[statement.ChildIndex - 2] is not StoreStackSlot leftStore
+                || block.Children[statement.ChildIndex - 1] is not StoreStackSlot rightStore
+                || !ReferenceEquals(SpilledReceiverFold.SpillLoadInside(leftStore, binary, usage), left)
+                || !ReferenceEquals(SpilledReceiverFold.SpillLoadInside(rightStore, binary, usage), right)
+                || leftStore.Value.ResultType is not { } leftType
+                || rightStore.Value.ResultType is not { } rightType
+                || !leftType.Equals(left.ResultType)
+                || !rightType.Equals(right.ResultType)
+                || UnsafeAwaitOperand.ContainsAwait(leftStore.Value)
+                || UnsafeAwaitOperand.ContainsAwait(rightStore.Value))
+            {
+                continue;
+            }
+
+            if (SpilledReceiverFold.TryFold(
+                statement,
+                binary,
+                usage,
+                context,
+                "inline ordered stack-slot run into binary operands",
+                stackSlotsOnly: true))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool InlineReturnedCallArgumentRunOnce(IrFunction function, PassContext context)
