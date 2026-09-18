@@ -11,8 +11,12 @@ restoration under
 [#7028](https://github.com/richlander/dotnet-inspect/issues/7028) consumes its
 format-2 and format-3 packet paths through the production Browser facade. The
 format-1 Browser URL projection remains intentionally partial and cannot enter
-this transaction. Producer migration and retirement of the compatibility
-snapshot collection remain
+this transaction. The uncovered-Spotlight Package managed adoption boundary
+now composes a captured schema-version-3 Definitions request with the real
+retained owner, including unpublished completion, source-basis revalidation,
+synchronous cutover, and one-shot non-install settlement. Its final
+interaction binding, the other producer migrations, and retirement of the
+compatibility snapshot collection remain
 [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
 [Adoption and retirement](#adoption-and-retirement) records the remaining
 production boundaries.
@@ -418,6 +422,11 @@ does not authorize host-level deduplication.
 An external package result that is not represented by the active definition
 creates or updates a retained definition and requests activation. The current
 Workspace remains usable while package acquisition and realization proceed.
+The rendered result captures the exact resource-free schema-version-3
+Definitions request and curated registration plan. Scanner-bearing ecosystem
+registrations can make that request nonprojectable to a canonical packet; the
+retained record keeps the exact Definitions request and projection evidence
+rather than dropping registrations or manufacturing a private packet.
 
 An operation whose target is already in the active realization enters that
 realization instead of creating a replacement.
@@ -599,6 +608,11 @@ tracks the end-to-end architecture retirement.
    packages, package-query handoff, demos, shared links, and initial/history
    restoration through the one activation transaction. Tracked by
    [#7031](https://github.com/richlander/dotnet-inspect/issues/7031).
+   The uncovered-Spotlight Package managed composition is implemented: an
+   owner-issued captured Definitions request can reach the real retained
+   owner, and only the still-current source basis may publish the complete
+   candidate. Final interaction binding remains #6686; the other listed
+   producers remain on the compatibility path.
 4. **Package and exact-subject operations.** Move package, assembly, Library,
    Type, Member, metadata, and source paths to exact active-realization
    admission, beginning with
@@ -714,12 +728,23 @@ construction and operation paths. Tests must demonstrate:
 - a retained committed view that the version-1 URL cannot project restoring
   from complete resource-free owner-issued state rather than a stale URL or
   live application snapshot,
+- an uncovered Spotlight Package restoring from its exact captured
+  schema-version-3 Definitions request with the Ecosystems-owned curated
+  registrations, including the nonprojectable result,
+- source registration movement after complete restoration taking the
+  one-shot non-install path and preserving the incumbent,
 - candidate failure preserving B's selection and usable operation admission,
 - a late A completion failing to replace a newer selection,
 - predecessor operations finishing without republishing stale results,
 - saved Open and history traversal using the same activation transaction,
 - package and Platform paths admitting only the exact active realization, and
 - complete removal of retained-scope compatibility search at final retirement.
+
+The existing retained-realization and Spotlight models already compose the
+unpublished candidate, final authority check, publication, and non-install
+transitions used by this producer. This adoption adds no new lifecycle state
+or join currency, so it relies on those registered model gates rather than
+introducing a duplicate composition model.
 
 The first-slice Release gates are:
 
