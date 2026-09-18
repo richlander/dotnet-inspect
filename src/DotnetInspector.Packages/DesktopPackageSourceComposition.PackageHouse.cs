@@ -112,11 +112,15 @@ public sealed partial class DesktopPackageSourceComposition
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
             IPackagePayloadTransferPolicy? transferPolicy,
-            string? requiredProducerKey)
+            string? requiredProducerKey,
+            PackageHouseTargetContext? compileTargetContext = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
-            PackageHouseOperationProfile.Acquire);
+            compileTargetContext is null
+                ? PackageHouseOperationProfile.Acquire
+                : PackageHouseOperationProfile.Realize,
+            compileTargetContext);
         return ExecuteAndProjectPayloadAsync(
             request,
             coordinate.PackageId,
@@ -142,11 +146,15 @@ public sealed partial class DesktopPackageSourceComposition
             Action<string>? log,
             PackageSourceOperationLease sourceOperation,
             PackagePayloadLimits? limits,
-            IPackagePayloadTransferPolicy? transferPolicy)
+            IPackagePayloadTransferPolicy? transferPolicy,
+            PackageHouseTargetContext? compileTargetContext = null)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
-            PackageHouseOperationProfile.Acquire);
+            compileTargetContext is null
+                ? PackageHouseOperationProfile.Acquire
+                : PackageHouseOperationProfile.Realize,
+            compileTargetContext);
         return ExecuteAndProjectPayloadAsync(
             request,
             selection.PackageId,
@@ -196,7 +204,10 @@ public sealed partial class DesktopPackageSourceComposition
             ProjectAuthorityFailures(settlement.Result),
             sourceResult?.NotFoundAuthorities,
             sourceResult?.ReportingAuthorities,
-            settlement.SelectionUsesOriginalSources);
+            settlement.SelectionUsesOriginalSources,
+            settlement is PackageHouseSettlement.Acquired
+                ? settlement
+                : null);
     }
 
     private Task<PackageHouseSettlement> ExecuteHouseAsync(
@@ -281,13 +292,18 @@ public sealed partial class DesktopPackageSourceComposition
 
     private PackageHouseRequest CreateHouseRequest(
         PackageHouseDemand demand,
-        PackageHouseOperationProfile profile) =>
+        PackageHouseOperationProfile profile,
+        PackageHouseTargetContext? targetContext = null) =>
         new(
             demand,
             PackageHouseOperation.Create(
                 profile,
                 _options.RequestTimeout,
-                _options.OperationTimeout));
+                _options.OperationTimeout),
+            targetContext,
+            profile == PackageHouseOperationProfile.Realize
+                ? PackageHouseAssetSelectionKind.Compile
+                : null);
 
     private static bool TryCreateSelectionRequest(
         string packageId,

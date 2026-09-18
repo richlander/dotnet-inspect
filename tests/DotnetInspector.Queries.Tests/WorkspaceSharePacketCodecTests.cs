@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Platforms;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 
@@ -33,6 +34,9 @@ public sealed class WorkspaceSharePacketCodecTests
 
     private const string CanonicalFormat3CompositeJson =
         """{"f":3,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"r":[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["l",["t","DotNetRuntime",["System.Runtime","11.0.0.0",null,"b03f5f7f11d50a3a"]]],["e","ecosystem.platform",["System"],["system.runtime"],[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["t","AspNetCore"],["p","Microsoft.Extensions."]]]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
+
+    private const string CanonicalFormat2QueryJson =
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["test-query/v1",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"package"},"f":"dependencies","q":[0],"l":[["P","1.0.0.0",null,null]]}]}""";
 
     [Fact]
     public void Decode_CanonicalVector_RoundTripsExactly()
@@ -232,6 +236,111 @@ public sealed class WorkspaceSharePacketCodecTests
 
         Assert.Null(packet.FocusedTabIndex);
         Assert.Equal(-1, packet.ActiveTabIndex);
+        Assert.Equal(json, WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Decode_Format2QueryAndLibraryScope_RoundTripsExactly()
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            CanonicalFormat2QueryJson,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("test-query/v1", Assert.Single(packet.Queries).Vocabulary);
+        WorkspaceShareViewState state = packet.ViewStates[1];
+        Assert.Equal([0], state.QueryIndexes);
+        Assert.Equal("P", Assert.Single(state.Libraries).Name);
+        Assert.Equal(
+            CanonicalFormat2QueryJson,
+            WorkspaceSharePacketCodec.SerializeJson(packet));
+    }
+
+    [Fact]
+    public void Format2_RejectsSemanticallyDuplicateLibraryScope()
+    {
+        const string json =
+            """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"package"},"f":"package.overview","q":[0],"l":[["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],["system.text.json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]}]}""";
+
+        WorkspaceSharePacketException parseException =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    json,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "semantic duplicates",
+            parseException.Message,
+            StringComparison.Ordinal);
+
+        PortableLibraryIdentity[] libraries =
+        [
+            new(
+                "System.Text.Json",
+                "10.0.0.0",
+                null,
+                "cc7b13ffcd2ddd51"),
+            new(
+                "system.text.json",
+                "10.0.0.0",
+                null,
+                "cc7b13ffcd2ddd51"),
+        ];
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    "P",
+                    "1.0.0",
+                    "net11.0",
+                    null),
+            ],
+            [new WorkspaceShareContext([0])],
+            focusedTabIndex: 0,
+            selectedContextIndex: 0,
+            [
+                new WorkspaceShareViewState(
+                    null,
+                    new PortableSubjectRequest.Workspace(),
+                    null,
+                    null),
+                new WorkspaceShareViewState(
+                    0,
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package(),
+                    "package.overview",
+                    [0],
+                    libraries),
+            ],
+            [
+                PortableQueryIdentity.FromCanonicalPayload(
+                    "a",
+                    "{}",
+                    TestContext.Current.CancellationToken),
+            ]);
+
+        WorkspaceSharePacketException writeException =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.SerializeJson(packet));
+
+        Assert.Contains(
+            "semantic duplicates",
+            writeException.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Decode_QueryTableUsesOrdinalVocabularyOrdering()
+    {
+        const string json =
+            """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["😀",{}],["",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"package"},"u":{"k":"package"},"f":"package.overview","q":[0,1]}]}""";
+
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            json,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ["😀", ""],
+            packet.Queries.Select(query => query.Vocabulary));
         Assert.Equal(json, WorkspaceSharePacketCodec.SerializeJson(packet));
     }
 
@@ -548,12 +657,40 @@ public sealed class WorkspaceSharePacketCodecTests
         WorkspaceSharePacketFailureKind.InvalidShape)]
     [InlineData(
         """{"f":2,"t":[["P",null,"net10.0",null]],"g":[[0]],"a":0,"x":0,"q":[],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""",
-        WorkspaceSharePacketFailureKind.UnsupportedFormat)]
+        WorkspaceSharePacketFailureKind.InvalidShape)]
     public void Decode_RejectsInvalidOrUnsupportedFormat2Shape(
         string json,
         WorkspaceSharePacketFailureKind expected)
     {
         AssertFailure(EncodeJson(json), expected);
+    }
+
+    [Theory]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["b",{}],["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[0,1]}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}],["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[0]}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{"b":[]}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[0]}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[1]}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a",{}]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[0,0]}]}""")]
+    [InlineData(
+        """{"f":2,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"a":0,"x":0,"q":[["a","{}"]],"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"q":[0]}]}""")]
+    public void Format2_RejectsMalformedQueryTables(string json)
+    {
+        WorkspaceSharePacketException exception =
+            Assert.Throws<WorkspaceSharePacketException>(
+                () => WorkspaceSharePacketCodec.ParseJson(
+                    json,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceSharePacketFailureKind.InvalidShape,
+            exception.Kind);
     }
 
     [Fact]

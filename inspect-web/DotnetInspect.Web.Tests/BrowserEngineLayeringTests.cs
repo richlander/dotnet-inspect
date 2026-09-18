@@ -210,6 +210,9 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             "M:DotnetInspector.Sections.ExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceContextLoadOutcome.Loaded,DotnetInspector.Queries.ExactTypeInspectionRequest)",
             banned);
+        Assert.Contains(
+            "M:DotnetInspector.Sections.SelectedContextExactTypeInspectionOperation.Execute(DotnetInspector.Queries.WorkspaceRealizationOperationLease,DotnetInspector.Queries.WorkspaceDeclarationContext,DotnetInspector.Queries.SelectedContextExactTypeInspectionRequest)",
+            banned);
 
         // #3932's streaming form releases the participant terminally, and this engine reuses one
         // workspace across exports, so a later whole-group query over the same group would find
