@@ -317,6 +317,59 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Empty(result.TargetFrameworks!);
         Assert.Null(result.SelectedTfmSize);
         Assert.Null(result.SelectedTfmLibraryCount);
+        Assert.Equal(
+            PackageInfoMeasurementFailureOutcome.Unavailable,
+            result.SelectedTfmMeasurementFailure?.Outcome);
+        Assert.Equal(
+            PackageInfoMeasurementFailureKind.NoTargetFrameworks,
+            result.SelectedTfmMeasurementFailure?.Failure.Kind);
+    }
+
+    [Fact]
+    public void ApplyPackageInfoMeasurements_NonVerboseRetainsInvalidSelection()
+    {
+        const string packageId = "CaseCollision";
+        const string version = "1.0.0";
+        const string producer = "case-collision";
+        byte[] package = CreateCaseCollidingPackage();
+        var content = new InMemoryPackageContent(
+            package,
+            fromCache: true,
+            producer);
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            packageId,
+            version,
+            ProducerKey: producer)
+        {
+            AcquiredPayload = new AcquiredPackageSourcePayload(
+                NuGetFetch.PackageSourceCoordinate.Create(packageId, version),
+                content,
+                producer,
+                PackagePayloadOrigin.Cache),
+        };
+        var result = new InspectionResult
+        {
+            PackageName = packageId,
+            Version = version,
+        };
+
+        PackageInspector.ApplyPackageInfoMeasurements(
+            result,
+            resolution,
+            requestedTargetFramework: null,
+            new VerboseLogger(enabled: false));
+
+        Assert.Null(result.Tfm);
+        Assert.Null(result.SelectedTfmSize);
+        Assert.Null(result.SelectedTfmLibraryCount);
+        Assert.Equal(
+            PackageInfoMeasurementFailureOutcome.Invalid,
+            result.SelectedTfmMeasurementFailure?.Outcome);
+        Assert.Equal(
+            PackageInfoMeasurementFailureKind.AmbiguousSelectedEntry,
+            result.SelectedTfmMeasurementFailure?.Failure.Kind);
     }
 
     [Fact]
@@ -1977,6 +2030,29 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 assembly.CopyTo(entry);
             }
         }
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateCaseCollidingPackage()
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(
+            stream,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream first = archive.CreateEntry(
+                "ref/net8.0/Example.dll").Open())
+            {
+                first.Write([1, 2, 3, 4]);
+            }
+            using (Stream second = archive.CreateEntry(
+                "REF/NET8.0/example.dll").Open())
+            {
+                second.Write([5, 6, 7, 8]);
+            }
+        }
+
         return stream.ToArray();
     }
 

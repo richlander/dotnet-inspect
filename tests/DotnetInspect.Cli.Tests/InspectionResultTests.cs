@@ -317,6 +317,58 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_RendersMeasurementFailures()
+    {
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            PackageSizeMeasurementFailure = new(
+                PackageInfoMeasurementFailureOutcome.Unavailable,
+                new PackageInfoMeasurementFailure(
+                    PackageInfoMeasurementFailureKind.ArchiveUnavailable,
+                    "The retained package archive is unavailable.")),
+            SelectedTfmMeasurementFailure = new(
+                PackageInfoMeasurementFailureOutcome.Invalid,
+                new PackageInfoMeasurementFailure(
+                    PackageInfoMeasurementFailureKind.AmbiguousSelectedEntry,
+                    "The selected compile slice contains ambiguous source entry paths.")),
+        };
+
+        string output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Contains(
+            "| Package Size | Unavailable: The retained package archive is unavailable. |",
+            output);
+        Assert.Contains(
+            "| Selected TFM | Invalid: The selected compile slice contains ambiguous source entry paths. |",
+            output);
+
+        string json = JsonSerializer.Serialize(
+            PackageInspectionJson.Create(result),
+            PackageInspectionJsonContext.Default.PackageInspectionJson);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement packageSizeFailure = document.RootElement.GetProperty(
+            "package_size_measurement_failure");
+        Assert.Equal(
+            "Unavailable",
+            packageSizeFailure.GetProperty("outcome").GetString());
+        Assert.Equal(
+            "ArchiveUnavailable",
+            packageSizeFailure.GetProperty("kind").GetString());
+        JsonElement selectedTfmFailure = document.RootElement.GetProperty(
+            "selected_tfm_measurement_failure");
+        Assert.Equal(
+            "Invalid",
+            selectedTfmFailure.GetProperty("outcome").GetString());
+        Assert.Equal(
+            "AmbiguousSelectedEntry",
+            selectedTfmFailure.GetProperty("kind").GetString());
+    }
+
+    [Fact]
     public void PackageInfo_SelectedTfmUsesSelectionOverride()
     {
         var result = new InspectionResult

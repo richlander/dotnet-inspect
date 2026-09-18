@@ -54,6 +54,14 @@ internal sealed class PackageInspectionText
         ContentDirectories = collector.Fields(data.ContentDirectories, nameof(data.ContentDirectories));
         TargetFrameworks = collector.Fields(data.TargetFrameworks, nameof(data.TargetFrameworks));
         Tfm = collector.OptionalField(data.Tfm, nameof(data.Tfm));
+        PackageSizeMeasurementFailure = CreateMeasurementFailure(
+            data.PackageSizeMeasurementFailure,
+            collector,
+            nameof(data.PackageSizeMeasurementFailure));
+        SelectedTfmMeasurementFailure = CreateMeasurementFailure(
+            data.SelectedTfmMeasurementFailure,
+            collector,
+            nameof(data.SelectedTfmMeasurementFailure));
         OrderedTargetFrameworks = data.TargetFrameworks is { } targetFrameworks
             && TargetFrameworks is { } containedTargetFrameworks
             ? TfmSelector.OrderByTfmPriorityDescending(
@@ -227,6 +235,14 @@ internal sealed class PackageInspectionText
     public List<InertString>? ContentDirectories { get; }
     public List<InertString>? TargetFrameworks { get; }
     public InertString? Tfm { get; }
+    public PackageInfoMeasurementFailureText? PackageSizeMeasurementFailure
+    {
+        get;
+    }
+    public PackageInfoMeasurementFailureText? SelectedTfmMeasurementFailure
+    {
+        get;
+    }
     public List<InertString>? OrderedTargetFrameworks { get; }
     public List<InertString>? SupportedRids { get; }
     public InertString? ToolFormat { get; }
@@ -284,6 +300,19 @@ internal sealed class PackageInspectionText
             .Select(CreatePackageFileText)
             .ToList();
     }
+
+    private static PackageInfoMeasurementFailureText? CreateMeasurementFailure(
+        PackageInfoMeasurementIssue? issue,
+        Collector collector,
+        string location) =>
+        issue is null
+            ? null
+            : new PackageInfoMeasurementFailureText(
+                issue.Outcome.ToString(),
+                issue.Failure.Kind.ToString(),
+                collector.Field(
+                    issue.Failure.Message,
+                    $"{location}.Message"));
 
     private static PackageFileText CreatePackageFileText(PackageFile value)
         => new(
@@ -537,6 +566,11 @@ internal readonly record struct PackageAuditSignalText(
     InertString Signal,
     InertString Value,
     InertString Evidence);
+
+internal sealed record PackageInfoMeasurementFailureText(
+    string Outcome,
+    string Kind,
+    InertString Message);
 
 internal sealed class PackageFileJsonRow(InertString path, long size)
 {

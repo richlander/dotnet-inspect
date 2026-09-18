@@ -226,6 +226,34 @@ public class PackageInspectionTextTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MeasurementFailureMessages_AreContained(bool packageSize)
+    {
+        var result = new InspectionResult();
+        if (packageSize)
+            result.PackageSizeMeasurementFailure = MeasurementIssue(Hazard);
+        else
+            result.SelectedTfmMeasurementFailure = MeasurementIssue(Hazard);
+
+        var text = new PackageInspectionText(result);
+
+        Assert.True(text.RequiredContainment);
+        Assert.Equal(TextConcern.Format, text.Concerns);
+        PackageTextConcernCase concern = Assert.Single(text.ConcernCases);
+        Assert.Equal(
+            packageSize
+                ? "PackageSizeMeasurementFailure.Message"
+                : "SelectedTfmMeasurementFailure.Message",
+            concern.Location);
+
+        string json = JsonSerializer.Serialize(
+            PackageInspectionJson.Create(result),
+            PackageInspectionJsonContext.Default.PackageInspectionJson);
+        Assert.DoesNotContain("\u202E", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("ordinary text")]
     [InlineData("C:\\tmp\\package")]
     [InlineData("literal \\u202E text")]
@@ -300,6 +328,10 @@ public class PackageInspectionTextTests
         JsonNode previousNode = JsonNode.Parse(previous)!;
         JsonNode projectedNode = JsonNode.Parse(projected)!;
         previousNode["selected_tfm"] = result.Tfm;
+        previousNode["package_size_measurement_failure"] =
+            MeasurementFailureNode(result.PackageSizeMeasurementFailure!);
+        previousNode["selected_tfm_measurement_failure"] =
+            MeasurementFailureNode(result.SelectedTfmMeasurementFailure!);
         foreach (JsonNode? package in projectedNode[
             "runtime_identifier_packages"]!.AsArray())
         {
@@ -310,6 +342,15 @@ public class PackageInspectionTextTests
             previousNode,
             projectedNode));
     }
+
+    private static JsonObject MeasurementFailureNode(
+        PackageInfoMeasurementIssue issue) =>
+        new()
+        {
+            ["outcome"] = issue.Outcome.ToString(),
+            ["kind"] = issue.Failure.Kind.ToString(),
+            ["message"] = issue.Failure.Message,
+        };
 
     [Theory]
     [InlineData(true, "yes")]
@@ -637,6 +678,8 @@ public class PackageInspectionTextTests
             ContentDirectories = [value],
             TargetFrameworks = [value],
             Tfm = value,
+            PackageSizeMeasurementFailure = MeasurementIssue(value),
+            SelectedTfmMeasurementFailure = MeasurementIssue(value),
             SupportedRids = [value],
             ToolFormat = value,
             ToolCommands = [value],
@@ -691,4 +734,11 @@ public class PackageInspectionTextTests
             },
             AuditSignals = [new AuditSignal(value, value, value, value)],
         };
+
+    private static PackageInfoMeasurementIssue MeasurementIssue(string message)
+        => new(
+            PackageInfoMeasurementFailureOutcome.Invalid,
+            new PackageInfoMeasurementFailure(
+                PackageInfoMeasurementFailureKind.SelectionRejected,
+                message));
 }

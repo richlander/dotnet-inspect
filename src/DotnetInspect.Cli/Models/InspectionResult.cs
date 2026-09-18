@@ -9,6 +9,16 @@ using InertText;
 
 namespace DotnetInspect.Cli.Models;
 
+internal enum PackageInfoMeasurementFailureOutcome
+{
+    Unavailable,
+    Invalid,
+}
+
+internal sealed record PackageInfoMeasurementIssue(
+    PackageInfoMeasurementFailureOutcome Outcome,
+    PackageInfoMeasurementFailure Failure);
+
 public class InspectionResult
 {
     public string PackageName { get; set; } = "";
@@ -162,6 +172,20 @@ public class InspectionResult
     /// Number of Libraries in the selected target-framework slice.
     /// </summary>
     public int? SelectedTfmLibraryCount { get; set; }
+
+    [JsonIgnore]
+    internal PackageInfoMeasurementIssue? PackageSizeMeasurementFailure
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
+    internal PackageInfoMeasurementIssue? SelectedTfmMeasurementFailure
+    {
+        get;
+        set;
+    }
 
     public List<string>? SupportedRids { get; set; }
 

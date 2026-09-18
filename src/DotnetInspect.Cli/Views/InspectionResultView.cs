@@ -34,9 +34,13 @@ public class InspectionResultView
         new("Package Size", static view =>
             view._data.PackageSize.HasValue
                 ? new ByteSizeFormatter().Format(view._data.PackageSize.Value)
-                : null),
+                : FormatMeasurementFailure(
+                    view.Text.PackageSizeMeasurementFailure)),
         new("Selected TFM", static view =>
-            !string.IsNullOrEmpty(view.SelectedTfm) ? view.SelectedTfm : null),
+            !string.IsNullOrEmpty(view.SelectedTfm)
+                ? view.SelectedTfm
+                : FormatMeasurementFailure(
+                    view.Text.SelectedTfmMeasurementFailure)),
         new("Selected TFM Size", static view =>
             view._data.SelectedTfmSize.HasValue
                 ? new ByteSizeFormatter().Format(
@@ -124,6 +128,14 @@ public class InspectionResultView
                     ? runtimeTargetRid.ToString()
                     : null),
     ];
+
+    private static string? FormatMeasurementFailure(
+        PackageInfoMeasurementFailureText? failure) =>
+        failure is null
+            ? null
+            : InertString.Format(
+                TextPolicy.Field,
+                $"{failure.Outcome}: {failure.Message}").ToString();
 
     internal static IReadOnlyList<string> PackageInfoFieldNames { get; } =
         PackageInfoFields
@@ -654,6 +666,11 @@ public class InspectionResultView
 
         if (!string.IsNullOrEmpty(SelectedTfm))
             fields.Add(new("Selected TFM", SelectedTfm));
+        else if (FormatMeasurementFailure(
+            Text.SelectedTfmMeasurementFailure) is { } selectedTfmFailure)
+        {
+            fields.Add(new("Selected TFM", selectedTfmFailure));
+        }
         if (TargetFrameworkCount > 0)
             fields.Add(new("TFM Count", TargetFrameworkCount.ToString()));
         if (_data.BuiltDate.HasValue)

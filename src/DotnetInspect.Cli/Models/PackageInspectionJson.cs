@@ -56,6 +56,12 @@ internal sealed class PackageInspectionJson
     public string? SelectedTfm => Render(_text.Tfm);
     public long? SelectedTfmSize => _data.SelectedTfmSize;
     public int? SelectedTfmLibraryCount => _data.SelectedTfmLibraryCount;
+    public PackageInfoMeasurementFailureJson? PackageSizeMeasurementFailure =>
+        PackageInfoMeasurementFailureJson.Create(
+            _text.PackageSizeMeasurementFailure);
+    public PackageInfoMeasurementFailureJson? SelectedTfmMeasurementFailure =>
+        PackageInfoMeasurementFailureJson.Create(
+            _text.SelectedTfmMeasurementFailure);
     public List<string>? SupportedRids => Render(_text.SupportedRids);
     public int AssemblyCount => _data.AssemblyCount;
     public PackageBinarySignals? BinarySignals => _data.BinarySignals;
@@ -110,6 +116,25 @@ internal sealed class PackageInspectionJson
 
     private static List<string>? Render(List<InertString>? values)
         => values?.Select(value => value.ToString()).ToList();
+}
+
+internal sealed class PackageInfoMeasurementFailureJson
+{
+    private PackageInfoMeasurementFailureJson(
+        PackageInfoMeasurementFailureText value)
+    {
+        Outcome = value.Outcome;
+        Kind = value.Kind;
+        Message = value.Message.ToString();
+    }
+
+    public static PackageInfoMeasurementFailureJson? Create(
+        PackageInfoMeasurementFailureText? value) =>
+        value is null ? null : new(value);
+
+    public string Outcome { get; }
+    public string Kind { get; }
+    public string Message { get; }
 }
 
 internal sealed class PackageDeprecationJson(PackageDeprecationText text)

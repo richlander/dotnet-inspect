@@ -103,6 +103,12 @@ cache lookup and are not persisted in that request-independent cache. Package
 Info dependency-group filtering uses the actual selected TFM when selection
 falls back compatibly.
 
+The CLI retains archive and selected-slice non-success as typed result facts.
+Markout renders the affected field as `Unavailable` or `Invalid` with a
+contained reason, and JSON preserves the same outcome, failure kind, and
+contained message. Verbose logging may repeat the reason but is not the only
+disclosure path.
+
 The all-Libraries aggregate subject and Inspect Web presentation remain later
 slices of #7423. They may consume this resource-free receipt without
 reconstructing its measurement or selection decisions.
@@ -144,3 +150,4 @@ dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
 | CLI fields and JSON use the same selected-slice facts | `PackageInfo_RendersSelectedTfmMeasurements` |
 | Package Info applies aggregate measurements after inspection | `ApplyPackageInfoMeasurements_AggregatesSelectedLibraries` |
 | Only nuspec-declared tool packages select the complete tool profile | `ApplyPackageInfoMeasurements_AggregatesToolLibraries` and `ApplyPackageInfoMeasurements_DoesNotMeasureUndeclaredToolShape` |
+| Structural measurement non-success remains visible without verbose logging | `ApplyPackageInfoMeasurements_NonVerboseRetainsInvalidSelection` and `PackageInfo_RendersMeasurementFailures` |

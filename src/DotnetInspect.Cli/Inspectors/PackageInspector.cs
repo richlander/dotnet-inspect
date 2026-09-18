@@ -40,6 +40,7 @@ internal static class PackageInspector
                     : PackageInfoSliceProfile.Compile,
                 requestedTargetFramework);
 
+        result.PackageSizeMeasurementFailure = null;
         if (receipt.ArchiveSize
             is PackageArchiveSizeMeasurement.Available archive)
         {
@@ -49,6 +50,9 @@ internal static class PackageInspector
             && receipt.ArchiveSize
                 is PackageArchiveSizeMeasurement.Unavailable archiveUnavailable)
         {
+            result.PackageSizeMeasurementFailure = new(
+                PackageInfoMeasurementFailureOutcome.Unavailable,
+                archiveUnavailable.Failure);
             logger.LogWarning(archiveUnavailable.Failure.Message);
         }
 
@@ -61,6 +65,7 @@ internal static class PackageInspector
 
         result.SelectedTfmSize = null;
         result.SelectedTfmLibraryCount = null;
+        result.SelectedTfmMeasurementFailure = null;
         switch (receipt.SelectedTargetFramework)
         {
             case PackageSelectedTfmMeasurement.Available selected:
@@ -70,10 +75,16 @@ internal static class PackageInspector
                 break;
             case PackageSelectedTfmMeasurement.Unavailable unavailable:
                 result.Tfm = null;
+                result.SelectedTfmMeasurementFailure = new(
+                    PackageInfoMeasurementFailureOutcome.Unavailable,
+                    unavailable.Failure);
                 logger.LogWarning(unavailable.Failure.Message);
                 break;
             case PackageSelectedTfmMeasurement.Invalid invalid:
                 result.Tfm = null;
+                result.SelectedTfmMeasurementFailure = new(
+                    PackageInfoMeasurementFailureOutcome.Invalid,
+                    invalid.Failure);
                 logger.LogWarning(invalid.Failure.Message);
                 break;
         }
