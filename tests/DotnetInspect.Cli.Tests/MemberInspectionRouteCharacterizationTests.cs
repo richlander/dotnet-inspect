@@ -277,7 +277,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:127:82EA657AFED2]",
+                "Library[schema:81:204A9C9AFD04]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
