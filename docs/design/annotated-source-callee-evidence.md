@@ -6,16 +6,20 @@
 
 Annotated Source keeps a callee Finding attached to the caller invocation while
 showing instruction evidence only at the exact product-issued source node in
-the physical callee method.
+the physical callee method and aggregate evidence only at method scope. The
+browser transport serializes each physical callee document once and bounds the
+aggregate document payload without hiding the affected Finding.
 
 The composition joins three owner-issued currencies:
 
 - the Research Finding census receipt and instance key identify the exact
   caller-side Finding;
-- `ResearchEvidenceLocation` identifies the physical callee method and IL
-  instruction; and
+- `ResearchEvidenceLocation` identifies the physical callee method and, when
+  present, its IL instruction;
 - `AnnotatedSourceNode.Provenance.IlOffsets` identifies the corresponding
-  source node in the callee document.
+  source node for instruction evidence; and
+- the producer-issued `CallSiteCostEvidenceInput` sequence identifies the
+  aggregate inputs selected by `cost.callee`.
 
 No display string, descriptor, caller source offset, or array position is an
 identity or correspondence key.
@@ -34,6 +38,15 @@ The closed #4448 prototype demonstrated the intended interaction and real
 Firefox rendering. This design retains that evidence but replaces its
 descriptor-plus-offset association with the subsequently introduced
 producer-issued Finding identity.
+
+The method-level case is the measured
+`System.Reflection.RuntimeModule.ResolveSignature` example in
+[Caret stacking](caret-stacking.md#reproducing-these-figures). Its caller
+expression carries multiple `cost.callee` Findings because the callee property
+getters use reflection. Reflection is an aggregate callee-method signal, not
+evidence for one source instruction, so the detail view must name the getter
+and its signal without highlighting the caller expression or choosing an
+arbitrary callee line.
 
 ## Contract
 
@@ -67,6 +80,22 @@ An instruction-unavailable Finding, callee document failure, or correspondence
 failure retains the callee member target and a typed visible reason but no
 evidence node ids.
 
+For each method-level `cost.callee` row, the projection:
+
+1. retains the row's non-default Finding instance key;
+2. admits its single method-only location against the complete Research-issued
+   callee `MethodIdentity`;
+3. carries the producer-selected aggregate inputs that explain the Finding;
+   and
+4. projects the same typed callee member target without a source document,
+   coordinate, or node id.
+
+The inputs are an ordered typed sequence. Boolean inputs identify allocation in
+a loop and a caller invocation in a loop. Counted inputs identify reflection
+calls, root reach, direct callers, and calls from loops. The producer owns which
+inputs qualify: the browser neither parses `FactRow.Detail` nor repeats the
+producer's thresholds.
+
 The browser transport carries both the document-local fact id and the
 producer-issued instance key. The Finding census adapter verifies that this
 pair is exactly the pair in the operation's source sidecar. The receipt at the
@@ -74,9 +103,12 @@ census root scopes the key. The browser repeats structural validation before
 rendering.
 
 Finding detail labels the caller nodes as relationship targets and the separate
-snippet as callee evidence. The callee member has the same typed **Member** and
-**Source** navigation actions as invocation destinations. Coordinate
-disclosure shows the evidence kind and method-relative IL offset. Missing
+presentation as callee evidence. Instruction evidence uses the exact source
+snippet. Method evidence uses an explicit aggregate card naming the callee and
+its typed inputs, and states that no singular source line is claimed. The callee
+member has the same typed **Member** and **Source** navigation actions as
+invocation destinations. Coordinate disclosure shows the evidence kind and
+method-relative IL offset only for instruction evidence. Missing instruction
 evidence is visible and never falls back to caller source.
 
 The typed navigation target is constructed from the same admitted complete
@@ -86,16 +118,43 @@ target, including its product-issued selector, before transport. The browser
 consumes only the same-process facade output, so this slice does not duplicate
 the callee identity solely to compare one trusted projection with another.
 
+### Shared document table and budget
+
+The Source facade groups projected callee documents by the complete
+Research-issued `MethodIdentity`, including assembly name, module version id,
+declaring type, signature, and MethodDef token. Display member text, navigation
+text, document contents, and caller Finding identity are not deduplication
+keys. Two Findings for the same physical method share one operation-local
+integer `documentId`; two physically distinct methods remain distinct even
+when their display text and source text match.
+
+`annotatedSource.findingEvidenceDocuments` carries each admitted compact
+`AnnotatedSourceDocument` once. Each `findingEvidence` row retains its own
+fact id, instance key, member target, evidence state, and aggregate inputs.
+Instruction rows also retain their coordinates, node ids, unavailable reason,
+and optional `documentId`; method rows carry none of those instruction
+artifacts. First occurrence of each complete method identity defines
+deterministic table order. Repeated projections for one identity must serialize
+to the same document or the managed operation fails visibly. The managed and
+TypeScript adapters require unique non-negative document ids, valid references,
+and no unreferenced table entries.
+
+The table admits at most 8,388,608 compact JSON characters across unique
+callee documents. This reserves half of the ordinary worker's 16,777,216
+character JSON ceiling for the caller document, Finding rows, typed targets,
+and envelope overhead. Documents are considered in deterministic first-use
+order. A document that would exceed the aggregate allowance is not entered in
+the table. Every referencing row retains its Finding identity, target, and
+coordinates, clears its node ids and document id, and carries a visible budget
+reason in addition to any pre-existing unavailable reason. Later smaller
+documents may still be admitted. The ordinary worker remains the owner of the
+final whole-message limit.
+
 ## Boundaries
 
-This slice covers instruction-level `semantics.callee` and `safety.callee`.
-Method-level aggregate `cost.callee` evidence remains #4642 because it has no
-truthful singular source node.
-
-Each eligible Finding currently carries its own callee document. #4640 owns
-shared document identity, deduplication, and Browser/Wasm payload bounds. This
-slice neither introduces a parallel document table nor claims a payload
-budget.
+This design covers instruction-level `semantics.callee` and `safety.callee`,
+and method-level aggregate `cost.callee`. It does not generalize aggregate
+presentation to other Finding families.
 
 Research owns the evidence subject and locations. Decompiler owns document
 construction, node kinds, and IL provenance. The assembly-context query owns
@@ -112,8 +171,18 @@ Release tests cover:
 - unavailable instruction and source-document outcomes;
 - exact fact-id and instance-key transport association;
 - browser rejection of malformed callee documents, node ids, and identities;
-  and
-- detail rendering, coordinate disclosure, and typed Member/Source actions.
+- complete-method-identity deduplication rather than display-text aliasing;
+- one shared serialized document across repeated Finding rows;
+- visible aggregate document-budget exhaustion;
+- bounded stress showing that the document portion grows with unique physical
+  callees rather than repeated call sites; and
+- detail rendering, coordinate disclosure, and typed Member/Source actions;
+- a compiled `cost.callee` witness with producer-selected aggregate inputs but
+  no instruction coordinate or source node;
+- managed and browser rejection of method evidence that carries instruction
+  coordinates, node ids, a callee document, or missing aggregate inputs; and
+- explicit method-level rendering that does not claim an arbitrary source
+  line.
 
 The real `System.Text.Json` scenario is the production demonstration.
 
@@ -123,4 +192,6 @@ The real `System.Text.Json` scenario is the production demonstration.
 - No browser inference from C# text, display signatures, or descriptors.
 - No cross-assembly callee acquisition beyond the Research assembly context.
 - No aggregate-cost source line.
-- No callee-document deduplication or payload budget.
+- No browser reconstruction of `cost.callee` thresholds or parsing of display
+  detail.
+- No replacement of the ordinary worker's whole-message admission limit.

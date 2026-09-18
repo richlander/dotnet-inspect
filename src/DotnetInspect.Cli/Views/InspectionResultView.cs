@@ -1110,7 +1110,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(SwitchRow))]
 [MarkoutContext(typeof(IntegrationOpportunityRow))]
 [MarkoutContext(typeof(IntegrationSignalRow))]
-[MarkoutContext(typeof(IntegrationApiSignalRow))]
 [MarkoutContext(typeof(PackageDependencyGroupRow))]
 [MarkoutContext(typeof(PackageDependencyRow))]
 [MarkoutContext(typeof(PackageDeprecationRow))]

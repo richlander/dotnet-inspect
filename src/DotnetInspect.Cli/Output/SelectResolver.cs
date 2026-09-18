@@ -84,9 +84,9 @@ public static class SelectResolver
     };
 
     /// <summary>
-    /// Bare names that expand to a whole category. Used so retired library rollup sections — the
-    /// "Performance Triage" monolith and the "Integrations" rollup — and the ergonomic bare
-    /// "Performance" resolve to their curated group. Only applied when the category exists in the
+    /// Bare names that expand to a whole category. Used so the retired "Performance Triage"
+    /// monolith and the ergonomic bare "Performance" resolve to their curated group. Only applied
+    /// when the category exists in the
     /// current command's section set and the value is not itself an exact section name (so the
     /// type/member "Performance Triage" section still resolves directly).
     /// </summary>
@@ -97,7 +97,6 @@ public static class SelectResolver
         ["Optimization Opportunities"] = SectionCategoryNames.Performance,
         ["SourceLink"] = SectionCategoryNames.SourceLink,
         ["Source Link"] = SectionCategoryNames.SourceLink,
-        [EcosystemIntegrationNames.Integrations] = SectionCategoryNames.Integrations,
     };
 
     public static bool IsAllSelector(string[]? select)
@@ -211,7 +210,8 @@ public static class SelectResolver
         IReadOnlyDictionary<string, string[]>? categories,
         IReadOnlyCollection<string> knownSections,
         out string category,
-        out string[] sections)
+        out string[] sections,
+        bool expandCategoryAliases = true)
     {
         category = "";
         sections = [];
@@ -231,7 +231,8 @@ public static class SelectResolver
                 section.Equals(value, StringComparison.OrdinalIgnoreCase)))
             return false;
 
-        if (!CategoryAliases.TryGetValue(value, out var alias))
+        if (!expandCategoryAliases
+            || !CategoryAliases.TryGetValue(value, out var alias))
             return false;
 
         var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>
@@ -315,13 +316,18 @@ public static class SelectResolver
     /// spellable, and resolved here rather than through a <c>@Default</c> category entry so it
     /// works the same on pipelines that publish no poles. See #3547.
     /// </param>
+    /// <param name="expandCategoryAliases">
+    /// Whether bare aliases for authored categories participate after exact section matching.
+    /// Commands with an exact authored vocabulary can disable this shared convenience.
+    /// </param>
     public static SelectResult ResolveSelectAsSections(
         string[]? select,
         IReadOnlyList<string> knownSections,
         IReadOnlyList<string>? infoSections = null,
         IReadOnlyDictionary<string, string[]>? categories = null,
         bool selectDefault = false,
-        IReadOnlySet<string>? exactOnlySections = null)
+        IReadOnlySet<string>? exactOnlySections = null,
+        bool expandCategoryAliases = true)
     {
         if (!selectDefault && select is not { Length: > 0 })
             return new(null, []);
@@ -369,7 +375,8 @@ public static class SelectResolver
                 // Fall back to a category alias (e.g. retired "Performance Triage" / bare
                 // "Performance" -> @Performance) when the value is not an exact section here.
                 var isExact = knownSections.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
-                if (!isExact
+                if (expandCategoryAliases
+                    && !isExact
                     && CategoryAliases.TryGetValue(value, out var aliasCategory)
                     && categories.TryGetValue(aliasCategory, out var aliasSections))
                 {

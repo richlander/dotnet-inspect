@@ -464,12 +464,13 @@ different in kind, so they are saved as two separate artifacts rather than one
   readable field names and explicitly not a query language ("portable
   type/member shapes are the selector vocabulary, not the container"). A
   saved query here is that same `kind: "query"` record —
-  `{ kind: "query", schemaVersion, id, intent }` — not a locally-invented
-  `queryPreset` shape. `intent` uses the product's Portable Query encoding,
-  including structural terms, inspection terms, bounds, and stages, layered on
-  the record/reference slots `workspace-definitions.md` pins. This record is
-  small and content-only; the URL carries a terse projection of it rather than
-  the record verbatim (see
+  `{ kind: "query", schemaVersion, id, queryId, payload }` — not a
+  locally-invented `queryPreset` shape. `queryId` is
+  `package-query/v1`; `payload` is the closed Portable Query object for
+  structural terms, inspection terms, bounds, and stages, canonically rewritten
+  by its owner codec and layered on the record/reference slots
+  `workspace-definitions.md` pins. This record is small and content-only; the
+  URL carries a terse projection of it rather than the record verbatim (see
   [Sharing](#sharing-and-url-shape)), and local storage keeps the full record
   — the same content, two destinations, one canonical shape.
 - **The outcome cache — local only, keyed by the preset's signature.** Rows,

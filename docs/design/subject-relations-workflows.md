@@ -80,12 +80,13 @@ evidence constraints to ask questions beyond the existing curated views.
 That is potentially much more powerful, but assembling even a baseline query
 may take more work. Expressiveness is not automatically a usability win.
 
-Keep `Integration`, ecosystem guidance and useful shortcuts as curated
-starting points over the shared query capabilities, not as a competing
-pipeline. Preserve producer-issued semantic associations: a raw signature
-predicate is not a replacement for Integration classification. Users should
-be able to start with a useful curated answer, discover its query dimensions,
-and narrow or extend the question without abandoning its evidence.
+Keep the current `Integrations` section, ecosystem guidance and useful
+shortcuts as curated starting points over the shared query capabilities, not
+as a competing pipeline. The proposed `Integration` relation view may later
+adopt that role. Preserve producer-issued semantic associations: a raw
+signature predicate is not a replacement for Integration classification. Users
+should be able to start with a useful curated answer, discover its query
+dimensions, and narrow or extend the question without abandoning its evidence.
 
 ### Exploration checkpoints
 
@@ -283,7 +284,7 @@ Before, discover ecosystem knowledge, then name a package to search:
 ```console
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
-dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem aspire -S @Integrations
 dotnet-inspect find AddRedis --members --package Aspire.Hosting.Redis@13.5.3
 ```
 
@@ -293,13 +294,13 @@ to select the locator's candidate population:
 ```console
 dotnet-inspect ecosystem
 dotnet-inspect ecosystem aspire
-dotnet-inspect ecosystem aspire -S Integrations
+dotnet-inspect ecosystem aspire -S @Integrations
 dotnet-inspect find --ecosystem aspire
 dotnet-inspect find AddRedis --members --ecosystem aspire
 ```
 
 The first three requests remain catalog inspection without package
-acquisition. `ecosystem ... -S Integrations` describes configured concepts and
+acquisition. `ecosystem ... -S @Integrations` describes configured concepts and
 bindings, not an API inventory. Core/tool packages, namespace hints, demos and
 availability stay discoverable on `ecosystem`. The fourth request discovers
 package/library roots; the fifth finds members in that population. Those last
@@ -1009,11 +1010,11 @@ query or evidence meaning.
 
 ### Integration classification
 
-`Integration` replaces the user-facing family of `Integration: Aspire`,
-`Integration: Logging`, and similar sections after adoption. Ecosystem and
-concept become discoverable facets. One fact may carry multiple associations
-without becoming several physical calls or several logical relation rows.
-Unclassified relations remain available in `Relations`.
+The proposed `Integration` relation view supersedes the current
+observed-currency `Integrations` section after adoption. Ecosystem and concept
+remain discoverable facets. One fact may carry multiple associations without
+becoming several physical calls or several logical relation rows. Unclassified
+relations remain available in `Relations`.
 
 For invocation evidence, the composition may attach a callee API's Integration
 associations only after owner-issued correspondence joins that exact selected
@@ -1311,7 +1312,7 @@ The 2026-09-11 CLI probes used released `0.25.0+473d56a` and current-main
 | --- | --- |
 | `library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 -S "Integration: Aspire"` returns resource types and `AddRedis`; a bare copy gives the same inventory. | Preserve useful provider discovery, but do not call it consumer-use evidence. |
 | A compiled Aspire AppHost calling `AddRedis` has no rows in that Integration section. Main's `graph libraries` reports `Program.<Main>$` calling the exact overload at `IL_0016`. | Composition must join distinct provider and invocation evidence. |
-| Main's `ecosystem aspire -S Integrations` reports the configured Aspire binding, not concrete APIs. | Retain the ecosystem vocabulary command and its identity handoff to queries, distinct from artifact inventory. |
+| Main's `ecosystem aspire -S @Integrations` reports the configured Aspire binding, not concrete APIs. | Retain the ecosystem vocabulary command and its identity handoff to queries, distinct from artifact inventory. |
 | Prefix discovery works, while direct prefix/curated-set Integration scope is not wired. The shipped four-package Integration graph example returns 91 relationships. | Reuse working producers and explicit-set composition; make population handoff first-class. |
 
 Real motivating assets for implementation are
@@ -1397,7 +1398,7 @@ unreviewable changes inside a nominal slice.
 | 13 | Workspace Definitions adoption for portable relation views and locator context, retaining throws predicates and their evidence meaning. |
 | 14 | CLI ecosystem-to-locator handoff, contract/signature/throws Find queries and vocabulary, subject categories, Integration view, section-backed shortcuts and per-section query discovery, selected-Type and asset-root Dependency replacement routes, sharing and focused ecosystem skill adoption, with the lightweight production-versus-candidate H2H. This step consumes the separately counted [Graph placement adoption #7308](https://github.com/richlander/dotnet-inspect/issues/7308) for local subject Graph children and top-level Workspace Graph construction or packet reopening. |
 | 15 | Inspect Web/Browser-Wasm adoption of the same locator and relation request/results, including typed throw evidence and coverage. |
-| 16 | Retire `extensions`, `implements`, `depends` and per-ecosystem Integration sections after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
+| 16 | Retire `extensions`, `implements`, `depends` and the observed-currency `Integrations` section after selected-Type, other single-subject, and asset-root parity and disclosure; retain `ecosystem` as the vocabulary command. Preserve the dependency owner's completed `dependency-evidence` retirement. |
 
 CLI adoption is step 14 and website adoption step 15; neither is optional
 for this shared substrate. Step 16 is part of completion. Producers may ship

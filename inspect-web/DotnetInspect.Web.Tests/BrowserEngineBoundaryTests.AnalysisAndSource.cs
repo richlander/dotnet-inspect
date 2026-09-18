@@ -674,7 +674,13 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(coordinate.GetProperty("ilOffset").GetInt32() >= 0);
         Assert.Equal(JsonValueKind.Null, evidence.GetProperty("unavailableReason").ValueKind);
 
-        JsonElement calleeDocument = evidence.GetProperty("document");
+        int documentId = evidence.GetProperty("documentId").GetInt32();
+        JsonElement calleeDocument = Assert.Single(
+            annotatedSource
+                .GetProperty("findingEvidenceDocuments")
+                .EnumerateArray(),
+            candidate => candidate.GetProperty("id").GetInt32() == documentId)
+            .GetProperty("document");
         int nodeId = Assert.Single(
             evidence.GetProperty("nodeIds").EnumerateArray()).GetInt32();
         JsonElement node = calleeDocument
@@ -691,6 +697,97 @@ public sealed partial class BrowserEngineBoundaryTests
                 span.GetProperty("start").GetInt32(),
                 span.GetProperty("length").GetInt32())
                 .Contains("stackalloc", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MemberFindingCensus_ProjectsMethodLevelCostEvidence()
+    {
+        const string PackageId = "Browser.Member.CostCalleeEvidence";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await QueryPackageSurfaceJson(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument = JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                == typeof(BrowserEngineBoundaryTests).FullName);
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                == nameof(CostCalleeEvidenceProbe));
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source.SourceExports.QueryMemberFindingCensus(
+                PackageId,
+                "1.0.0",
+                "net11.0",
+                type.GetProperty("assembly").GetString()!,
+                type.GetProperty("definitionId").GetString()!,
+                type.GetProperty("queryId").GetString()!,
+                member.GetProperty("name").GetString()!,
+                member.GetProperty("signature").GetString()!,
+                member.GetProperty("graphSelectorKey").GetString()!,
+                member.GetProperty("metadataToken").GetInt32(),
+                "[]");
+        using JsonDocument censusDocument = JsonDocument.Parse(censusJson);
+        JsonElement root = censusDocument.RootElement;
+        JsonElement annotatedSource = root.GetProperty("annotatedSource");
+        JsonElement evidence = Assert.Single(
+            annotatedSource
+                .GetProperty("findingEvidence")
+                .EnumerateArray());
+        int instanceKey = evidence.GetProperty("instanceKey").GetInt32();
+        JsonElement fact = Assert.Single(
+            root.GetProperty("facts").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("instanceKey").ValueKind
+                    == JsonValueKind.Number
+                && candidate.GetProperty("instanceKey").GetInt32()
+                    == instanceKey);
+
+        Assert.Equal("cost.callee", fact.GetProperty("id").GetString());
+        Assert.Equal(JsonValueKind.Number, fact.GetProperty("ilOffset").ValueKind);
+        Assert.Equal("Method", evidence.GetProperty("state").GetString());
+        Assert.Equal(
+            nameof(PerformanceAllocationInLoopProbe),
+            evidence.GetProperty("target")
+                .GetProperty("memberName")
+                .GetString());
+        JsonElement input = Assert.Single(
+            evidence.GetProperty("aggregateInputs").EnumerateArray());
+        Assert.Equal(
+            "AllocationInLoop",
+            input.GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Null, input.GetProperty("value").ValueKind);
+        Assert.Empty(evidence.GetProperty("coordinates").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            evidence.GetProperty("documentId").ValueKind);
+        Assert.Empty(evidence.GetProperty("nodeIds").EnumerateArray());
+        Assert.Equal(
+            JsonValueKind.Null,
+            evidence.GetProperty("unavailableReason").ValueKind);
+        Assert.Empty(
+            annotatedSource
+                .GetProperty("findingEvidenceDocuments")
+                .EnumerateArray());
     }
 
     [Fact]

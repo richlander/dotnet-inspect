@@ -64,7 +64,8 @@ There is a concrete prerequisite: schema/packet versions 2 and 3 encode only
 Workspace or Package as the active subject. A retained Type is not an active
 Type. The full demo therefore requires
 [#7475](https://github.com/richlander/dotnet-inspect/issues/7475), the focused
-active-descendant committed-view adoption. Until then, this active Type or
+[format-4 active-descendant committed-view adoption](portable-active-descendant-views.md).
+Until then, this active Type or
 Member output is visibly non-projectable. Encoding Package plus retained Type,
 or replacing `type.metadata` with a Package inspector, is not a workaround.
 

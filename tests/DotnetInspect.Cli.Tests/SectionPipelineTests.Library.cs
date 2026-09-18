@@ -103,32 +103,20 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(60 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(48 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
-        Assert.Contains("Integration: AI", pipeline.AllSectionNames);
-        Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Authentication", pipeline.AllSectionNames);
+        Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
         Assert.Contains("Context: Allocation", pipeline.AllSectionNames);
         Assert.Contains("Context: Safety", pipeline.AllSectionNames);
         Assert.Contains("Context: Cost", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Configuration", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Dependency Injection", pipeline.AllSectionNames);
         Assert.Contains("Context: Exception", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Health Checks", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Hosting", pipeline.AllSectionNames);
-        Assert.Contains("Integration: HTTP Client", pipeline.AllSectionNames);
         Assert.Contains("Context: Instruction", pipeline.AllSectionNames);
         Assert.Contains("Context: Source Location", pipeline.AllSectionNames);
         Assert.Contains("Context: Member", pipeline.AllSectionNames);
         Assert.Contains(ReadyToRunSectionNames.Image, pipeline.AllSectionNames);
         Assert.Contains(ReadyToRunSectionNames.Sections, pipeline.AllSectionNames);
-        Assert.Contains("Integration: Opportunities", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Logging", pipeline.AllSectionNames);
-        Assert.Contains("Integration: OpenAPI", pipeline.AllSectionNames);
-        Assert.Contains("Integration: OpenTelemetry", pipeline.AllSectionNames);
-        Assert.Contains("Integration: Options", pipeline.AllSectionNames);
+        Assert.Contains(IntegrationSectionNames.Opportunities, pipeline.AllSectionNames);
         Assert.Contains("SourceLink: Files", pipeline.AllSectionNames);
         Assert.Contains("SourceLink: Availability", pipeline.AllSectionNames);
         Assert.Contains("SourceLink: Missing Files", pipeline.AllSectionNames);
@@ -175,7 +163,11 @@ public partial class SectionPipelineTests
         // sections are outside the base scope and therefore hidden from the flat base catalog.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
-        foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append(IntegrationSectionNames.Opportunities))
+        foreach (var integration in new[]
+                 {
+                     IntegrationSectionNames.Integrations,
+                     IntegrationSectionNames.Opportunities,
+                 })
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
@@ -248,8 +240,8 @@ public partial class SectionPipelineTests
 
         foreach (var section in PerformanceKinds.Sections
                      .Concat(MetadataSectionNames.All)
-                     .Concat(LibraryIntegrationCatalog.CategorySections)
                      .Concat([
+                         IntegrationSectionNames.Integrations,
                          IntegrationSectionNames.Opportunities,
                          SectionNames.SourceLinkFiles,
                          SectionNames.SourceLinkAvailability,
@@ -656,10 +648,13 @@ public partial class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: Opportunities" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                IntegrationSectionNames.Opportunities,
+            });
 
-        Assert.DoesNotContain("Integration: Opportunities", effective);
-        Assert.Contains("Integration: Opportunities", selected);
+        Assert.DoesNotContain(IntegrationSectionNames.Opportunities, effective);
+        Assert.Contains(IntegrationSectionNames.Opportunities, selected);
     }
 
     [Fact]
