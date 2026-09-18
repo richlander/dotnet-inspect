@@ -59,6 +59,7 @@ public abstract class SourceHouseAuthoredMapping
     public sealed class Type : SourceHouseAuthoredMapping
     {
         public Type(
+            SourceLinkResolver.TypeSourceInfo sourceMapping,
             SourceDocumentObservation document,
             SourceHouseMappingStrength mappingStrength,
             bool partial,
@@ -69,14 +70,17 @@ public abstract class SourceHouseAuthoredMapping
                 mappingStrength,
                 partial)
         {
+            ArgumentNullException.ThrowIfNull(sourceMapping);
             ArgumentNullException.ThrowIfNull(document);
             ArgumentNullException.ThrowIfNull(additionalDocuments);
 
+            SourceMapping = sourceMapping;
             Document = document;
             AdditionalDocuments =
                 ImmutableArray.CreateRange(additionalDocuments);
         }
 
+        public SourceLinkResolver.TypeSourceInfo SourceMapping { get; }
         public SourceDocumentObservation Document { get; }
         public IReadOnlyList<SourceHouseAdditionalTypeDocument>
             AdditionalDocuments { get; }

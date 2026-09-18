@@ -206,7 +206,19 @@ test.describe("published authored Source comparison transport", () => {
         }, selected);
       }
 
+      async function typeSource(targetPage: Page, version: string) {
+        const selected = await memberRequest(targetPage, "Value", version);
+        return targetPage.evaluate(async request => {
+          const source = await import("/inspect-web-source.js");
+          return source.queryTypeSource(
+            `type-source-fixture-${request.beforeVersion}`,
+            request.packageId, request.beforeVersion, request.framework,
+            request.assembly, request.typeIdentity, "[]");
+        }, selected);
+      }
+
       const authoredMember = await memberSource(page, "1.0.0");
+      const authoredType = await typeSource(page, "1.0.0");
       const changed = await compareMember(page, "Value");
       const exact = await compareMember(page, "Unchanged");
       const moved = await compareMember(page, "MovedBlock");
@@ -216,9 +228,11 @@ test.describe("published authored Source comparison transport", () => {
       await openPublishedSite(unavailablePage);
       const unavailable = await compareMember(unavailablePage, "Value");
       const fallbackMember = await memberSource(unavailablePage, "2.0.0");
+      const fallbackType = await typeSource(unavailablePage, "2.0.0");
       await unavailablePage.close();
       const evidence = {
-        authoredMember, fallbackMember, changed, exact, moved, movedAndEdited, unavailable,
+        authoredMember, fallbackMember, authoredType, fallbackType,
+        changed, exact, moved, movedAndEdited, unavailable,
       };
       const evidencePath =
         testInfo.outputPath("fixture-source-comparisons.json");
@@ -236,6 +250,18 @@ test.describe("published authored Source comparison transport", () => {
       expect(fallbackMember.text).toContain("Value");
       expect(fallbackMember.pdbSourceLimitation).toBeTruthy();
       expect(fallbackMember.url).toBeNull();
+
+      expect(authoredType.kind).toBe("Succeeded");
+      expect(authoredType.value?.provider).toBe("pdb");
+      expect(authoredType.value?.text).toContain("class Counter");
+      expect(authoredType.value?.text).toContain("1 + 2");
+      expect(authoredType.value?.pdbSourceLimitation).toBeNull();
+      expect(authoredType.value?.url).toBeTruthy();
+      expect(fallbackType.kind).toBe("Succeeded");
+      expect(fallbackType.value?.provider).toBe("decompiled");
+      expect(fallbackType.value?.text).toContain("class Counter");
+      expect(fallbackType.value?.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackType.value?.url).toBeNull();
 
       expect(changed.kind).toBe("Succeeded");
       expect(changed.value?.status).toBe("Compared");

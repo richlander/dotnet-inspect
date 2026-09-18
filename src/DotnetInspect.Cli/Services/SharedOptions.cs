@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
-using System.Globalization;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -137,7 +136,7 @@ public class SharedOptions
 
         Limit = new Option<int?>("-n")
         {
-            Description = "Select semantic rows; add --lines to select rendered lines instead; pair with --tail to take from the end"
+            Description = "Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end"
         };
 
         Tips = new Option<string?>("--tips")
@@ -322,8 +321,7 @@ public class SharedOptions
     public void AddLineSelectionOptionsTo(
         Command command,
         Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
-        Option<int?>? limit = null,
-        bool inferLines = false)
+        Option<int?>? limit = null)
     {
         limit ??= Limit;
         command.Options.Add(limit);
@@ -334,15 +332,13 @@ public class SharedOptions
         RegisterLineSelectionFallback(
             command,
             limit,
-            resolveOutputFormat,
-            inferLines);
+            resolveOutputFormat);
     }
 
     public void RegisterLineSelectionFallback(
         Command command,
         Option? limit = null,
-        Func<ParseResult, OutputFormat>? resolveOutputFormat = null,
-        bool inferLines = false)
+        Func<ParseResult, OutputFormat>? resolveOutputFormat = null)
     {
         limit ??= Limit;
         resolveOutputFormat ??= result => ResolveFormat(result);
@@ -374,10 +370,7 @@ public class SharedOptions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     IsJsonDocumentOutput(result, resolveOutputFormat),
                     lowering),
-            defaultUnit:
-                inferLines
-                    ? CliRowSelectionDefaultUnit.RenderedLines
-                    : CliRowSelectionDefaultUnit.SemanticRows);
+            defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
     }
 
     /// <summary>
@@ -460,30 +453,17 @@ public class SharedOptions
                 return;
             }
 
-            bool renderedLineSelection =
-                HasExplicitRenderedLineSelection(result);
+            bool directionAppliesToLimit =
+                HasExplicitRenderedLineSelection(result)
+                || HasExplicitLimit(result);
 
             // A range names the rows to keep, so it already answers the question a
             // direction would answer. Taking "the last of rows 2..10" is not a
             // narrower request, it is two different answers to the same question.
-            if (!renderedLineSelection
+            if (!directionAppliesToLimit
                 && spec.IsRange
                 && (result.GetValue(Head) || result.GetValue(Tail)))
                 result.AddError($"--rows {token} already names which rows to keep, so it cannot combine with --head or --tail; use a count such as --rows {spec.RowCount ?? 10} --tail to take rows from one end.");
-
-            // In semantic mode, --rows and -n both select rows. In explicit line
-            // mode, they select independent units and may compose.
-            if (!renderedLineSelection
-                && result.GetResult(Limit) is { Implicit: false } limitResult
-                && limitResult.Tokens.Count > 0
-                && int.TryParse(
-                    limitResult.Tokens[^1].Value,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out _))
-            {
-                result.AddError($"--rows {token} already carries the count, so it cannot combine with -n; drop one.");
-            }
         });
     }
 
@@ -583,6 +563,7 @@ public class SharedOptions
         => BuildRowWindow(
             parseResult.GetValue(Rows),
             !HasExplicitRenderedLineSelection(parseResult)
+                && !HasExplicitLimit(parseResult)
                 && parseResult.GetValue(Tail));
 
     private bool HasExplicitRenderedLineSelection(ParseResult parseResult) =>
@@ -592,6 +573,12 @@ public class SharedOptions
     private bool HasExplicitRenderedLineSelection(CommandResult commandResult) =>
         commandResult.GetResult(Lines) is { Implicit: false }
         || commandResult.GetResult(TailLines) is { Implicit: false };
+
+    private bool HasExplicitLimit(ParseResult parseResult) =>
+        parseResult.GetResult(Limit) is { Implicit: false };
+
+    private bool HasExplicitLimit(CommandResult commandResult) =>
+        commandResult.GetResult(Limit) is { Implicit: false };
 
     /// <summary>
     /// Resolves the <c>--rows</c> data-row window from the parsed spec and direction.
