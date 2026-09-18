@@ -542,6 +542,11 @@ public static class ApiCommandDefinitions
         SharedOptions opts)
     {
         if (opts.ResolveFormat(parseResult) != OutputFormat.Json
+            || parseResult.GetValue(opts.Count)
+            || parseResult.GetValue(opts.Print)
+            || parseResult.GetValue(opts.Value)
+            || parseResult.GetValue(opts.Urls)
+            || parseResult.GetValue(opts.Paths)
             || opts.ParseColumns(parseResult) is null
                 && opts.ParseFields(parseResult) is null)
         {

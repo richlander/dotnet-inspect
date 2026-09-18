@@ -3080,6 +3080,24 @@ public partial class CommandExecutionTests
                 .EnumerateArray());
     }
 
+    [Fact]
+    public async Task Member_FactsCount_DoesNotActivateProjectedJsonAdoption()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--json",
+            "--columns", "Id", "--count", "--rows", "999..999",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            "0",
+            output.Trim());
+    }
+
     [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]

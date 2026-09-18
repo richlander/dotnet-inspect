@@ -173,6 +173,24 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Legacy `--rows` composes with an",
+            output);
+        Assert.Contains(
+            "inferred or explicit rendered-line `-n`",
+            output);
+        Assert.DoesNotContain(
+            "all legacy `--rows` forms reject `-n`",
+            output);
+    }
+
+    [Fact]
     public async Task FocusedSkill_BareCountInfersFixedMarkdownLineSelection()
     {
         string? original =

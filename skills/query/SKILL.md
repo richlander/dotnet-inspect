@@ -327,8 +327,10 @@ Prefer built-in limits to shell pipes:
   N. On adopted semantic-row surfaces, use `-n N` instead.
 - On commands retaining the legacy row window, `--rows 2..10` is an absolute
   1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
-  and `10..` runs from row 10 to the end. These legacy ranges reject
-  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
+  and `10..` runs from row 10 to the end. A legacy range rejects
+  `--head`/`--tail` when no `-n` is present. Legacy `--rows` composes with an
+  inferred or explicit rendered-line `-n`; in that composition, `--head` or
+  `--tail` modifies `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
