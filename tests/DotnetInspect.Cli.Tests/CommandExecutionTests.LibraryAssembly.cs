@@ -26,6 +26,25 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
 
+    [Theory]
+    [InlineData("--unknown=value")]
+    [InlineData("--unknown:value")]
+    public async Task Library_AttachedUnknownOptionFails(string option)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "--platform",
+            "System.Text.Json",
+            option,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Unrecognized", error, StringComparison.Ordinal);
+        Assert.Contains("--unknown", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Library_FixedOverviewCountValidatesFieldProjection()
     {

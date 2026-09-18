@@ -354,7 +354,12 @@ public static class InspectionCommandDefinitions
 
     public static Command CreateLibraryCommand(SharedOptions opts)
     {
-        var assemblyCommand = new Command("library", "Inspect a .NET library file");
+        var assemblyCommand = new Command(
+            "library",
+            "Inspect a .NET library file")
+        {
+            TreatUnmatchedTokensAsErrors = true
+        };
 
         var assemblyPathArg = new Argument<string?>("source")
         {
@@ -417,6 +422,15 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            var source = parseResult.GetValue(assemblyPathArg);
+            if (source?.StartsWith(
+                    '-',
+                    StringComparison.Ordinal) == true)
+            {
+                CommandError.Write(
+                    $"Unrecognized option '{source}'.");
+                return 1;
+            }
             if (!IntegrationQueryOptions.TryExtract(
                     parseResult.GetValue(opts.RowWhere) ?? [],
                     out var integrationQuery,
@@ -449,7 +463,6 @@ public static class InspectionCommandDefinitions
                     + "Body Shapes, or Performance Triage predicates/ranking.");
                 return 1;
             }
-            var source = parseResult.GetValue(assemblyPathArg);
             var explicitPackage = parseResult.GetValue(asmPackageOption);
             var explicitPlatform = parseResult.GetValue(asmPlatformOption);
 
