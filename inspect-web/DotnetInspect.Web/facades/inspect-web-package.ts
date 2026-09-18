@@ -953,8 +953,8 @@ export interface BrowserPackageVersionSettlementSourceListing {
 export interface BrowserPackageVersions {
   readonly versions: ReadonlyArray<string>;
   readonly currentVersionInsertionIndex: number;
-  readonly previousVersion: string | null;
-  readonly previousVersionUnavailableReason: string | null;
+  readonly previousVersion?: string;
+  readonly previousVersionUnavailableReason?: string;
 }
 
 export interface BrowserParameterSurface {

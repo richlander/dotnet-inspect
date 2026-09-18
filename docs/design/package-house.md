@@ -470,10 +470,11 @@ This adoption does not remove a command, add History coordination, migrate
 range-address payload acquisition, or inspect process-global offline state.
 Offline range discovery and extraction remain on their documented legacy path
 until a host explicitly adopts an offline capability. The broader target
-production consumer remains subject-owned Diff History under
-[Diff History inspection](diff-history.md), not continued standalone
-`timeline` behavior; the metadata-only package version Count is now the
-resource-free CLI consumer described above.
+production consumer remains top-level Diff History under
+[Diff History inspection](diff-history.md), with future subject sections backed
+by that same operation rather than continued standalone `timeline` behavior;
+the metadata-only package version Count is now the resource-free CLI consumer
+described above.
 
 ## Package target context
 

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspect.Web.Interop.Package;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -106,6 +107,27 @@ public sealed class BrowserPackageVersionInventoryTests
             "No configured authority reported the package.",
             failure.Message);
     }
+
+    [Fact]
+    public void BrowserWirePublishesOnlyAvailablePredecessorFacts()
+    {
+        Assert.Equal(
+            """{"versions":["2.0.0"],"currentVersionInsertionIndex":0,"previousVersion":"1.0.0"}""",
+            Serialize(new BrowserPackageVersions(["2.0.0"], 0, "1.0.0", null)));
+        Assert.Equal(
+            """{"versions":["2.0.0"],"currentVersionInsertionIndex":0,"previousVersionUnavailableReason":"Listing authority unavailable."}""",
+            Serialize(new BrowserPackageVersions(
+                ["2.0.0"],
+                0,
+                null,
+                "Listing authority unavailable.")));
+        Assert.Equal(
+            """{"versions":[],"currentVersionInsertionIndex":0}""",
+            Serialize(new BrowserPackageVersions([], 0, null, null)));
+    }
+
+    static string Serialize(BrowserPackageVersions value) =>
+        JsonSerializer.Serialize(value, BrowserPackageJsonContext.Default.BrowserPackageVersions);
 
     static async Task<BrowserPackageVersionInventory> Inventory(
         string[] versions,

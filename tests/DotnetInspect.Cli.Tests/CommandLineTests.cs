@@ -848,8 +848,6 @@ public class CommandLineTests
     }
 
     [Theory]
-    [InlineData("--path", "-n1")]
-    [InlineData("--path", "-1")]
     [InlineData("--library", "-n1")]
     [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
@@ -861,6 +859,23 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public void PreprocessArgs_PackagePathPreservesSemanticLimit(
+        string rowLimit)
+    {
+        string[] args = ["package", "Foo", "--path", rowLimit];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        string[] result =
+            CommandLineBuilder.PreprocessArgs(args, root);
+
+        Assert.Equal(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
