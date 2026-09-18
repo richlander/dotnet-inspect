@@ -227,11 +227,24 @@ public sealed class JsExportFunction
     public ApiTypeShape? ReturnWireTypeShape { get; init; }
 
     /// <summary>
-    /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from
-    /// <c>JsonSerializer.Deserialize</c> call sites. Not yet attributed to a specific parameter
-    /// position — see <see cref="JsonWireContractResolver"/> remarks for that residual gap.
+    /// DTO type(s) this method's own body deserializes from a JSON-string
+    /// argument, resolved from <c>JsonSerializer.Deserialize</c> call sites.
+    /// This unpositioned inventory includes roots that cannot acquire an exact
+    /// <see cref="ParameterWireBindings"/> association.
     /// </summary>
     public IReadOnlyList<string> ParameterWireTypes { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated JSON wire roots associated with the exact declared
+    /// parameters that supply their deserializer inputs.
+    /// </summary>
+    /// <remarks>
+    /// A deserializer root remains in <see cref="ParameterWireTypes"/> without
+    /// a binding when Analysis cannot prove one original parameter source.
+    /// Consumers must not infer a binding from names, types, or position.
+    /// </remarks>
+    public IReadOnlyList<JsExportParameterWireBinding> ParameterWireBindings
+        { get; init; } = [];
 
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
@@ -263,6 +276,23 @@ public sealed class JsExportWireTypeContextPath
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> TypeReferences
         { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<string> ContextScopeKeys { get; init; } = [];
+}
+
+public sealed class JsExportParameterWireBinding
+{
+    public required int ParameterIndex { get; init; }
+
+    public required string WireType { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> WireTypeReferences
+        { get; init; } = [];
+
+    [JsonIgnore]
+    public ApiTypeShape? WireTypeShape { get; init; }
 
     [JsonIgnore]
     public IReadOnlyList<string> ContextScopeKeys { get; init; } = [];

@@ -559,12 +559,35 @@ MVID and MethodDef token, IL offset, operand token, call kind, loop state,
 stable edge row, and occurrence-specific graph target. Browser validation
 requires exact coverage between those rows and the document's `call.edge`
 Findings; it never recovers identity from labels or source text.
+
+The Finding-census operation can also request focus-cycle inspection. It keeps
+the complete depth-one focus neighborhood required by the relationship
+contract, enriches that root with a depth-three, 25-node same-assembly
+caller/callee expansion, and lowers the result through one projection. Each
+Browser cycle retains the durable Finding key and ordinal, ordered stable edge
+rows, every physical `call.edge` fact id for its first logical edge, and one
+typed graph target per edge. The viewer attaches those witnesses to the
+existing opt-in relationship detail; it does not mint another source fact or
+infer a path from labels. Completeness remains independent through
+`TraversalBoundary`, `AnalysisFailure`, `IncompleteCorrespondence`,
+`WitnessBudget`, and `PathBudget`. Positive direct and mutual recursion
+witnesses remain valid under any limit; only an empty complete census supports
+absence within the projected same-assembly focus graph. A logical cycle whose
+first edge exists only in an attributed generated body has no declared-body
+source fact to anchor; the source projection omits that witness and reports
+`IncompleteCorrespondence` instead of failing the enclosing Finding census.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
-Browser/Wasm transport alongside existing callee evidence. This adoption does
-not yet transport cycle or ownership witnesses, add a relationship table, or
-reuse the separately requested full member Call Graph surface.
+Browser/Wasm transport alongside existing callee evidence.
+`MemberProjection_ProjectsRepeatedDirectRecursionAsOneCycle`,
+`MemberProjection_ProjectsMutualRecursionAsAnOrderedCycle`, and
+`MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus`, and
+`MemberFindingCensus_ProjectsExactMutualCycleWitness` gate the cycle identity,
+physical anchoring, ordered typed path, and production Browser/Wasm transport.
+This adoption does not yet transport ownership witnesses, add a relationship
+table, or reuse the separately requested full member Call Graph surface.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

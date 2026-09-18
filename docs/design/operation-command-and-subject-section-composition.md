@@ -49,9 +49,8 @@ dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
   --tfm net8.0 -S Dependencies
 ```
 
-The forward-looking section names below are illustrative until the focused
-[relationship-section naming](https://github.com/richlander/dotnet-inspect/issues/7628)
-contract lands:
+The section names below follow
+[Relationship Section Naming](relationship-section-naming.md):
 
 ```console
 # Subject-first rooted dependency view backed by Depends.
@@ -192,11 +191,9 @@ version constraint, or manufacture a resolved edge from incomplete evidence.
 
 The focused
 [Graph design](https://github.com/richlander/dotnet-inspect/issues/7624)
-owns relationship sets, modes, lenses, traversal, and characteristics. The
-focused
-[section naming design](https://github.com/richlander/dotnet-inspect/issues/7628)
-owns names that distinguish direct dependency evidence, rooted hierarchy, and
-Graph topology.
+owns relationship sets, modes, lenses, traversal, and characteristics.
+[Relationship Section Naming](relationship-section-naming.md) owns names that
+distinguish direct dependency evidence, rooted hierarchy, and Graph topology.
 
 ## Defaults and explicit selection
 
@@ -224,7 +221,7 @@ An ambiguous route requires an explicit section.
 | Subject identity and coordinates | Each Package, Library, Type, or Member owner | Supplies the already resolved subject and binding context |
 | Section identity and planning | [Section Model](section-model.md) and [Section Pipeline](section-pipeline.md) | Supplies authored descriptors, selection, applicability, cost, and execution plans |
 | Defaults | [#7625](https://github.com/richlander/dotnet-inspect/issues/7625) | Defines contextual inference and explicit override |
-| Relationship section names | [#7628](https://github.com/richlander/dotnet-inspect/issues/7628) | Distinguishes direct evidence, rooted hierarchy, topology, and characteristics |
+| Relationship section names | [Relationship Section Naming](relationship-section-naming.md) | Distinguishes direct evidence, rooted hierarchy, topology, and characteristics |
 | Diff | Existing comparison and Diff owners | Retain correspondence, result, evidence, and failure semantics |
 | Graph | [Inspection Graph](inspection-graph-document.md), [modes](inspection-graph-modes.md), and [#7624](https://github.com/richlander/dotnet-inspect/issues/7624) | Retain typed topology, occurrences, modes, relationship sets, lenses, and characteristics |
 | Depends | [Dependency Inspection](dependency-inspection-command.md) | Retains dependency admission, resolution, traversal, evidence, failures, and rooted result |
@@ -239,8 +236,9 @@ The composition reaches production through focused owner adoptions:
 
 1. **Composition:** this document establishes top-level operations, subject
    sections, equivalence, and retirement sequencing.
-2. **Section contract:** #7628 defines names and migration; #7625 defines
-   contextual defaults and explicit override.
+2. **Section contract:** [Relationship Section Naming](relationship-section-naming.md)
+   defines names and migration; #7625 defines contextual defaults and explicit
+   override.
 3. **Graph:** #7624 adopts the general Graph command, section presets, and
    current `graph calls`, `graph libraries`, and `graph integrations`
    migrations.

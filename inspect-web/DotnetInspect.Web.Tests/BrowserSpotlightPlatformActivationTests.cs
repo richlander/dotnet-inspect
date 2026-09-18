@@ -365,7 +365,7 @@ public sealed class BrowserSpotlightPlatformActivationTests
             new WorkspaceRegistration.Ecosystem(
                 new WorkspaceEcosystemRegistrationDeclaration(
                     WorkspaceEcosystemRegistrationId.Create(
-                        "ecosystem.platform"),
+                        "ecosystem.runtime"),
                     namespaceRoots: [],
                     corePackages: [],
                     populations:
