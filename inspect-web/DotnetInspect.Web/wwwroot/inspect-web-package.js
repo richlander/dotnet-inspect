@@ -404,6 +404,13 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
+function $serializeJsonInput(value, operation, parameter) {
+    const json = JSON.stringify(value);
+    if (json === undefined) {
+        throw new TypeError(`${operation} parameter '${parameter}' could not be serialized as JSON.`);
+    }
+    return json;
+}
 export async function activateWorkspacePackageOccurrence(action) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
     const $parsed = JSON.parse($result);
@@ -420,7 +427,7 @@ export function cancelPackageQuery(operationId, reason) {
     return $parsed;
 }
 export function classifyPackageGraphIdentities(inspectedPackageId, packageIdsJson) {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, $serializeJsonInput(packageIdsJson, "DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316", "packageIdsJson"));
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -459,7 +466,7 @@ export async function loadRuntimePackAssembly(targetFramework, platformVersion, 
     return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
 }
 export function matchPackageDependencyCoordinate(packageId, declaredRange, candidatesJson) {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, candidatesJson);
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.MatchPackageDependencyCoordinate.1537767637", "candidatesJson"));
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -535,7 +542,7 @@ export async function runPackageQuery(operationId, prefix, termsJson, maximumCan
     return $parsed;
 }
 export function searchTypes(query, candidatesJson) {
-    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, candidatesJson);
+    const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316", "candidatesJson"));
     const $parsed = JSON.parse($result);
     return $parsed;
 }
