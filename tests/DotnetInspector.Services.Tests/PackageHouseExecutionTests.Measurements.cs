@@ -41,7 +41,9 @@ public sealed partial class PackageHouseExecutionTests
             measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
-        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            measurements.AvailableTargetFrameworks);
         Assert.Equal(
             ["build", @"HOSTILE\u202EMARKER", "lib"],
             measurements.SelectedTargetFrameworkFolders!
@@ -62,6 +64,10 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementJsonContext.Default
                 .InspectionEnvelopePackageInfoMeasurements);
         Assert.Contains(
+            "\"availableTargetFrameworks\":[\"net10.0\",\"net8.0\"]",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "\"selectedTargetFrameworkFolders\":"
                 + "[\"build\",\"HOSTILE\\\\u202EMARKER\",\"lib\"]",
             json,
@@ -79,6 +85,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             measurements.SelectedTargetFrameworkFolders,
             roundTripped.Content.SelectedTargetFrameworkFolders);
+        Assert.Equal(
+            measurements.AvailableTargetFrameworks,
+            roundTripped.Content.AvailableTargetFrameworks);
         Assert.Null(roundTripped.Content.Evidence);
         await environment.AssertRootSettledAsync();
     }
@@ -109,7 +118,7 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementStatus.NoCompileSlices,
             measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-        Assert.Equal(0, measurements.AvailableTargetFrameworkCount);
+        Assert.Empty(measurements.AvailableTargetFrameworks!);
         Assert.Null(measurements.SelectedTargetFramework);
         Assert.Null(measurements.SelectedTargetFrameworkFolders);
         Assert.Null(measurements.SelectedLibraryPayloadBytes);
@@ -168,7 +177,9 @@ public sealed partial class PackageHouseExecutionTests
             measured.Measurements;
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
-        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            measurements.AvailableTargetFrameworks);
         Assert.Equal(2, measurements.SelectedLibraryCount);
         Assert.Equal(
             ["build", "contentFiles", "custom", "lib", "ref", "runtimes"],
@@ -234,7 +245,9 @@ public sealed partial class PackageHouseExecutionTests
 
         Assert.Equal(archive.LongLength, empty.Measurements.CompressedPackageBytes);
         Assert.Equal("net10.0", empty.Measurements.SelectedTargetFramework);
-        Assert.Equal(2, empty.Measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            empty.Measurements.AvailableTargetFrameworks);
         Assert.Equal(0, empty.Measurements.SelectedLibraryCount);
         Assert.Equal(0, empty.Measurements.SelectedLibraryPayloadBytes);
         Assert.Empty(empty.Measurements.SelectedTargetFrameworkFolders);
@@ -269,7 +282,7 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             content.NupkgBytes.Length,
             outcome.Measurements.CompressedPackageBytes);
-        Assert.Equal(0, outcome.Measurements.AvailableTargetFrameworkCount);
+        Assert.Empty(outcome.Measurements.AvailableTargetFrameworks);
         await environment.AssertRootSettledAsync();
     }
 
@@ -301,7 +314,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             content.NupkgBytes.Length,
             outcome.Measurements.CompressedPackageBytes);
-        Assert.Equal(1, outcome.Measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net11.0"],
+            outcome.Measurements.AvailableTargetFrameworks);
         await environment.AssertRootSettledAsync();
     }
 

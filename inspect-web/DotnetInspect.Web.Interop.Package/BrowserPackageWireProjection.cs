@@ -258,7 +258,7 @@ internal static class BrowserPackageWireProjection
                 content.PackageVersion,
                 content.CompressedPackageBytes,
                 content.SelectedTargetFramework,
-                content.AvailableTargetFrameworkCount,
+                content.AvailableTargetFrameworks?.ToArray(),
                 content.SelectedTargetFrameworkFolders is null
                     ? null
                     : [

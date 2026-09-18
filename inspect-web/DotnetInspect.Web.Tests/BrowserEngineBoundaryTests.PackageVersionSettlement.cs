@@ -512,7 +512,12 @@ public sealed partial class BrowserEngineBoundaryTests
                     SettlementStableVersion,
                     compressedPackageBytes: 4096,
                     selectedTargetFramework: "net8.0",
-                    availableTargetFrameworkCount: 3,
+                    availableTargetFrameworks:
+                    [
+                        "net8.0",
+                        "net7.0",
+                        "net6.0",
+                    ],
                     selectedTargetFrameworkFolders:
                     [
                         InertString.FromEncoded(TextPolicy.Field, "lib"),
@@ -578,7 +583,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 packageInfoBaseline.Content.SelectedTargetFrameworkFolders));
         Assert.Equal(2048, packageInfoBaseline.Content.SelectedLibraryPayloadBytes);
         Assert.Equal(2, packageInfoBaseline.Content.SelectedLibraryCount);
-        Assert.Equal(3, packageInfoBaseline.Content.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net8.0", "net7.0", "net6.0"],
+            Assert.IsType<string[]>(
+                packageInfoBaseline.Content.AvailableTargetFrameworks));
         Assert.True(packageInfoBaseline.Content.HasSelectedSlice);
         Assert.Equal(
             BrowserInspectionShareKind.NonProjectable,

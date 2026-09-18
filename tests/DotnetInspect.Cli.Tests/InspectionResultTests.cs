@@ -287,7 +287,7 @@ public class InspectionResultTests
 
         Assert.DoesNotContain("| Highest TFM |", output);
         Assert.DoesNotContain("| Selected TFM |", output);
-        Assert.DoesNotContain("| TFM Count |", output);
+        Assert.DoesNotContain("| TFMs |", output);
         Assert.Contains("## Target Frameworks", output);
         Assert.Contains("| TFM |", output);
         Assert.DoesNotContain("| TFM | net10.0 |", output);

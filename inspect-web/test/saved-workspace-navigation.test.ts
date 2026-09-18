@@ -230,7 +230,7 @@ function packageLoadResult(
         packageVersion: surface.version,
         compressedPackageBytes: 2048,
         selectedTargetFramework: surface.activeFramework,
-        availableTargetFrameworkCount: surface.frameworks.length,
+        availableTargetFrameworks: surface.frameworks,
         selectedTargetFrameworkFolders: ["lib"],
         selectedLibraryPayloadBytes: 1024,
         selectedLibraryCount: surface.assemblies.length,

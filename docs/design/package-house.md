@@ -576,7 +576,7 @@ The selected-slice measurement projection joins only evidence from that same
 acquisition generation and compile selection receipt. It reports:
 
 - the retained compressed package archive length;
-- the selected framework and available compile-slice count;
+- the selected framework and ordered available compile frameworks;
 - the ordered, distinct top-level package folders whose admitted entry paths
   contain the selected asset-folder framework as a directory segment;
 - one uncompressed payload length for every selected compile asset; and
@@ -614,12 +614,13 @@ correspondence.
 
 The host-neutral Package Info inspection lowers that typed projection into one
 `InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
-size, selected framework, available-framework count, selected-framework folder
-inventory, selected payload size, selected Library count, and typed non-success
-state. The in-process content also retains the resource-free measurement
-outcome so the acquisition generation and compile-selection receipt remain
-available without retaining package content. Hosts consume these fields rather
-than reselecting assets or deriving measurements from extracted paths.
+size, selected framework, ordered available-framework list, selected-framework
+folder inventory, selected payload size, selected Library count, and typed
+non-success state. The in-process content also retains the resource-free
+measurement outcome so the acquisition generation and compile-selection
+receipt remain available without retaining package content. Hosts consume
+these fields rather than reselecting assets or deriving measurements from
+extracted paths.
 
 CLI configured-source Package Info acquisition requests the compile realization
 as part of its existing package acquisition, so measurement does not download a
