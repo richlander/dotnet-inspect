@@ -112,6 +112,10 @@ public enum DependencyInspectionPruningDisposition
     InventoryUnavailable,
 }
 
+public sealed record DependencyInspectionPruningEvaluation(
+    PlatformSubsumption Subsumption,
+    bool DelegatesToPlatform);
+
 public sealed record DependencyInspectionPruning(
     int RootOccurrence,
     PackageDependencyEvidenceRootIdentity RootIdentity,
@@ -132,7 +136,7 @@ public sealed record DependencyInspectionPruning(
     string Reason,
     PackageHouseDependencyPruningApplicability Applicability,
     PackageDependencyCandidateResult? CandidateOutcome,
-    PackageHouseDependencyPruningResult? Result);
+    DependencyInspectionPruningEvaluation? Evaluation);
 
 public sealed record DependencyInspectionPruningSummary(
     DependencyInspectionPruningCompletion Completion,

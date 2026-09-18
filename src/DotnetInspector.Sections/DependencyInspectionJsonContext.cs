@@ -173,43 +173,6 @@ namespace DotnetInspector.Sections;
     typeof(PackageDependencyCandidateResult.Incomplete),
     TypeInfoPropertyName = "PackageCandidateResultIncomplete")]
 [JsonSerializable(
-    typeof(PackageHouseDependencySubject.Declaration),
-    TypeInfoPropertyName = "PackageHouseSubjectDeclaration")]
-[JsonSerializable(
-    typeof(PackageHouseDependencySubject.Relationship),
-    TypeInfoPropertyName = "PackageHouseSubjectRelationship")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.Evaluated),
-    TypeInfoPropertyName = "PackageHousePruningEvaluated")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult
-        .ApplicationAuthoredExemption),
-    TypeInfoPropertyName = "PackageHousePruningApplicationAuthoredExemption")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.UnattributedAuthorship),
-    TypeInfoPropertyName = "PackageHousePruningUnattributedAuthorship")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.ProcessingIncomplete),
-    TypeInfoPropertyName = "PackageHousePruningProcessingIncomplete")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.ProcessingUnavailable),
-    TypeInfoPropertyName = "PackageHousePruningProcessingUnavailable")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.ProcessingFailed),
-    TypeInfoPropertyName = "PackageHousePruningProcessingFailed")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.RuntimeProjected),
-    TypeInfoPropertyName = "PackageHousePruningRuntimeProjected")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.PreviouslyEvaluated),
-    TypeInfoPropertyName = "PackageHousePruningPreviouslyEvaluated")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.ProcessingNotEvidenced),
-    TypeInfoPropertyName = "PackageHousePruningProcessingNotEvidenced")]
-[JsonSerializable(
-    typeof(PackageHouseDependencyPruningResult.TargetUnavailable),
-    TypeInfoPropertyName = "PackageHousePruningTargetUnavailable")]
-[JsonSerializable(
     typeof(PackageDependencyTraversalCandidateFailure.AuthorizationDenied),
     TypeInfoPropertyName = "TraversalCandidateFailureAuthorizationDenied")]
 [JsonSerializable(

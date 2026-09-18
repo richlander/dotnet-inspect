@@ -473,7 +473,7 @@ public partial class DependsCommand
             DependencyInspectionPruningDisposition.NotEvaluated,
             applicability.State.ToString(),
             CandidateOutcome: null,
-            Result: null);
+            Evaluation: null);
 
     private static DependencyInspectionPruning CreateUnavailableRow(
         int rootOccurrence,
@@ -495,7 +495,7 @@ public partial class DependsCommand
             disposition,
             reason,
             CandidateOutcome: null,
-            Result: null);
+            Evaluation: null);
 
     private static DependencyInspectionPruning CreateCandidateUnavailableRow(
         PendingPruningDeclaration item,
@@ -527,7 +527,7 @@ public partial class DependsCommand
                     "A resolved candidate is not unavailable."),
             },
             outcome.Candidate,
-            Result: null);
+            Evaluation: null);
 
     private static string? PlatformProvidedVersion(
         PlatformPruneInventory inventory,
@@ -557,7 +557,9 @@ public partial class DependsCommand
                 : DependencyInspectionPruningDisposition.PackageRetained,
             pruning.Supply.Subsumption.ToString(),
             outcome.Candidate,
-            outcome.Result);
+            new DependencyInspectionPruningEvaluation(
+                pruning.Supply.Subsumption,
+                pruning.Supply.DelegatesToPlatform));
     }
 
     private static DependencyInspectionPruning CreateRow(
@@ -573,7 +575,7 @@ public partial class DependsCommand
         DependencyInspectionPruningDisposition disposition,
         string reason,
         PackageDependencyCandidateResult? CandidateOutcome,
-        PackageHouseDependencyPruningResult? Result) =>
+        DependencyInspectionPruningEvaluation? Evaluation) =>
         new(
             rootOccurrence,
             root.Identity,
@@ -596,7 +598,7 @@ public partial class DependsCommand
             reason,
             applicability,
             CandidateOutcome,
-            Result);
+            Evaluation);
 
     private sealed record PendingPruningDeclaration(
         int RootOccurrence,

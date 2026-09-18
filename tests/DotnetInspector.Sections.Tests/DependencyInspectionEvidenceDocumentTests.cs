@@ -442,6 +442,103 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                 .GetString());
     }
 
+    [Fact]
+    public void GeneratedContentJsonRetainsPruningEvaluation()
+    {
+        PackageDependencyEvidenceRoot evidenceRoot =
+            Assert.Single(Outcome(admittedRoots: 1).Roots);
+        var groupIdentity = new PackageDependencyEvidenceGroupIdentity.Package(
+            (PackageDependencyEvidenceRootIdentity.Package)
+                evidenceRoot.Identity,
+            IsImplicitManifestGroup: false,
+            FirstSourceOccurrence: 0);
+        var declaration = new PackageDependencyEvidenceDeclaration(
+            new PackageDependencyEvidenceDeclarationIdentity(
+                groupIdentity,
+                "example.dependency"),
+            "example.dependency",
+            "[1.0.0,)",
+            new InertString(TextPolicy.Field, "Example.Dependency"),
+            new InertString(TextPolicy.Field, "[1.0.0,)"),
+            SourceOccurrenceCount: 1,
+            PackageDependencyEvidenceAuthorship.LibraryDeclared);
+        var applicability = new PackageHouseDependencyPruningApplicability(
+            evidenceRoot,
+            declaration,
+            PackageHouseDependencyPruningApplicabilityState
+                .CandidateRequired,
+            Processing: null,
+            TargetUnavailableReason: null);
+        var pruning = new DependencyInspectionPruning(
+            RootOccurrence: 1,
+            evidenceRoot.Identity,
+            evidenceRoot.Display,
+            declaration.Identity,
+            RequestedFramework:
+                new InertString(TextPolicy.Field, "net11.0"),
+            SelectedFramework:
+                new InertString(TextPolicy.Field, "net11.0"),
+            declaration.CanonicalPackageId,
+            declaration.SourcePackageIdSpelling,
+            declaration.CanonicalVersionConstraint,
+            declaration.SourceVersionConstraintSpelling,
+            CandidateVersion: "1.0.0",
+            PlatformFamily: "DotNetRuntime",
+            PlatformTargetFramework: "net11.0",
+            PlatformVersion: "11.0.0",
+            PlatformProvidedVersion: "2.0.0",
+            DependencyInspectionPruningDisposition.PlatformDelegation,
+            Reason: PlatformSubsumption.Subsumed.ToString(),
+            applicability,
+            CandidateOutcome: null,
+            new DependencyInspectionPruningEvaluation(
+                PlatformSubsumption.Subsumed,
+                DelegatesToPlatform: true));
+        var content = new DependencyInspectionContent(
+            new DependencyInspectionSummary(
+                DependencyInspectionRootSetCompletion.Complete,
+                RequestedRoots: 1,
+                AdmittedRoots: 1,
+                FailedRoots: 0,
+                DependencyInspectionTraversalCompletion.NotRequested,
+                RequestedDepth: null,
+                GraphNodes: 0,
+                GraphEdges: 0,
+                DependencyInspectionEvidencePhaseCompletion.Complete,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                new DependencyInspectionPruningSummary(
+                    DependencyInspectionPruningCompletion.Complete,
+                    Roots: 1,
+                    Declarations: 1,
+                    Evaluated: 1,
+                    Delegated: 1,
+                    Retained: 0,
+                    NotEvaluated: 0,
+                    SourceBounded: 0,
+                    Failed: 0),
+                IsPrefixRootSet: false,
+                PackagePrefix: null),
+            new DependencyGraphDocument([], [], [], [], []),
+            [],
+            [],
+            [pruning],
+            []);
+
+        JsonElement root = JsonSerializer.SerializeToElement(
+            content,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
+        JsonElement evaluation =
+            root.GetProperty("pruning")[0]
+                .GetProperty("evaluation");
+
+        Assert.Equal(
+            "Subsumed",
+            evaluation.GetProperty("subsumption").GetString());
+        Assert.True(
+            evaluation.GetProperty("delegatesToPlatform").GetBoolean());
+    }
+
     private static PackageDependencyEvidenceOutcome Outcome(
         int admittedRoots = 0,
         ImmutableArray<PackageDependencyEvidenceRootFailure> failedRoots =

@@ -742,6 +742,10 @@ these roles:
 The same owner-issued fact may support a baseline row and remain in Evidence.
 That is deliberate: optional capture cannot make Content incomplete or force a
 baseline consumer to understand `TEvidence`.
+Pruning Content retains the candidate outcome and projects the only consumed
+PackageHouse evaluation facts, `Subsumption` and `DelegatesToPlatform`, instead
+of serializing the PackageHouse receipt and its package-layer implementation
+types into the Sections-owned wire contract.
 
 ### Concrete evidence value
 
