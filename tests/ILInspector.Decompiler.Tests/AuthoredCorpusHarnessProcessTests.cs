@@ -268,6 +268,105 @@ public partial class AuthoredCorpusHarnessProcessTests
     }
 
     [Fact]
+    public void Harness_RendersPr7482MultiplicityFromPreservedProductDocuments()
+    {
+        string beforePath = StructuralReviewTestData("pr7482-before.json");
+        string afterPath = StructuralReviewTestData("pr7482-after.json");
+
+        var markdown = RunHarness("--structural-review", beforePath, afterPath);
+
+        Assert.Equal(0, markdown.ExitCode);
+        Assert.Contains(
+            "Structural review status: **Partial** - 18 unsupported or ambiguous nodes were excluded from node-level correspondence.",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Changed | IfStatement | Construct |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| NameExpression | {32} | 3 -&gt; 2 | Unresolved |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| ReturnStatement | {32, 33} | 3 -&gt; 2 | Unresolved |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Before | Unsupported | 2 | 2, 22 |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Before | Ambiguous | 8 | 9, 10, 17, 18, 20 (+3 more) |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| After | Unsupported | 2 | 2, 22 |",
+            markdown.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| After | Ambiguous | 6 | 9, 10, 17, 18, 20 (+1 more) |",
+            markdown.Output,
+            StringComparison.Ordinal);
+
+        var json = RunHarness("--structural-review", beforePath, afterPath, "--json");
+
+        Assert.Equal(0, json.ExitCode);
+        var replayed = AnnotatedSourceJson.DeserializeStructuralDiff(json.Output);
+        Assert.False(replayed.ToComparison().IsCorrespondenceComplete);
+        Assert.Equal(
+            "ILInspector.Decompiler.Tests.ReturnMergeSamples.LabeledBreakBeforeReturnTail (0x06003117)",
+            replayed.Before.Source?.Subject);
+        Assert.Equal(
+            new Guid("1b7a825b-04da-4da2-ad73-3f1b8b160936"),
+            replayed.Before.Source?.ModuleVersionId);
+        Assert.Equal(
+            "828AA32CC3A2C1910EFAD77D306FEAD9B667180A01BCBE26BD5DDFC1F60DD9E8",
+            replayed.Before.Source?.BodyFingerprint);
+        var row = Assert.Single(replayed.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        Assert.Equal("IfStatement", row.BeforeKind);
+        Assert.Equal("IfStatement", row.AfterKind);
+        Assert.Collection(
+            replayed.MultiplicityDeltas,
+            delta =>
+            {
+                Assert.Equal("NameExpression", delta.NodeKind);
+                Assert.Equal([0x20], delta.Evidence.IlOffsets);
+                Assert.Equal(3, delta.BeforeCount);
+                Assert.Equal(2, delta.AfterCount);
+            },
+            delta =>
+            {
+                Assert.Equal("ReturnStatement", delta.NodeKind);
+                Assert.Equal([0x20, 0x21], delta.Evidence.IlOffsets);
+                Assert.Equal(3, delta.BeforeCount);
+                Assert.Equal(2, delta.AfterCount);
+            });
+        Assert.Equal(10, replayed.Correspondence.UnmatchedBefore.Length);
+        Assert.Equal(8, replayed.Correspondence.UnmatchedAfter.Length);
+        Assert.Equal(
+            2,
+            replayed.Correspondence.UnmatchedBefore.Count(
+                static node => node.Reason == CSharpUnmatchedNodeReason.Unsupported));
+        Assert.Equal(
+            8,
+            replayed.Correspondence.UnmatchedBefore.Count(
+                static node => node.Reason == CSharpUnmatchedNodeReason.Ambiguous));
+        Assert.Equal(
+            2,
+            replayed.Correspondence.UnmatchedAfter.Count(
+                static node => node.Reason == CSharpUnmatchedNodeReason.Unsupported));
+        Assert.Equal(
+            6,
+            replayed.Correspondence.UnmatchedAfter.Count(
+                static node => node.Reason == CSharpUnmatchedNodeReason.Ambiguous));
+        Assert.All(
+            CSharpStructuralDiffPrinter.ToMultiplicityDisplayRows(replayed.ToComparison()),
+            static row => Assert.Equal("Unresolved", row.Location));
+    }
+
+    [Fact]
     public void Harness_EmitsAndReplaysProductStructuralDiffDocument()
     {
         string beforePath = Path.Combine(Path.GetTempPath(), $"structural-before-{Guid.NewGuid():N}.json");
@@ -1326,6 +1425,13 @@ public partial class AuthoredCorpusHarnessProcessTests
                 Document(beforeCount),
                 Document(afterCount)));
     }
+
+    static string StructuralReviewTestData(string fileName)
+        => Path.Combine(
+            AppContext.BaseDirectory,
+            "TestData",
+            "StructuralReview",
+            fileName);
 
     static AnnotatedSourceDocument StructuralDocument(
         string text,
