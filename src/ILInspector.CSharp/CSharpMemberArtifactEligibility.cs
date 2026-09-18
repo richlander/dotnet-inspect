@@ -118,7 +118,8 @@ public static class CSharpMemberArtifactEligibility
             return true;
         }
 
-        if (member.ReadOnlyMarkerIsRepresentable == false
+        if (member.FinalFlagIsRepresentable == false
+            || member.ReadOnlyMarkerIsRepresentable == false
             || member.IsReadOnly
                 && (member.ReadOnlyMarkerIsRepresentable != true
                     || type.Kind != "struct"

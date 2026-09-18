@@ -1254,6 +1254,8 @@ public static partial class ApiSurfaceExtractor
                     IsAbstract = modifiers.IsAbstract,
                     IsOverride = modifiers.IsOverride,
                     IsSealed = modifiers.IsSealed,
+                    FinalFlagIsRepresentable =
+                        modifiers.FinalFlagIsRepresentable,
                     IsFinalizer = isFinalizer,
                     IsReadOnly = isReadOnlyMethod,
                     ReadOnlyMarkerIsRepresentable =

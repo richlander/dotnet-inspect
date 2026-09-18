@@ -132,7 +132,8 @@ public static class ApiMemberAccessors
                 owner.IsVirtual,
                 owner.IsAbstract && accessorHasBody != true,
                 owner.IsOverride,
-                owner.IsSealed);
+                owner.IsSealed,
+                true);
         return new ApiMember
         {
             Name = name,
@@ -163,6 +164,8 @@ public static class ApiMemberAccessors
             IsAbstract = modifiers.IsAbstract,
             IsOverride = modifiers.IsOverride,
             IsSealed = modifiers.IsSealed,
+            FinalFlagIsRepresentable =
+                modifiers.FinalFlagIsRepresentable,
             IsUnsafe = owner.IsUnsafe,
             IsReadOnly = accessorEntry?.IsReadOnly == true
                 || owner.IsReadOnly,

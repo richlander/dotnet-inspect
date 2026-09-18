@@ -160,6 +160,8 @@ internal static class NavigationWorkspaceSnapshotEquality
         && Sequence(a.RuntimeJsExportWrapperCandidates, b.RuntimeJsExportWrapperCandidates)
         && a.Accessibility == b.Accessibility
         && a.AccessibilityIsRepresentable == b.AccessibilityIsRepresentable
+        && a.FinalFlagIsRepresentable
+            == b.FinalFlagIsRepresentable
         && a.ReadOnlyMarkerIsRepresentable
             == b.ReadOnlyMarkerIsRepresentable
         && a.IsExtension == b.IsExtension

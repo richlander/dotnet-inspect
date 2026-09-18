@@ -287,7 +287,7 @@ public static partial class ApiSurfaceExtractor
                     attributeMaterialize);
         bool isReadOnlyByRefReturn =
             readOnlyByRefReturnMarker
-                is ReadOnlyByRefReturnMarker.Present
+                is ReadOnlyByRefReturnMarker.IsReadOnly
             || HasReadOnlyByRefReturnModifier(treeSignature.ReturnType);
         var returnType = FormatMethodReturnType(
             treeSignature.ReturnType,

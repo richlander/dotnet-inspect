@@ -268,6 +268,37 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_IncludesSealedOverrides()
+    {
+        string assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual int Run() => 1;
+            }
+
+            public class Derived : Base
+            {
+                public sealed override int Run() => 2;
+            }
+            """);
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(
+                selected,
+                target => target.Type == "Derived"
+                    && target.Method == "Run");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnrepresentedSignatureCustomModifiersBeforeSampling()
     {
         string assemblyPath = CreateCustomModifiedSignatureFixture();
@@ -349,6 +380,46 @@ public class FidelityCheckGeneratedFilterTests
                     cap: int.MaxValue));
 
             Assert.Equal("Good", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_IncludesNullableDeclaringStructOperators()
+    {
+        string assemblyPath = CompileFixture("""
+            public readonly struct NullableOperator
+            {
+                public static int operator +(NullableOperator? value, int other)
+                    => other;
+            }
+
+            public readonly struct GenericNullableOperator<T>
+                where T : struct
+            {
+                public static int operator +(
+                    GenericNullableOperator<T>? value,
+                    int other)
+                    => other;
+            }
+            """);
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Contains(
+                selected,
+                target => target.Type == "NullableOperator"
+                    && target.Method == "op_Addition");
+            Assert.Contains(
+                selected,
+                target => target.Type == "GenericNullableOperator`1"
+                    && target.Method == "op_Addition");
         }
         finally
         {
@@ -3020,6 +3091,12 @@ public class FidelityCheckGeneratedFilterTests
         ConstructorInfo readOnlyConstructor =
             typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)
                 .GetConstructor(Type.EmptyTypes)!;
+        ConstructorInfo requiresLocationConstructor =
+            typeof(object).Assembly
+                .GetType(
+                    "System.Runtime.CompilerServices.RequiresLocationAttribute",
+                    throwOnError: true)!
+                .GetConstructor(Type.EmptyTypes)!;
         MethodBuilder alternateReadonlyReturn = fixtureType.DefineMethod(
             "AlternateReadonlyReturn",
             MethodAttributes.Public | MethodAttributes.Static);
@@ -3202,6 +3279,11 @@ public class FidelityCheckGeneratedFilterTests
             "ForgedReadonlyReturnMarker",
             parameter => parameter.SetCustomAttribute(
                 new CustomAttributeBuilder(fakeReadOnlyConstructor, [])));
+        DefineMalformedReadonlyReturn(
+            fixtureType,
+            "RequiresLocationReadonlyReturnMarker",
+            parameter => parameter.SetCustomAttribute(
+                new CustomAttributeBuilder(requiresLocationConstructor, [])));
 
         modifierType.CreateType();
         fixtureType.CreateType();
@@ -3639,6 +3721,13 @@ public class FidelityCheckGeneratedFilterTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(8));
         metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("FinalMethodFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(9));
+        metadata.AddTypeDefinition(
             TypeAttributes.Public
                 | TypeAttributes.Class
                 | TypeAttributes.Abstract
@@ -3647,7 +3736,7 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString("MethodDeclarationNeighborFixture"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
-            methodList: MetadataTokens.MethodDefinitionHandle(9));
+            methodList: MetadataTokens.MethodDefinitionHandle(11));
 
         var methodBodies = new BlobBuilder();
         var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
@@ -3744,6 +3833,28 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString("Run"),
             metadata.GetOrAddBlob(
                 (byte[])[0x00, 0x00, 0x08]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Final
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("FinalNewSlot"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x20, 0x00, 0x08]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Final
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("FinalNonVirtual"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x20, 0x00, 0x08]),
             AddBody(),
             MetadataTokens.ParameterHandle(2));
         metadata.AddMethodDefinition(

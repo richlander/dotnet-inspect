@@ -250,7 +250,7 @@ public static partial class ApiSurfaceExtractor
                 attributeMaterialize);
         bool isReadOnlyByRefReturn =
             readOnlyByRefReturnMarker
-                is ReadOnlyByRefReturnMarker.Present
+                is ReadOnlyByRefReturnMarker.IsReadOnly
             || HasReadOnlyByRefReturnModifier(treeSignature.ReturnType);
         var returnType = FormatMethodReturnType(
             treeSignature.ReturnType,
@@ -317,9 +317,11 @@ public static partial class ApiSurfaceExtractor
                 : null,
             ReturnTypeCustomModifiersAreRepresentable =
                 readOnlyByRefReturnMarker
-                    is not ReadOnlyByRefReturnMarker.Invalid
+                    is not (
+                        ReadOnlyByRefReturnMarker.RequiresLocation
+                            or ReadOnlyByRefReturnMarker.Invalid)
                 && (readOnlyByRefReturnMarker
-                        is not ReadOnlyByRefReturnMarker.Present
+                        is not ReadOnlyByRefReturnMarker.IsReadOnly
                     || returnType.StartsWith(
                         "ref readonly ",
                         StringComparison.Ordinal))
@@ -416,6 +418,19 @@ public static partial class ApiSurfaceExtractor
             || declaringTypeIsReferenceType is null)
         {
             return null;
+        }
+
+        if (declaringTypeIsReferenceType == false
+            && type is GenericTypeNode
+            {
+                DefinitionName: "System.Nullable" or "System.Nullable`1",
+                DefinitionAssemblyIdentity: { } nullableAssembly,
+                Arguments: [TypeNode underlyingType],
+            }
+            && AttributeReader.IsCoreContractName(nullableAssembly.Name)
+            && PlatformKeys.IsPlatform(nullableAssembly.PublicKeyToken))
+        {
+            type = underlyingType;
         }
 
         if (declaringTypeParameterCount == 0)
@@ -563,7 +578,8 @@ public static partial class ApiSurfaceExtractor
         ParameterHandleCollection paramHandles,
         Action<int>? beforeMaterialize)
     {
-        bool found = false;
+        ReadOnlyByRefReturnMarker marker =
+            ReadOnlyByRefReturnMarker.None;
         foreach (var handle in paramHandles)
         {
             var parameter = reader.GetParameter(handle);
@@ -586,7 +602,11 @@ public static partial class ApiSurfaceExtractor
                     continue;
                 }
 
-                if (found
+                ReadOnlyByRefReturnMarker current =
+                    name == KnownAttributeNames.IsReadOnlyAttribute
+                        ? ReadOnlyByRefReturnMarker.IsReadOnly
+                        : ReadOnlyByRefReturnMarker.RequiresLocation;
+                if (marker is not ReadOnlyByRefReturnMarker.None
                     || !AttributeReader.IsPlatformCoreContractAttributeType(
                         reader,
                         attribute.Constructor,
@@ -603,13 +623,11 @@ public static partial class ApiSurfaceExtractor
                     return ReadOnlyByRefReturnMarker.Invalid;
                 }
 
-                found = true;
+                marker = current;
             }
         }
 
-        return found
-            ? ReadOnlyByRefReturnMarker.Present
-            : ReadOnlyByRefReturnMarker.None;
+        return marker;
     }
 
     private static (string? name, bool isParams, string? refKind, ReadOnlyByRefParameterMarker readOnlyByRefMarker, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
@@ -768,7 +786,8 @@ public static partial class ApiSurfaceExtractor
     enum ReadOnlyByRefReturnMarker
     {
         None,
-        Present,
+        IsReadOnly,
+        RequiresLocation,
         Invalid
     }
 
