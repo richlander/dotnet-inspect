@@ -99,7 +99,10 @@ static class ArrayPoolOwnershipProjection
             rents.All(static rent => rent.IsComplete)
             && parameters.All(static parameter => parameter.IsComplete)
             && !evidence.Limits.Any(limit =>
-                IsArrayPoolRelevant(limit, hasArrayPoolEvidence));
+                IsArrayPoolRelevant(
+                    limit,
+                    hasArrayPoolEvidence,
+                    IsArrayParameter(evidence.Member, limit.ParameterIndex)));
 
         return new(
             evidence.Method,
@@ -118,13 +121,24 @@ static class ArrayPoolOwnershipProjection
             .. method.Limits.Where(limit =>
                 limit.ParameterIndex == parameter.ParameterIndex),
         ];
+        HashSet<int> relevantLimitOffsets =
+        [
+            .. parameterLimits
+                .Where(limit => IsArrayPoolRelevant(
+                    limit,
+                    hasArrayPoolEvidence: true,
+                    affectedRootIsArrayPool: true))
+                .Select(static limit => limit.ILOffset)
+                .OfType<int>(),
+        ];
         bool isComplete =
             parameter.IsComplete
             || (parameterLimits.Length > 0
                 && parameterLimits.All(limit =>
                     !IsArrayPoolRelevant(
                         limit,
-                        hasArrayPoolEvidence: true)));
+                        hasArrayPoolEvidence: true,
+                        affectedRootIsArrayPool: true)));
         var uses = parameter.Uses
             .Select(use => ProjectUse(
                 use,
@@ -134,9 +148,12 @@ static class ArrayPoolOwnershipProjection
             in parameterLimits.Where(limit =>
                 !IsArrayPoolRelevant(
                     limit,
-                    hasArrayPoolEvidence: true)))
+                    hasArrayPoolEvidence: true,
+                    affectedRootIsArrayPool: true)))
         {
-            if (TryProjectForwarded(limit, out var forwarded)
+            if (limit.ILOffset is int offset
+                && !relevantLimitOffsets.Contains(offset)
+                && TryProjectForwarded(limit, out var forwarded)
                 && !uses.Any(use =>
                     use.ILOffset == forwarded.ILOffset
                     && use.CalleeParameterIndex
@@ -182,7 +199,8 @@ static class ArrayPoolOwnershipProjection
 
     static bool IsArrayPoolRelevant(
         ResourceOwnershipFlowLimit limit,
-        bool hasArrayPoolEvidence)
+        bool hasArrayPoolEvidence,
+        bool affectedRootIsArrayPool)
     {
         if (limit.ResourceKind is { } resourceKind)
         {
@@ -191,7 +209,11 @@ static class ArrayPoolOwnershipProjection
         }
         if (limit.Effect is { } effect)
         {
-            return AppliesToArrayPoolObligation(effect)
+            return AppliesToArrayPoolObligation(
+                    effect,
+                    affectedRootIsArrayPool
+                    || (limit.ParameterIndex is null
+                        && hasArrayPoolEvidence))
                 || effect.Sources.Any(static source =>
                     source.Model.Equals(
                         ArrayPoolResourceEffectModel.Identity));
@@ -202,11 +224,19 @@ static class ArrayPoolOwnershipProjection
     }
 
     static bool AppliesToArrayPoolObligation(
-        ResolvedResourceEffect effect) =>
-        !effect.ResourceKinds.Any()
+        ResolvedResourceEffect effect,
+        bool affectedRootIsArrayPool) =>
+        (!effect.ResourceKinds.Any() && affectedRootIsArrayPool)
         || effect.ResourceKinds.Any(static kind =>
             kind.Identity
                 == ArrayPoolResourceEffectModel.BufferKind);
+
+    static bool IsArrayParameter(
+        MemberRef member,
+        int? parameterIndex) =>
+        parameterIndex is int index
+        && (uint)index < (uint)member.ParameterTypes.Length
+        && member.ParameterTypes[index].Kind == TypeRefKind.SzArray;
 
     static ArrayPoolOwnershipUse ProjectUse(
         ResourceOwnershipUse use,
@@ -218,7 +248,9 @@ static class ArrayPoolOwnershipProjection
                     when resourceKind?.Identity
                             == ArrayPoolResourceEffectModel.BufferKind
                         || use.Effect is { } effect
-                            && AppliesToArrayPoolObligation(effect) =>
+                            && AppliesToArrayPoolObligation(
+                                effect,
+                                affectedRootIsArrayPool: true) =>
                     ArrayPoolOwnershipUseKind.ReturnedToPool,
                 ResourceOwnershipUseKind.Stored =>
                     ArrayPoolOwnershipUseKind.Stored,

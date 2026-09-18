@@ -276,6 +276,14 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentWhileReleasingToken(DeclaredToken token)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        TokenResourceApi.Release(token);
+        ArrayPool<byte>.Shared.Return(buffer);
+        return buffer.Length;
+    }
+
     public static BindingOutcome BindOccurrenceReferences()
     {
         var owner = new BindingOwner<byte>();
