@@ -68,7 +68,7 @@ Existing CLI behavior provides complementary evidence:
   population-based work.
 
 These precedents are not a claim that this rule is already implemented
-everywhere. The revised first adopter binds the explicit subject Diff command
+everywhere. The revised first adopter binds an explicit top-level Diff request
 to endpoint comparison and its `--history` mode to bounded temporal evaluation,
 as owned by [Diff History inspection](diff-history.md#explicit-range-consumers).
 The command or mode supplies the consumer; another flag is not required merely
@@ -83,13 +83,16 @@ first adopter. Its specification locks alongside this pattern under the
 [bounded first-adopter exception](../design-scope.md#stage-implementation-after-locking-the-design).
 That owner retains the semantic History Outcome/Document and scalar
 version-count Result.
-[Subject-owned Diff](command-transition-model.md#subject-owned-diff) now owns
-their command placement: Type/Member History and Package version counting.
-This pattern does not duplicate those contracts or require a top-level Diff.
+[Operation Commands and Subject Sections](operation-command-and-subject-section-composition.md)
+now owns Diff placement: Type/Member History begins through top-level Diff,
+while future subject-first experiences use curated sections backed by the same
+operation. Package version counting remains a Package-owned metadata reduction,
+not Diff. This pattern does not duplicate those contracts.
 
-The counted production path is the placement owner's five steps, including
-complete shared envelopes, public CLI envelope transport, CLI cutover, and
-Browser adoption after specification. The real motivating asset is
+The counted production path is the composition owner's seven steps, with
+focused Diff adoption and host adoption retaining complete shared envelopes,
+public CLI envelope transport, and Browser consumption. The real motivating
+asset is
 `Markout@0.33.0..0.35.2`, both as a version-count question and as a History
 inspection of `Markout.MarkoutWriterOptions`. Other owners adopt separately;
 no repository-wide migration or new temporal population resolver is implied.
