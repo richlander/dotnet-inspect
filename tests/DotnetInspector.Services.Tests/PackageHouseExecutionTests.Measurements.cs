@@ -1,0 +1,319 @@
+using System.Diagnostics.CodeAnalysis;
+using DotnetInspector.Packages;
+using InertText;
+using NuGetFetch;
+
+namespace DotnetInspector.Services.Tests;
+
+public sealed partial class PackageHouseExecutionTests
+{
+    [Fact]
+    public async Task CompileSliceMeasurementsUseOneSelectedPayloadPerLibrary()
+    {
+        byte[] realImplementation =
+            ReadRealAsset("System.Text.Json.dll");
+        byte[] archive = TestPackageArchive.CreateWithContent(
+            ($"ref/net10.0/{MaterializedPackageId}.dll", new byte[3]),
+            ("ref/net10.0/Companion.dll", new byte[5]),
+            ($"lib/net10.0/{MaterializedPackageId}.dll", new byte[7]),
+            ("lib/net10.0/Companion.dll", new byte[11]),
+            (
+                $"runtimes/linux-x64/lib/net10.0/{MaterializedPackageId}.dll",
+                realImplementation),
+            ("lib/net8.0/Legacy.dll", new byte[17]));
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0",
+                "linux-x64");
+
+        PackageHouseCompileSliceMeasurementOutcome.Measured measured =
+            Assert.IsType<
+                PackageHouseCompileSliceMeasurementOutcome.Measured>(
+                PackageHouseCompileSliceMeasurementProjection.Project(
+                    settlement));
+        PackageHouseCompileSliceMeasurements measurements =
+            measured.Measurements;
+        Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
+        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(2, measurements.SelectedLibraryCount);
+        Assert.Equal(
+            realImplementation.LongLength + 11,
+            measurements.SelectedLibraryPayloadBytes);
+        PackageHouseCompileLibraryMeasurement primary =
+            Assert.Single(
+                measurements.Libraries,
+                library => library.CompileAsset.AssemblyName.Equals(
+                    $"{MaterializedPackageId}.dll",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            $"runtimes/linux-x64/lib/net10.0/{MaterializedPackageId}.dll",
+            primary.PayloadAsset.Path);
+        Assert.Equal(realImplementation.LongLength, primary.UncompressedBytes);
+        PackageHouseCompileLibraryMeasurement companion =
+            Assert.Single(
+                measurements.Libraries,
+                library => library.CompileAsset.AssemblyName.Equals(
+                    "Companion.dll",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("lib/net10.0/Companion.dll", companion.PayloadAsset.Path);
+        Assert.Equal(11, companion.UncompressedBytes);
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                settlement.Result.Evidence.Realization);
+        Assert.Same(realization, measurements.Realization);
+        Assert.Same(realization.Receipt, measurements.SelectionReceipt);
+        Assert.Same(realization.Acquisition, measurements.Acquisition);
+        Assert.Same(
+            settlement.Payload.Content.GenerationIdentity,
+            measurements.Generation);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task ExplicitEmptySliceRemainsDistinctMeasurementOutcome()
+    {
+        byte[] archive = TestPackageArchive.Create(
+            $"lib/net8.0/{MaterializedPackageId}.dll",
+            "ref/net10.0/_._");
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageHouseCompileSliceMeasurementOutcome.SelectedEmpty empty =
+            Assert.IsType<
+                PackageHouseCompileSliceMeasurementOutcome.SelectedEmpty>(
+                PackageHouseCompileSliceMeasurementProjection.Project(
+                    settlement));
+
+        Assert.Equal(archive.LongLength, empty.Measurements.CompressedPackageBytes);
+        Assert.Equal("net10.0", empty.Measurements.SelectedTargetFramework);
+        Assert.Equal(2, empty.Measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(0, empty.Measurements.SelectedLibraryCount);
+        Assert.Equal(0, empty.Measurements.SelectedLibraryPayloadBytes);
+        Assert.Empty(empty.Measurements.Libraries);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task NoCompileSlicesRemainTyped()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create("package/readme.txt"),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageHouseCompileSliceMeasurementOutcome.NoCompileSlices outcome =
+            Assert.IsType<
+                PackageHouseCompileSliceMeasurementOutcome.NoCompileSlices>(
+                PackageHouseCompileSliceMeasurementProjection.Project(
+                    settlement));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(outcome.Result);
+        Assert.Equal(
+            content.NupkgBytes.Length,
+            outcome.Measurements.CompressedPackageBytes);
+        Assert.Equal(0, outcome.Measurements.AvailableTargetFrameworkCount);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task NoApplicableSliceRemainsTyped()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                $"ref/net11.0/{MaterializedPackageId}.dll"),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageHouseCompileSliceMeasurementOutcome.NoApplicableSlice outcome =
+            Assert.IsType<
+                PackageHouseCompileSliceMeasurementOutcome.NoApplicableSlice>(
+                PackageHouseCompileSliceMeasurementProjection.Project(
+                    settlement));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(outcome.Result);
+        Assert.Equal(
+            content.NupkgBytes.Length,
+            outcome.Measurements.CompressedPackageBytes);
+        Assert.Equal(1, outcome.Measurements.AvailableTargetFrameworkCount);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task MissingEntryManifestIsVisible()
+    {
+        var inner = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                $"lib/net10.0/{MaterializedPackageId}.dll"),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        var content = new ArchiveOnlyPackageContent(inner);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        PackageHouseCompileSliceMeasurementOutcome.Unavailable unavailable =
+            Assert.IsType<
+                PackageHouseCompileSliceMeasurementOutcome.Unavailable>(
+                PackageHouseCompileSliceMeasurementProjection.Project(
+                    settlement));
+
+        Assert.Equal(
+            PackageHouseCompileSliceMeasurementUnavailableReason
+                .EntryManifestUnavailable,
+            unavailable.Reason);
+        Assert.NotNull(unavailable.PackageMeasurements);
+        Assert.Null(unavailable.PayloadAsset);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task OperationFailureDoesNotProduceMeasurements()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                $"lib/net10.0/{MaterializedPackageId}.dll"),
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settled =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+        PackageHouseEvidence settledEvidence = settled.Result.Evidence;
+        var timeout = new PackageHouseFailure.Timeout(
+            settled.Result.Request.Operation.Identity,
+            PackageHouseTimeoutKind.Operation,
+            settled.Result.Request.Operation.OperationTimeout);
+        var failedEvidence = new PackageHouseEvidence(
+            settled.Result.Request,
+            settledEvidence.Decision,
+            settledEvidence.Acquisition,
+            settledEvidence.Realization,
+            [timeout]);
+        var failedResult = new PackageHouseResult.Failed(
+            failedEvidence,
+            new InertString(
+                TextPolicy.Field,
+                "The PackageHouse operation timed out."));
+        var failedSettlement = new PackageHouseSettlement.Acquired(
+            failedResult,
+            settled.Payload,
+            settled.SourcePayloadResult!,
+            settled.SelectionUsesOriginalSources);
+
+        var outcome =
+            PackageHouseCompileSliceMeasurementProjection.Project(
+                failedSettlement);
+
+        Assert.IsType<
+            PackageHouseCompileSliceMeasurementOutcome.HouseFailure>(
+                outcome);
+        Assert.Same(failedResult, outcome.Result);
+        await environment.AssertRootSettledAsync();
+    }
+
+    private static async Task<PackageHouseSettlement.Acquired>
+        ExecuteCompileMeasurementAsync(
+        HouseEnvironment environment,
+        IPackageContent content,
+        string targetFramework,
+        string? runtimeIdentifier = null)
+    {
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    MaterializedPackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact(
+                targetFramework,
+                runtimeIdentifier),
+            PackageHouseAssetSelectionKind.Compile);
+
+        return Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.CreateHouse(
+                    (_, _) => new FixedPackageContentStore(content))
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken)));
+    }
+
+    private sealed class ArchiveOnlyPackageContent(
+        InMemoryPackageContent inner) : IPackageContent
+    {
+        public string? RootPath => inner.RootPath;
+        public string? NupkgPath => inner.NupkgPath;
+        public bool FromCache => inner.FromCache;
+        public string ProducerKey => inner.ProducerKey;
+        public PackageContentGenerationIdentity GenerationIdentity =>
+            inner.GenerationIdentity;
+        public bool RequiresArchiveTreeMatch =>
+            inner.RequiresArchiveTreeMatch;
+
+        public bool TryOpenArchive(
+            [NotNullWhen(true)] out Stream? stream) =>
+            inner.TryOpenArchive(out stream);
+
+        public bool TryOpenEntry(
+            string relativePath,
+            [NotNullWhen(true)] out Stream? stream) =>
+            inner.TryOpenEntry(relativePath, out stream);
+
+        public IEnumerable<string> EnumerateEntries() =>
+            inner.EnumerateEntries();
+    }
+}
