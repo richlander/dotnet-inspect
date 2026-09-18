@@ -14,8 +14,7 @@ namespace InertText;
 /// of them escapes ANSI but not bidi, so the layer that renders hostile assembly metadata misses
 /// the attack class Trojan Source is named after. And it leaks, because repairing a value that
 /// does not satisfy a caller-supplied predicate means handing that predicate the decoded
-/// original — the audit boundary the capability namespace exists to draw, crossed by a callback
-/// in a file whose using block says nothing.
+/// original through a callback.
 ///
 /// A closed set removes both. The rules are written once and shared, so a fix reaches every sink
 /// at the same time; and no caller code runs during a repair, so no decoded scalar leaves the
