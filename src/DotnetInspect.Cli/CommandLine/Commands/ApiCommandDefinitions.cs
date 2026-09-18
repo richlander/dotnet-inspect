@@ -542,6 +542,8 @@ public static class ApiCommandDefinitions
         SharedOptions opts)
     {
         if (opts.ResolveFormat(parseResult) != OutputFormat.Json
+            || opts.IsDiscoveryMode(parseResult)
+                && opts.ParseSchema(parseResult)
             || parseResult.GetValue(opts.Count)
             || parseResult.GetValue(opts.Print)
             || parseResult.GetValue(opts.Value)

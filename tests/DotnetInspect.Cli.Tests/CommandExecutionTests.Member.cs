@@ -3099,6 +3099,46 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("1..1", "--head", "1")]
+    [InlineData("1..1", "--tail", "1")]
+    [InlineData("999..999", "--head", "0")]
+    [InlineData("999..999", "--tail", "0")]
+    public async Task Member_FactsCount_LegacyRowsComposeWithInferredLines(
+        string rows,
+        string direction,
+        string expectedCount)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "--index", "1", "--all", "-S", "Facts", "--count",
+            "--rows", rows, "-n", "1", direction, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expectedCount, output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_FactsStructuralDiscovery_DoesNotActivateProjectedJsonAdoption()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.MultipleFacts),
+            "-D", "--schema", "-S", "Facts", "--json",
+            "--columns", "Name", "-n", "1", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("--head")]
     [InlineData("--tail")]
     public async Task Member_FactsJson_DirectionRequiresCount(

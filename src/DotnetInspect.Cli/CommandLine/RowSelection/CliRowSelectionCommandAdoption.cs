@@ -318,7 +318,10 @@ internal static class CliRowSelectionCommandRegistry
                 parseResult,
                 out CliRowSelectionLowering<string>? lowering))
         {
-            semanticIntent = lowering.SemanticIntent;
+            semanticIntent =
+                lowering.SemanticIntent.Operations.Count > 0
+                    ? lowering.SemanticIntent
+                    : null;
             error = null;
             return true;
         }
