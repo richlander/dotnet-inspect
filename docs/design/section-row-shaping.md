@@ -12,8 +12,13 @@ Rows path: request-local sequence-key binding, one named semantic invocation,
 and typed success or strict-failure rebinding. #5625 adds the immutable typed
 selection-operation intent received before schema and order resolution. #5786
 binds Head, Tail, and Window intent directly to one unordered cohort for
-package-version rows. Ordered/ranked intent resolution, projection, Count,
-source outcomes, and multiple-cohort composition remain unimplemented.
+package-version rows. Ordered/ranked intent resolution, projection, general
+Count binding, source outcomes, and multiple-cohort composition remain
+unimplemented.
+The dependency-free `SectionCountOutcome<TIdentity, TEvidence>` carrier
+implements the terminal exact-count, source-for-Count, and semantic-failure
+branches consumed by Diff History; it does not itself resolve or execute a
+section request.
 
 Only those implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
