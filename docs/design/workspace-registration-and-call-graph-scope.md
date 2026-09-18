@@ -263,9 +263,9 @@ default:
    Workspace, while the request still supplies finite discovery, acquisition,
    traversal, and result bounds.
 5. Resolution retains the exact route and evidence selected for each edge.
-   Platform registration makes target-applicable Platform candidates and
-   pruning available; it does not convert package-authored evidence into
-   Platform evidence or require every consumer to prefer Platform.
+   The .NET Runtime Ecosystem registration makes target-applicable Platform
+   candidates and pruning available; it does not convert package-authored
+   evidence into Platform evidence or require every consumer to prefer Platform.
 6. Saving or sharing the resulting configuration records the exact expanded
    membership and registration intent selected for that Workspace. Restoration
    uses raw construction and never re-evaluates the product's later curated
@@ -435,9 +435,9 @@ reconstructing graph identity or focal-length semantics.
 
 Issue [#6248](https://github.com/richlander/dotnet-inspect/issues/6248)
 separately owns cause-oriented incomplete-result diagnostics. A caller that
-chooses curated construction gains Platform registration and should remove the
-common missing-corelib case once the resolution and acquisition path is
-adopted. Raw callers retain responsibility for their explicit population, and
+chooses curated construction gains the .NET Runtime Ecosystem registration and
+should remove the common missing-corelib case once the resolution and
+acquisition path is adopted. Raw callers retain responsibility for their explicit population, and
 the diagnostic remains necessary for other missing populations and failures.
 
 ## Workspace and persistence experience

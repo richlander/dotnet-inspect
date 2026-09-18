@@ -36,8 +36,9 @@ not shipped behavior. Existing search and full Integration behavior is unchanged
 length](workspace-registration-and-call-graph-scope.md) records the approved
 target experience for inert ecosystem registration, compact namespace hints,
 concrete registered package roots, Integration-owned contract knowledge, and
-Platform as an ecosystem selecting source-owned discovery/acquisition
-bindings. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+the .NET Runtime and ASP.NET Core Ecosystems selecting source-owned
+discovery/acquisition bindings. The
+[retrieval-knowledge contract](#retrieval-hints-and-core-packages)
 under #6028 is implemented by #6037: discovery and exact lookup expose inert
 namespace hints and core-package priorities, covered by the
 [retrieval-knowledge gates](#retrieval-knowledge-gates).

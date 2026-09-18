@@ -84,7 +84,8 @@ Pruning is eligible exactly when the operation's exact Workspace revision
 contains the selected `ecosystem.runtime` registration, and off when that
 registration is absent. There is no second control. An ASP.NET Core ecosystem
 registration may contribute the `AspNetCore` platform family, but it does not
-substitute for the exact Platform registration that activates pruning.
+substitute for the exact .NET Runtime Ecosystem registration that activates
+pruning.
 
 The Workspace API constructs empty and therefore starts with pruning off. The
 Ecosystems-owned curated Workspace initially includes Platform and therefore
@@ -668,7 +669,7 @@ The first implementation slice is #6239. Its gates live in
 | The browser catalog projects exact pack-owned supply rows | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` in `DotnetInspect.Web.Tests`, plus `platform-index.test.ts` | implemented — Inspect Web adoption |
 | A demo migrates only when exact policy delegation and explicit implementation-library correspondence both hold | `StjPlatformDemos_JoinExactSupplyAndCatalogEvidence` and `ExtensionsPlatformDemos_JoinExactSupplyAndCatalogEvidence` | implemented — Runtime and ASP.NET Core demo adoption |
 | Only an exact selected `ecosystem.runtime` registration activates pruning; absent, unselected, and ASP.NET-Core-only registrations do not | `PruningActivation_RequiresSelectedPlatformRegistration` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
-| The selected Platform registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
+| The selected .NET Runtime Ecosystem registration activates comparison only with its associated exact target inventory | `PruningActivation_RequiresExactTargetInventoryCorrespondence` in `DotnetInspector.Queries.Tests` | pending — Workspace pruning adoption under #6012 and #6570 |
 | An acquired exact pack replaces projected supplied versions | `Pruning_ExactPackReplacesProjectedVersions` | pending — projection slice |
 | Band-floor equality does not infer patch-following behavior | `Pruning_BandFloorEqualityRemainsLiteral` | pending — projection slice |
 | A within-band membership change is reported for review | `Pruning_MembershipChangeIsReported` | pending — projection slice |
