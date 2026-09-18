@@ -96,8 +96,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: --lines and --tail-lines cannot be combined with JSON "
-                + "output; use semantic -n to select complete JSON rows.",
+            "Error: Rendered-line selection cannot be combined with JSON output.",
             invocation.Error.Trim());
         Assert.DoesNotContain(
             invocation.Observations,
@@ -108,7 +107,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
     }
 
     [Fact]
-    public async Task UniformlyUnsupportedRequestFailsBeforeRouterRewrite()
+    public async Task UniformFallbackRequestContinuesToAuthoritativeRoute()
     {
         RouteInvocation invocation =
             await InvokeAsync(
@@ -118,22 +117,22 @@ public sealed class CliRowSelectionRouterIntegrationTests
 
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
-        Assert.Equal(
-            "Error: -n selects semantic rows and is not available for this "
-                + "command; add --lines to select rendered lines.",
-            invocation.Error.Trim());
+        Assert.Contains(
+            "Package 'nosuchroutetarget'",
+            invocation.Error,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains(
             invocation.Observations,
             observation =>
                 observation.Stage == "router-row-selection"
-                && observation.Detail == "UnsupportedCapability");
-        Assert.DoesNotContain(
+                && observation.Detail == "Success");
+        Assert.Contains(
             invocation.Observations,
             observation => observation.Stage == "router-rewrite");
     }
 
     [Fact]
-    public async Task LegacyWindowDeferralPreservesIndependentUnsupportedLimit()
+    public async Task LegacyWindowDeferralPreservesUnsupportedWindow()
     {
         RouteInvocation invocation =
             await InvokeAsync(
@@ -147,8 +146,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: -n selects semantic rows and is not available for this "
-                + "command; add --lines to select rendered lines.",
+            "Error: --rows is not available for this command.",
             invocation.Error.Trim());
         Assert.Contains(
             invocation.Observations,
@@ -225,7 +223,7 @@ public sealed class CliRowSelectionRouterIntegrationTests
     }
 
     [Fact]
-    public async Task AllLibrariesUnsupportedRequestFailsBeforeStructuralRoute()
+    public async Task AllLibrariesFallbackLimitContinuesToStructuralRoute()
     {
         RouteInvocation invocation =
             await InvokeAsync(
@@ -238,15 +236,14 @@ public sealed class CliRowSelectionRouterIntegrationTests
         Assert.Equal(1, invocation.ExitCode);
         Assert.Empty(invocation.Output);
         Assert.Equal(
-            "Error: -n selects semantic rows and is not available for this "
-                + "command; add --lines to select rendered lines.",
+            "Error: Unrecognized option '--offline'.",
             invocation.Error.Trim());
         Assert.Contains(
             invocation.Observations,
             observation =>
                 observation.Stage == "router-row-selection"
-                && observation.Detail == "UnsupportedCapability");
-        Assert.DoesNotContain(
+                && observation.Detail == "Success");
+        Assert.Contains(
             invocation.Observations,
             observation => observation.Stage == "router-structural");
         Assert.DoesNotContain(

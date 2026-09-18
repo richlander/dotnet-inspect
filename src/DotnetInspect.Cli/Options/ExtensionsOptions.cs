@@ -62,6 +62,11 @@ public record ExtensionsOptions : IAssemblySourceOptions, IProjectionOptions
     public bool IncludeAll { get; init; }
 
     /// <summary>
+    /// Filter declaring type names by exact name or glob.
+    /// </summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>
     /// Limit number of results per source.
     /// </summary>
     public int? Limit { get; init; }

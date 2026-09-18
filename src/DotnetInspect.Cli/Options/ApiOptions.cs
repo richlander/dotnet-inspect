@@ -332,6 +332,7 @@ public record TypeOptions : ApiOptions
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
