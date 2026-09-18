@@ -88,16 +88,15 @@ public static class TypeOptionsParser
             return true;
         }
 
-        var (typeFilter, _) =
+        string? typeFilter =
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
         var typeGesture = new TypeGestureIntent(typeFilter);
-        bool hasTypeFilter = typeGesture.SelectsListingCatalog(typeName);
+        bool selectsListingCatalog =
+            SelectsTypeListingCatalog(typeName, typeFilter);
         InspectionCatalogIdentity catalog =
             interpretedCatalog
-            ?? (hasTypeFilter
-                || string.IsNullOrWhiteSpace(typeName)
-                || TypeMatcher.IsTypeGlobPattern(typeName)
+            ?? (selectsListingCatalog
                     ? InspectionCatalogIdentity.ApiType
                     : InspectionCatalogIdentity.ApiMember);
         error = SharedParsers.ParseAnalysisQueryOptions(
@@ -149,6 +148,64 @@ public static class TypeOptionsParser
         Option<string?> AtOption,
         Option<string?> WorkspaceOption,
         Option<string?> ShareOption);
+
+    internal static bool IsTypeListingRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        TypeCommandArgs args)
+    {
+        if (opts.IsDiscoveryMode(parseResult)
+            || parseResult.GetResult(opts.QueryHelp) is { Implicit: false }
+            || opts.ParseSelect(parseResult) is { Length: > 0 }
+            || opts.ParseSelectDefault(parseResult)
+            || parseResult.GetValue(args.ShapeOption)
+            || string.Equals(
+                parseResult.GetValue(args.TfmOption),
+                "all",
+                StringComparison.OrdinalIgnoreCase)
+            || parseResult.GetValue(opts.PerformanceTriageLoop)
+            || !string.IsNullOrWhiteSpace(
+                parseResult.GetValue(opts.PerformanceTriageMinConfidence))
+            || parseResult.GetValue(opts.PerformanceTriageShape)
+                is { Length: > 0 }
+            || parseResult.GetValue(opts.PerformanceTriageTop) is not null
+            || parseResult.GetValue(opts.RowWhere) is { Length: > 0 }
+            || !string.IsNullOrWhiteSpace(
+                parseResult.GetValue(opts.RowOrderBy)))
+        {
+            return false;
+        }
+
+        SharedParsers.SourceSelectionInputs sourceInputs =
+            SharedParsers.ReadSourceSelectionInputs(
+                parseResult,
+                args.ArgsArg,
+                args.PackageOption,
+                args.AssemblyOption,
+                args.PlatformOption);
+        bool hasProjectSource =
+            !string.IsNullOrWhiteSpace(
+                parseResult.GetValue(args.ProjectOption));
+        if (!sourceInputs.HasExplicitSource && !hasProjectSource)
+            return false;
+
+        string? typeTarget =
+            sourceInputs.Args.FirstOrDefault();
+        string? typeFilter =
+            SharedParsers.ParseTypeFilter(
+                parseResult.GetValue(args.TypeFilterOption));
+        return SelectsTypeListingCatalog(
+            typeTarget,
+            typeFilter);
+    }
+
+    private static bool SelectsTypeListingCatalog(
+        string? typeTarget,
+        string? typeFilter) =>
+        string.IsNullOrWhiteSpace(typeTarget)
+        || TypeMatcher.IsTypeGlobPattern(typeTarget)
+        || new TypeGestureIntent(typeFilter)
+            .SelectsListingCatalog(typeTarget);
 
     /// <summary>
     /// Result of parsing type command options.
@@ -266,6 +323,23 @@ public static class TypeOptionsParser
             }
         }
 
+        bool selectsTypeListingRows =
+            IsTypeListingRowSelection(
+                parseResult,
+                opts,
+                args);
+        RowSelectionIntent<string>? typeListingRowSelection = null;
+        if (selectsTypeListingRows
+            && !CliRowSelectionCommandRegistry
+                .TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Type",
+                    out typeListingRowSelection,
+                    out string? rowSelectionError))
+        {
+            return new VersionError(rowSelectionError!);
+        }
+
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
         if (badOption != null)
@@ -321,8 +395,9 @@ public static class TypeOptionsParser
         if (source.VersionError)
             return new VersionError(source.VersionErrorMessage!);
 
-        // Parse type filter (number = limit, string = glob)
-        var (typeFilter, typeLimit) = SharedParsers.ParseTypeFilter(parseResult.GetValue(args.TypeFilterOption));
+        string? typeFilter =
+            SharedParsers.ParseTypeFilter(
+                parseResult.GetValue(args.TypeFilterOption));
 
         // Parse member filter
         var memberValues = parseResult.GetValue(args.MemberOption) ?? [];
@@ -378,9 +453,10 @@ public static class TypeOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             TypeFilter = typeFilter,
+            TypeListingRowSelection = typeListingRowSelection,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit ?? typeLimit,
+            Limit = memberLimit,
             MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
@@ -418,7 +494,9 @@ public static class TypeOptionsParser
             FieldsExplicitlySet =
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
-            Rows = opts.ParseRows(parseResult),
+            Rows = selectsTypeListingRows
+                ? null
+                : opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,
@@ -430,7 +508,7 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || typeLimit != null
+            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

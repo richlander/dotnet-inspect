@@ -814,6 +814,7 @@ fallback.
 
 ```bash
 dotnet-inspect type string --shape
+dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -825,6 +826,15 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
+
+For a Type catalog with an explicit package, library, platform, or project
+source, including positional or `-t` Type globs, `-n`, `--tail`, and
+`--rows A..B` select complete types after type, kind, and unsafe filtering.
+Markdown, table, TSV, JSONL, and JSON observe the same selected types;
+assembly-level companion evidence such as Type forwarders remains visible. Add
+`--lines` only to clip rendered text. Exact-type, selected-section, discovery,
+shape, match, and ambiguous commandless modes retain rendered-line fallback.
+Numeric `-t` is a literal Type filter, not a row-count spelling.
 
 Use a Workspace packet as reusable aggregate context when the Type may be
 defined by any Library in its selected context:

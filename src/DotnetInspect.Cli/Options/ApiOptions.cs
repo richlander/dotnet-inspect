@@ -313,6 +313,7 @@ public record TypeOptions : ApiOptions
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
+    public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }

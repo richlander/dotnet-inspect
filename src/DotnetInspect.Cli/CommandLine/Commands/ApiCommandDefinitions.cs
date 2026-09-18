@@ -115,6 +115,31 @@ public static class ApiCommandDefinitions
             workspaceOption, shareOption);
         structuralArgs = commandArgs;
 
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                !result.GetValue(matchOption)
+                && TypeOptionsParser.IsTypeListingRowSelection(
+                    result,
+                    opts,
+                    commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+
         typeCommand.SetAction(async (parseResult, ct) =>
         {
             if (parseResult.GetValue(workspaceOption) is not null
