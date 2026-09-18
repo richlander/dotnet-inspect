@@ -1038,10 +1038,11 @@ claim.
 ### Complete committed views
 
 [Portable active descendant views](portable-active-descendant-views.md) defines
-the target schema-version-4/packet-format-4 extension under #7475. It adds
+the schema-version-4/packet-format-4 extension under #7475. It adds
 explicit active Library, Type and Member requests without reinterpreting the
-version-2/3 subject tags specified here. Its implementation and host adoption
-remain unverified.
+version-2/3 subject tags specified here. Its managed records, codec,
+transposition, resolution and complete restoration are implemented; that
+focused document names the Release gates and remaining CLI/Browser adoption.
 
 Definition schema version 2 replaces the flat version-1 view with one
 null-coordinate Workspace state followed by one state for every entry in the
