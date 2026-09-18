@@ -211,6 +211,57 @@ public sealed class PdbLocalDeclarationScopeTests
     }
 
     [Fact]
+    public void OutArgumentInWhileConditionWithLaterUse_LeavesCollisionVisible()
+    {
+        var callee = new MethodRef(
+            Owner,
+            "TryRead",
+            Boolean,
+            [TypeRef.ByRef(Int32)],
+            HasThis: false)
+        {
+            ParameterRefKinds = [ArgumentRefKind.Out],
+            ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+        };
+        var entry = new Block();
+        entry.Add(LoopAndObserve(0));
+        entry.Add(LoopAndObserve(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+        Assert.DoesNotContain("out int same", result.Output);
+
+        Block LoopAndObserve(int index)
+        {
+            var lexical = new Block();
+            lexical.Add(new WhileLoop(
+                new Call(
+                    callee,
+                    isVirtual: false,
+                    [new LoadLocalAddress(index, Int32)]),
+                new Block()));
+            lexical.Add(Observe(index));
+            return lexical;
+        }
+    }
+
+    [Fact]
     public void UniqueOutArgument_RemainsAtFunctionScope()
     {
         var callee = new MethodRef(

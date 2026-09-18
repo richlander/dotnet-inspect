@@ -275,6 +275,20 @@ public sealed partial class CSharpPrinter
         return null;
     }
 
+    static IrNode? OutVariableDeclarationScope(IrNode declaration)
+    {
+        for (IrNode? current = declaration.Parent;
+            current is not null and not IrFunction;
+            current = current.Parent)
+        {
+            if (current is WhileLoop or DoWhileLoop or ForLoop)
+                return current;
+            if (current is Block block)
+                return block.Parent is BlockContainer container ? container : block;
+        }
+        return null;
+    }
+
     static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
         VerifiedOutLocalDeclarations(
         IrFunction function)
@@ -311,7 +325,7 @@ public sealed partial class CSharpPrinter
                 default:
                     continue;
             }
-            if (DeclarationScope(node) is not { } owner)
+            if (OutVariableDeclarationScope(node) is not { } owner)
                 continue;
             for (int argumentIndex = parameterStart;
                 argumentIndex < arguments.Count;
