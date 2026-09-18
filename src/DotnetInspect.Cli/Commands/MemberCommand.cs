@@ -871,8 +871,8 @@ public static class MemberCommand
                         AllowAdjacentPdbReads = true,
                         Log = logger.Log,
                     };
-                    AssemblyMemberSourceComparisonEntry comparison =
-                        await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                    InspectionEnvelope<AssemblyMemberSourceComparisonEntry> inspection =
+                        await MemberSourceInspection.CompareAsync(
                             group,
                             participant,
                             AssemblyMemberSourceRequest.From(
@@ -880,6 +880,7 @@ public static class MemberCommand
                                 sourceMember,
                                 effectiveOptions.RenderOptions),
                             queryContext);
+                    AssemblyMemberSourceComparisonEntry comparison = inspection.Content;
                     AssemblyMemberPdbSourceAttempt.Unavailable? unavailablePdb =
                         comparison switch
                         {
@@ -897,6 +898,7 @@ public static class MemberCommand
                     effectiveOptions = effectiveOptions with
                     {
                         MemberSourceComparison = comparison,
+                        MemberSourceComparisonInspection = inspection,
                         MemberHasNoBody = selectedMemberHasBody == false,
                         MemberHasNoPdbDeclaration =
                             pdbOutcome
