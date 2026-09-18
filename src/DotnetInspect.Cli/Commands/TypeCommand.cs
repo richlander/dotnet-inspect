@@ -566,7 +566,6 @@ public static class TypeCommand
                     {
                         await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                             apiType,
-                            apiType.FullName,
                             sourceFilesDllPath,
                             effectiveOptions with
                             {
