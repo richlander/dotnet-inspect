@@ -104,6 +104,7 @@ export interface RetainedWorkspaceActivationController {
   delete(
     retainedDefinitionId: string,
     successorDefinitionId?: string | null,
+    completeSoleDeactivation?: () => void | Promise<void>,
   ): Promise<void>;
 }
 
@@ -423,7 +424,8 @@ export function createRetainedWorkspaceActivationController(
   }
 
   function cancelPending(): boolean {
-    if (committingDefinitionId !== null) return false;
+    if (committingDefinitionId !== null
+      || soleDeactivationIntent !== null) return false;
     const activationIntentId = currentActivationIntentId;
     if (activationIntentId === null) return true;
     selectionGeneration++;
@@ -481,6 +483,7 @@ export function createRetainedWorkspaceActivationController(
   async function deleteDefinition(
     retainedDefinitionId: string,
     successorDefinitionId?: string | null,
+    completeSoleDeactivation?: () => void | Promise<void>,
   ): Promise<void> {
     const removedIndex = definitions.findIndex(
       definition => definition.id === retainedDefinitionId,
@@ -539,6 +542,10 @@ export function createRetainedWorkspaceActivationController(
       retainedDefinitionId,
     };
     soleDeactivationIntent = intent;
+    commitBarrier = new Promise<void>(resolve => {
+      settleCommit = resolve;
+    });
+    hooks.commitStarted?.();
     try {
       const result = await client.deactivateRetainedWorkspaceDefinition(
         retainedDefinitionId,
@@ -554,6 +561,7 @@ export function createRetainedWorkspaceActivationController(
           activeDefinitionId = null;
           lastFailure = null;
           hooks.clear();
+          await completeSoleDeactivation?.();
           return;
         case "noEffect":
           definitions = definitions.filter(
@@ -561,6 +569,7 @@ export function createRetainedWorkspaceActivationController(
           );
           activeDefinitionId = null;
           hooks.clear();
+          await completeSoleDeactivation?.();
           return;
         case "cleanupFailed":
           definitions = definitions.filter(
@@ -571,6 +580,7 @@ export function createRetainedWorkspaceActivationController(
             ?? result.message
             ?? "The active Workspace could not be settled.";
           hooks.clear();
+          await completeSoleDeactivation?.();
           return;
         case "rejected":
           lastFailure = result.message
@@ -584,6 +594,9 @@ export function createRetainedWorkspaceActivationController(
     } finally {
       if (soleDeactivationIntent?.generation === intent.generation) {
         soleDeactivationIntent = null;
+        settleCommit?.();
+        settleCommit = null;
+        hooks.commitSettled?.();
       }
     }
   }

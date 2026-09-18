@@ -436,6 +436,7 @@ function harness() {
   const packageComparisonTargets = createPackageComparisonTargets(() => state.packages);
   const innerNavigationSequence = createNavigationSequence();
   let cancelPendingWorkspaceConstruction = () => {};
+  let cancelPendingRetainedWorkspaceActivation = () => true;
   let cancelPendingManagedCompatibilityOpen = () => true;
   let realignPendingWorkspaceHistoryTraversal = () => {};
   const navigationSequence = {
@@ -449,6 +450,10 @@ function harness() {
       if (!preserveWorkspaceHistoryTraversal) {
         realignPendingWorkspaceHistoryTraversal();
       }
+      if (!cancelPendingRetainedWorkspaceActivation()) {
+        throw new Error(
+          "Wait for the retained Workspace cutover to finish before navigating.");
+      }
       if (!cancelPendingManagedCompatibilityOpen()) {
         throw new Error(
           "Wait for the Workspace compatibility cutover to finish before navigating.");
@@ -457,6 +462,10 @@ function harness() {
       return innerNavigationSequence.begin();
     },
     invalidate: () => {
+      if (!cancelPendingRetainedWorkspaceActivation()) {
+        throw new Error(
+          "Wait for the retained Workspace cutover to finish before navigating.");
+      }
       if (!cancelPendingManagedCompatibilityOpen()) {
         throw new Error(
           "Wait for the Workspace compatibility cutover to finish before navigating.");
@@ -607,6 +616,9 @@ function harness() {
     coordinateCount: number;
   }> = [];
   let managedActiveDefinitionId: string | null = null;
+  let managedSoleDeletionPending = false;
+  let managedSoleDeletionBarrier: Promise<void> = Promise.resolve();
+  let settleManagedSoleDeletion: (() => void) | null = null;
   const heading = { tabIndex: 0, focus: () => focus.push("heading") };
   const document = {
     title: "",
@@ -857,23 +869,53 @@ function harness() {
           return result;
         });
       },
-      cancelPending: () => true,
-      waitForPendingCommit: () => Promise.resolve(),
+      cancelPending: () => !managedSoleDeletionPending,
+      waitForPendingCommit: () => managedSoleDeletionBarrier,
       deactivate: async (retainedDefinitionId: string) => {
         await controls.deactivateRetained?.();
         if (managedActiveDefinitionId === retainedDefinitionId) {
           managedActiveDefinitionId = null;
         }
       },
-      delete: (retainedDefinitionId: string) => {
+      delete: async (
+        retainedDefinitionId: string,
+        successorDefinitionId?: string | null,
+        completeSoleDeactivation?: () => void | Promise<void>,
+      ) => {
         retainedDeletes.push(retainedDefinitionId);
+        const deletingActive =
+          managedActiveDefinitionId === retainedDefinitionId;
+        if (deletingActive && successorDefinitionId === null) {
+          managedSoleDeletionPending = true;
+          context.app.inert = true;
+          managedSoleDeletionBarrier = new Promise(resolve => {
+            settleManagedSoleDeletion = resolve;
+          });
+          try {
+            await controls.deactivateRetained?.();
+            const index = managedDefinitionState.findIndex(
+              definition => definition.id === retainedDefinitionId);
+            if (index >= 0) managedDefinitionState.splice(index, 1);
+            managedActiveDefinitionId = null;
+            runInNewContext(
+              "clearInstalledManagedWorkspaceAssociation()",
+              context);
+            state.packages = [];
+            state.package = null;
+            await completeSoleDeactivation?.();
+          } finally {
+            managedSoleDeletionPending = false;
+            context.app.inert = false;
+            settleManagedSoleDeletion?.();
+            settleManagedSoleDeletion = null;
+            managedSoleDeletionBarrier = Promise.resolve();
+          }
+          return;
+        }
         const index = managedDefinitionState.findIndex(
           definition => definition.id === retainedDefinitionId);
         if (index >= 0) managedDefinitionState.splice(index, 1);
-        if (managedActiveDefinitionId === retainedDefinitionId) {
-          managedActiveDefinitionId = null;
-        }
-        return Promise.resolve();
+        if (deletingActive) managedActiveDefinitionId = null;
       },
     },
     installedRetainedWorkspaceRealizationId:
@@ -1030,6 +1072,8 @@ function harness() {
     startPlatformTargetWork: () => {},
   };
   runInNewContext(stripTypeScriptTypes(hostDeclarations), context);
+  cancelPendingRetainedWorkspaceActivation = () =>
+    context.retainedWorkspaceActivationController.cancelPending();
   cancelPendingWorkspaceConstruction = () => {
     runInNewContext("cancelPendingWorkspaceConstruction()", context);
   };
@@ -2519,6 +2563,39 @@ test("active managed deletion keeps legacy successor cutover inside the commit b
   assert.equal(h.state.package?.id, "Source");
   assert.deepEqual(h.retainedDeletes, [managedId]);
   assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
+});
+
+test("sole-active managed deletion rejects legacy Open until no-Workspace completion", async () => {
+  const h = harness();
+  h.context.retainedWorkspaces =
+    createRetainedWorkspaceCollection<unknown>();
+  h.open(completeSaved);
+  await h.settle();
+  const managedId = h.context.retainedWorkspaces.activeWorkspaceId;
+  assert.equal(managedId, "workspace-definition-1");
+  const deactivation = deferred<void>();
+  h.controls.deactivateRetained = () => deactivation.promise;
+
+  const deletion = h.deleteWorkspace(managedId);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(h.context.app.inert, true);
+  h.open();
+  await assert.rejects(
+    h.settle(),
+    /retained Workspace cutover/u,
+  );
+
+  deactivation.resolve();
+  await deletion;
+
+  assert.equal(h.context.app.inert, false);
+  assert.equal(h.context.retainedWorkspaces.activeWorkspaceId, null);
+  assert.deepEqual(h.context.retainedWorkspaces.workspaces, []);
+  assert.equal(h.context.installedRetainedWorkspaceRealizationId, null);
+  assert.equal(h.context.installedRetainedWorkspaceInstallation, null);
+  assert.equal(h.state.package, null);
+  assert.equal(h.location.pathname, "/demos");
 });
 
 test("active managed deletion yields history replacement to browser traversal", async () => {

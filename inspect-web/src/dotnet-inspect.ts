@@ -2295,15 +2295,19 @@ async function deleteRetainedWorkspaceCore(
         return;
       }
 
-      await retainedWorkspaceActivationController.delete(workspaceId, null);
-      retainedWorkspaces = {
-        ...retainedWorkspaces,
-        activeWorkspaceId: null,
-        workspaces: retainedWorkspaces.workspaces.filter(
-          workspace => workspace.id !== workspaceId),
-      };
-      workspaceLocation.replace("/demos", history.state);
-      render({ synchronizeUrl: false });
+      await retainedWorkspaceActivationController.delete(
+        workspaceId,
+        null,
+        () => {
+          retainedWorkspaces = {
+            ...retainedWorkspaces,
+            activeWorkspaceId: null,
+            workspaces: retainedWorkspaces.workspaces.filter(
+              workspace => workspace.id !== workspaceId),
+          };
+          workspaceLocation.replace("/demos", history.state);
+          render({ synchronizeUrl: false });
+        });
       return;
     }
 

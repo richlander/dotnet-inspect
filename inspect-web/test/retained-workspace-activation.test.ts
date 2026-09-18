@@ -950,6 +950,69 @@ test("deleting the sole active definition drains managed state", async () => {
   assert.equal(fixture.clears(), 1);
 });
 
+test("sole-active deletion barrier includes consumer completion", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const selection = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await selection;
+  fixture.commitEvents.length = 0;
+  const completion = deferred<void>();
+
+  const deletion = fixture.controller.delete(
+    first.id,
+    null,
+    async () => {
+      fixture.commitEvents.push("completion-started");
+      await completion.promise;
+      fixture.commitEvents.push("completion-settled");
+    });
+
+  assert.deepEqual(fixture.commitEvents, ["started"]);
+  assert.equal(fixture.controller.cancelPending(), false);
+  let barrierSettled = false;
+  const barrier = fixture.controller.waitForPendingCommit().then(
+    () => barrierSettled = true);
+
+  fixture.client.deactivationResponses[0]!.resolve({
+    status: "deactivated",
+    settlement: {
+      succeeded: true,
+      reason: "CoordinatorClosed",
+      failure: null,
+    },
+    message: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(
+    fixture.commitEvents,
+    ["started", "completion-started"],
+  );
+  assert.equal(fixture.clears(), 1);
+  assert.equal(barrierSettled, false);
+  assert.equal(fixture.controller.cancelPending(), false);
+
+  completion.resolve();
+  await deletion;
+  await barrier;
+
+  assert.deepEqual(
+    fixture.commitEvents,
+    ["started", "completion-started", "completion-settled", "settled"],
+  );
+  assert.equal(barrierSettled, true);
+  assert.equal(fixture.controller.cancelPending(), true);
+});
+
 test("failed sole-active cleanup clears unavailable presentation and preserves evidence", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
