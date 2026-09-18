@@ -28,19 +28,6 @@ public static class SynchronousCompletionAnalysis
 {
     const byte InstanceDefaultSignature = 0x20;
 
-    static readonly TypeRef s_boolean =
-        TypeRef.CoreLib("System", "Boolean");
-    static readonly TypeRef s_cancellationToken =
-        TypeRef.CoreLib(
-            "System.Threading",
-            "CancellationToken");
-    static readonly TypeRef s_int32 =
-        TypeRef.CoreLib("System", "Int32");
-    static readonly TypeRef s_timeSpan =
-        TypeRef.CoreLib("System", "TimeSpan");
-    static readonly TypeRef s_void =
-        TypeRef.CoreLib("System", "Void");
-
     public static ImmutableArray<SynchronousCompletionObservation> Inspect(
         IEnumerable<DirectCall> calls)
     {
@@ -110,16 +97,26 @@ public static class SynchronousCompletionAnalysis
             return false;
         }
 
-        if (callee.ReturnType.Equals(s_void))
+        if (IsCoreLibraryType(
+                callee.ReturnType,
+                "System",
+                "Void"))
         {
             return callee.ParameterTypes.Length == 0
                 || callee.ParameterTypes.Length == 1
-                    && callee.ParameterTypes[0].Equals(
-                        s_cancellationToken);
+                    && IsCoreLibraryType(
+                        callee.ParameterTypes[0],
+                        "System.Threading",
+                        "CancellationToken");
         }
 
-        if (!callee.ReturnType.Equals(s_boolean))
+        if (!IsCoreLibraryType(
+                callee.ReturnType,
+                "System",
+                "Boolean"))
+        {
             return false;
+        }
 
         return callee.ParameterTypes.Length == 1
                 && IsTaskWaitTimeout(
@@ -127,22 +124,20 @@ public static class SynchronousCompletionAnalysis
             || callee.ParameterTypes.Length == 2
                 && IsTaskWaitTimeout(
                     callee.ParameterTypes[0])
-                && callee.ParameterTypes[1].Equals(
-                    s_cancellationToken);
+                && IsCoreLibraryType(
+                    callee.ParameterTypes[1],
+                    "System.Threading",
+                    "CancellationToken");
     }
 
     static bool IsTaskWaitTimeout(TypeRef type) =>
-        type.Equals(s_int32)
-        || type.Equals(s_timeSpan);
+        IsCoreLibraryType(type, "System", "Int32")
+        || IsCoreLibraryType(type, "System", "TimeSpan");
 
     static bool IsTaskResult(MemberRef callee) =>
         callee.Name == "get_Result"
         && callee.ParameterTypes.Length == 0
-        && callee.DeclaringType.Kind
-            == TypeRefKind.GenericInstance
-        && callee.DeclaringType.TypeArguments is
-            [var resultType]
-        && callee.ReturnType.Equals(resultType)
+        && HasGenericResultSignature(callee)
         && FrameworkIdentity.IsCoreLibraryType(
             callee.DeclaringType,
             "System.Threading.Tasks",
@@ -166,14 +161,13 @@ public static class SynchronousCompletionAnalysis
                 "System.Runtime.CompilerServices",
                 "ConfiguredTaskAwaitable+ConfiguredTaskAwaiter"))
         {
-            return callee.ReturnType.Equals(s_void);
+            return IsCoreLibraryType(
+                callee.ReturnType,
+                "System",
+                "Void");
         }
 
-        return declaringType.Kind
-                == TypeRefKind.GenericInstance
-            && declaringType.TypeArguments is
-                [var resultType]
-            && callee.ReturnType.Equals(resultType)
+        return HasGenericResultSignature(callee)
             && (FrameworkIdentity.IsCoreLibraryType(
                     declaringType,
                     "System.Runtime.CompilerServices",
@@ -183,4 +177,38 @@ public static class SynchronousCompletionAnalysis
                     "System.Runtime.CompilerServices",
                     "ConfiguredTaskAwaitable`1+ConfiguredTaskAwaiter"));
     }
+
+    static bool HasGenericResultSignature(MemberRef callee)
+    {
+        TypeRef openReturnType =
+            callee.OpenSignatureReturn;
+        if (openReturnType.Kind
+                != TypeRefKind.GenericParameter
+            || openReturnType.GenericParameterIndex != 0)
+        {
+            return false;
+        }
+
+        TypeRef declaringType = callee.DeclaringType;
+        return declaringType.Kind
+                == TypeRefKind.GenericInstance
+            && declaringType.TypeArguments is
+                [var resultType]
+            && callee.ReturnType.Equals(resultType)
+            || declaringType.Kind
+                == TypeRefKind.Definition
+                && callee.ReturnType.Kind
+                    == TypeRefKind.GenericParameter
+                && callee.ReturnType.GenericParameterIndex
+                    == 0;
+    }
+
+    static bool IsCoreLibraryType(
+        TypeRef type,
+        string ns,
+        string name) =>
+        FrameworkIdentity.IsCoreLibraryType(
+            type,
+            ns,
+            name);
 }

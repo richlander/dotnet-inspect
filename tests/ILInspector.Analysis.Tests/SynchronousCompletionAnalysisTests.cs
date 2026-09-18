@@ -38,7 +38,7 @@ public sealed class SynchronousCompletionAnalysisTests
             Assert.Single(
                 SynchronousCompletionAnalysis.Inspect(
                     [
-                        Call(
+                        GenericResultCall(
                             Generic(
                                 "System.Threading.Tasks",
                                 "Task`1",
@@ -80,23 +80,46 @@ public sealed class SynchronousCompletionAnalysisTests
                 "System.Runtime.CompilerServices",
                 typeName);
 
+        DirectCall call = generic
+            ? GenericResultCall(
+                declaringType,
+                "GetResult",
+                resultType)
+            : Call(
+                declaringType,
+                "GetResult",
+                TypeRef.CoreLib("System", "Void"));
+
         SynchronousCompletionObservation observation =
             Assert.Single(
                 SynchronousCompletionAnalysis.Inspect(
-                    [
-                        Call(
-                            declaringType,
-                            "GetResult",
-                            generic
-                                ? resultType
-                                : TypeRef.CoreLib(
-                                    "System",
-                                    "Void")),
-                    ]));
+                    [call]));
 
         Assert.Equal(
             SynchronousCompletionKind.TaskAwaiterGetResult,
             observation.Kind);
+    }
+
+    [Fact]
+    public void ClassifiesGenericResultWithCustomTypeArgument()
+    {
+        TypeRef resultType =
+            TypeRef.Definition(
+                "Example",
+                "Example",
+                "Payload");
+
+        Assert.Single(
+            SynchronousCompletionAnalysis.Inspect(
+                [
+                    GenericResultCall(
+                        Generic(
+                            "System.Threading.Tasks",
+                            "Task`1",
+                            resultType),
+                        "get_Result",
+                        resultType),
+                ]));
     }
 
     [Fact]
@@ -169,7 +192,7 @@ public sealed class SynchronousCompletionAnalysisTests
                         "Wait",
                         TypeRef.CoreLib("System", "Int32"),
                         TypeRef.CoreLib("System", "String")),
-                    Call(
+                    GenericResultCall(
                         taskResult,
                         "get_Result",
                         TypeRef.CoreLib("System", "Void")),
@@ -179,10 +202,52 @@ public sealed class SynchronousCompletionAnalysisTests
                             "TaskAwaiter"),
                         "GetResult",
                         resultType),
-                    Call(
+                    GenericResultCall(
                         awaiterResult,
                         "GetResult",
                         TypeRef.CoreLib("System", "Int32")),
+                ]));
+    }
+
+    [Fact]
+    public void RejectsUntrustedFixedFrameworkSignatureTypes()
+    {
+        TypeRef untrustedBoolean =
+            UntrustedCoreLibraryType(
+                "System",
+                "Boolean");
+        TypeRef untrustedCancellationToken =
+            UntrustedCoreLibraryType(
+                "System.Threading",
+                "CancellationToken");
+        TypeRef untrustedVoid =
+            UntrustedCoreLibraryType(
+                "System",
+                "Void");
+
+        Assert.Empty(
+            SynchronousCompletionAnalysis.Inspect(
+                [
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Threading.Tasks",
+                            "Task"),
+                        "Wait",
+                        TypeRef.CoreLib("System", "Void"),
+                        untrustedCancellationToken),
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Threading.Tasks",
+                            "Task"),
+                        "Wait",
+                        untrustedBoolean,
+                        TypeRef.CoreLib("System", "Int32")),
+                    Call(
+                        TypeRef.CoreLib(
+                            "System.Runtime.CompilerServices",
+                            "TaskAwaiter"),
+                        "GetResult",
+                        untrustedVoid),
                 ]));
     }
 
@@ -255,6 +320,26 @@ public sealed class SynchronousCompletionAnalysisTests
             CalleeDefinitionToken: 0x0A000001,
             CallKind.CallVirtual);
 
+    static DirectCall GenericResultCall(
+        TypeRef declaringType,
+        string name,
+        TypeRef returnType)
+    {
+        DirectCall call =
+            Call(
+                declaringType,
+                name,
+                returnType);
+        return call with
+        {
+            Callee = call.Callee with
+            {
+                OpenReturnType =
+                    TypeRef.GenericParameter(0),
+            },
+        };
+    }
+
     static TypeRef Generic(
         string ns,
         string name,
@@ -262,6 +347,15 @@ public sealed class SynchronousCompletionAnalysisTests
         TypeRef.GenericInstance(
             TypeRef.CoreLib(ns, name),
             [argument]);
+
+    static TypeRef UntrustedCoreLibraryType(
+        string ns,
+        string name) =>
+        TypeRef.Definition(
+            "System.Runtime",
+            ns,
+            name,
+            trustedFrameworkAssembly: false);
 
     public static TheoryData<TypeRef, TypeRef[]>
         TaskWaitSignatures =>
