@@ -83,9 +83,9 @@ receipts separate.
 The implemented contract retains exact requests, capabilities, source
 generations, coordinates, targets, contributions, and settlement dispositions
 directly. It does not mint separate House-local occurrence identities for
-source contributions, source-to-target correspondence, target selection, or
-documentation attempts. The completion identity remains because it binds a
-detached completion receipt to its separately live operation value.
+source contributions, source-to-target correspondence, or target selection.
+The completion identity remains because it binds a detached completion receipt
+to its separately live operation value.
 
 Exact-target, one-Library shared ownership handoff is implemented in
 `DotnetInspector.PlatformHouse.Execution` under #7237. It validates selected
@@ -223,11 +223,10 @@ owner-issued inputs listed above without redefining their identities,
 algorithms, lifetimes, or failure semantics.
 
 Documentation settlement was originally added as a PlatformHouse extension
-under #6375. That cohesive responsibility transfers to
-[DocumentationHouse](documentation-house.md) under #6579. Existing
-PlatformHouse documentation request and receipt types remain migration
-evidence until the counted DocumentationHouse adapter slice retires them; they
-are not part of this target contract.
+under #6375. That cohesive responsibility has transferred to
+[DocumentationHouse](documentation-house.md) under #6579. The superseded
+PlatformHouse documentation request, source-facet, contribution, attempt, and
+receipt types have been removed; they are not part of this contract.
 
 The [PackageHouse](package-house.md) and direct-library paths below form a thin composition map,
 not additional normative owners inside this document. Their focused designs
@@ -1303,9 +1302,9 @@ documentation settlement: PlatformHouse does not parse XML, select a
 documentation subject, or create a DocumentationHouse outcome. Omitting the
 content demand performs no companion acquisition and cannot prove absence.
 
-Existing PlatformHouse documentation contracts remain temporary migration
-evidence until #6579 step 10 removes them. New product consumers must not adopt
-those contracts as the target architecture.
+The former PlatformHouse subject-level documentation contracts are removed.
+Product consumers compose the Library realization receipt through the separate
+platform documentation adapter instead.
 
 ## Result and receipt contract
 
