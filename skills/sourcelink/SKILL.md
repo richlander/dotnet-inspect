@@ -35,7 +35,7 @@ for source path rows.
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files"
 dnx dotnet-inspect -y -- package Newtonsoft.Json@13.0.3 \
-  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
 dnx dotnet-inspect -y -- library coordinate 0x06000001+0x0 \
@@ -79,7 +79,8 @@ PDB acquisition may still use the network.
 ## URL forms
 
 PDBs *carry* SourceLink data; they are not SourceLink themselves. SourceLink URL
-rows default to raw/fetchable form; add `--blob` for browser URLs. Prefer
+rows default to raw/fetchable form; add `--prefer-rendered-urls` to prefer
+browser views when supported, leaving other URLs unchanged. Prefer
 `--urls` when you want URL payloads, `--paths` for file paths, and `--print` when
 you want the referenced source body. `--bare` remains a raw selected-payload
 escape hatch.
@@ -87,7 +88,7 @@ escape hatch.
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --urls --jsonl
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
-dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files" --urls --blob
+dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Files" --urls --prefer-rendered-urls
 ```
 
 To check *whether* SourceLink is present and usable (rather than fetch source),

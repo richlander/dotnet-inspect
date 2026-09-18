@@ -125,7 +125,7 @@ internal static class ILOffsetQuery
             coordinate.MethodToken,
             coordinate.ILOffset,
             capabilities,
-            options.BrowsableUrls,
+            options.PreferRenderedUrls,
             logger.Log,
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence));

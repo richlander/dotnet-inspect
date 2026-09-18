@@ -261,7 +261,7 @@ public partial class PackageCommand
             IncludePrerelease = options.IncludePrerelease,
             Tfm = options.Tfm,
             TypeFilter = options.TypeFilter,
-            BrowsableUrls = options.BrowsableUrls,
+            PreferRenderedUrls = options.PreferRenderedUrls,
             JsonOutput = options.JsonOutput,
             PlainText =
                 options.Format == OutputFormat.PlainText,
