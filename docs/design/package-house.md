@@ -67,7 +67,12 @@ Online ordinary `package Package --versions` queries consume a separate shared
 `PackageVersionListingInspection` envelope over PackageHouse listing
 settlement. The House result preserves authoritative or partial Package Source
 discovery, while the inspection detaches version rows, source rows, typed
-failures, and diagnostics for CLI projection. Raw listing may publish
+failures, and diagnostics for CLI projection. Online exact pinned queries also
+consume this detached listing, request prerelease and unlisted evidence, and
+apply their existing exact NuGet match over its rows. A matching pin remains
+usable with visible partial-source diagnostics; a missing pin is not declared
+absent when a configured authority failed, except when the failure concerns
+listing state rather than version existence. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
@@ -78,8 +83,8 @@ the same detached listing while retaining Browser-owned predecessor policy.
 receipt, requested progress, and explicit prerelease boundary, while the
 existing latest-settlement, source-failure, listing, rendering, and
 `BrowserPackageVersionInventoryTests` cases preserve neighboring behavior.
-This is payload-free adoption: CLI pinned queries, offline behavior, and
-package-content/Workspace adoption remain separate slices.
+This is payload-free adoption: offline behavior and package-content/Workspace
+adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
@@ -341,8 +346,9 @@ cancellation produces no result.
 the normalized request, authoritative-or-partial completeness, ordered
 deduplicated version rows, and per-authority source rows. Typed non-success
 retains inert reason text, operation timeout, and credential-safe authority
-failures. Available source failures become ordered diagnostics rather than
-disappearing or invalidating usable raw rows.
+failures. Available partial Content retains the same typed authority failures
+for host policy while excluding them from serialized Content; they also become
+ordered diagnostics rather than disappearing or invalidating usable raw rows.
 
 CLI `package Package --versions`, `--versions-with-feed`,
 `--include-unlisted`, and Count are the first production adopter. Existing
@@ -358,8 +364,14 @@ adopter. `BrowserPackageWorkspace` supplies its existing built-in Gallery
 authorization and bounded operation lease to the same inspection, then the
 inventory consumes the detached listing Document while retaining Browser-owned
 current-version insertion and previous-version presentation. The direct
-Gallery version-result input is retired from that inventory path. Exact pinned
-verification, latest selection, range vectors and cells, offline queries, and
+Gallery version-result input is retired from that inventory path.
+
+Online exact pinned CLI verification is the third production adopter. It
+requests prerelease and unlisted rows, applies the existing exact NuGet
+release-version match over detached Content, and uses typed partial authority
+failures to distinguish unavailable version evidence from incomplete listing
+state. The direct desktop version-discovery call is retired from that exact-
+pinned path. Latest selection, range vectors and cells, offline queries, and
 payload acquisition remain outside this listing operation.
 
 ## Version-population settlement
