@@ -132,19 +132,22 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             owner.Active!.RealizationId);
     }
 
-    [Fact]
-    public async Task Format2Packet_RemainsActivatable()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task CommittedPacket_RemainsActivatable(int version)
     {
         CompleteRestorationExecutionOptions options = await OptionsAsync();
-        string packet = Packet(InspectionDefinitionSchema.Version2);
+        string packet = Packet(version);
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
         BrowserRetainedWorkspaceInstallation installation =
-            await ActivateAsync(owner, "format-2", packet);
+            await ActivateAsync(owner, $"format-{version}", packet);
 
         Assert.Equal(
-            WorkspaceSharePacketCodec.Format2Version,
+            version,
             WorkspaceSharePacketCodec.Decode(
                 packet,
                 TestContext.Current.CancellationToken).FormatVersion);
@@ -408,8 +411,10 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                     version2.Definitions,
                 InspectionDefinitionScenarioPreparationResult.Version3 version3 =>
                     version3.Definitions,
+                InspectionDefinitionScenarioPreparationResult.Version4 version4 =>
+                    version4.Definitions,
                 _ => throw new InvalidOperationException(
-                    "Retained activation tests require schema version 2 or 3."),
+                    "Retained activation tests require schema version 2, 3 or 4."),
             };
         WorkspaceSharePacketProjectionResult projection =
             WorkspaceSharePacketTransposer.ToPacket(
