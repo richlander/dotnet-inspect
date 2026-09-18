@@ -1744,7 +1744,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task IlOffsetsFile_Count_CountsCoordinateRows()
+    public async Task LibraryCoordinateFile_CountCountsCoordinateRows()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
@@ -1756,7 +1756,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -1768,60 +1769,19 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task LibraryCoordinateFile_CountMatchesLegacy()
-    {
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            $"coords-{Guid.NewGuid():N}.txt");
-        await File.WriteAllTextAsync(
-            path,
-            """
-            first 0x06000001+0x1
-            second 0x06000001+0x6
-            """,
-            TestContext.Current.CancellationToken);
-        try
-        {
-            var legacy = await RunAppAsync(
-                "library",
-                TestAssemblyPath,
-                "--il-offsets",
-                path,
-                "--count",
-                "--tips",
-                "q");
-            var child = await RunAppAsync(
-                "library",
-                "coordinate",
-                "--file",
-                path,
-                "--library",
-                TestAssemblyPath,
-                "--count",
-                "--tips",
-                "q");
-
-            Assert.Equal(legacy.Exit, child.Exit);
-            Assert.Equal(legacy.Output, child.Output);
-            Assert.Equal(legacy.Error, child.Error);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     [Theory]
     // Head, tail, an absolute range, an open range, and a window wider than the batch.
-    [InlineData(new[] { "--rows", "2" }, 2)]
-    [InlineData(new[] { "--rows", "2", "--tail" }, 2)]
+    [InlineData(new[] { "-n", "2" }, 2)]
+    [InlineData(new[] { "-n", "2", "--tail" }, 2)]
     [InlineData(new[] { "--rows", "2..3" }, 2)]
     [InlineData(new[] { "--rows", "3.." }, 1)]
-    [InlineData(new[] { "--rows", "9" }, 3)]
-    public async Task IlOffsetsFile_Count_CountsTheWindowItRenders(string[] window, int expected)
+    [InlineData(new[] { "-n", "9" }, 3)]
+    public async Task LibraryCoordinateFile_CountCountsTheWindowItRenders(
+        string[] window,
+        int expected)
     {
-        // --rows narrows the rendered table, so it has to narrow --count identically.
+        // Semantic item selection narrows the rendered table, so it has to narrow
+        // --count identically.
         // Counting the unwindowed batch exits 0 with a plausible number describing a
         // payload the caller never asked for, which the projection audit cannot see.
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
@@ -1834,7 +1794,8 @@ public partial class CommandExecutionTests
             TestContext.Current.CancellationToken);
         try
         {
-            string[] head = ["library", TestAssemblyPath, "--il-offsets", path];
+            string[] head =
+                ["library", "coordinate", "--file", path, "--library", TestAssemblyPath];
             string[] tail = ["--tips", "q"];
 
             var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
@@ -1863,7 +1824,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task IlOffsetsFile_Count_WindowsTheSameRowsTheTableKeeps()
+    public async Task LibraryCoordinateFile_CountWindowsTheSameRowsTheTableKeeps()
     {
         // A count can match the rendered row total while describing different rows.
         // Head and tail must therefore be shown to select genuinely different labels,
@@ -1878,9 +1839,13 @@ public partial class CommandExecutionTests
         try
         {
             var (headExit, headOut, _) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--head", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath,
+                "-n", "1", "--head", "--tips", "q");
             var (tailExit, tailOut, _) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--tail", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath,
+                "-n", "1", "--tail", "--tips", "q");
 
             Assert.Equal(0, headExit);
             Assert.Equal(0, tailExit);
@@ -1896,7 +1861,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task IlOffsetsFile_Count_DoesNotRequireASectionFilter()
+    public async Task LibraryCoordinateFile_CountDoesNotRequireASectionFilter()
     {
         // --count here counts coordinate rows, not section rows, so demanding -S would force
         // the caller to name a section the batch does not render.
@@ -1905,7 +1870,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--count", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.DoesNotContain("requires -S/--select", error);
@@ -1918,7 +1884,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task IlOffsetsFile_RefusesExplicitSectionSelection()
+    public async Task LibraryCoordinateFile_RefusesExplicitSectionSelection()
     {
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -1930,8 +1896,8 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "library", TestAssemblyPath,
-                "--il-offsets", path,
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath,
                 "-S", "References",
                 "--count",
                 "--tips", "q");
@@ -1939,7 +1905,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "-S/--select is not available with --il-offsets",
+                "-S/--select is not available with library coordinate --file",
                 error);
         }
         finally
@@ -1949,17 +1915,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task IlOffsetsFile_ShapeProjection_IsRefusedWithItsActualReason()
+    public async Task LibraryCoordinateFile_ShapeProjectionIsRefusedWithItsActualReason()
     {
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
         try
         {
             var (exit, _, error) = await RunAppAsync(
-                "library", TestAssemblyPath, "--il-offsets", path, "--value", "--tips", "q");
+                "library", "coordinate", "--file", path,
+                "--library", TestAssemblyPath, "--value", "--tips", "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("--value is not available with --il-offsets", error);
+            Assert.Contains(
+                "--value is not available with library coordinate --file",
+                error);
             // Not the section-count complaint, which is not the actual problem here.
             Assert.DoesNotContain("requires -S/--select", error);
         }

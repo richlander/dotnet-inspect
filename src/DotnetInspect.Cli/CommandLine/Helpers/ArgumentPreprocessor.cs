@@ -159,10 +159,68 @@ public static class ArgumentPreprocessor
                 + "'package activity' with the same options.";
             return true;
         }
+        if (command >= 0
+            && args[command].Equals(
+                "library",
+                StringComparison.OrdinalIgnoreCase)
+            && TryGetRemovedLibraryCoordinateOptionError(
+                args,
+                out error))
+        {
+            return true;
+        }
 
         error = null;
         return false;
     }
+
+    private static bool TryGetRemovedLibraryCoordinateOptionError(
+        string[] args,
+        out string? error)
+    {
+        int end = Array.IndexOf(args, "--");
+        if (end < 0)
+            end = args.Length;
+
+        for (var i = 0; i < end; i++)
+        {
+            string option = args[i];
+            if (MatchesRemovedOption(option, "--il-offset"))
+            {
+                error = "'library --il-offset' has been removed. Use "
+                    + "'library coordinate <token>+<offset>' with named Library "
+                    + "context, such as '--library <library>'.";
+                return true;
+            }
+
+            if (MatchesRemovedOption(option, "--il-offsets"))
+            {
+                error = "'library --il-offsets' has been removed. Use "
+                    + "'library coordinate --file <path>' with named Library "
+                    + "context, such as '--library <library>'.";
+                return true;
+            }
+
+            if (MatchesRemovedOption(option, "--heap"))
+            {
+                error = "'library --heap' has been removed. Use "
+                    + "'library coordinate \"<heap>:<address>\"' with named Library "
+                    + "context, such as '--library <library>'.";
+                return true;
+            }
+        }
+
+        error = null;
+        return false;
+    }
+
+    private static bool MatchesRemovedOption(
+        string token,
+        string option) =>
+        token.Equals(option, StringComparison.OrdinalIgnoreCase)
+        || token.StartsWith(
+            option + "=",
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCommandTokenAfterBareTips(
         string optionName,
@@ -577,7 +635,7 @@ public static class ArgumentPreprocessor
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
-        "--il-offset", "--il-offsets", "--heap", "--metadata-root", "--extract-resources", "--version",
+        "--metadata-root", "--extract-resources", "--version",
         "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",

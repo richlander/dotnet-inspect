@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace DotnetInspect.Cli.Commands;
@@ -64,19 +65,11 @@ internal static class ILOffsetQuery
         VerboseLogger logger,
         bool writeErrors)
     {
-        if (!TryParse(options.ILOffsetParameter!, out var methodToken, out var ilOffset))
+        if (options.CoordinateRequest
+            is not LibraryCoordinateRequest.IlPoint coordinate)
         {
-            // One diagnostic, not two: the hint is a continuation of the
-            // error, so CommandError indents it rather than prefixing it a
-            // second time. Containment belongs to that writer, so the value is
-            // interpolated raw here.
-            if (writeErrors)
-                CommandError.Write(
-                    options.IsCoordinateCommand
-                        ? $"Invalid coordinate '{options.ILOffsetParameter ?? string.Empty}'."
-                        : $"Invalid --il-offset value '{options.ILOffsetParameter ?? string.Empty}'.",
-                    "Expected format: 0x6000001+0x5 (method token + IL offset)");
-            return (1, null);
+            throw new UnreachableException(
+                "IL coordinate resolution requires an admitted IL point.");
         }
 
         var capabilities = ProjectionCapabilities(options);
@@ -97,8 +90,8 @@ internal static class ILOffsetQuery
 
         var outcome = ResearchViews.ProjectILOffset(new ILOffsetProjectionRequest(
             service,
-            methodToken,
-            ilOffset,
+            coordinate.MethodToken,
+            coordinate.ILOffset,
             capabilities,
             options.BrowsableUrls,
             logger.Log));
@@ -251,9 +244,14 @@ internal static class ILOffsetQuery
             string[] tokens = line.Split(
                 (char[]?)null,
                 StringSplitOptions.RemoveEmptyEntries);
+            int methodToken = 0;
+            int ilOffset = 0;
             int coordinateIndex = Array.FindIndex(
                 tokens,
-                token => TryParse(token, out _, out _));
+                token => TryParse(
+                    token,
+                    out methodToken,
+                    out ilOffset));
             if (coordinateIndex < 0)
             {
                 records.Add(
@@ -273,7 +271,9 @@ internal static class ILOffsetQuery
                     tokens[coordinateIndex],
                     labelTokens.Length == 0
                         ? null
-                        : string.Join(' ', labelTokens)));
+                        : string.Join(' ', labelTokens),
+                    methodToken,
+                    ilOffset));
         }
 
         if (records.Count == 0)
@@ -289,18 +289,13 @@ internal static class ILOffsetQuery
     }
 
     internal static string PopulationFailureMessage(
-        ILCoordinatePopulationFailure failure,
-        bool coordinateCommand) =>
+        ILCoordinatePopulationFailure failure) =>
         failure.Kind switch
         {
             ILCoordinatePopulationFailureKind.FileNotFound =>
-                coordinateCommand
-                    ? $"Coordinate file not found: {failure.Path}"
-                    : $"IL offsets file not found: {failure.Path}",
+                $"Coordinate file not found: {failure.Path}",
             ILCoordinatePopulationFailureKind.FileReadFailed =>
-                coordinateCommand
-                    ? $"Could not read coordinate file '{failure.Path}': {failure.Detail}"
-                    : $"Could not read IL offsets file '{failure.Path}': {failure.Detail}",
+                $"Could not read coordinate file '{failure.Path}': {failure.Detail}",
             ILCoordinatePopulationFailureKind.NoCoordinates =>
                 $"{failure.Path} did not contain any IL coordinates.",
             ILCoordinatePopulationFailureKind.CoordinatePopulationLimitExceeded =>

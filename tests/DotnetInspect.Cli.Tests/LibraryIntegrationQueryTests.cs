@@ -331,9 +331,6 @@ public class LibraryIntegrationQueryTests
     }
 
     [Theory]
-    [InlineData("--il-offsets", null)]
-    [InlineData("--il-offsets", "--schema")]
-    [InlineData("--il-offsets", "--effective")]
     [InlineData("--extract-resources", null)]
     [InlineData("--extract-resources", "--schema")]
     [InlineData("--extract-resources", "--effective")]

@@ -2002,8 +2002,6 @@ public partial class CommandExecutionTests
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {
         List<string> args = [.. command];
-        if (command is ["library", ..] && section == "Context: Source Location")
-            args.AddRange(["--il-offset", "0x06000041+0x0"]);
         args.AddRange(section == SectionNames.FindingCensus
             ? ["-S", section, "--tips", "q"]
             : ["-S", section, "--table", "--tips", "q", "-n", "40"]);

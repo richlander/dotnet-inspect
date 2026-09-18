@@ -1,17 +1,15 @@
 # Method Body Inspection
 
-> Design north-star for raising `member` body sections and the target
-> `library coordinate` child onto one service model. The current executable
-> Library spelling remains `library --il-offset` until the coordinate-child
-> cutover. This complements the assembly acquisition/session seam
+> Design north-star for raising `member` body sections and the
+> `library coordinate` child onto one service model. This complements the
+> assembly acquisition/session seam
 > in the [assembly inspection query model](assembly-inspection-query.md):
 > assembly inspection opens and identifies an assembly; method-body inspection
 > explains one method body or one IL coordinate inside it.
 
 ## Problem
 
-`member` and current `library --il-offset` expose peer facts about method
-bodies. The target CLI places the latter under `library coordinate`:
+`member` and `library coordinate` expose peer facts about method bodies:
 
 - source and decompiled source
 - IL
@@ -28,8 +26,7 @@ contexts to fill `MemberCodeView` sections. `MemberCodeProvider` separately
 opens metadata/decompiler state for source, IL, attributes, overlays, and hidden
 facts.
 
-Current `library --il-offset` started as a one-off source lookup. Its command
-helper
+The IL-coordinate path started as a one-off source lookup. Its command helper
 grew to resolve member, instruction, exception, callsite, return-address,
 allocation, safety, and cost context, build CLI model rows, and own fallback
 opcode heuristics. It was no longer just a source query.
@@ -116,10 +113,9 @@ public sealed record ILCoordinateSelector(
     int ILOffset);
 ```
 
-This is the current `library --il-offset` shape. It should not be a separate
-command architecture. In the target CLI it establishes the
-`library coordinate` child request, while remaining another selector for the
-same method-body inspection pipeline.
+This is the `library coordinate` selector shape. It is not a separate command
+architecture; it establishes the child request while remaining another
+selector for the same method-body inspection pipeline.
 [Coordinate child command](coordinate-child-command.md) owns that CLI
 placement.
 
@@ -880,8 +876,8 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
 
 - Should missing facts be represented as empty lists, diagnostics, or
   unavailable-facet reasons? `member` sections often render empty-state notes;
-  current `library --il-offset` returns command errors for required contexts,
-  while the target coordinate child requires a useful bounded bare result.
+  `library coordinate` returns command errors for required contexts while its
+  bare child requires a useful bounded result.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?
 - Should `PdbSource` be a method-body facet or remain a SourceLink service

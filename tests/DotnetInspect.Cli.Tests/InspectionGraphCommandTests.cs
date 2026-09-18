@@ -684,9 +684,10 @@ public sealed class InspectionGraphCommandTests
                 .Parse(
                     [
                         "library",
-                        consumer,
-                        "--il-offset",
+                        "coordinate",
                         $"{evidenceToken}+{ilOffset}",
+                        "--library",
+                        consumer,
                     ])
                 .InvokeAsync());
 

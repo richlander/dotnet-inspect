@@ -28,11 +28,10 @@ This contract does not own CLI source selection, assembly descriptor
 construction, Analysis index construction policy, PDB acquisition, or
 multi-assembly coordinate joins.
 
-The target CLI places exact and sparse IL-coordinate requests under
+The CLI places exact and sparse IL-coordinate requests under
 `library coordinate`, as specified by
-[Coordinate child command](coordinate-child-command.md). Current
-`library --il-offset` and `library --il-offsets` remain executable until that
-cutover.
+[Coordinate child command](coordinate-child-command.md). The former parent
+options are retired.
 
 The sparse file mode is a prototype for explaining runtime coordinates. It
 assumes another tool has already collected MethodDef token + IL offset pairs
@@ -83,15 +82,14 @@ not a claim that local files are hostile or immutable.
 
 ### Record ordering
 
-The target operation emits one row per significant record in source-file order,
+The operation emits one row per significant record in source-file order,
 whether that record contains a valid coordinate or a malformed-input failure.
 Row selection applies to that ordered result.
 
-This intentionally corrects the current `library --il-offsets` implementation,
-which accumulates malformed and valid records separately and emits every
-malformed row first. The cutover does not claim legacy row-order parity for
-mixed files. A Release fixture interleaves valid and malformed records and
-asserts the full result plus `-n 1 --head` and `-n 1 --tail`.
+This intentionally differs from the retired parent batch option, which
+accumulated malformed and valid records separately and emitted every malformed
+row first. A Release fixture interleaves valid and malformed records and asserts
+the full result plus `-n 1 --head` and `-n 1 --tail`.
 
 ## Prototype producer workflows
 
