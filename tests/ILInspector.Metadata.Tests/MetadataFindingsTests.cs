@@ -731,6 +731,72 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void
+        TypeScopedMemberComparison_RejectsOnlyPotentiallyCoveringFailures()
+    {
+        var surface = Surface(Type("Widget", members:
+        [
+            Method("Run", "void Run()"),
+        ]));
+        var target = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "TestNamespace",
+                    ImmutableArray.Create("Widget")));
+        var unrelated = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "TestNamespace",
+                    ImmutableArray.Create("Other")));
+        surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
+                0x2A000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The constraint could not be resolved.")
+            {
+                OwningTypeDefinition = target.Name,
+            });
+
+        FindingComparison<ApiMemberHandle> incomplete =
+            MetadataFindings.CompareApiMembers(
+                surface,
+                surface,
+                Subject,
+                "TestNamespace.Widget");
+
+        Assert.IsType<FindingComparison<ApiMemberHandle>.Failed>(
+            incomplete.Value);
+        Assert.False(
+            MetadataFindings.IsApiMemberComparisonComplete(
+                Surface(Type("Widget")),
+                "TestNamespace.Widget",
+                [surface]));
+
+        surface.InspectionFailures[0] =
+            surface.InspectionFailures[0] with
+            {
+                OwningTypeDefinition = unrelated.Name,
+            };
+
+        FindingComparison<ApiMemberHandle> complete =
+            MetadataFindings.CompareApiMembers(
+                surface,
+                surface,
+                Subject,
+                "TestNamespace.Widget");
+
+        Assert.True(complete.IsExact);
+        Assert.True(
+            MetadataFindings.IsApiMemberComparisonComplete(
+                Surface(Type("Widget")),
+                "TestNamespace.Widget",
+                [surface]));
+    }
+
+    [Fact]
     public void TypeAttributeComparison_ExactMatchesBeforeClassifyingValueChanges()
     {
         var oldSurface = Surface(Type("Widget", attributes:
