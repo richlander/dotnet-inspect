@@ -582,6 +582,7 @@ public static class PackageOptionsParser
             || result.GetValue(args.AllLibrariesOption)
             || result.GetValue(args.VersionsOption)
             || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.IncludeUnlistedOption)
             || result.GetValue(args.ContentOption)
             || result.GetValue(args.FrontmatterOption)
             || result.GetValue(args.BodyOption)

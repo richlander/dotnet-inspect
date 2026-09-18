@@ -844,12 +844,13 @@ Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are
 ```
 
 The declaration activates only for the ordinary one-package TFM lens.
-Version listing, valid or malformed package-range coordinates, dependencies,
-bare `--tree`, layout, file, content, and SourceLink selectors or modifiers,
-embedded `--library`/`--all-libraries` inspection, multiple-package inspection,
-explicit section selection, discovery/schema, envelope output, and unsupported
-print or shape projections remain outside it. Fields and columns remain inside
-only with Count, where they project the TFM lens's count result. These competing
+Version listing and its population-only modifiers, valid or malformed
+package-range coordinates, dependencies, bare `--tree`, layout, file, content,
+and SourceLink selectors or modifiers, embedded
+`--library`/`--all-libraries` inspection, multiple-package inspection, explicit
+section selection, discovery/schema, envelope output, and unsupported print or
+shape projections remain outside it. Fields and columns remain inside only
+with Count, where they project the TFM lens's count result. These competing
 intents retain their existing diagnostics or legacy row contracts and use
 rendered-line fallback for bare `-n`. Numeric `--rows N` is rejected on the
 ordinary adopted lens because Window requires range syntax.

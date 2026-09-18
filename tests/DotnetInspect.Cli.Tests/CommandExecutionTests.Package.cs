@@ -638,6 +638,7 @@ public partial class CommandExecutionTests
     [InlineData("--skip-empty", null)]
     [InlineData("--prefer-rendered-urls", null)]
     [InlineData("--schema", null)]
+    [InlineData("--include-unlisted", null)]
     public async Task Tfms_CompetingModifiersRetainLegacyWindow(
         string option,
         string? value)
