@@ -2452,7 +2452,7 @@ public sealed class LoadArgument : IrExpression
     public override string Describe() => $"LoadArgument {Index} ({Type.ToDisplayString()} {Name})";
 }
 
-public sealed class StoreArgument : IrNode
+public sealed class StoreArgument : ScalarStore
 {
     readonly string _name = "";
 
@@ -2489,10 +2489,10 @@ public sealed class StoreArgument : IrNode
     internal Parameter? Parameter { get; }
     public string Name => Parameter?.DisplayName ?? _name;
     public TypeRef Type { get; }
-    public IrExpression Value => (IrExpression)Children[0];
+    public override IrExpression Value => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 
-    public override string Describe() => $"StoreArgument {Index} ({Type.ToDisplayString()} {Name})";
+    public override string Describe() => $"StoreArgument {Index} ({Type.ToDisplayString()} {Name}){UpdateDescription}";
 }
 
 /// <summary>A local variable read — the <c>ldloc</c> family.</summary>
@@ -2517,7 +2517,7 @@ public sealed class LoadLocal : IrExpression
     public override string Describe() => $"LoadLocal {Index} ({Type.ToDisplayString()})";
 }
 
-public sealed class StoreLocal : IrNode
+public sealed class StoreLocal : ScalarStore
 {
     public StoreLocal(int index, TypeRef type, IrExpression value)
     {
@@ -2528,10 +2528,10 @@ public sealed class StoreLocal : IrNode
 
     public int Index { get; }
     public TypeRef Type { get; }
-    public IrExpression Value => (IrExpression)Children[0];
+    public override IrExpression Value => (IrExpression)Children[0];
     public override IEnumerable<TypeRef> DirectTypes => [Type];
 
-    public override string Describe() => $"StoreLocal {Index} ({Type.ToDisplayString()})";
+    public override string Describe() => $"StoreLocal {Index} ({Type.ToDisplayString()}){UpdateDescription}";
 }
 
 [Inverse.InverseOf(
@@ -3891,7 +3891,7 @@ public sealed class LoadField : IrExpression
         => $"LoadField {Field.DeclaringType.ToDisplayString()}.{Field.Name} ({Field.Type.ToDisplayString()})";
 }
 
-public sealed class StoreField : IrNode
+public sealed class StoreField : ScalarStore
 {
     public StoreField(FieldRef field, IrExpression? instance, IrExpression value)
     {
@@ -3906,10 +3906,10 @@ public sealed class StoreField : IrNode
     public bool IsVolatile { get; init; }
     public bool HasInstance { get; }
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
-    public IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
+    public override IrExpression Value => (IrExpression)Children[HasInstance ? 1 : 0];
     public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];
 
-    public override string Describe() => $"StoreField {Field.DeclaringType.ToDisplayString()}.{Field.Name}";
+    public override string Describe() => $"StoreField {Field.DeclaringType.ToDisplayString()}.{Field.Name}{UpdateDescription}";
 }
 
 public sealed class Return : IrNode
@@ -4673,7 +4673,7 @@ public sealed class LoadProperty : IrExpression
 }
 
 /// <summary>A raised property or indexer write (from a set_ accessor call).</summary>
-public sealed class StoreProperty : IrNode
+public sealed class StoreProperty : ScalarStore
 {
     public StoreProperty(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, IrExpression value)
     {
@@ -4695,11 +4695,11 @@ public sealed class StoreProperty : IrNode
     public IrExpression? Instance => HasInstance ? (IrExpression)Children[0] : null;
     public IReadOnlyList<IrExpression> IndexArguments
         => Children.Skip(HasInstance ? 1 : 0).Take(Children.Count - (HasInstance ? 1 : 0) - 1).Cast<IrExpression>().ToList();
-    public IrExpression Value => (IrExpression)Children[^1];
+    public override IrExpression Value => (IrExpression)Children[^1];
     public override IEnumerable<TypeRef> DirectTypes
         => Accessor.ParameterTypes.Append(Accessor.DeclaringType);
 
-    public override string Describe() => $"StoreProperty {Accessor.DeclaringType.ToDisplayString()}.{PropertyName}";
+    public override string Describe() => $"StoreProperty {Accessor.DeclaringType.ToDisplayString()}.{PropertyName}{UpdateDescription}";
 }
 
 /// <summary>A raised event subscription or unsubscription (from an add_/remove_ accessor call) — C#'s <c>e += h</c> / <c>e -= h</c>.</summary>
@@ -4979,7 +4979,7 @@ public sealed class LoadIndirect : IrExpression
     public override string Describe() => $"LoadIndirect {ResultType?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
 }
 
-public sealed class StoreIndirect : IrNode
+public sealed class StoreIndirect : ScalarStore
 {
     public StoreIndirect(TypeRef? type, IrExpression address, IrExpression value)
     {
@@ -4991,10 +4991,10 @@ public sealed class StoreIndirect : IrNode
     public TypeRef? Type { get; }
     public bool IsVolatile { get; init; }
     public IrExpression Address => (IrExpression)Children[0];
-    public IrExpression Value => (IrExpression)Children[1];
+    public override IrExpression Value => (IrExpression)Children[1];
     public override IEnumerable<TypeRef> DirectTypes => Type is null ? [] : [Type];
 
-    public override string Describe() => $"StoreIndirect {Type?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}";
+    public override string Describe() => $"StoreIndirect {Type?.ToDisplayString() ?? "?"}{(IsVolatile ? " volatile" : "")}{UpdateDescription}";
 }
 
 /// <summary>

@@ -26,8 +26,8 @@ namespace DotnetInspect.Web.Interop.Package;
 /// </para>
 /// <para>
 /// Two other categories exist and say so in place: exports that read package content without
-/// inspecting an assembly (the document and XML-documentation reads), and exports that touch no
-/// artifact at all (type-name ranking and cache statistics).
+/// inspecting an assembly (package documents), and exports that touch no artifact at all
+/// (type-name ranking and cache statistics).
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -456,8 +456,8 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// One member's entry from the XML documentation shipped beside the product-selected compile
-    /// asset. This reads package content and inspects no assembly, so it opens no group.
+    /// One exact member's shared compiled-documentation outcome from the PackageHouse-selected
+    /// Library and its associated XML companion.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryMemberDocumentation(
@@ -467,19 +467,17 @@ public static partial class PackageExports
         string assemblyName,
         string documentationId)
     {
-        BrowserPackageCoordinate coordinate = await BrowserPackageWorkspace.ResolveAsync(
-            packageId,
-            version,
-            framework);
-        PackageCompileAsset asset = coordinate.CompileAsset(assemblyName);
-        BrowserMemberDocumentation documentation = coordinate.Package.TryReadText(
-            Path.ChangeExtension(asset.Path, ".xml"),
-            out byte[] xml)
-                ? BrowserXmlDocumentation.Read(xml, documentationId)
-                : BrowserXmlDocumentation.Empty;
+        CompiledDocumentationOutcome documentation =
+            await BrowserPackageWorkspace.QueryMemberDocumentationAsync(
+                packageId,
+                version,
+                framework,
+                assemblyName,
+                documentationId);
         return JsonSerializer.Serialize(
             documentation,
-            BrowserPackageJsonContext.Default.BrowserMemberDocumentation);
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
     }
 
     /// <summary>
