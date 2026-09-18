@@ -663,7 +663,8 @@ function renderFindingEvidence(
   const evidence = findingEvidenceForFact(model, factId);
   if (!evidence) {
     const fact = factForId(model, factId);
-    const reason = fact?.descriptor === "semantics.callee"
+    const reason = fact?.descriptor === "cost.callee"
+        || fact?.descriptor === "semantics.callee"
         || fact?.descriptor === "safety.callee"
       ? capabilityReason(model.catalog.findingEvidence)
       : "No separate callee evidence applies to this Finding";
@@ -680,15 +681,17 @@ function renderFindingEvidence(
         · IL_${coordinate.ilOffset.toString(16).toUpperCase().padStart(4, "0")}</li>`,
     ).join("")}</ul>`
     : "";
-  let source: string;
-  if (evidence.unavailableReason) {
-    source = `<p class="annotated-unavailable">${escapeHtml(evidence.unavailableReason)}</p>`;
-  } else {
-    if (evidence.document === null) {
-      throw new TypeError(
-        "Available Annotated Source Finding evidence has no callee document.");
+  let source = "";
+  if (evidence.state !== "Method") {
+    if (evidence.unavailableReason) {
+      source = `<p class="annotated-unavailable">${escapeHtml(evidence.unavailableReason)}</p>`;
+    } else {
+      if (evidence.document === null) {
+        throw new TypeError(
+          "Available Annotated Source Finding evidence has no callee document.");
+      }
+      source = renderEvidenceSource(context, evidence.document, evidence.nodeIds);
     }
-    source = renderEvidenceSource(context, evidence.document, evidence.nodeIds);
   }
   return `
     <section class="annotated-callee-evidence">
@@ -708,8 +711,45 @@ function renderFindingEvidence(
         </div>
       </div>
       ${coordinates}
-      ${source}
+      ${evidence.state === "Method"
+        ? renderMethodEvidence(evidence.aggregateInputs, escapeHtml)
+        : source}
     </section>`;
+}
+
+function renderMethodEvidence(
+  inputs: AnnotatedSourceResult["findingEvidence"][number]["aggregateInputs"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  return `
+    <div class="annotated-method-evidence">
+      <p><strong>Method-level aggregate evidence</strong> · no singular source line is claimed</p>
+      <ul>${inputs.map(input => {
+        const label = costEvidenceInputLabel(input.kind);
+        return `<li>${escapeHtml(label)}${input.value === null
+          ? ""
+          : ` · <strong>${input.value.toLocaleString()}</strong>`}</li>`;
+      }).join("")}</ul>
+    </div>`;
+}
+
+function costEvidenceInputLabel(value: string | number): string {
+  switch (value) {
+    case "AllocationInLoop":
+      return "Allocation in loop";
+    case "Reflection":
+      return "Reflection calls";
+    case "CallInLoop":
+      return "Caller invocation in loop";
+    case "RootReach":
+      return "Root reach";
+    case "DirectCallers":
+      return "Direct callers";
+    case "LoopCalls":
+      return "Calls from loops";
+    default:
+      return String(value);
+  }
 }
 
 function renderEvidenceSource(
