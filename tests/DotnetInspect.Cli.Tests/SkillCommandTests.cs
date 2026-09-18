@@ -173,6 +173,24 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task ExecuteSkill_QueryDocumentsLegacyRowsLineComposition()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(SkillCommand.ExecuteSkill("query")));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Legacy `--rows` composes with an",
+            output);
+        Assert.Contains(
+            "inferred or explicit rendered-line `-n`",
+            output);
+        Assert.DoesNotContain(
+            "all legacy `--rows` forms reject `-n`",
+            output);
+    }
+
+    [Fact]
     public async Task FocusedSkill_BareCountInfersFixedMarkdownLineSelection()
     {
         string? original =
@@ -287,7 +305,7 @@ public class SkillCommandTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task SkillList_BareCountDoesNotInferDocumentLines(
+    public async Task SkillList_BareCountSelectsRenderedLines(
         bool beforeSubcommand)
     {
         string[] args =
@@ -302,11 +320,13 @@ public class SkillCommandTests
                     parseResult,
                     args));
 
-        Assert.Equal(1, exitCode);
-        Assert.Empty(output);
-        Assert.Contains(
-            "add --lines to select rendered lines",
-            error);
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
     }
 
     [Theory]
@@ -351,7 +371,7 @@ public class SkillCommandTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         Assert.Contains(
-            "rendered lines for skill documents",
+            "Select rendered lines",
             output);
     }
 

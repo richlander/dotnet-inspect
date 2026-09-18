@@ -380,12 +380,11 @@ this transport.
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
 
-`-n N` selects the command's declared items. That normally means semantic rows.
-For `skill` and focused skill-document commands, text lines are the only item
-domain, so bare `-n` selects rendered lines. Other commands without a
-semantic-row contract reject `-n` alone; add `--lines` for the first N rendered
-lines or `--tail-lines` for the last N. Rendered-line clipping is not available
-with JSON document output.
+`-n N` selects the command's items. It selects semantic rows when the active
+command or lens declares them; otherwise it selects the first N rendered lines.
+Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
+on a semantic-row command, and `--tail-lines` selects rendered lines from the
+end. Rendered-line clipping is not available with JSON document output.
 
 Useful discovery and projection patterns:
 
@@ -572,9 +571,10 @@ share the package id and version.
 ### Workspace inventory and structural navigation
 
 Append `--share packet` or `--share url` to author the complete durable
-Workspace definition without Package acquisition or live Workspace
-construction. The selected scalar is the `workspace` command's result on
-stdout, rather than the additive stderr side output used by noun commands:
+Workspace definition. Ordinary authoring performs no Package acquisition or
+live Workspace construction. The selected scalar is the `workspace` command's
+result on stdout, rather than the additive stderr side output used by noun
+commands:
 
 ```bash
 dotnet-inspect workspace \
@@ -591,15 +591,36 @@ while registration options retain their authored cross-kind order. A
 scanner-bearing Ecosystem fails visibly as non-projectable; the command never
 drops its scanner to manufacture a packet.
 
+Add `--make-package-dependencies-explicit` to acquire every direct Package
+member, resolve its exact direct dependencies for the member's effective
+target, and append those dependencies to the same context before emitting the
+derived packet:
+
+```bash
+dotnet-inspect workspace \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --tfm net10.0 \
+  --make-package-dependencies-explicit \
+  --share packet
+```
+
+The transformation also accepts `--packet` or the exact Inspect Web URL as its
+input. Existing members retain their order; new members use owner-issued
+dependency order and are deduplicated only within each context. The command
+emits no packet unless every selected Package root completes and the complete
+derived definition remains projectable. Unlike ordinary resource-free
+`--share`, this explicit transformation admits `--preview` and NuGet source
+policy because acquisition is part of the requested operation.
+
 `--packet` accepts either canonical packet text or the exact
 `https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
 re-emits the canonical packet or selected URL without complete restoration.
 The `--share` selection governs this scalar; inventory output formats apply
 only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
-controls, `--root-request`, `--preview`, explicit NuGet source policy, or
-Package Navigation selectors because those options request runtime acquisition
-or observation rather than a definition transformation.
+controls, `--root-request`, or Package Navigation selectors. `--preview` and
+explicit NuGet source policy are accepted only with the explicit
+dependency-enrichment transformation.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -983,6 +1004,10 @@ sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
+Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
+Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
+Paths` remains an exact-name section because its required cluster coordinate
+does not compose with the pair-wide category.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

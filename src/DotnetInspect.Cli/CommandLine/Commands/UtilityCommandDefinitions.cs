@@ -164,13 +164,12 @@ public static class UtilityCommandDefinitions
         var skillLineLimit = new Option<int?>("-n")
         {
             Description =
-                "Select items: rendered lines for skill documents; skill list requires --lines",
+                "Select rendered lines",
         };
         opts.AddLineSelectionOptionsTo(
             skillCommand,
             static _ => OutputFormat.Markdown,
-            skillLineLimit,
-            inferLines: true);
+            skillLineLimit);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
 
         // Subcommand: list (supports the standard output formats)
@@ -196,8 +195,7 @@ public static class UtilityCommandDefinitions
             opts.AddLineSelectionOptionsTo(
                 focusedCommand,
                 static _ => OutputFormat.Markdown,
-                skillLineLimit,
-                inferLines: true);
+                skillLineLimit);
             focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
             skillCommand.Subcommands.Add(focusedCommand);
         }

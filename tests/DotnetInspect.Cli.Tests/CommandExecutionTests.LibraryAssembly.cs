@@ -1803,7 +1803,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LibraryCoordinateCommand_BareCountRequiresItemUnit(
+    public async Task LibraryCoordinateCommand_BareCountSelectsRenderedLines(
         bool beforeSubcommand)
     {
         string[] args =
@@ -1826,11 +1826,13 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(args);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "add --lines to select rendered lines",
-            error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
     }
 
     [Theory]
@@ -1858,6 +1860,35 @@ public partial class CommandExecutionTests
                 ];
 
         var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries));
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task LibraryCoordinateCommand_InferredLinesComposeWithRows(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "coordinate",
+            "0x06000001+0x0",
+            "--platform",
+            "System.Text.Json",
+            "--rows",
+            "1..1",
+            "-n",
+            "1",
+            direction,
+            "--tips",
+            "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
