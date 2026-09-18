@@ -372,6 +372,43 @@ test("publication order rejects a late response from an older cutover", async ()
   );
 });
 
+test("synchronous validation cannot yield to a queued newer publication", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await Promise.all([selectFirst, selectSecond]);
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-2"],
+  );
+  assert.ok(
+    fixture.client.lifecycle.includes("abandon:realization-1"),
+  );
+});
+
 test("late publication still observes distinct predecessor settlement", async () => {
   const fixture = createFixture();
   const initial = fixture.controller.retain({

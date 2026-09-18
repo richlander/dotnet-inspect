@@ -52,7 +52,7 @@ export interface RetainedWorkspaceActivationClient {
     revision: string,
     intent: string,
     epoch: string,
-  ): boolean | Promise<boolean>;
+  ): boolean;
   recordRetainedWorkspaceNavigationInstallation(
     realizationId: string,
     publicationOrdinal: number,
@@ -233,10 +233,16 @@ export function createRetainedWorkspaceActivationController(
     installation: BrowserRetainedWorkspaceInstallation,
   ): Promise<boolean> {
     const authority = authorityArguments(installation);
-    if (!await client.validateRetainedWorkspaceNavigationAuthority(
+    if (!client.validateRetainedWorkspaceNavigationAuthority(
       ...authority,
     )) {
       await abandonInstallation(installation);
+      return false;
+    }
+    if (installation.publicationOrdinal <= installedPublicationOrdinal) {
+      if (installation.publicationOrdinal < installedPublicationOrdinal) {
+        await abandonInstallation(installation);
+      }
       return false;
     }
 
