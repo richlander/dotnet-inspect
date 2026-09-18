@@ -94,8 +94,8 @@ dotnet-inspect package Microsoft.Extensions.AI@10.10.0 --library -D @Integration
 dotnet-inspect package Microsoft.Extensions.AI@10.10.0 --library -S Integrations
 ```
 
-Filter one concept by its canonical Integration identity, or select one
-ecosystem pack's bound concepts:
+Filter one concept by its canonical Integration identity, or enable one
+ecosystem pack's registered Integration set:
 
 ```bash
 dotnet-inspect library --package Microsoft.Extensions.AI@10.10.0 \
@@ -104,11 +104,13 @@ dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
   -S Integrations --where "ecosystem=ecosystem.aspire"
 ```
 
-The concept and ecosystem facets are orthogonal typed identities. An ecosystem
-may bind several concepts, and one concept may be observed outside any selected
-ecosystem. When both predicates are supplied, a row must satisfy both.
-Malformed, unknown, or unbound identities fail rather than falling back to
-display-name matching.
+The concept and ecosystem facets are composable typed identities. An ecosystem
+enables its registered concept set; an optional concept predicate narrows
+within that set. The current `ecosystem.aspire` registration enables the
+complete configured Integration catalog, while the inspected library still
+emits rows only for concepts it actually exposes. One concept may also be
+observed without selecting any ecosystem. Malformed, unknown, or unbound
+identities fail rather than falling back to display-name matching.
 
 `Microsoft.Extensions.AI@10.10.0` is the motivating multi-integration asset. Its
 `Microsoft.Extensions.AI.dll` library exposes distinct AI and Dependency
