@@ -181,7 +181,7 @@ public sealed class UntrustedIdentifierPresentationTests
 
             using var source = MetadataSource.Open(dllPath);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Hostile.Target",
                     memberName,

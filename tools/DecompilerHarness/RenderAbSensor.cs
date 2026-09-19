@@ -224,14 +224,16 @@ internal static class RenderAbSensor
                     string? documentFailure = null;
                     if (captureStructuralDocument)
                     {
-                        var documentProjection = ResearchViews.ProjectMember(
-                            new ResearchViews.MemberProjectionRequest(
-                                source,
-                                typeName,
-                                methodName,
-                                Registry: s_emptyFactRegistry,
-                                MethodToken: MetadataTokens.GetToken(item.MethodHandle),
-                                SourceDocument: true));
+                        var documentProjection =
+                            MemberProjectionProducer.Produce(
+                                new MemberProjectionRequest(
+                                    source,
+                                    typeName,
+                                    methodName,
+                                    Registry: s_emptyFactRegistry,
+                                    MethodToken: MetadataTokens.GetToken(
+                                        item.MethodHandle),
+                                    SourceDocument: true));
                         structuralDocument = CreateStructuralDocument(
                             body,
                             documentProjection.SourceDocument,

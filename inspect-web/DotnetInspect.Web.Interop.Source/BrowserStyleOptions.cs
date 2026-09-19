@@ -9,10 +9,12 @@ namespace DotnetInspect.Web.Interop.Source;
 /// the library-owned <see cref="Pipeline.StyleOptionCatalog"/>.
 /// </summary>
 /// <remarks>
-/// The ids are exactly the product-owned <see cref="Pipeline.StyleOptionCatalog.Choices"/> exposed
-/// in the <c>csharp.style-choices</c> vocabulary section. The host only decodes the transport;
-/// identity, defaults, conflicts, and selection semantics remain in the product catalog. An id
-/// the catalog does not know is a visible failure rather than a silently ignored selection.
+/// The ids are the product-owned <see cref="Pipeline.StyleOptionCatalog.Choices"/> exposed
+/// in the <c>csharp.style-choices</c> vocabulary section, or a catalog-owned
+/// migration alias for a formerly selectable default. The host only decodes the
+/// transport; identity, defaults, conflicts, and selection semantics remain in the
+/// product catalog. An id the catalog does not know is a visible failure rather
+/// than a silently ignored selection.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserStyleOptions
