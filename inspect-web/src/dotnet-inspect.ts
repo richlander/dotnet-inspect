@@ -3438,12 +3438,6 @@ function typeDefiningLibraryLabel(
   return item ? aggregateTypeLibraryLabels().get(item.id) ?? "" : "";
 }
 
-function typeLibraryContextLabel(
-  item: AppTypeSurface | null | undefined,
-) {
-  return typeDefiningLibraryLabel(item) || selectedLibraryDisplayLabel();
-}
-
 function typeQualifiedLibraryLabel(
   item: AppTypeSurface | null | undefined,
 ) {
@@ -5573,6 +5567,7 @@ interface SubjectPathSegment {
   kind: SubjectPathKind;
   label: string;
   copyable: boolean;
+  qualifier?: string;
 }
 
 function inspectedSubjectPath(
@@ -5596,7 +5591,7 @@ function inspectedSubjectPath(
       }]
     : [];
   if (state.atPackageRoot) return path;
-  const library = typeLibraryContextLabel(current);
+  const library = activeLibrarySubjectName();
   if (library) {
     path.push({
       kind: "library",
@@ -5605,12 +5600,16 @@ function inspectedSubjectPath(
     });
   }
   if (state.atLibraryRoot || !current) return path;
+  const definingLibrary = typeDefiningLibraryLabel(current);
   path.push({
     kind: "type",
     label: current.namespace
       ? `${current.namespace}.${typeDisplayName(current)}`
       : typeDisplayName(current),
     copyable: true,
+    ...(definingLibrary
+      ? { qualifier: definingLibrary }
+      : {}),
   });
   const member = scope() === "member" ? selectedMember(current) : null;
   if (member) {
@@ -5650,7 +5649,10 @@ function renderInspectedSubjectPath(
     const content = segment.copyable
       ? `<button type="button" class="subject-path-segment${root}${current}" data-subject-copy="${index}" title="Copy ${label}" aria-label="Copy ${escapeHtml(segment.kind)} name ${label}">${label}</button>`
       : `<span class="subject-path-segment${root}${current}">${label}</span>`;
-    return `${separator}${content}`;
+    const qualifier = segment.qualifier
+      ? `<span class="subject-path-qualifier" aria-label="Defining Library ${escapeHtml(segment.qualifier)}">· ${escapeHtml(segment.qualifier)}</span>`
+      : "";
+    return `${separator}${content}${qualifier}`;
   }).join("");
 }
 

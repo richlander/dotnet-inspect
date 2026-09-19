@@ -226,6 +226,10 @@ for (const width of [1440, 800, 390]) {
     }
     await chooseSubject(page, "library", "Library");
     await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".subject-path-segment")).toHaveText([
+      "Example.Package",
+      "All libraries",
+    ]);
     await expect(page.locator("#inspector-panel h1")).toHaveText("All libraries");
     await expect(page.locator(".library-subject-list [data-library-subject]"))
       .toHaveCount(4);
@@ -350,7 +354,11 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await page.locator(
     `#type-list [data-type="${coreWidget.id}"]`).click();
   await expect(page.locator(".subject-path-segment").nth(1))
-    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll");
+    .toHaveText("All libraries");
+  await expect(page.locator(".subject-path-qualifier"))
+    .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
+  await expect(page.locator(".subject-path-segment").nth(2))
+    .toHaveAccessibleName("Copy type name Example.Widget");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await chooseSubject(page, "library", "Library");
@@ -358,7 +366,11 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   await page.locator(
     `#type-list [data-type="${otherWidget.id}"]`).click();
   await expect(page.locator(".subject-path-segment").nth(1))
-    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll");
+    .toHaveText("All libraries");
+  await expect(page.locator(".subject-path-qualifier"))
+    .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
+  await expect(page.locator(".subject-path-segment").nth(2))
+    .toHaveAccessibleName("Copy type name Example.Widget");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
 
@@ -822,7 +834,7 @@ test("browser history from before reload reuses the active Workspace", async ({ 
 });
 
 for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
-  test(`the type command enters the target Library from ${startingSubject}`, async ({ page }) => {
+  test(`the type command opens the target Type from ${startingSubject}`, async ({ page }) => {
     await installFacades(page);
     await page.goto(root);
     if (startingSubject !== "Package") {
@@ -843,7 +855,8 @@ for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
     await page.keyboard.press("Enter");
     await expect(page.locator("#spotlight-input")).toHaveCount(0);
     await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".inspected-target")).toContainText("Example.Other");
+    await expect(page.locator(".inspected-target")).toContainText(
+      startingSubject === "Package" ? "All libraries" : "Example.Other");
     await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
     await expect(page.locator("#type-list [data-type]"))
       .toHaveCount(startingSubject === "Package" ? 2 : 1);
@@ -852,7 +865,8 @@ for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
     else
       await expect(page.locator("#type-list")).not.toContainText("Widget");
     await page.reload();
-    await expect(page.locator(".inspected-target")).toContainText("Example.Other");
+    await expect(page.locator(".inspected-target")).toContainText(
+      startingSubject === "Package" ? "All libraries" : "Example.Other");
     await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
   });
 }

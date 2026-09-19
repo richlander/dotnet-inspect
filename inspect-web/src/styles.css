@@ -657,6 +657,16 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   outline: 1px solid var(--shell-accent);
   outline-offset: 3px;
 }
+.subject-path-qualifier {
+  flex: 0 4 auto;
+  min-width: 0;
+  max-width: 35%;
+  margin-left: 6px;
+  overflow: hidden;
+  color: var(--dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
 .subject-path-separator {
   flex: none;
   margin: 0 10px;
