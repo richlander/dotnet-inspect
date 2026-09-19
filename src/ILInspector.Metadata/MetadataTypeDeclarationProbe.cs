@@ -289,6 +289,7 @@ public static class MetadataTypeDeclarationProbe
         readonly ExportEntry[] _exportsByHash = [];
         readonly TypeDeclarationResult? _failure;
         readonly bool _declaresCoreLibraryRoot;
+        readonly long _maxNameWork;
         readonly AssemblyReferenceProjectionCache
             _assemblyReferenceProjection;
 
@@ -302,6 +303,7 @@ public static class MetadataTypeDeclarationProbe
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxNameWork);
 
             _reader = reader;
+            _maxNameWork = maxNameWork;
             _assemblyReferenceProjection =
                 new AssemblyReferenceProjectionCache(reader);
             long rowCount =
@@ -448,7 +450,11 @@ public static class MetadataTypeDeclarationProbe
             var forwarders =
                 new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
             string leaf = name.Segments[^1];
+            int leafUtf8Length =
+                System.Text.Encoding.UTF8.GetByteCount(leaf);
             int leafHash = StringComparer.Ordinal.GetHashCode(leaf);
+            long comparisonWork = NameComparisonWork(name);
+            long remainingWork = _maxNameWork;
             for (int i = LowerBound(_definitionsByHash, leafHash);
                 i < _definitionsByHash.Length
                     && _definitionsByHash[i].Hash == leafHash;
@@ -458,9 +464,20 @@ public static class MetadataTypeDeclarationProbe
                     _definitionsByHash[i].Handle;
                 try
                 {
-                    if (!_reader.StringComparer.Equals(
-                            _reader.GetTypeDefinition(handle).Name,
-                            leaf))
+                    StringHandle candidateName =
+                        _reader.GetTypeDefinition(handle).Name;
+                    if (_reader.GetBlobReader(candidateName).Length
+                            == leafUtf8Length
+                        && !TryCharge(
+                            ref remainingWork,
+                            comparisonWork))
+                    {
+                        return new TypeDeclarationResult.BudgetExceeded(
+                            _maxNameWork,
+                            "The type declaration index probe exceeded its "
+                                + "structural-name work budget.");
+                    }
+                    if (!_reader.StringComparer.Equals(candidateName, leaf))
                     {
                         continue;
                     }
@@ -507,9 +524,20 @@ public static class MetadataTypeDeclarationProbe
                     _exportsByHash[i].Handle;
                 try
                 {
-                    if (!_reader.StringComparer.Equals(
-                            _reader.GetExportedType(handle).Name,
-                            leaf))
+                    StringHandle candidateName =
+                        _reader.GetExportedType(handle).Name;
+                    if (_reader.GetBlobReader(candidateName).Length
+                            == leafUtf8Length
+                        && !TryCharge(
+                            ref remainingWork,
+                            comparisonWork))
+                    {
+                        return new TypeDeclarationResult.BudgetExceeded(
+                            _maxNameWork,
+                            "The type declaration index probe exceeded its "
+                                + "structural-name work budget.");
+                    }
+                    if (!_reader.StringComparer.Equals(candidateName, leaf))
                     {
                         continue;
                     }

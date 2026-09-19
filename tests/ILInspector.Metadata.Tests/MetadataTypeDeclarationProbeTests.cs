@@ -574,6 +574,38 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Session_DeclarationIndexRejectsRepeatedStructuredNameWork()
+    {
+        const int candidateCount = 1_025;
+        string @namespace = new('N', 4_094);
+        byte[] image = BuildPortableExecutable(metadata =>
+        {
+            for (int i = 0; i < candidateCount; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    @namespace,
+                    "T");
+            }
+        });
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                session.ProbeDeclaration(Name(@namespace, "T")));
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars,
+            exceeded.Budget);
+        Assert.Contains(
+            "structural-name work budget",
+            exceeded.Detail);
+    }
+
+    [Fact]
     public void ProbeDefinition_ReturnsCurrentDefinitionProjection()
     {
         TypeDefinitionHandle handle = default;
@@ -1479,6 +1511,36 @@ public class MetadataTypeDeclarationProbeTests
 
     static MetadataImage BuildMetadata(Action<MetadataBuilder> addRows)
     {
+        MetadataBuilder metadata = BuildMetadataBuilder(addRows);
+        var rootBuilder =
+            new MetadataRootBuilder(metadata, suppressValidation: true);
+        var image = new BlobBuilder();
+        rootBuilder.Serialize(
+            image,
+            methodBodyStreamRva: 0,
+            mappedFieldDataStreamRva: 0);
+        return new MetadataImage(image.ToImmutableArray());
+    }
+
+    static byte[] BuildPortableExecutable(
+        Action<MetadataBuilder> addRows)
+    {
+        MetadataBuilder metadata = BuildMetadataBuilder(addRows);
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static MetadataBuilder BuildMetadataBuilder(
+        Action<MetadataBuilder> addRows)
+    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -1495,11 +1557,7 @@ public class MetadataTypeDeclarationProbeTests
             hashAlgorithm: default);
         AddTypeDefinition(metadata, default, "", "<Module>");
         addRows(metadata);
-
-        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
-        var image = new BlobBuilder();
-        rootBuilder.Serialize(image, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
-        return new MetadataImage(image.ToImmutableArray());
+        return metadata;
     }
 
     sealed class MetadataImage(ImmutableArray<byte> image) : IDisposable

@@ -200,6 +200,9 @@ path charges cumulative stored or compared UTF-8 name work against
 `MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars`. Index construction is
 all-or-nothing: exhaustion publishes one global
 `TypeDeclarationResult.BudgetExceeded` rather than exposing a partial index.
+Construction charges stored leaf names, and each indexed query independently
+charges plausible structured-name comparisons against the same name-work
+ceiling before matching candidates.
 The direct row and name boundaries, index row and name boundaries, discarded
 partial state, and runtime `System.Enum` control are gated by
 `ProbeDefinition_RejectsRowsBeforeScanning`,
@@ -207,8 +210,9 @@ partial state, and runtime `System.Enum` control are gated by
 `Probe_RejectsRepeatedLeafComparisonWork`,
 `DeclarationIndex_RejectsRowsBeforeConstruction`,
 `DeclarationIndex_DiscardsPartialStateAfterNameWorkExhaustion`, and
-`Session_DeclarationIndexResolvesRuntimeCoreLibraryType`. Exact TypeDef lookup
-also publishes `TypeDeclarationResult.BudgetExceeded`; its runtime
+`Session_DeclarationIndexResolvesRuntimeCoreLibraryType`. Indexed query work is
+gated by `Session_DeclarationIndexRejectsRepeatedStructuredNameWork`. Exact
+TypeDef lookup also publishes `TypeDeclarationResult.BudgetExceeded`; its runtime
 `System.Enum` lookup and repeated-long-name boundary are gated by
 `ProbeDefinition_MaterializesCoreEnumAsSpecialClass` and
 `ProbeDefinition_ReportsRepeatedLongLeafWorkAsBudgetExceeded`.
