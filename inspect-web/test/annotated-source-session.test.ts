@@ -883,6 +883,69 @@ test("detail closes to the exact rendered opener or its Finding inspector fallba
     kind: "inspector",
     factId: 0,
   });
+
+  const relationshipFact = {
+    id: sampleDocument.facts.length,
+    descriptor: "call.edge",
+    category: "Relationship",
+    conditionality: "Always",
+    detail: "Example.Targets.Target(System.Int32)",
+    origin: "Body",
+    source_offset: 0,
+  } as const;
+  const relationshipDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    facts: [...sampleDocument.facts, relationshipFact],
+    targets: [
+      ...sampleDocument.targets,
+      { fact_id: relationshipFact.id, node_id: 1 },
+    ],
+  };
+  const relationshipModel = createAnnotatedSourceViewerModel({
+    ...sampleResult(relationshipDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    callRelationships: [{
+      edgeRow: 1,
+      factId: relationshipFact.id,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 0,
+      operandToken: 0x0A000001,
+      kind: "Call",
+      inLoop: false,
+      target: sampleInvocationTarget,
+    }],
+  });
+  const relationshipDetail = selectFinding(
+    openModalSession(
+      relationshipModel,
+      createEmbeddedSession(relationshipModel),
+    ).modal,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
+  assert.deepEqual(
+    closeFindingDetail(relationshipModel, relationshipDetail).focus,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
+  assert.deepEqual(
+    escapeAnnotatedSource(relationshipModel, relationshipDetail).focus,
+    {
+      kind: "relationship",
+      factId: relationshipFact.id,
+    },
+  );
 });
 
 test("Escape closes detail, then dismisses modal, and falls through embedded", () => {

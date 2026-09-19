@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  annotatedFocusSelector,
   bindAnnotatedSource,
   renderAnnotatedSource,
   renderAnnotatedSourceModal,
@@ -107,6 +108,7 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       medium: "Il",
     }),
     new FakeElement({ annotatedAction: "inspector-open", factId: "4" }),
+    new FakeElement({ annotatedAction: "relationship-open", factId: "5" }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "All" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "4" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "CSharp" }),
@@ -151,6 +153,7 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       },
     },
     { kind: "inspector-open", factId: 4 },
+    { kind: "relationship-open", factId: 5 },
     { kind: "annotation-set", value: "All" },
     { kind: "finding-toggle", factId: 4 },
     { kind: "medium-toggle", medium: "CSharp" },
@@ -178,6 +181,7 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
   const elements = [
     new FakeElement({ annotatedAction: "annotation-open", factId: "x" }),
     new FakeElement({ annotatedAction: "inspector-open" }),
+    new FakeElement({ annotatedAction: "relationship-open" }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "Maybe" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "-1" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "Other" }),
@@ -857,7 +861,11 @@ test("the Relationships table preserves repeated physical calls and typed action
   );
   assert.match(
     hiddenCoordinates,
-    /data-annotated-action="inspector-open"\s+data-fact-id="3"/,
+    /id="annotated-relationship-3"[\s\S]*data-annotated-action="relationship-open"\s+data-fact-id="3"/,
+  );
+  assert.equal(
+    annotatedFocusSelector({ kind: "relationship", factId: 3 }),
+    "#annotated-relationship-3",
   );
   assert.doesNotMatch(
     hiddenCoordinates,

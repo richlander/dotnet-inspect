@@ -56,6 +56,7 @@ export type AnnotatedSourceAction =
   | { kind: "close-detail" }
   | { kind: "annotation-open"; opener: FindingDetailOpener }
   | { kind: "inspector-open"; factId: number }
+  | { kind: "relationship-open"; factId: number }
   | { kind: "annotation-set"; value: "Default" | "All" | "Clear" }
   | { kind: "finding-toggle"; factId: number }
   | { kind: "medium-toggle"; medium: SourceMedium }
@@ -307,6 +308,8 @@ export function annotatedFocusSelector(
       return "#annotated-coordinate-toggle";
     case "inspector":
       return `#annotated-inspector-${target.factId}`;
+    case "relationship":
+      return `#annotated-relationship-${target.factId}`;
     case "annotation":
       return annotationTargetSelector(surface, target);
     case "node":
@@ -663,8 +666,9 @@ function renderRelationships(context: SourceRenderContext): string {
                       <tr data-relationship-fact-id="${relationship.factId}">
                         <td>
                           <button type="button"
+                            id="annotated-relationship-${relationship.factId}"
                             class="annotated-relationship-site"
-                            data-annotated-action="inspector-open"
+                            data-annotated-action="relationship-open"
                             data-fact-id="${relationship.factId}"
                             aria-label="Inspect ${escapeHtml(
                               callKindLabel(relationship.kind))} relationship, ${escapeHtml(
@@ -1109,6 +1113,10 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
     case "inspector-open": {
       const factId = dataInteger(element, "factId");
       return factId === null ? null : { kind: "inspector-open", factId };
+    }
+    case "relationship-open": {
+      const factId = dataInteger(element, "factId");
+      return factId === null ? null : { kind: "relationship-open", factId };
     }
     case "annotation-set": {
       const value = element.dataset.annotatedSet;

@@ -8527,6 +8527,16 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
     }
+    case "relationship-open": {
+      const next = selectFinding(session, {
+        kind: "relationship",
+        factId: action.factId,
+      });
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
+      renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
+      return;
+    }
     case "annotation-set": {
       const transition = action.value === "Default"
         ? selectDefaultAnnotations(model, session)
