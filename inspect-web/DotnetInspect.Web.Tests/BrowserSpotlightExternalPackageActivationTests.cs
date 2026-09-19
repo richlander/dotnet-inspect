@@ -27,7 +27,7 @@ using ActivationResult =
         DotnetInspect.Web.Tests.BrowserSpotlightExternalPackageActivationTests
             .TestHostRejection,
         DotnetInspect.Web.Tests.BrowserSpotlightExternalPackageActivationTests
-            .TestNonInstallResult>;
+            .TestNonPostingResult>;
 using AdmissionResult =
     DotnetInspect.Web.BrowserSpotlightRetainedWorkspaceAdmissionResult<
         DotnetInspect.Web.Tests.BrowserSpotlightExternalPackageActivationTests
@@ -88,7 +88,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         var host = new TestRetainedHost(source.Identity, generation: 7);
         var complete = new TestCompleteActivation(fresh.Identity);
         TestDefinitionsRequest? received = null;
-        int nonInstallCount = 0;
+        int nonPostingCount = 0;
 
         var published = Assert.IsType<ActivationResult.Published>(
             await Execute(
@@ -106,9 +106,9 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                 activation =>
                 {
                     Assert.Same(complete, activation);
-                    nonInstallCount++;
+                    nonPostingCount++;
                     return ValueTask.FromResult(
-                        new TestNonInstallResult());
+                        new TestNonPostingResult());
                 }));
 
         Assert.NotNull(received);
@@ -133,11 +133,11 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             [source.Identity, fresh.Identity],
             host.Workspaces);
         Assert.Equal(1, host.PublicationCount);
-        Assert.Equal(0, nonInstallCount);
+        Assert.Equal(0, nonPostingCount);
     }
 
     [Fact]
-    public async Task DefinitionsFailureNeverPublishesOrRunsNonInstall()
+    public async Task DefinitionsFailureNeverPublishesOrRunsNonPosting()
     {
         await using var source = new InspectionWorkspace();
         BrowserSpotlightActivationBasis basis = await Basis(source);
@@ -146,7 +146,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             new Destination.Package(PackageRequest("Example", "1.0.0")));
         var host = new TestRetainedHost(source.Identity);
         var failure = new TestDefinitionsFailure("package acquisition failed");
-        int nonInstallCount = 0;
+        int nonPostingCount = 0;
 
         var failed = Assert.IsType<ActivationResult.RestorationFailed>(
             await Execute(
@@ -160,19 +160,19 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                         new RestorationResult.Failed(failure)),
                 _ =>
                 {
-                    nonInstallCount++;
+                    nonPostingCount++;
                     return ValueTask.FromResult(
-                        new TestNonInstallResult());
+                        new TestNonPostingResult());
                 }));
 
         Assert.Same(failure, failed.Result);
         Assert.Equal(0, host.PublicationCount);
-        Assert.Equal(0, nonInstallCount);
+        Assert.Equal(0, nonPostingCount);
         Assert.Same(source.Identity, host.ActiveWorkspace);
     }
 
     [Fact]
-    public async Task ScopeMovementDuringRestorationRunsNonInstall()
+    public async Task ScopeMovementDuringRestorationRunsNonPosting()
     {
         await using var source = new InspectionWorkspace();
         await using var fresh = new InspectionWorkspace();
@@ -182,8 +182,8 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             new Destination.Package(PackageRequest("Example", "1.0.0")));
         var host = new TestRetainedHost(source.Identity);
         var complete = new TestCompleteActivation(fresh.Identity);
-        var cleanup = new TestNonInstallResult();
-        int nonInstallCount = 0;
+        var cleanup = new TestNonPostingResult();
+        int nonPostingCount = 0;
 
         var blocked = Assert.IsType<
             ActivationResult.CompleteButNotPublished>(
@@ -208,7 +208,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     activation =>
                     {
                         Assert.Same(complete, activation);
-                        nonInstallCount++;
+                        nonPostingCount++;
                         return ValueTask.FromResult(cleanup);
                     }));
 
@@ -220,14 +220,14 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         Assert.Equal(
             BrowserSpotlightActivationStaleReason.ScopeRevision,
             stale.Reason);
-        Assert.Same(cleanup, blocked.NonInstall);
-        Assert.Equal(1, nonInstallCount);
+        Assert.Same(cleanup, blocked.NonPosting);
+        Assert.Equal(1, nonPostingCount);
         Assert.Equal(0, host.PublicationCount);
         Assert.Same(source.Identity, host.ActiveWorkspace);
     }
 
     [Fact]
-    public async Task ActiveWorkspaceReplacementDuringRestorationRunsNonInstall()
+    public async Task ActiveWorkspaceReplacementDuringRestorationRunsNonPosting()
     {
         await using var source = new InspectionWorkspace();
         await using var replacement = new InspectionWorkspace();
@@ -238,7 +238,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             new Destination.Package(PackageRequest("Example", "1.0.0")));
         var host = new TestRetainedHost(source.Identity);
         var complete = new TestCompleteActivation(fresh.Identity);
-        int nonInstallCount = 0;
+        int nonPostingCount = 0;
 
         var blocked = Assert.IsType<
             ActivationResult.CompleteButNotPublished>(
@@ -257,9 +257,9 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     activation =>
                     {
                         Assert.Same(complete, activation);
-                        nonInstallCount++;
+                        nonPostingCount++;
                         return ValueTask.FromResult(
-                            new TestNonInstallResult());
+                            new TestNonPostingResult());
                     }));
 
         var hostBlock = Assert.IsType<
@@ -268,13 +268,13 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         Assert.Equal(
             "Spotlight intent is no longer current.",
             hostBlock.Result.Message);
-        Assert.Equal(1, nonInstallCount);
+        Assert.Equal(1, nonPostingCount);
         Assert.Equal(0, host.PublicationCount);
         Assert.Same(replacement.Identity, host.ActiveWorkspace);
     }
 
     [Fact]
-    public async Task IntentSupersessionDuringRestorationRunsNonInstall()
+    public async Task IntentSupersessionDuringRestorationRunsNonPosting()
     {
         await using var source = new InspectionWorkspace();
         await using var fresh = new InspectionWorkspace();
@@ -284,7 +284,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             new Destination.Package(PackageRequest("Example", "1.0.0")));
         var host = new TestRetainedHost(source.Identity);
         var complete = new TestCompleteActivation(fresh.Identity);
-        int nonInstallCount = 0;
+        int nonPostingCount = 0;
 
         var blocked = Assert.IsType<
             ActivationResult.CompleteButNotPublished>(
@@ -303,9 +303,9 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                     activation =>
                     {
                         Assert.Same(complete, activation);
-                        nonInstallCount++;
+                        nonPostingCount++;
                         return ValueTask.FromResult(
-                            new TestNonInstallResult());
+                            new TestNonPostingResult());
                     }));
 
         var hostBlock = Assert.IsType<
@@ -322,7 +322,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
         Assert.Same(
             basis.Registrations.Identity,
             current.Registrations.Identity);
-        Assert.Equal(1, nonInstallCount);
+        Assert.Equal(1, nonPostingCount);
         Assert.Equal(0, host.PublicationCount);
         Assert.Same(source.Identity, host.ActiveWorkspace);
     }
@@ -360,7 +360,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                             new TestDefinitionsFailure("unused")));
                 },
                 _ => ValueTask.FromResult(
-                    new TestNonInstallResult())));
+                    new TestNonPostingResult())));
 
         var hostBlock = Assert.IsType<
             BrowserSpotlightFreshWorkspaceBlock<TestHostRejection>.Host>(
@@ -411,7 +411,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                             new RestorationResult.Failed(
                                 new TestDefinitionsFailure("unused"))),
                     static _ => ValueTask.FromResult(
-                        new TestNonInstallResult())));
+                        new TestNonPostingResult())));
         }
     }
 
@@ -427,9 +427,9 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             TestDefinitionsRequest,
             TestCompleteActivation,
             TestDefinitionsFailure> restore,
-        BrowserSpotlightWorkspaceNonInstallOperation<
+        BrowserSpotlightWorkspaceNonPostingOperation<
             TestCompleteActivation,
-            TestNonInstallResult> nonInstall) =>
+            TestNonPostingResult> nonPosting) =>
         BrowserSpotlightExternalPackageActivation.ExecuteAsync<
             TestPackageAction,
             TestNavigationAction,
@@ -441,7 +441,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
             TestDefinitionsFailure,
             TestHostPublication,
             TestHostRejection,
-            TestNonInstallResult>(
+            TestNonPostingResult>(
                 source,
                 descriptor,
                 EcosystemPackCatalog.CreatePlatformWorkspacePlan(),
@@ -449,7 +449,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
                 createRequest,
                 restore,
                 host.Publish,
-                nonInstall,
+                nonPosting,
                 TestContext.Current.CancellationToken);
 
     private static Descriptor Projected(
@@ -547,7 +547,7 @@ public sealed class BrowserSpotlightExternalPackageActivationTests
 
     internal sealed record TestHostRejection(string Message);
 
-    internal sealed record TestNonInstallResult;
+    internal sealed record TestNonPostingResult;
 
     private sealed class TestRetainedHost
     {

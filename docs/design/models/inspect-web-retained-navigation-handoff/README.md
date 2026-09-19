@@ -2,7 +2,7 @@
 
 This model composes the cutover boundary from
 [Inspect Web Retained Workspace Realization](../../inspect-web-retained-workspace-realization.md)
-with the initial installation boundary from
+with the initial posting boundary from
 [Inspect Web Navigation Consumer](../../inspect-web-navigation-consumer.md).
 It begins when a restored candidate is ready, issues one exact realization,
 publication ordinal, and Navigation effect authority at cutover, and permits
@@ -16,12 +16,12 @@ synchronization lifecycle modeled by
 
 The model checks that:
 
-- only the current realization/ordinal/authority tuple installs,
+- only the current realization/ordinal/authority tuple posts,
 - a lower publication cannot replace current presentation,
-- installation is recorded before acknowledgement,
+- posting is recorded before acknowledgement,
 - stale out-of-order delivery is abandoned, and
 - predecessor Navigation state is retired before successor presentation
-  installs.
+  posts.
 
 Two realizations and two publication ordinals are sufficient to exercise the
 one-step replacement and out-of-order delivery boundary. This is bounded
@@ -32,8 +32,8 @@ evidence for that instance, not an unbounded proof.
 | Configuration | Exit | Evidence |
 | --- | --- | --- |
 | `Safety.cfg` | 0 | Complete bounded safety state space |
-| `BrokenStaleInstallation.cfg` | 12 | Removing current-tuple validation permits stale installation |
-| `BrokenEarlyAcknowledge.cfg` | 12 | Acknowledgement before recorded installation violates ordering |
+| `BrokenStalePosting.cfg` | 12 | Removing current-tuple validation permits stale posting |
+| `BrokenEarlyAcknowledge.cfg` | 12 | Acknowledgement before recorded posting violates ordering |
 | `BrokenMissingPredecessorRetirement.cfg` | 12 | Successor cutover without predecessor-slot retirement violates lifetime isolation |
 | `ReachabilityOutOfOrderDelivery.cfg` | 12 | Successor consumption followed by stale predecessor abandonment is reachable |
 

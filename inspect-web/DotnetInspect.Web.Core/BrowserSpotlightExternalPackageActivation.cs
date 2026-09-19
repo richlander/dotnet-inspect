@@ -146,13 +146,13 @@ internal delegate BrowserSpotlightRetainedWorkspacePublicationResult<
     where THostPublication : class
     where THostRejection : class;
 
-internal delegate ValueTask<TNonInstallResult>
-    BrowserSpotlightWorkspaceNonInstallOperation<
+internal delegate ValueTask<TNonPostingResult>
+    BrowserSpotlightWorkspaceNonPostingOperation<
         TCompleteActivation,
-        TNonInstallResult>(
+        TNonPostingResult>(
         TCompleteActivation activation)
     where TCompleteActivation : class
-    where TNonInstallResult : class;
+    where TNonPostingResult : class;
 
 internal abstract record BrowserSpotlightFreshWorkspaceBlock<THostRejection>
     where THostRejection : class
@@ -178,7 +178,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
     TDefinitionsFailure,
     THostPublication,
     THostRejection,
-    TNonInstallResult>
+    TNonPostingResult>
     where TPackageRequest : class
     where TNavigationAction : class
     where TPlatformAction : class
@@ -188,7 +188,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
     where TDefinitionsFailure : class
     where THostPublication : class
     where THostRejection : class
-    where TNonInstallResult : class
+    where TNonPostingResult : class
 {
     private protected BrowserSpotlightExternalPackageActivationResult(
         BrowserSpotlightDestinationDescriptor<
@@ -218,7 +218,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>
+            TNonPostingResult>
     {
         internal Blocked(
             BrowserSpotlightDestinationDescriptor<
@@ -250,7 +250,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>
+            TNonPostingResult>
     {
         internal RestorationFailed(
             BrowserSpotlightDestinationDescriptor<
@@ -284,7 +284,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>
+            TNonPostingResult>
     {
         internal CompleteButNotPublished(
             BrowserSpotlightDestinationDescriptor<
@@ -295,17 +295,17 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             TDefinitionsRequest request,
             TCompleteActivation activation,
             BrowserSpotlightFreshWorkspaceBlock<THostRejection> reason,
-            TNonInstallResult nonInstall)
+            TNonPostingResult nonPosting)
             : base(descriptor)
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(activation);
             ArgumentNullException.ThrowIfNull(reason);
-            ArgumentNullException.ThrowIfNull(nonInstall);
+            ArgumentNullException.ThrowIfNull(nonPosting);
             Request = request;
             Activation = activation;
             Reason = reason;
-            NonInstall = nonInstall;
+            NonPosting = nonPosting;
         }
 
         internal TDefinitionsRequest Request { get; }
@@ -317,7 +317,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             get;
         }
 
-        internal TNonInstallResult NonInstall { get; }
+        internal TNonPostingResult NonPosting { get; }
     }
 
     internal sealed record Published :
@@ -331,7 +331,7 @@ internal abstract record BrowserSpotlightExternalPackageActivationResult<
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>
+            TNonPostingResult>
     {
         internal Published(
             BrowserSpotlightDestinationDescriptor<
@@ -373,7 +373,7 @@ internal static class BrowserSpotlightExternalPackageActivation
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>>
+            TNonPostingResult>>
         ExecuteAsync<
             TPackageRequest,
             TNavigationAction,
@@ -385,7 +385,7 @@ internal static class BrowserSpotlightExternalPackageActivation
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>(
+            TNonPostingResult>(
             InspectionWorkspace sourceWorkspace,
             BrowserSpotlightDestinationDescriptor<
                 TPackageRequest,
@@ -409,9 +409,9 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TCompleteActivation,
                 THostPublication,
                 THostRejection> publish,
-            BrowserSpotlightWorkspaceNonInstallOperation<
+            BrowserSpotlightWorkspaceNonPostingOperation<
                 TCompleteActivation,
-                TNonInstallResult> nonInstall,
+                TNonPostingResult> nonPosting,
             CancellationToken cancellationToken = default)
         where TPackageRequest : class
         where TNavigationAction : class
@@ -423,7 +423,7 @@ internal static class BrowserSpotlightExternalPackageActivation
         where TDefinitionsFailure : class
         where THostPublication : class
         where THostRejection : class
-        where TNonInstallResult : class
+        where TNonPostingResult : class
     {
         ArgumentNullException.ThrowIfNull(sourceWorkspace);
         ArgumentNullException.ThrowIfNull(descriptor);
@@ -432,7 +432,7 @@ internal static class BrowserSpotlightExternalPackageActivation
         ArgumentNullException.ThrowIfNull(createRequest);
         ArgumentNullException.ThrowIfNull(restore);
         ArgumentNullException.ThrowIfNull(publish);
-        ArgumentNullException.ThrowIfNull(nonInstall);
+        ArgumentNullException.ThrowIfNull(nonPosting);
 
         if (descriptor.Plan
             is not BrowserSpotlightDestinationActivationPlan<
@@ -462,7 +462,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TDefinitionsFailure,
                 THostPublication,
                 THostRejection,
-                TNonInstallResult>.Blocked(
+                TNonPostingResult>.Blocked(
                     descriptor,
                     new BrowserSpotlightFreshWorkspaceBlock<THostRejection>
                         .Source(initialBlock));
@@ -489,7 +489,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TDefinitionsFailure,
                 THostPublication,
                 THostRejection,
-                TNonInstallResult>.Blocked(
+                TNonPostingResult>.Blocked(
                     descriptor,
                     new BrowserSpotlightFreshWorkspaceBlock<THostRejection>
                         .Host(rejectedAdmission.Result));
@@ -529,7 +529,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TDefinitionsFailure,
                 THostPublication,
                 THostRejection,
-                TNonInstallResult>.RestorationFailed(
+                TNonPostingResult>.RestorationFailed(
                     descriptor,
                     request,
                     failed.Result);
@@ -552,8 +552,8 @@ internal static class BrowserSpotlightExternalPackageActivation
                 descriptor.Basis).ConfigureAwait(false);
         if (current.Block is { } currentBlock)
         {
-            TNonInstallResult cleanup =
-                await nonInstall(activation).ConfigureAwait(false);
+            TNonPostingResult cleanup =
+                await nonPosting(activation).ConfigureAwait(false);
             ArgumentNullException.ThrowIfNull(cleanup);
             return new BrowserSpotlightExternalPackageActivationResult<
                 TPackageRequest,
@@ -565,7 +565,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TDefinitionsFailure,
                 THostPublication,
                 THostRejection,
-                TNonInstallResult>.CompleteButNotPublished(
+                TNonPostingResult>.CompleteButNotPublished(
                     descriptor,
                     request,
                     activation,
@@ -587,8 +587,8 @@ internal static class BrowserSpotlightExternalPackageActivation
                 THostRejection>.Rejected rejectedPublication)
         {
             ArgumentNullException.ThrowIfNull(rejectedPublication.Result);
-            TNonInstallResult cleanup =
-                await nonInstall(activation).ConfigureAwait(false);
+            TNonPostingResult cleanup =
+                await nonPosting(activation).ConfigureAwait(false);
             ArgumentNullException.ThrowIfNull(cleanup);
             return new BrowserSpotlightExternalPackageActivationResult<
                 TPackageRequest,
@@ -600,7 +600,7 @@ internal static class BrowserSpotlightExternalPackageActivation
                 TDefinitionsFailure,
                 THostPublication,
                 THostRejection,
-                TNonInstallResult>.CompleteButNotPublished(
+                TNonPostingResult>.CompleteButNotPublished(
                     descriptor,
                     request,
                     activation,
@@ -629,7 +629,7 @@ internal static class BrowserSpotlightExternalPackageActivation
             TDefinitionsFailure,
             THostPublication,
             THostRejection,
-            TNonInstallResult>.Published(
+            TNonPostingResult>.Published(
                 descriptor,
                 request,
                 activation,

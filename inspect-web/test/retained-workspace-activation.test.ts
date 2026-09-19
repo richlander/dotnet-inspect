@@ -3,7 +3,7 @@ import test from "node:test";
 import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDeactivationResult,
-  BrowserRetainedWorkspaceInstallation,
+  BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspaceSettlementResult,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import {
@@ -23,11 +23,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function installation(
+function posting(
   retainedDefinitionId: string,
   realizationId: string,
   settlementId: string | null = null,
-): BrowserRetainedWorkspaceInstallation {
+): BrowserRetainedWorkspacePosting {
   return {
     retainedDefinitionId,
     label: retainedDefinitionId,
@@ -191,7 +191,7 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     return true;
   }
 
-  recordRetainedWorkspaceNavigationInstallation(
+  recordRetainedWorkspaceNavigationPosting(
     realizationId: string,
   ): string | Promise<string> {
     this.lifecycle.push(`record:${realizationId}`);
@@ -213,9 +213,9 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   }
 }
 
-function createFixture(failInstallation = false) {
+function createFixture(failPosting = false) {
   const client = new ActivationClient();
-  const installed: BrowserRetainedWorkspaceInstallation[] = [];
+  const posted: BrowserRetainedWorkspacePosting[] = [];
   const settled: Array<{
     observation: RetainedWorkspacePredecessorObservation;
     result: BrowserRetainedWorkspaceSettlementResult;
@@ -226,12 +226,12 @@ function createFixture(failInstallation = false) {
   }> = [];
   let clears = 0;
   const controller = createRetainedWorkspaceActivationController(client, {
-    install: value => {
-      client.lifecycle.push(`install:${value.realizationId}`);
-      if (failInstallation) {
-        throw new Error("Injected installation failure.");
+    post: value => {
+      client.lifecycle.push(`post:${value.realizationId}`);
+      if (failPosting) {
+        throw new Error("Injected posting failure.");
       }
-      installed.push(value);
+      posted.push(value);
     },
     clear: () => clears++,
     predecessorSettled: (observation, result) =>
@@ -242,14 +242,14 @@ function createFixture(failInstallation = false) {
   return {
     client,
     controller,
-    installed,
+    posted,
     settled,
     observationFailures,
     clears: () => clears,
   };
 }
 
-test("installation records and acknowledges exact authority in order", async () => {
+test("posting records and acknowledges exact authority in order", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
     label: "A",
@@ -260,20 +260,20 @@ test("installation records and acknowledges exact authority in order", async () 
   const activation = fixture.controller.activate(definition.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(definition.id, "realization-1"),
+    posting: posting(definition.id, "realization-1"),
     failure: null,
   });
   await activation;
 
   assert.deepEqual(fixture.client.lifecycle, [
     "validate:realization-1",
-    "install:realization-1",
+    "post:realization-1",
     "record:realization-1",
     "acknowledge:realization-1",
   ]);
 });
 
-test("post-cutover installation failure abandons authority without rolling back active identity", async () => {
+test("post-cutover posting failure abandons authority without rolling back active identity", async () => {
   const fixture = createFixture(true);
   const definition = fixture.controller.retain({
     label: "A",
@@ -284,21 +284,21 @@ test("post-cutover installation failure abandons authority without rolling back 
   const activation = fixture.controller.activate(definition.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(definition.id, "realization-1"),
+    posting: posting(definition.id, "realization-1"),
     failure: null,
   });
-  await assert.rejects(activation, /Injected installation failure/);
+  await assert.rejects(activation, /Injected posting failure/);
 
   assert.equal(fixture.controller.state.activeDefinitionId, definition.id);
   assert.equal(
     fixture.controller.state.lastFailure,
-    "Injected installation failure.",
+    "Injected posting failure.",
   );
   assert.equal(fixture.controller.state.pendingDefinitionId, null);
   assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
   assert.deepEqual(fixture.client.lifecycle, [
     "validate:realization-1",
-    "install:realization-1",
+    "post:realization-1",
     "abandon:realization-1",
   ]);
 });
@@ -324,7 +324,7 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await new Promise(resolve => setImmediate(resolve));
@@ -335,7 +335,7 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await selectSecond;
@@ -346,7 +346,7 @@ test("superseded acknowledgement cannot publish failure over the successor", asy
   assert.equal(fixture.controller.state.pendingDefinitionId, null);
   assert.equal(fixture.controller.state.lastFailure, null);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-2"],
   );
   assert.ok(
@@ -375,7 +375,7 @@ test("superseded recording cannot publish failure over the successor", async () 
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await new Promise(resolve => setImmediate(resolve));
@@ -384,7 +384,7 @@ test("superseded recording cannot publish failure over the successor", async () 
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await selectSecond;
@@ -395,7 +395,7 @@ test("superseded recording cannot publish failure over the successor", async () 
   assert.equal(fixture.controller.state.pendingDefinitionId, null);
   assert.equal(fixture.controller.state.lastFailure, null);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-2"],
   );
   assert.ok(
@@ -406,7 +406,7 @@ test("superseded recording cannot publish failure over the successor", async () 
   );
 });
 
-test("superseded activation cannot install over the latest selection", async () => {
+test("superseded activation cannot post over the latest selection", async () => {
   const fixture = createFixture();
   const first = fixture.controller.retain({
     label: "A",
@@ -423,12 +423,12 @@ test("superseded activation cannot install over the latest selection", async () 
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[0]!.resolve({
     status: "superseded",
-    installation: null,
+    posting: null,
     failure: null,
   });
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(
+    posting: posting(
       second.id,
       "realization-2",
       "settlement-1",
@@ -440,7 +440,7 @@ test("superseded activation cannot install over the latest selection", async () 
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-2"],
   );
   assert.deepEqual(fixture.client.settlements, ["settlement-1"]);
@@ -464,20 +464,20 @@ test("publication order rejects a late response from an older cutover", async ()
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await selectSecond;
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-2"],
   );
   assert.ok(
@@ -502,19 +502,19 @@ test("synchronous validation cannot yield to a queued newer publication", async 
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await Promise.all([selectFirst, selectSecond]);
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-2"],
   );
   assert.ok(
@@ -543,7 +543,7 @@ test("late publication still observes distinct predecessor settlement", async ()
   const selectInitial = fixture.controller.activate(initial.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(initial.id, "realization-1"),
+    posting: posting(initial.id, "realization-1"),
     failure: null,
   });
   await selectInitial;
@@ -552,7 +552,7 @@ test("late publication still observes distinct predecessor settlement", async ()
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[2]!.resolve({
     status: "activated",
-    installation: installation(
+    posting: posting(
       second.id,
       "realization-3",
       "settlement-a",
@@ -562,7 +562,7 @@ test("late publication still observes distinct predecessor settlement", async ()
   await selectSecond;
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(
+    posting: posting(
       first.id,
       "realization-2",
       "settlement-initial",
@@ -574,7 +574,7 @@ test("late publication still observes distinct predecessor settlement", async ()
 
   assert.equal(fixture.controller.state.activeDefinitionId, second.id);
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-3"],
   );
   assert.deepEqual(
@@ -584,7 +584,7 @@ test("late publication still observes distinct predecessor settlement", async ()
   assert.equal(fixture.settled.length, 2);
 });
 
-test("out-of-order predecessor outcomes preserve originating installation association", async () => {
+test("out-of-order predecessor outcomes preserve originating posting association", async () => {
   const fixture = createFixture();
   const firstSettlement =
     deferred<BrowserRetainedWorkspaceSettlementResult>();
@@ -617,14 +617,14 @@ test("out-of-order predecessor outcomes preserve originating installation associ
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(
+    posting: posting(
       second.id,
       "realization-2",
       "settlement-a",
@@ -635,7 +635,7 @@ test("out-of-order predecessor outcomes preserve originating installation associ
   const selectThird = fixture.controller.activate(third.id);
   fixture.client.activations[2]!.resolve({
     status: "activated",
-    installation: installation(
+    posting: posting(
       third.id,
       "realization-3",
       "settlement-b",
@@ -701,12 +701,12 @@ test("repeated no-effect evidence observes predecessor once", async () => {
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
 
-  const secondInstallation = installation(
+  const secondPosting = posting(
     second.id,
     "realization-2",
     "settlement-first",
@@ -714,16 +714,16 @@ test("repeated no-effect evidence observes predecessor once", async () => {
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: secondInstallation,
+    posting: secondPosting,
     failure: null,
   });
   await selectSecond;
-  const lifecycleAfterInstallation = [...fixture.client.lifecycle];
+  const lifecycleAfterPosting = [...fixture.client.lifecycle];
 
   const selectSecondAgain = fixture.controller.activate(second.id);
   fixture.client.activations[2]!.resolve({
     status: "noEffect",
-    installation: secondInstallation,
+    posting: secondPosting,
     failure: null,
   });
   await selectSecondAgain;
@@ -731,7 +731,7 @@ test("repeated no-effect evidence observes predecessor once", async () => {
 
   assert.deepEqual(fixture.client.settlements, ["settlement-first"]);
   assert.equal(fixture.settled.length, 1);
-  assert.deepEqual(fixture.client.lifecycle, lifecycleAfterInstallation);
+  assert.deepEqual(fixture.client.lifecycle, lifecycleAfterPosting);
 });
 
 test("displaced activation blocks deletion and exposes cleanup failure", async () => {
@@ -757,7 +757,7 @@ test("displaced activation blocks deletion and exposes cleanup failure", async (
 
   fixture.client.activations[0]!.resolve({
     status: "failed",
-    installation: null,
+    posting: null,
     failure: {
       kind: "CleanupFailed",
       message: "A cleanup failed.",
@@ -780,7 +780,7 @@ test("displaced activation blocks deletion and exposes cleanup failure", async (
 
   fixture.client.activations[1]!.resolve({
     status: "superseded",
-    installation: null,
+    posting: null,
     failure: null,
   });
   await selectSecond;
@@ -798,7 +798,7 @@ test("overlapping activations retain deletion barrier until all settle", async (
   const secondSelection = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "superseded",
-    installation: null,
+    posting: null,
     failure: null,
   });
   await firstSelection;
@@ -814,7 +814,7 @@ test("overlapping activations retain deletion barrier until all settle", async (
 
   fixture.client.activations[1]!.resolve({
     status: "failed",
-    installation: null,
+    posting: null,
     failure: {
       kind: "InvalidPacket",
       message: "Invalid packet.",
@@ -843,7 +843,7 @@ test("failed activation preserves the incumbent definition", async () => {
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
@@ -851,7 +851,7 @@ test("failed activation preserves the incumbent definition", async () => {
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "failed",
-    installation: null,
+    posting: null,
     failure: {
       kind: "InvalidPacket",
       message: "Packet format 1 is unsupported.",
@@ -865,7 +865,7 @@ test("failed activation preserves the incumbent definition", async () => {
     "Packet format 1 is unsupported.",
   );
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-1"],
   );
 });
@@ -886,7 +886,7 @@ test("active deletion activates the next definition before removal", async () =>
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
@@ -894,7 +894,7 @@ test("active deletion activates the next definition before removal", async () =>
   const deletion = fixture.controller.delete(first.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await deletion;
@@ -922,7 +922,7 @@ test("newer selection cancels successor deletion commit", async () => {
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
@@ -931,7 +931,7 @@ test("newer selection cancels successor deletion commit", async () => {
   const reselectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await deletion;
@@ -947,7 +947,7 @@ test("newer selection cancels successor deletion commit", async () => {
 
   fixture.client.activations[2]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-3"),
+    posting: posting(first.id, "realization-3"),
     failure: null,
   });
   await reselectFirst;
@@ -958,7 +958,7 @@ test("newer selection cancels successor deletion commit", async () => {
     [first.id, second.id],
   );
   assert.deepEqual(
-    fixture.installed.map(value => value.realizationId),
+    fixture.posted.map(value => value.realizationId),
     ["realization-1", "realization-2", "realization-3"],
   );
 });
@@ -973,7 +973,7 @@ test("deleting the sole active definition drains managed state", async () => {
   const selection = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selection;
@@ -1006,7 +1006,7 @@ test("failed sole-active cleanup clears unavailable presentation and preserves e
   const selection = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selection;
@@ -1042,7 +1042,7 @@ test("pre-close deactivation rejection preserves active presentation", async () 
   const selection = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selection;
@@ -1077,7 +1077,7 @@ test("sole active deactivation blocks activation and preserves new definitions",
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
-    installation: installation(first.id, "realization-1"),
+    posting: posting(first.id, "realization-1"),
     failure: null,
   });
   await selectFirst;
@@ -1125,7 +1125,7 @@ test("sole active deactivation blocks activation and preserves new definitions",
   const selectSecond = fixture.controller.activate(second.id);
   fixture.client.activations[1]!.resolve({
     status: "activated",
-    installation: installation(second.id, "realization-2"),
+    posting: posting(second.id, "realization-2"),
     failure: null,
   });
   await selectSecond;

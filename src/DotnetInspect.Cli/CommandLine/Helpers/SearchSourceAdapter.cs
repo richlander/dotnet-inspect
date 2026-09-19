@@ -44,7 +44,10 @@ internal static class SearchSourceAdapter
         IEnumerable<SourceSelector> ReadSelectors()
         {
             foreach (string package in parseResult.GetValue(packageOption) ?? [])
-                yield return DeclareValue(package, packageOption, CreatePackageSource);
+                yield return DeclareValue(
+                    package,
+                    packageOption,
+                    CliSourceSelectorFactory.CreatePackageSource);
 
             if (prefixOption is not null && parseResult.GetValue(prefixOption) is { } prefix)
                 yield return DeclareValue(prefix, prefixOption, static value =>
@@ -87,15 +90,6 @@ internal static class SearchSourceAdapter
             throw new SearchSourceValidationException(
                 $"Invalid value '{value}' for {option.Name}.");
         }
-    }
-
-    private static SourceSelector.PackageSource CreatePackageSource(string value)
-    {
-        if (value.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
-            return new SourceSelector.PackageArchive(value);
-
-        var (name, version) = PackageReferenceParser.Parse(value);
-        return new SourceSelector.PackageReference(name, version);
     }
 
     internal static async Task<SearchSourceBinding> BindAsync(
