@@ -80,12 +80,16 @@ public partial class PackageCommand
                 continue;
             }
 
+            string[] provenanceColumns =
+                outputShape == StructuralOutputShape.Rows
+                    ? ["Package", "Package Version", "Library", "TFM"]
+                    : ["Library", "TFM"];
             string[] columns = section.ItemKind.Equals(
                 "field",
                 StringComparison.OrdinalIgnoreCase)
-                ? ["Library", "Field", "Value"]
-                : ["Library", .. items];
-            if (columns.Length == 1)
+                ? [.. provenanceColumns, "Field", "Value"]
+                : [.. provenanceColumns, .. items];
+            if (columns.Length == provenanceColumns.Length)
                 schema.AddSection(name);
             else
                 schema.Add(name, "column", columns);

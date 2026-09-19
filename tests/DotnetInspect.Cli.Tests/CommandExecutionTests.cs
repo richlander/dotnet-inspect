@@ -1112,6 +1112,46 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalSwitchLibraryPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var targetDir =
+            Path.Combine(
+                packageRoot,
+                "lib",
+                "net10.0");
+        Directory.CreateDirectory(targetDir);
+        string fixture =
+            typeof(
+                DotnetInspector.Fixtures
+                    .AppContextSwitchFixture)
+                .Assembly
+                .Location;
+        File.Copy(
+            fixture,
+            Path.Combine(
+                targetDir,
+                "Switch.One.dll"));
+        File.Copy(
+            fixture,
+            Path.Combine(
+                targetDir,
+                "Switch.Two.dll"));
+
+        var packagePath =
+            Path.Combine(
+                tempDir,
+                "Test.MultiLib.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string AssemblyPath, string SourcePath, string FixtureDir)
         CreateNoSourceLinkDiscoveryAssembly()
     {
@@ -2378,6 +2418,13 @@ public partial class CommandExecutionTests
         var subject = new FindingSubject("fixture", "fixture");
         return new LibraryInspection
         {
+            FileName = "Healthy.dll",
+            Tfm = "net10.0",
+            AssemblyInfo = new AssemblyInfo
+            {
+                AssemblyName = "Healthy",
+                AssemblyVersion = "1.0.0.0",
+            },
             ClassifiedMethodInspection =
                 new FindingInspection<ClassifiedMethodObservation>.Failed(
                     new InspectionError(

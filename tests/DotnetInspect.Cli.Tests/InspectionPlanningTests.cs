@@ -101,13 +101,28 @@ public sealed class InspectionPlanningTests
                 StructuralOutputShape.Rows);
 
         Assert.Equal(
-            ["Library", "Name", "Version", "Public Key Token"],
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Name",
+                "Version",
+                "Public Key Token",
+            ],
             projection.Schema
                 .GetSection(SectionNames.References)!
                 .Items
                 .Select(item => item.Name));
         Assert.Equal(
-            ["Library", "Field", "Value"],
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Field",
+                "Value",
+            ],
             projection.Schema
                 .GetSection(SectionNames.LibraryInfo)!
                 .Items
@@ -164,7 +179,10 @@ public sealed class InspectionPlanningTests
         Assert.Equal(0, references.Exit);
         Assert.Equal(
             [
+                "Package column",
+                "Package Version column",
                 "Library column",
+                "TFM column",
                 "Name column",
                 "Version column",
                 "Public Key Token column",

@@ -503,7 +503,9 @@ public class LibraryCommand
             return 1;
         }
 
-        if (!ValidateMultiTfmOutput(options))
+        if (!ValidateMultiTfmOutput(
+                options,
+                aggregatePackageSelection))
             return 1;
 
         if (!ValidateReferenceTreeCount(
@@ -1335,11 +1337,20 @@ public class LibraryCommand
                                     "Package identity was not resolved.")
                             : Path.GetFileNameWithoutExtension(
                                 inspections[0].FileName);
-                    if (!OutputFormatter.WriteLibraryResults(
+                    bool rendered = aggregatePackageSelection
+                        ? OutputFormatter.WritePackageAggregateResults(
+                            inspections,
+                            documentTitle,
+                            packageName!,
+                            packageVersion,
+                            options,
+                            pipeline)
+                        : OutputFormatter.WriteLibraryResults(
                             inspections,
                             documentTitle,
                             options,
-                            pipeline))
+                            pipeline);
+                    if (!rendered)
                         return 1;
                 }
 
@@ -1575,18 +1586,10 @@ public class LibraryCommand
         if (selectedSections is not { Count: > 0 })
             return 0;
 
-        return inspections.Any(inspection =>
-        {
-            var empty = pipeline.GetEmptySections(
-                inspection,
-                options.Verbosity,
-                selectedSections).Empty;
-            return (inspection.InspectionFailures ?? []).Any(failure =>
-                empty.Any(section =>
-                    FailureAffectsSection(
-                        failure.Section,
-                        section)));
-        })
+        return SelectedInspectionFailures(
+                inspections,
+                selectedSections)
+            .Count > 0
             ? 1
             : 0;
     }
@@ -2747,7 +2750,9 @@ public class LibraryCommand
         return false;
     }
 
-    private static bool ValidateMultiTfmOutput(LibraryOptions options)
+    private static bool ValidateMultiTfmOutput(
+        LibraryOptions options,
+        bool aggregatePackageSelection)
     {
         if (!IsAllTfmPackageSelection(options)
             || options.Discover != null)
@@ -2792,6 +2797,9 @@ public class LibraryCommand
         };
         if (tabularFormatName is not null)
         {
+            if (aggregatePackageSelection)
+                return true;
+
             CommandError.Write(
                 $"{tabularFormatName} requires exactly one table shape; --tfm all selects one table per inspection. Use Markdown or JSON, or aggregate --count for all TFMs.");
             return false;
@@ -3680,14 +3688,12 @@ public class LibraryCommand
                 result => result.Empty.Contains(section, StringComparer.OrdinalIgnoreCase)))
             .ToList();
         var requested = emptyResults[0].RequestedCount;
-        var relevantFailures = inspections
-            .Zip(emptyResults)
-            .SelectMany(pair => (pair.First.InspectionFailures ?? [])
-                .Where(failure => pair.Second.Empty.Any(
-                    section => FailureAffectsSection(failure.Section, section)))
-                .Select(failure => (Inspection: pair.First, Failure: failure)))
-            .DistinctBy(entry => (entry.Inspection, entry.Failure))
-            .ToList();
+        var relevantFailures =
+            SelectedInspectionFailures(
+                inspections,
+                EffectiveSelectedSections(
+                    options,
+                    pipeline));
         WriteInspectionFailureWarnings(
             inspections.Count,
             relevantFailures);

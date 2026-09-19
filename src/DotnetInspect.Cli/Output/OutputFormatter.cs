@@ -6,6 +6,7 @@ using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -19,7 +20,8 @@ public record RenderDiagnostic(string Formatter, string Condition, string[] Sect
 
 internal sealed class ProducerLibraryTableFormatter(
     IMarkoutFormatter inner,
-    string library,
+    string[] provenanceHeaders,
+    string[] provenanceValues,
     string[]? projectedColumns) : IMarkoutFormatter, ITableFormatter
 {
     public void FormatTable(
@@ -36,18 +38,25 @@ internal sealed class ProducerLibraryTableFormatter(
                 + "producer-Library table provenance.");
         }
 
+        if (provenanceHeaders.Length != provenanceValues.Length)
+        {
+            throw new InvalidOperationException(
+                "Producer-Library provenance headers and values must have the same cardinality.");
+        }
+
         string[] headersWithLibrary =
-            new string[headers.Length + 1];
-        headersWithLibrary[0] = "library";
-        headers.CopyTo(headersWithLibrary.AsSpan(1));
+            new string[headers.Length + provenanceHeaders.Length];
+        provenanceHeaders.CopyTo(headersWithLibrary, 0);
+        headers.CopyTo(headersWithLibrary.AsSpan(provenanceHeaders.Length));
 
         var rowsWithLibrary =
             new List<string[]>(rows.Count);
         foreach (string[] row in rows)
         {
-            var rowWithLibrary = new string[row.Length + 1];
-            rowWithLibrary[0] = library;
-            row.CopyTo(rowWithLibrary, 1);
+            var rowWithLibrary =
+                new string[row.Length + provenanceValues.Length];
+            provenanceValues.CopyTo(rowWithLibrary, 0);
+            row.CopyTo(rowWithLibrary, provenanceValues.Length);
             rowsWithLibrary.Add(rowWithLibrary);
         }
 
@@ -63,14 +72,15 @@ internal sealed class ProducerLibraryTableFormatter(
 
             int[] selectedColumns =
             [
-                0,
+                .. Enumerable.Range(0, provenanceHeaders.Length),
                 .. resolution.ColumnMap
-                    .Where(static index => index != 0)
+                    .Where(index => index >= provenanceHeaders.Length)
                     .Distinct(),
             ];
-            bool producerSelected =
-                resolution.ColumnMap.Contains(0);
-            if (!producerSelected && selectedColumns.Length == 1)
+            bool producerSelected = resolution.ColumnMap.Any(
+                index => index < provenanceHeaders.Length);
+            if (!producerSelected
+                && selectedColumns.Length == provenanceHeaders.Length)
                 return;
 
             headersWithLibrary =
@@ -91,6 +101,172 @@ internal sealed class ProducerLibraryTableFormatter(
             rowsWithLibrary,
             skippedRows,
             options);
+    }
+}
+
+internal sealed class CapturedLibraryTableFormatter :
+    IMarkoutFormatter,
+    ITableFormatter
+{
+    private string[]? _headers;
+    private readonly List<string[]> _rows = [];
+
+    internal bool HasTable => _headers is not null;
+
+    public void FormatTable(
+        TextWriter writer,
+        ReadOnlySpan<string> headers,
+        IList<string[]> rows,
+        int skippedRows,
+        MarkoutWriterOptions options)
+    {
+        if (_headers is not null)
+        {
+            throw new InvalidOperationException(
+                "An aggregate Library table can be initialized only once.");
+        }
+
+        _headers = headers.ToArray();
+        _rows.AddRange(rows);
+    }
+
+    internal int WindowedRowCount(RowWindow? rows) =>
+        WindowedRows(rows).Count;
+
+    internal void ProjectColumns(
+        string[]? projectedColumns,
+        int provenanceColumnCount)
+    {
+        if (_headers is null
+            || projectedColumns is not { Length: > 0 })
+        {
+            return;
+        }
+
+        var projection =
+            MarkoutProjection.WithColumns(
+                projectedColumns);
+        if (!projection.TryResolveColumns(
+                _headers,
+                out ColumnProjectionResolution resolution))
+        {
+            throw new InvalidOperationException(
+                "Validated package aggregate columns were not present in the captured row shape.");
+        }
+
+        int[] selectedColumns =
+        [
+            .. Enumerable.Range(
+                0,
+                provenanceColumnCount),
+            .. resolution.ColumnMap
+                .Where(
+                    index =>
+                        index >= provenanceColumnCount)
+                .Distinct(),
+        ];
+        bool provenanceSelected =
+            resolution.ColumnMap.Any(
+                index =>
+                    index < provenanceColumnCount);
+        if (!provenanceSelected
+            && selectedColumns.Length
+                == provenanceColumnCount)
+        {
+            throw new InvalidOperationException(
+                "A package aggregate projection must retain at least one selected data column.");
+        }
+
+        string[][] projectedRows =
+        [
+            .. _rows.Select(
+                row =>
+                    selectedColumns
+                        .Select(index => row[index])
+                        .ToArray()),
+        ];
+        _headers =
+        [
+            .. selectedColumns.Select(
+                index => _headers[index]),
+        ];
+        _rows.Clear();
+        _rows.AddRange(projectedRows);
+    }
+
+    internal void Write(
+        TextWriter writer,
+        IMarkoutFormatter formatter,
+        MarkoutWriterOptions options,
+        RowWindow? rows = null)
+    {
+        if (_headers is null)
+            return;
+
+        if (formatter is not ITableFormatter tableFormatter)
+        {
+            throw new InvalidOperationException(
+                $"Formatter '{formatter.GetType().Name}' cannot render "
+                + "a captured package aggregate table.");
+        }
+
+        tableFormatter.FormatTable(
+            writer,
+            _headers,
+            WindowedRows(rows),
+            skippedRows: 0,
+            options);
+    }
+
+    internal string RenderMarkdown(
+        string section,
+        RowWindow? rows)
+    {
+        if (_headers is null)
+            return string.Empty;
+
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = new MarkoutWriter(
+            output,
+            new MarkdownFormatter(),
+            new MarkoutWriterOptions());
+        writer.WriteHeading(2, section);
+        writer.WriteTable(
+            _headers,
+            _headers,
+            WindowedRows(rows));
+        writer.Flush();
+        return output.ToString().TrimEnd();
+    }
+
+    internal string RenderPlainText(
+        string section,
+        RowWindow? rows)
+    {
+        if (_headers is null)
+            return string.Empty;
+
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = new MarkoutWriter(
+            output,
+            new PlainTextFormatter(),
+            new MarkoutWriterOptions());
+        writer.WriteHeading(2, section);
+        writer.WriteTable(
+            _headers,
+            _headers,
+            WindowedRows(rows));
+        writer.Flush();
+        return output.ToString().TrimEnd();
+    }
+
+    private List<string[]> WindowedRows(RowWindow? rows)
+    {
+        if (rows is not { IsUnlimited: false } window)
+            return [.. _rows];
+
+        var (start, end) = window.Resolve(_rows.Count);
+        return [.. _rows.Skip(start).Take(end - start)];
     }
 }
 
@@ -856,19 +1032,22 @@ public static class OutputFormatter
         LibraryInspectionView auditView, LibraryInspection inspection,
         MarkoutWriterOptions writerOpts, LibraryOptions options,
         TextWriter output,
-        string? producerLibrary = null,
+        string[]? provenanceHeaders = null,
+        string[]? provenanceValues = null,
         bool? showHeader = null)
     {
         bool includeHeader =
             showHeader ?? !options.NoHeader;
         IMarkoutFormatter AddProducerLibrary(
             IMarkoutFormatter formatter) =>
-            producerLibrary is null
+            provenanceHeaders is null
                 ? formatter
                 : new ProducerLibraryTableFormatter(
                     formatter,
-                    LibraryViewText.Contain(producerLibrary)
-                        ?? string.Empty,
+                    provenanceHeaders,
+                    provenanceValues
+                        ?? throw new InvalidOperationException(
+                            "Producer-Library provenance values were not supplied."),
                     options.Columns);
 
         // The metadata lens owns its own tabular rendering for the same reason it owns its
@@ -930,12 +1109,49 @@ public static class OutputFormatter
         List<LibraryInspection> inspections,
         string documentTitle,
         LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline) =>
+        WriteLibraryResultsCore(
+            inspections,
+            documentTitle,
+            options,
+            pipeline,
+            aggregatePackage: null,
+            aggregateVersion: null);
+
+    internal static bool WritePackageAggregateResults(
+        List<LibraryInspection> inspections,
+        string documentTitle,
+        string aggregatePackage,
+        string? aggregateVersion,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline) =>
+        WriteLibraryResultsCore(
+            inspections,
+            documentTitle,
+            options,
+            pipeline,
+            aggregatePackage,
+            aggregateVersion);
+
+    private static bool WriteLibraryResultsCore(
+        List<LibraryInspection> inspections,
+        string documentTitle,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        string? aggregatePackage,
+        string? aggregateVersion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(documentTitle);
+        if (aggregatePackage is null
+            && aggregateVersion is not null)
+        {
+            throw new InvalidOperationException(
+                "Package aggregate version requires package identity.");
+        }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
+        bool packageAggregate = aggregatePackage is not null;
 
         MarkoutWriterOptions WriterOptions(LibraryInspection inspection) => new()
         {
@@ -961,7 +1177,9 @@ public static class OutputFormatter
                     frameworkGroups[0],
                     topFieldsOnly,
                     WriterOptions,
-                    options);
+                    options,
+                    packageAggregate,
+                    pipeline);
                 CountOutput.Write(
                     projection,
                     ordered,
@@ -990,7 +1208,9 @@ public static class OutputFormatter
                     frameworkGroup,
                     topFieldsOnly,
                     WriterOptions,
-                    options);
+                    options,
+                    packageAggregate,
+                    pipeline);
                 string framework = frameworkGroup.Key
                     ?? throw new InvalidOperationException(
                         "A multi-framework count must retain framework identity.");
@@ -1039,19 +1259,52 @@ public static class OutputFormatter
                     var documents = new List<string>
                     {
                         LibraryViewText.Contain(documentTitle) ?? string.Empty,
-                        "Libraries"
                     };
+                    if (!packageAggregate)
+                        documents.Add("Libraries");
                     documents.AddRange(inspections.Select(inspection =>
                     {
                         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                        var writerOpts = WriterOptions(inspection);
+                        var writerOpts =
+                            packageAggregate
+                                ? WithoutAggregateSections(
+                                    WriterOptions(inspection),
+                                    pipeline)
+                                : WriterOptions(inspection);
                         var title = LibraryViewText.DocumentTitle(inspection);
                         var body = RemovePlainTextDocumentTitle(
                             SerializeLibraryPlainText(
                                 auditView, inspection, writerOpts, options.Rows),
                             LibraryViewText.DocumentTitle(auditView));
-                        return body.Length == 0 ? title : title + "\n\n" + body;
-                    }));
+                        return body.Length == 0
+                            ? packageAggregate
+                                ? string.Empty
+                                : title
+                            : title + "\n\n" + body;
+                    }).Where(document => document.Length > 0));
+                    if (packageAggregate)
+                    {
+                        foreach (string section in SelectedAggregateSections(
+                                     inspections,
+                                     WriterOptions,
+                                     pipeline))
+                        {
+                            var table = CaptureAggregateSectionTable(
+                                inspections,
+                                section,
+                                WriterOptions,
+                                options,
+                                machineFormat: false,
+                                aggregatePackage: null,
+                                aggregateVersion: null);
+                            string rendered =
+                                table.RenderPlainText(
+                                    section,
+                                    options.Rows);
+                            if (rendered.Length > 0)
+                                documents.Add(rendered);
+                        }
+                    }
                     WriteLfLine(output, string.Join("\n\n", documents));
                 }
                 else if (options.VerbosityEnabled)
@@ -1062,16 +1315,76 @@ public static class OutputFormatter
                             1,
                             LibraryViewText.Contain(documentTitle) ?? string.Empty)
                     };
-                    documents.AddRange(inspections.Select(inspection =>
+                    if (packageAggregate)
                     {
-                        var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                        var title = LibraryViewText.DocumentTitle(inspection);
-                        var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
-                            auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
-                        return QualifyMarkdownSectionHeadings(body, title);
-                    }).Where(document => document.Length > 0));
+                        documents.AddRange(inspections.Select(inspection =>
+                        {
+                            var auditView = new LibraryInspectionView(
+                                inspection,
+                                topFieldsOnly);
+                            var title =
+                                LibraryViewText.DocumentTitle(inspection);
+                            var writerOptions =
+                                WithoutAggregateSections(
+                                    WriterOptions(inspection),
+                                    pipeline);
+                            var body = RemoveMarkdownDocumentTitle(
+                                SerializeLibraryMarkdown(
+                                    auditView,
+                                    inspection,
+                                    writerOptions,
+                                    pipeline,
+                                    options.Rows));
+                            return QualifyMarkdownSectionHeadings(
+                                body,
+                                title);
+                        }).Where(document => document.Length > 0));
+                        foreach (string section in SelectedAggregateSections(
+                                     inspections,
+                                     WriterOptions,
+                                     pipeline))
+                        {
+                            var table = CaptureAggregateSectionTable(
+                                inspections,
+                                section,
+                                WriterOptions,
+                                options,
+                                machineFormat: false,
+                                aggregatePackage: null,
+                                aggregateVersion: null);
+                            string rendered =
+                                table.RenderMarkdown(
+                                    section,
+                                    options.Rows);
+                            if (rendered.Length > 0)
+                                documents.Add(rendered);
+                        }
+                    }
+                    else
+                    {
+                        documents.AddRange(inspections.Select(inspection =>
+                        {
+                            var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                            var title = LibraryViewText.DocumentTitle(inspection);
+                            var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
+                                auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
+                            return QualifyMarkdownSectionHeadings(body, title);
+                        }).Where(document => document.Length > 0));
+                    }
                     var markdown = string.Join("\n\n", documents);
                     WriteLfLine(output, markdown);
+                }
+                else if (packageAggregate)
+                {
+                    WritePackageAggregateTabular(
+                        inspections,
+                        aggregatePackage!,
+                        aggregateVersion,
+                        topFieldsOnly,
+                        WriterOptions,
+                        options,
+                        pipeline,
+                        output);
                 }
                 else
                 {
@@ -1094,7 +1407,12 @@ public static class OutputFormatter
                             writerOpts,
                             options,
                             tableOutput,
-                            inspection.FileName,
+                            ["library"],
+                            [
+                                LibraryViewText.Contain(
+                                    inspection.FileName)
+                                    ?? string.Empty,
+                            ],
                             showHeader:
                                 !options.NoHeader
                                 && (!options.Tsv || !tsvTableWritten));
@@ -1113,18 +1431,56 @@ public static class OutputFormatter
         IEnumerable<LibraryInspection> inspections,
         bool topFieldsOnly,
         Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
-        LibraryOptions options)
+        LibraryOptions options,
+        bool packageAggregate,
+        SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryInspection[] inspectionArray = [.. inspections];
         var projection = new CountProjection();
-        foreach (LibraryInspection inspection in inspections)
+        if (packageAggregate)
+        {
+            foreach (string section in SelectedAggregateSections(
+                         inspectionArray,
+                         writerOptions,
+                         pipeline))
+            {
+                var table = CaptureAggregateSectionTable(
+                    inspectionArray,
+                    section,
+                    writerOptions,
+                    options,
+                    machineFormat: false,
+                    aggregatePackage: null,
+                    aggregateVersion: null);
+                if (table.HasTable)
+                {
+                    projection.RecordRows(
+                        section,
+                        table.WindowedRowCount(options.Rows));
+                }
+            }
+        }
+
+        foreach (LibraryInspection inspection in inspectionArray)
         {
             var auditView = new LibraryInspectionView(
                 inspection,
                 topFieldsOnly);
+            MarkoutWriterOptions participantOptions =
+                writerOptions(inspection);
+            if (packageAggregate)
+            {
+                participantOptions =
+                    WithoutAggregateSections(
+                        participantOptions,
+                        pipeline);
+                if (participantOptions.IncludeSections is { Count: 0 })
+                    continue;
+            }
             projection.Merge(CaptureLibraryCountProjection(
                 auditView,
                 inspection,
-                writerOptions(inspection),
+                participantOptions,
                 options.Rows,
                 options.Fields,
                 options.Columns));
@@ -1132,6 +1488,393 @@ public static class OutputFormatter
 
         return projection;
     }
+
+    private static void WritePackageAggregateTabular(
+        IReadOnlyList<LibraryInspection> inspections,
+        string aggregatePackage,
+        string? aggregateVersion,
+        bool topFieldsOnly,
+        Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        TextWriter output)
+    {
+        string[] aggregateSections =
+        [
+            .. SelectedAggregateSections(
+                inspections,
+                writerOptions,
+                pipeline),
+        ];
+        if (aggregateSections.Length > 0)
+        {
+            if (aggregateSections.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    "A package aggregate row format requires one aggregate section shape.");
+            }
+
+            var table = CaptureAggregateSectionTable(
+                inspections,
+                aggregateSections[0],
+                writerOptions,
+                options,
+                machineFormat: true,
+                aggregatePackage,
+                aggregateVersion);
+
+            var formatOptions =
+                CreateTableWriterOptions(
+                    options.Tsv,
+                    options.Jsonl);
+            WriteTable(
+                output,
+                !options.NoHeader,
+                (writer, formatter) =>
+                    table.Write(
+                        writer,
+                        formatter,
+                        formatOptions,
+                        options.Rows),
+                maxRows: null);
+            return;
+        }
+
+        CountingTextWriter? tsvOutput =
+            options.Tsv
+                ? new CountingTextWriter(output)
+                : null;
+        TextWriter tableOutput =
+            tsvOutput ?? output;
+        bool tsvTableWritten = false;
+        foreach (LibraryInspection inspection in inspections)
+        {
+            var auditView =
+                new LibraryInspectionView(
+                    inspection,
+                    topFieldsOnly);
+            MarkoutWriterOptions participantOptions =
+                writerOptions(inspection);
+            participantOptions.Projection =
+                BuildProjection(fields: options.Fields);
+            ConfigureTableWriterOptions(
+                participantOptions,
+                options.Tsv,
+                options.Jsonl);
+            WriteLibraryTabular(
+                auditView,
+                inspection,
+                participantOptions,
+                options,
+                tableOutput,
+                [
+                    "package",
+                    "package_version",
+                    "library",
+                    "tfm",
+                ],
+                [
+                    LibraryViewText.Contain(aggregatePackage)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(aggregateVersion)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.FileName)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.Tfm)
+                        ?? string.Empty,
+                ],
+                showHeader:
+                    !options.NoHeader
+                    && (!options.Tsv || !tsvTableWritten));
+            if (tsvOutput is not null
+                && tsvOutput.CharCount > 0)
+            {
+                tsvTableWritten = true;
+            }
+        }
+    }
+
+    private static CapturedLibraryTableFormatter
+        CaptureAggregateSectionTable(
+            IReadOnlyList<LibraryInspection> inspections,
+            string section,
+            Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+            LibraryOptions options,
+            bool machineFormat,
+            string? aggregatePackage,
+            string? aggregateVersion)
+    {
+        var captured = new CapturedLibraryTableFormatter();
+        LibraryInspection[] selectedInspections =
+        [
+            .. inspections.Where(
+                inspection =>
+                    IncludesSection(
+                        writerOptions(inspection),
+                        section)),
+        ];
+        string[] provenanceHeaders =
+            machineFormat
+                ?
+                [
+                    "package",
+                    "package_version",
+                    "library",
+                    "tfm",
+                ]
+                : ["Library", "TFM"];
+        string[] DataHeaders(
+            string[] display,
+            string[] stable) =>
+            machineFormat ? stable : display;
+        string[] Provenance(
+            LibraryInspection inspection) =>
+            machineFormat
+                ?
+                [
+                    LibraryViewText.Contain(aggregatePackage)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(aggregateVersion)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.FileName)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.Tfm)
+                        ?? string.Empty,
+                ]
+                :
+                [
+                    LibraryViewText.Contain(inspection.FileName)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.Tfm)
+                        ?? string.Empty,
+                ];
+        string[] AggregateRow(
+            LibraryInspection inspection,
+            params string[] values) =>
+        [
+            .. Provenance(inspection),
+            .. values,
+        ];
+
+        string[] dataHeaders;
+        List<string[]> rows;
+        if (section.Equals(
+                IntegrationSectionNames.Opportunities,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            dataHeaders = DataHeaders(
+                [
+                    "Integration",
+                    "API",
+                    "Integration Type",
+                    "Look For",
+                ],
+                [
+                    "integration",
+                    "api",
+                    "integration_type",
+                    "look_for",
+                ]);
+            rows =
+            [
+                .. selectedInspections
+                    .SelectMany(
+                        inspection =>
+                            (inspection.IntegrationOpportunities
+                                ?? [])
+                            .Select(
+                                opportunity =>
+                                {
+                                    var row =
+                                        new IntegrationOpportunityRow(
+                                            opportunity.Integration,
+                                            MarkoutInline.Code(
+                                                opportunity.Api),
+                                            opportunity.IntegrationType,
+                                            opportunity.LookFor);
+                                    return (
+                                        Inspection: inspection,
+                                        Row: row);
+                                }))
+                    .OrderBy(
+                        item => item.Row.Integration,
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        item => item.Row.Api,
+                        StringComparer.Ordinal)
+                    .Select(
+                        item =>
+                            AggregateRow(
+                                item.Inspection,
+                            item.Row.Integration,
+                            item.Row.Api,
+                            item.Row.IntegrationType,
+                                item.Row.LookFor)),
+            ];
+        }
+        else if (section.Equals(
+                     SectionNames.Switches,
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            dataHeaders = DataHeaders(
+                ["Kind", "Switch", "API"],
+                ["kind", "switch", "api"]);
+            rows =
+            [
+                .. selectedInspections
+                    .SelectMany(
+                        inspection =>
+                            inspection.SwitchInspection
+                                .PayloadsForRendering()
+                                .Select(
+                                    item => (
+                                        Inspection: inspection,
+                                        Row: new SwitchRow(
+                                            item.Kind,
+                                            item.Switch,
+                                            item.Api))))
+                    .OrderBy(
+                        item => item.Row.Kind,
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        item => item.Row.Switch,
+                        StringComparer.Ordinal)
+                    .ThenBy(
+                        item => item.Row.Api,
+                        StringComparer.Ordinal)
+                    .Select(
+                        item =>
+                            AggregateRow(
+                                item.Inspection,
+                                item.Row.Kind,
+                                item.Row.Switch,
+                                item.Row.Api)),
+            ];
+        }
+        else
+        {
+            dataHeaders = DataHeaders(
+                [
+                    "Integration",
+                    "Kind",
+                    "Shape",
+                    "Symbol",
+                ],
+                [
+                    "integration",
+                    "kind",
+                    "shape",
+                    "symbol",
+                ]);
+            rows =
+            [
+                .. LibraryIntegrationCatalog.All
+                    .SelectMany(
+                        descriptor =>
+                            selectedInspections
+                                .SelectMany(
+                                    inspection =>
+                                        descriptor
+                                            .RenderedSignals(
+                                                descriptor.GetSignals(
+                                                    inspection))
+                                            .OrderBy(
+                                                signal => signal.Kind,
+                                                StringComparer.Ordinal)
+                                            .ThenBy(
+                                                signal => signal.Name,
+                                                StringComparer.Ordinal)
+                                            .Select(
+                                                signal => (
+                                                    Inspection:
+                                                        inspection,
+                                                    Row:
+                                                        new IntegrationSignalRow(
+                                                            descriptor.Name,
+                                                            signal.Kind,
+                                                            signal.Shape
+                                                                == IntegrationSignalShape.Api
+                                                                ? "API"
+                                                                : "Type",
+                                                            MarkoutInline.Code(
+                                                                signal.Name))))))
+                    .Select(
+                        item =>
+                            AggregateRow(
+                                item.Inspection,
+                                item.Row.Integration,
+                                item.Row.Kind,
+                                item.Row.Shape,
+                                item.Row.Symbol)),
+            ];
+        }
+
+        captured.FormatTable(
+            TextWriter.Null,
+            [.. provenanceHeaders, .. dataHeaders],
+            rows,
+            skippedRows: 0,
+            new MarkoutWriterOptions());
+        captured.ProjectColumns(
+            options.Fields,
+            machineFormat ? 4 : 2);
+        captured.ProjectColumns(
+            options.Columns,
+            machineFormat ? 4 : 2);
+        return captured;
+    }
+
+    private static IEnumerable<string>
+        SelectedAggregateSections(
+            IReadOnlyList<LibraryInspection> inspections,
+            Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+            SectionPipeline<LibraryInspection> pipeline) =>
+        pipeline.AlphabeticalSectionOrder
+            .Where(IsAggregateLibrarySection)
+            .Where(section => inspections.Any(
+                inspection =>
+                    IncludesSection(
+                        writerOptions(inspection),
+                        section)));
+
+    private static bool IncludesSection(
+        MarkoutWriterOptions options,
+        string section) =>
+        options.IncludeSections is null
+        || options.IncludeSections.Contains(section);
+
+    private static MarkoutWriterOptions WithoutAggregateSections(
+        MarkoutWriterOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        IEnumerable<string> sections =
+            options.IncludeSections is { } included
+                ? included
+                : pipeline.AlphabeticalSectionOrder;
+        return new MarkoutWriterOptions
+        {
+            IncludeSections =
+                new HashSet<string>(
+                    sections.Where(
+                        section =>
+                            !IsAggregateLibrarySection(
+                                section)),
+                    StringComparer.OrdinalIgnoreCase),
+            Projection = options.Projection,
+        };
+    }
+
+    private static bool IsAggregateLibrarySection(
+        string section) =>
+        section.Equals(
+            IntegrationSectionNames.Opportunities,
+            StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            IntegrationSectionNames.Integrations,
+            StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            SectionNames.Switches,
+            StringComparison.OrdinalIgnoreCase);
 
     private static string RenderMarkdownHeading(int level, string title)
     {

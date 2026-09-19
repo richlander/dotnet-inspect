@@ -117,7 +117,7 @@ public partial class CommandExecutionTests
                 tsv.Output.ReplaceLineEndings("\n")
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries),
                 line => line.StartsWith(
-                    "library\t",
+                    "package\tpackage_version\tlibrary\ttfm\t",
                     StringComparison.Ordinal));
             Assert.Contains(
                 "lib/net10.0/Latest.One.dll",
@@ -128,7 +128,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, table.Exit);
             Assert.Empty(table.Error);
-            Assert.StartsWith("library", table.Output);
+            Assert.StartsWith("package", table.Output);
             Assert.Contains(
                 "lib/net10.0/Latest.One.dll",
                 table.Output);
@@ -147,7 +147,9 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, projected.Exit);
             Assert.Empty(projected.Error);
-            Assert.StartsWith("library\tname\n", projected.Output);
+            Assert.StartsWith(
+                "package\tpackage_version\tlibrary\ttfm\tname\n",
+                projected.Output);
             Assert.Contains(
                 "lib/net10.0/Latest.One.dll",
                 projected.Output);
@@ -157,48 +159,54 @@ public partial class CommandExecutionTests
             string[] producerLines = producerOnly.Output
                 .ReplaceLineEndings("\n")
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            Assert.Equal("library", producerLines[0]);
+            Assert.Equal(
+                "package\tpackage_version\tlibrary\ttfm",
+                producerLines[0]);
             Assert.Contains(
-                "lib/net10.0/Latest.One.dll",
-                producerLines);
+                producerLines,
+                line => line.Contains(
+                    "lib/net10.0/Latest.One.dll",
+                    StringComparison.Ordinal));
             Assert.Contains(
-                "lib/net10.0/Latest.Two.dll",
-                producerLines);
+                producerLines,
+                line => line.Contains(
+                    "lib/net10.0/Latest.Two.dll",
+                    StringComparison.Ordinal));
 
             Assert.Equal(0, fieldOnly.Exit);
             Assert.Empty(fieldOnly.Error);
             Assert.StartsWith(
-                "library\tfield\n",
+                "package\tpackage_version\tlibrary\ttfm\tfield\n",
                 fieldOnly.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.One.dll\t",
+                "\tlib/net10.0/Latest.One.dll\tnet10.0\t",
                 fieldOnly.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.Two.dll\t",
+                "\tlib/net10.0/Latest.Two.dll\tnet10.0\t",
                 fieldOnly.Output);
 
             Assert.Equal(0, valueOnly.Exit);
             Assert.Empty(valueOnly.Error);
             Assert.StartsWith(
-                "library\tvalue\n",
+                "package\tpackage_version\tlibrary\ttfm\tvalue\n",
                 valueOnly.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.One.dll\t",
+                "\tlib/net10.0/Latest.One.dll\tnet10.0\t",
                 valueOnly.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.Two.dll\t",
+                "\tlib/net10.0/Latest.Two.dll\tnet10.0\t",
                 valueOnly.Output);
 
             Assert.Equal(0, mixedProjection.Exit);
             Assert.Empty(mixedProjection.Error);
             Assert.StartsWith(
-                "library\tvalue\n",
+                "package\tpackage_version\tlibrary\ttfm\tvalue\n",
                 mixedProjection.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.One.dll\t",
+                "\tlib/net10.0/Latest.One.dll\tnet10.0\t",
                 mixedProjection.Output);
             Assert.Contains(
-                "lib/net10.0/Latest.Two.dll\t",
+                "\tlib/net10.0/Latest.Two.dll\tnet10.0\t",
                 mixedProjection.Output);
             Assert.All(
                 mixedProjection.Output
@@ -206,7 +214,193 @@ public partial class CommandExecutionTests
                     .Split(
                         '\n',
                         StringSplitOptions.RemoveEmptyEntries),
-                line => Assert.Equal(2, line.Split('\t').Length));
+                line => Assert.Equal(5, line.Split('\t').Length));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var count = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--rows", "2",
+                "--count",
+                "--tips", "q");
+            var markdown = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--rows", "2",
+                "--markdown",
+                "--tips", "q");
+            var tsv = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--rows", "2",
+                "--tsv",
+                "--tips", "q");
+            var jsonl = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--rows", "2",
+                "--jsonl",
+                "--tips", "q");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, markdown.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(4, int.Parse(
+                count.Output.Trim(),
+                System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(
+                [2, 2],
+                SplitOutputLines(tsv.Output)
+                    .Skip(1)
+                    .GroupBy(row => row.Split('\t')[2])
+                    .Select(group => group.Count())
+                    .Order()
+                    .ToArray());
+            Assert.Equal(
+                4,
+                SplitOutputLines(markdown.Output)
+                    .Count(line =>
+                        line.StartsWith(
+                            "| ",
+                            StringComparison.Ordinal))
+                    - 4);
+
+            using var first = System.Text.Json.JsonDocument.Parse(
+                SplitOutputLines(jsonl.Output)[0]);
+            Assert.Equal(
+                "Test.LibraryFiles",
+                first.RootElement
+                    .GetProperty("package")
+                    .GetString());
+            Assert.Equal(
+                "net10.0",
+                first.RootElement
+                    .GetProperty("tfm")
+                    .GetString());
+            Assert.Equal(4, SplitOutputLines(jsonl.Output).Length);
+            Assert.Empty(count.Error);
+            Assert.Empty(markdown.Error);
+            Assert.Empty(tsv.Error);
+            Assert.Empty(jsonl.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalSwitchLibraryPackage();
+        try
+        {
+            var count = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Switches",
+                "--rows", "1",
+                "--count",
+                "--tips", "q");
+            var markdown = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Switches",
+                "--rows", "1",
+                "--markdown",
+                "--tips", "q");
+            var plainText = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Switches",
+                "--rows", "1",
+                "--plaintext",
+                "--tips", "q");
+            var tsv = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Switches",
+                "--rows", "1",
+                "--tsv",
+                "--tips", "q");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, markdown.Exit);
+            Assert.Equal(0, plainText.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(
+                1,
+                int.Parse(
+                    count.Output.Trim(),
+                    System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Single(
+                SplitOutputLines(tsv.Output).Skip(1));
+            Assert.Contains(
+                "## Switches\n",
+                markdown.Output);
+            Assert.DoesNotContain(
+                "## Switches:",
+                markdown.Output);
+            Assert.Contains(
+                "Switches",
+                plainText.Output);
+            Assert.Equal(
+                1,
+                plainText.Output.Split(
+                    "DotnetInspector.Fixtures.AppContextOnly",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Equal(
+                1,
+                SplitOutputLines(markdown.Output)
+                    .Count(line =>
+                        line.StartsWith(
+                            "| ",
+                            StringComparison.Ordinal))
+                    - 2);
+            string[] markdownRow =
+                SplitOutputLines(markdown.Output)
+                    .Where(line =>
+                        line.StartsWith(
+                            "| ",
+                            StringComparison.Ordinal))
+                    .Skip(2)
+                    .Single()
+                    .Split(
+                        '|',
+                        StringSplitOptions.RemoveEmptyEntries)
+                    .Select(cell =>
+                        System.Net.WebUtility.HtmlDecode(
+                            cell.Trim().Trim('`')))
+                    .ToArray();
+            string[] tsvRow =
+                SplitOutputLines(tsv.Output)
+                    .Skip(1)
+                    .Single()
+                    .Split('\t')
+                    .Skip(2)
+                    .ToArray();
+            Assert.Equal(markdownRow, tsvRow);
+            Assert.Empty(count.Error);
+            Assert.Empty(markdown.Error);
+            Assert.Empty(plainText.Error);
+            Assert.Empty(tsv.Error);
         }
         finally
         {
@@ -284,7 +478,6 @@ public partial class CommandExecutionTests
                 "-S", "Library Info",
                 "--markdown",
                 "--tips", "q");
-
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
             Assert.Contains(
@@ -311,6 +504,30 @@ public partial class CommandExecutionTests
                 "-S", "Library Info",
                 "--markdown",
                 "--tips", "q");
+            var tsv = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "--tfm", "all",
+                "-S", "Library Info",
+                "--tsv",
+                "--rows", "1",
+                "--tips", "q");
+            var table = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "--tfm", "all",
+                "-S", "Library Info",
+                "--table",
+                "--rows", "1",
+                "--tips", "q");
+            var jsonl = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "--tfm", "all",
+                "-S", "Library Info",
+                "--jsonl",
+                "--rows", "1",
+                "--tips", "q");
 
             Assert.Equal(0, result.Exit);
             Assert.Contains(
@@ -323,6 +540,26 @@ public partial class CommandExecutionTests
                 "lib/net10.0/x64/Nested.dll (net10.0)",
                 result.Output);
             Assert.Empty(result.Error);
+            Assert.Equal(0, tsv.Exit);
+            Assert.StartsWith(
+                "package\tpackage_version\tlibrary\ttfm\tfield\tvalue\n",
+                tsv.Output);
+            Assert.Contains(
+                "\tlib/net8.0/Direct.dll\tnet8.0\t",
+                tsv.Output);
+            Assert.Contains(
+                "\tlib/net10.0/x64/Nested.dll\tnet10.0\t",
+                tsv.Output);
+            Assert.Empty(tsv.Error);
+            Assert.Equal(0, table.Exit);
+            Assert.StartsWith("package", table.Output);
+            Assert.Contains("net8.0", table.Output);
+            Assert.Contains("net10.0", table.Output);
+            Assert.Empty(table.Error);
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Contains("\"tfm\":\"net8.0\"", jsonl.Output);
+            Assert.Contains("\"tfm\":\"net10.0\"", jsonl.Output);
+            Assert.Empty(jsonl.Error);
         }
         finally
         {
@@ -421,6 +658,42 @@ public partial class CommandExecutionTests
             "Count output is unavailable because one or more "
             + "selected package Libraries could not be inspected.",
             error);
+    }
+
+    [Fact]
+    public async Task PackageAllLibraries_SelectedFailureSurvivesHealthyRows()
+    {
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.LibraryInfo],
+        };
+        var inspection = FailedClassifiedMethodsInspection();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.DoesNotContain(
+            SectionNames.LibraryInfo,
+            pipeline.GetEmptySections(
+                inspection,
+                options.Verbosity,
+                options.IncludeSections).Empty);
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [inspection],
+                options,
+                pipeline));
+
+        Assert.Empty(output);
+        Assert.Contains(
+            "Classified Methods inspection failed "
+            + "(Classified method): method scan failed",
+            error);
+        Assert.Equal(
+            1,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                pipeline,
+                inspection));
     }
 
     [Fact]
