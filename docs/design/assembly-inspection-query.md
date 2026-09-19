@@ -1119,7 +1119,10 @@ the content and diagnostics while projecting a derived packet from the complete
 definition; it must not rerun Type inspection.
 
 The CLI cutover is intentionally limited to the default quiet/minimal exact-Type
-view for an explicit package version and TFM. Explicit sections, alternate
+view and its complete unprojected JSON boundary for an explicit package version
+and TFM. `--json` serializes `ExactTypeInspectionResult`; `--envelope` emits the
+same Content with result kind `exact-type`, Share, and ordered diagnostics.
+`--compact` controls either JSON boundary. Explicit sections, alternate
 formats, filters, `--all`, normal/detailed verbosity, documentation/source work,
 and every non-package source shape remain on the compatibility path because
 their richer facts are outside this result contract. Browser/Wasm embeds the
@@ -1219,10 +1222,14 @@ Platform Library Overview is outside this package-Root operation. It retains
 the existing Platform projection and does not invoke `QueryLibraryApi`.
 
 Initial CLI adoption is limited to a pinned NuGet package, explicit non-`all`
-TFM, explicit Library, and the ordinary type-listing catalog. Documentation,
-source/PDB, clone candidates, performance, decompilation, direct-file, project,
-Platform, package ranges, and Type/member-detail requests remain on named
-compatibility paths. Inspect Web adopts only Library Overview public counts and
+TFM, explicit Library, and the ordinary quiet/minimal type-listing catalog.
+Unprojected `--json` serializes `ExactLibraryApiInspectionResult`;
+`--envelope` emits the same Content with result kind `exact-library-api`, Share,
+and ordered diagnostics. `--compact` controls either JSON boundary.
+Documentation, source/PDB, clone candidates, performance, decompilation,
+direct-file, project, Platform, package ranges, Type/member-detail requests,
+and normal/detailed presentation remain on named compatibility paths.
+Inspect Web adopts only Library Overview public counts and
 facets; package-wide browsing and non-public navigation retain their separately
 owned package projection.
 
