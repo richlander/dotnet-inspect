@@ -7,7 +7,7 @@ areas: [types, shape, inheritance, interfaces, implements, depends]
 
 # Type Shape and Hierarchy
 
-> Understand a type's structure and its place in the type hierarchy. Three complementary views: `type --shape` shows the full type structure (inheritance, interfaces, members). `depends` walks the hierarchy **upward** — base classes and interfaces a type inherits. `implements` walks **downward** — finding all types that implement an interface or extend a base class.
+> Understand a type's structure and its place in the type hierarchy. Three complementary views: `type --tree` shows the full type structure (inheritance, interfaces, members). `depends` walks the hierarchy **upward** — base classes and interfaces a type inherits. `implements` walks **downward** — finding all types that implement an interface or extend a base class.
 
 ## Preconditions
 
@@ -39,7 +39,7 @@ What does the Command type look like? Show its shape.
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --shape --markdown -v:q -n 30 --lines
+  --tree --markdown -v:q -n 30 --lines
 ```
 
 ```expect
@@ -61,7 +61,7 @@ Tips:
 
 ```bash
 dotnet-inspect type System.Text.Json JsonSerializer \
-  --shape --markdown -v:q -n 20 --lines
+  --tree --markdown -v:q -n 20 --lines
 ```
 
 ```expect
@@ -76,7 +76,7 @@ Methods
 
 ```bash
 dotnet-inspect type System.Text.Json JsonElement \
-  --shape --markdown -v:q -n 20 --lines
+  --tree --markdown -v:q -n 20 --lines
 ```
 
 ```expect
@@ -97,7 +97,7 @@ What interfaces does WebApplication implement?
 
 ```bash
 dotnet-inspect type Microsoft.AspNetCore.Builder.WebApplication \
-  --shape --markdown -v:q -n 30 --lines
+  --tree --markdown -v:q -n 30 --lines
 ```
 
 ```expect
@@ -336,7 +336,7 @@ wc -l | tr -d ' '
 
 ## 8. Shape → depends → implements workflow
 
-> Goal: Start with `type --shape` to see structure, use `depends` to walk the hierarchy upward, then use `implements` to find sibling types.
+> Goal: Start with `type --tree` to see structure, use `depends` to walk the hierarchy upward, then use `implements` to find sibling types.
 
 ### 8a. Discover interfaces via shape
 
@@ -346,7 +346,7 @@ What interfaces does Command implement, and what other types implement those int
 
 ```bash
 dotnet-inspect type --package System.CommandLine@2.0.3 Command \
-  --shape --markdown -v:q -n 15 --lines
+  --tree --markdown -v:q -n 15 --lines
 ```
 
 ```expect

@@ -856,7 +856,7 @@ fallback.
 ### Types, members, and source
 
 ```bash
-dotnet-inspect type string --shape
+dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize

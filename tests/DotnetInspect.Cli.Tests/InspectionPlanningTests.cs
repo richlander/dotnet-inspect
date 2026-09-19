@@ -1351,7 +1351,6 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("member-shape", "--shape is only valid for type targets.")]
     [InlineData("member-arity", "cannot combine different generic arities")]
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("member-mermaid", "--mermaid is standalone")]
@@ -1368,8 +1367,6 @@ public sealed class InspectionPlanningTests
     {
         string[] args = scenario switch
         {
-            "member-shape" =>
-                ["member", "System.String", "--shape", "record", "-D", "--schema"],
             "member-arity" =>
                 ["member", "System.String", "-m", "Foo`1", "-m", "Bar`2", "-D", "--schema"],
             "member-kind" =>
@@ -3521,44 +3518,6 @@ public sealed class InspectionPlanningTests
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("Unrecognized option '--bogus", result.Error);
-    }
-
-    [Fact]
-    public async Task AmbiguousCommandlessSchemaPreservesCommandOwnedOptions()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type", "--shape", "-D", "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        Assert.Contains("[type/type/ApiMember]", result.Output);
-    }
-
-    [Fact]
-    public async Task AmbiguousSchemaDoesNotBorrowAnotherCommandsOptionAuthority()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type.Run", "--shape", "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains("--shape", result.Error);
-        Assert.DoesNotContain("System.InvalidOperationException", result.Error);
-    }
-
-    [Fact]
-    public async Task AmbiguousSchemaPreservesValidTypeOptionInterpretation()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type.Run", "--shape", "-D", SectionNames.Classes,
-            "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        Assert.Contains("[type/type/ApiType] Classes", result.Output);
-        Assert.Contains("[member/member-target/ApiMemberOverload] error:", result.Output);
-        Assert.DoesNotContain("[package/package/Package] Signature", result.Output);
     }
 
     [Theory]

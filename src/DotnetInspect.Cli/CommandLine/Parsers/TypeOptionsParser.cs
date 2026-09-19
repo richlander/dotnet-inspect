@@ -140,7 +140,6 @@ public static class TypeOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
         Option<string[]> RepoOption,
         Option<string[]> MemberOption,
@@ -158,7 +157,6 @@ public static class TypeOptionsParser
             || parseResult.GetResult(opts.QueryHelp) is { Implicit: false }
             || opts.ParseSelect(parseResult) is { Length: > 0 }
             || opts.ParseSelectDefault(parseResult)
-            || parseResult.GetValue(args.ShapeOption)
             || string.Equals(
                 parseResult.GetValue(args.TfmOption),
                 "all",
@@ -481,8 +479,6 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),

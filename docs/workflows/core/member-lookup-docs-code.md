@@ -367,7 +367,7 @@ Type Parameters: T
 ### 10a. Nullable parameters in shape view
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --shape -n 10 --lines --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree -n 10 --lines --tips q
 ```
 
 ```expect

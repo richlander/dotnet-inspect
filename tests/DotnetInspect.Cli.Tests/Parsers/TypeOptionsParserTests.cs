@@ -28,7 +28,6 @@ public class TypeOptionsParserTests
         var allOption = new Option<bool>("--all");
         var typeFilterOption = new Option<string?>("-t");
         var compactOption = new Option<bool>("--compact");
-        var shapeOption = new Option<bool>("--shape");
         var unsafeOption = new Option<bool>("--unsafe");
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = false };
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
@@ -49,7 +48,6 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(opts.Json);
         typeCommand.Options.Add(compactOption);
         opts.AddTableOptionsTo(typeCommand);
-        typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
@@ -66,7 +64,7 @@ public class TypeOptionsParserTests
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
-            shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption,
+            unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption);
 
         return (root, opts, args);
