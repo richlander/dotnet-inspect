@@ -6,18 +6,18 @@ EXTENDS Naturals, TLC
 \* and synchronization lifecycle remains owned by UiEffectLifecycle.
 
 CONSTANTS
-    EnforceCurrentInstallation,
-    EnforceInstallBeforeAcknowledge,
+    EnforceCurrentPosting,
+    EnforcePostingBeforeAcknowledge,
     EnforcePredecessorRetirement
 
-ASSUME EnforceCurrentInstallation \in BOOLEAN
-ASSUME EnforceInstallBeforeAcknowledge \in BOOLEAN
+ASSUME EnforceCurrentPosting \in BOOLEAN
+ASSUME EnforcePostingBeforeAcknowledge \in BOOLEAN
 ASSUME EnforcePredecessorRetirement \in BOOLEAN
 
 Realizations == 1..2
 NoRealization == 0
 ResultStatuses ==
-    {"unused", "issued", "delivered", "installed", "recorded",
+    {"unused", "issued", "delivered", "posted", "recorded",
      "acknowledged", "abandoned"}
 SlotStatuses == {"unused", "current", "retired"}
 
@@ -31,7 +31,7 @@ VARIABLES
     slotStatus,
     presentedRealization,
     presentedOrdinal,
-    staleInstallWitness,
+    stalePostingWitness,
     earlyAcknowledgeWitness,
     missingRetirementWitness,
     outOfOrderWitness
@@ -46,7 +46,7 @@ vars == <<
     slotStatus,
     presentedRealization,
     presentedOrdinal,
-    staleInstallWitness,
+    stalePostingWitness,
     earlyAcknowledgeWitness,
     missingRetirementWitness,
     outOfOrderWitness
@@ -62,7 +62,7 @@ Init ==
     /\ slotStatus = [r \in Realizations |-> "unused"]
     /\ presentedRealization = NoRealization
     /\ presentedOrdinal = 0
-    /\ staleInstallWitness = FALSE
+    /\ stalePostingWitness = FALSE
     /\ earlyAcknowledgeWitness = FALSE
     /\ missingRetirementWitness = FALSE
     /\ outOfOrderWitness = FALSE
@@ -103,7 +103,7 @@ Cutover(r) ==
              \/ (predecessor # NoRealization
                  /\ slotStatus'[predecessor] # "retired"))
     /\ UNCHANGED <<
-        staleInstallWitness,
+        stalePostingWitness,
         earlyAcknowledgeWitness,
         outOfOrderWitness
        >>
@@ -121,21 +121,21 @@ Deliver(r) ==
         slotStatus,
         presentedRealization,
         presentedOrdinal,
-        staleInstallWitness,
+        stalePostingWitness,
         earlyAcknowledgeWitness,
         missingRetirementWitness,
         outOfOrderWitness
        >>
 
-Install(r) ==
+Post(r) ==
     /\ r \in Realizations
     /\ resultStatus[r] = "delivered"
-    /\ ~EnforceCurrentInstallation \/ CurrentTuple(r)
-    /\ resultStatus' = [resultStatus EXCEPT ![r] = "installed"]
+    /\ ~EnforceCurrentPosting \/ CurrentTuple(r)
+    /\ resultStatus' = [resultStatus EXCEPT ![r] = "posted"]
     /\ presentedRealization' = r
     /\ presentedOrdinal' = publicationOrdinal[r]
-    /\ staleInstallWitness' =
-        (staleInstallWitness \/ ~CurrentTuple(r))
+    /\ stalePostingWitness' =
+        (stalePostingWitness \/ ~CurrentTuple(r))
     /\ UNCHANGED <<
         activeRealization,
         activeOrdinal,
@@ -148,9 +148,9 @@ Install(r) ==
         outOfOrderWitness
        >>
 
-RecordInstallation(r) ==
+RecordPosting(r) ==
     /\ r \in Realizations
-    /\ resultStatus[r] = "installed"
+    /\ resultStatus[r] = "posted"
     /\ CurrentTuple(r)
     /\ resultStatus' = [resultStatus EXCEPT ![r] = "recorded"]
     /\ UNCHANGED <<
@@ -162,7 +162,7 @@ RecordInstallation(r) ==
         slotStatus,
         presentedRealization,
         presentedOrdinal,
-        staleInstallWitness,
+        stalePostingWitness,
         earlyAcknowledgeWitness,
         missingRetirementWitness,
         outOfOrderWitness
@@ -170,9 +170,9 @@ RecordInstallation(r) ==
 
 Acknowledge(r) ==
     /\ r \in Realizations
-    /\ IF EnforceInstallBeforeAcknowledge
+    /\ IF EnforcePostingBeforeAcknowledge
        THEN resultStatus[r] = "recorded"
-       ELSE resultStatus[r] \in {"delivered", "installed", "recorded"}
+       ELSE resultStatus[r] \in {"delivered", "posted", "recorded"}
     /\ CurrentTuple(r)
     /\ earlyAcknowledgeWitness' =
         (earlyAcknowledgeWitness \/ resultStatus[r] # "recorded")
@@ -186,14 +186,14 @@ Acknowledge(r) ==
         slotStatus,
         presentedRealization,
         presentedOrdinal,
-        staleInstallWitness,
+        stalePostingWitness,
         missingRetirementWitness,
         outOfOrderWitness
        >>
 
 Abandon(r) ==
     /\ r \in Realizations
-    /\ resultStatus[r] \in {"delivered", "installed", "recorded"}
+    /\ resultStatus[r] \in {"delivered", "posted", "recorded"}
     /\ resultStatus' = [resultStatus EXCEPT ![r] = "abandoned"]
     /\ outOfOrderWitness' =
         (outOfOrderWitness
@@ -208,7 +208,7 @@ Abandon(r) ==
         slotStatus,
         presentedRealization,
         presentedOrdinal,
-        staleInstallWitness,
+        stalePostingWitness,
         earlyAcknowledgeWitness,
         missingRetirementWitness
        >>
@@ -216,8 +216,8 @@ Abandon(r) ==
 Next ==
     \/ \E r \in Realizations : Cutover(r)
     \/ \E r \in Realizations : Deliver(r)
-    \/ \E r \in Realizations : Install(r)
-    \/ \E r \in Realizations : RecordInstallation(r)
+    \/ \E r \in Realizations : Post(r)
+    \/ \E r \in Realizations : RecordPosting(r)
     \/ \E r \in Realizations : Acknowledge(r)
     \/ \E r \in Realizations : Abandon(r)
 
@@ -234,7 +234,7 @@ TypeOK ==
     /\ slotStatus \in [Realizations -> SlotStatuses]
     /\ presentedRealization \in Realizations \cup {NoRealization}
     /\ presentedOrdinal \in 0..2
-    /\ staleInstallWitness \in BOOLEAN
+    /\ stalePostingWitness \in BOOLEAN
     /\ earlyAcknowledgeWitness \in BOOLEAN
     /\ missingRetirementWitness \in BOOLEAN
     /\ outOfOrderWitness \in BOOLEAN
@@ -250,7 +250,7 @@ PredecessorSlotIsRetired ==
         r # activeRealization /\ resultStatus[r] # "unused"
         => slotStatus[r] = "retired"
 
-NoStaleInstallObserved == ~staleInstallWitness
+NoStalePostingObserved == ~stalePostingWitness
 NoEarlyAcknowledgeObserved == ~earlyAcknowledgeWitness
 NoMissingRetirementObserved == ~missingRetirementWitness
 NoOutOfOrderRecoveryObserved == ~outOfOrderWitness

@@ -58,7 +58,7 @@ public static partial class CatalogExports
     }
 
     [JSExport]
-    public static string RecordRetainedWorkspaceNavigationInstallation(
+    public static string RecordRetainedWorkspaceNavigationPosting(
         string realizationId,
         double publicationOrdinal,
         string session,
@@ -66,7 +66,7 @@ public static partial class CatalogExports
         string intent,
         string epoch) =>
         BrowserRetainedWorkspaceActivationService
-            .RecordConsumerInstallation(
+            .RecordConsumerPosting(
                 realizationId,
                 RequirePublicationOrdinal(publicationOrdinal),
                 new(session, revision, intent, epoch));
@@ -167,10 +167,10 @@ internal static class BrowserRetainedWorkspaceActivationService
         {
             DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
                     .Activated activated =>
-                new("activated", Installation(activated.Installation), null),
+                new("activated", Posting(activated.Posting), null),
             DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
                     .NoEffect noEffect =>
-                new("noEffect", Installation(noEffect.Installation), null),
+                new("noEffect", Posting(noEffect.Posting), null),
             DotnetInspect.Web.BrowserRetainedWorkspaceActivationResult
                     .Superseded =>
                 new("superseded", null, null),
@@ -221,12 +221,12 @@ internal static class BrowserRetainedWorkspaceActivationService
         return result;
     }
 
-    internal static string RecordConsumerInstallation(
+    internal static string RecordConsumerPosting(
         string realizationId,
         long publicationOrdinal,
         NavigationEffectAuthority authority) =>
         AuthorityResult(
-            _owner.RecordConsumerInstallation(
+            _owner.RecordConsumerPosting(
                 realizationId,
                 publicationOrdinal,
                 authority));
@@ -290,20 +290,20 @@ internal static class BrowserRetainedWorkspaceActivationService
     static BrowserRetainedWorkspaceActivationOwner CreateOwner() =>
         new(BrowserCompleteRestorationOptions.Create);
 
-    static BrowserRetainedWorkspaceInstallation Installation(
-        DotnetInspect.Web.BrowserRetainedWorkspaceInstallation installation) =>
+    static BrowserRetainedWorkspacePosting Posting(
+        DotnetInspect.Web.BrowserRetainedWorkspacePosting posting) =>
         new(
-            installation.RetainedDefinitionId,
-            installation.Label,
-            installation.CanonicalLocation,
-            installation.CanonicalPacket
+            posting.RetainedDefinitionId,
+            posting.Label,
+            posting.CanonicalLocation,
+            posting.CanonicalPacket
                 ?? throw new InvalidOperationException(
                     "The packet activation export cannot project a non-packet retained definition."),
-            installation.RealizationId,
-            installation.PublicationOrdinal,
-            BrowserCatalogWireProjection.Project(installation.Navigation),
+            posting.RealizationId,
+            posting.PublicationOrdinal,
+            BrowserCatalogWireProjection.Project(posting.Navigation),
             [
-                .. installation.Packages.Select(
+                .. posting.Packages.Select(
                     static package =>
                         new BrowserRetainedWorkspacePackage(
                             package.NavigationId,
@@ -311,14 +311,14 @@ internal static class BrowserRetainedWorkspaceActivationService
                             BrowserCatalogWireProjection.Project(
                                 package.Surface))),
             ],
-            installation.Predecessor is null
+            posting.Predecessor is null
                 ? null
                 : new(
-                    installation.Predecessor.SettlementId,
-                    installation.Predecessor.Retirement.Reason.ToString()),
-            installation.Cleanup is null
+                    posting.Predecessor.SettlementId,
+                    posting.Predecessor.Retirement.Reason.ToString()),
+            posting.Cleanup is null
                 ? null
-                : new(installation.Cleanup.Message));
+                : new(posting.Cleanup.Message));
 
     static BrowserRetainedWorkspaceSettlement Settlement(
         WorkspaceRealizationSettlement settlement) =>
@@ -332,8 +332,8 @@ internal static class BrowserRetainedWorkspaceActivationService
         {
             NavigationAuthorityResult.Accepted => "accepted",
             NavigationAuthorityResult.InvalidAuthority => "invalidAuthority",
-            NavigationAuthorityResult.InstallationRequired =>
-                "installationRequired",
+            NavigationAuthorityResult.PostingRequired =>
+                "postingRequired",
             _ => throw new InvalidOperationException(
                 "Navigation authority settlement returned an unknown result."),
         };

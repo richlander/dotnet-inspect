@@ -131,11 +131,11 @@ public sealed class NavigationRetainedTypeActionTests
                                     completed.Result!.Consumer.Outcome.Kind);
                                 Assert.Same(
                                     destinationOccurrence.Occurrence,
-                                    completed.State.InstalledSnapshot
+                                    completed.State.CurrentSnapshot
                                         .ActiveOccurrence);
                                 Assert.Equal(
                                     type,
-                                    completed.State.InstalledSnapshot
+                                    completed.State.CurrentSnapshot
                                         .ActiveSubject);
                                 return ValueTask.FromResult(true);
                             },
@@ -242,7 +242,7 @@ public sealed class NavigationRetainedTypeActionTests
         fixture.Acknowledge(source);
         StructuralSubjectIdentity.TypeSubject sourceType =
             Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
-                session.InstalledSnapshot.ActiveSubject);
+                session.CurrentSnapshot.ActiveSubject);
         StructuralSubjectIdentity.TypeSubject destination =
             Snapshot(fixture, 1).Types[1].Row.Subject;
 
@@ -270,13 +270,13 @@ public sealed class NavigationRetainedTypeActionTests
             fixture.LastRequest!.Occurrence);
         Assert.Same(
             fixture.Scope.Packages[1].Occurrence,
-            session.InstalledSnapshot.ActiveOccurrence);
+            session.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(
             destination,
-            session.InstalledSnapshot.ActiveSubject);
+            session.CurrentSnapshot.ActiveSubject);
         Assert.Equal(
             destination.Library,
-            session.InstalledSnapshot.TypeInventoryLibraryContext);
+            session.CurrentSnapshot.TypeInventoryLibraryContext);
         Assert.Equal(
             StructuralSubjectKind.Type,
             result.Snapshot.ActiveSubject.Kind);
@@ -301,7 +301,7 @@ public sealed class NavigationRetainedTypeActionTests
         fixture.Acknowledge(selected);
         var active =
             Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
-                fixture.Session.InstalledSnapshot.ActiveSubject);
+                fixture.Session.CurrentSnapshot.ActiveSubject);
         NavigationConsumerResult explicitLens =
             await fixture.Session.ActivateLensAsync(
                 new(active, new ViewFacetId("type.metadata")),
@@ -358,10 +358,10 @@ public sealed class NavigationRetainedTypeActionTests
             result.Outcome.Kind);
         Assert.Same(
             fixture.Scope.Packages[selectedIndex].Occurrence,
-            fixture.Session.InstalledSnapshot.ActiveOccurrence);
+            fixture.Session.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(
             destination,
-            fixture.Session.InstalledSnapshot.ActiveSubject);
+            fixture.Session.CurrentSnapshot.ActiveSubject);
     }
 
     [Fact]
@@ -519,7 +519,7 @@ public sealed class NavigationRetainedTypeActionTests
         Assert.Same(installed, result.Snapshot);
         Assert.Same(
             fixture.Scope.Packages[0].Occurrence,
-            session.InstalledSnapshot.ActiveOccurrence);
+            session.CurrentSnapshot.ActiveOccurrence);
     }
 
     static async Task<NavigationConsumerResult> ExecuteAsync(

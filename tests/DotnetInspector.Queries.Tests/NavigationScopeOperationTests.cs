@@ -149,7 +149,7 @@ public sealed class NavigationScopeOperationTests
         NavigationTransition laterLens =
             NavigationTransitions.BeginLens(
                 accepted.State,
-                accepted.State.InstalledSnapshot.LensOutcome.EffectiveLens!);
+                accepted.State.CurrentSnapshot.LensOutcome.EffectiveLens!);
         AssertRefused(
             accepted.State,
             laterLens,
@@ -166,7 +166,7 @@ public sealed class NavigationScopeOperationTests
             NavigationTransitions.PublishRetainedTypeAction(
                 accepted.State,
                 accepted.State.Publication,
-                accepted.State.InstalledSnapshot.Types[0].Row.Subject);
+                accepted.State.CurrentSnapshot.Types[0].Row.Subject);
         Assert.Equal(
             NavigationActionPublicationKind.Refused,
             publication.ActionPublication!.Kind);
@@ -466,7 +466,7 @@ public sealed class NavigationScopeOperationTests
             NavigationTransitions.BeginLens(
                 completed.State,
                 new(
-                    completed.State.InstalledSnapshot.ActiveSubject,
+                    completed.State.CurrentSnapshot.ActiveSubject,
                     new ViewFacetId("workspace.overview")));
         AssertRefused(
             completed.State,
@@ -659,7 +659,7 @@ public sealed class NavigationScopeOperationTests
                     result).Value;
         Assert.Same(
             requested.Occurrence,
-            completed.State.InstalledSnapshot.ActiveOccurrence);
+            completed.State.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(
             NavigationScopeSettlementKind.NoEffect,
             completed.Result!.Consumer.Outcome.Scope!.Kind);
@@ -705,7 +705,7 @@ public sealed class NavigationScopeOperationTests
                 implicitAccepted.ScopeWork!,
                 implicitEvaluation);
         Assert.Null(
-            implicitCompleted.State.InstalledSnapshot.ActiveOccurrence);
+            implicitCompleted.State.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(
             StructuralSubjectKind.Workspace,
             implicitCompleted.State.Snapshot.ActiveSubject.Kind);
@@ -760,20 +760,20 @@ public sealed class NavigationScopeOperationTests
             completed.State.Scope.Kind);
         Assert.Same(
             committed.RequestedOccurrence!.Occurrence,
-            completed.State.InstalledSnapshot.ActiveOccurrence);
+            completed.State.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(
             StructuralSubjectKind.Workspace,
             completed.State.Snapshot.ActiveSubject.Kind);
         Assert.NotEqual(
             fixture.Session.Initialization.Authority!.Revision,
             completed.Result.Consumer.Authority!.Revision);
-        NavigationTransition installed =
-            NavigationTransitions.RecordConsumerInstallation(
+        NavigationTransition posted =
+            NavigationTransitions.RecordConsumerPosting(
                 completed.State,
                 completed.Result.Consumer.Authority);
         NavigationTransition acknowledged =
             NavigationTransitions.Acknowledge(
-                installed.State,
+                posted.State,
                 completed.Result.Consumer.Authority);
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
@@ -800,7 +800,7 @@ public sealed class NavigationScopeOperationTests
             workspaceAction, TestContext.Current.CancellationToken);
         NavigationState initial = fixture.Session.State;
         Assert.Equal(StructuralSubjectKind.Workspace, initial.Snapshot.ActiveSubject.Kind);
-        Assert.NotNull(initial.InstalledSnapshot.ActiveOccurrence);
+        Assert.NotNull(initial.CurrentSnapshot.ActiveOccurrence);
 
         WorkspaceScopeRequest request = fixture.Workspace.IssueAddPackagesRequest(
             fixture.Scope.Revision,
@@ -817,7 +817,7 @@ public sealed class NavigationScopeOperationTests
         NavigationPackageEvaluation package = Rebind(
             fixture.Packages[0],
             settlement.Snapshot.Packages.Single(row =>
-                row.Occurrence == initial.InstalledSnapshot.ActiveOccurrence),
+                row.Occurrence == initial.CurrentSnapshot.ActiveOccurrence),
             fixture.Bindings[0]);
         NavigationScopeEvaluationResult evaluation =
             NavigationTransitions.EvaluateScopeOperation(
@@ -829,8 +829,8 @@ public sealed class NavigationScopeOperationTests
         NavigationTransition completed = NavigationTransitions.CompleteScopeOperation(
             accepted.State, accepted.ScopeWork!, evaluation);
 
-        Assert.Same(initial.InstalledSnapshot.ActiveOccurrence,
-            completed.State.InstalledSnapshot.ActiveOccurrence);
+        Assert.Same(initial.CurrentSnapshot.ActiveOccurrence,
+            completed.State.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(explicitActivation
                 ? StructuralSubjectKind.Library
                 : StructuralSubjectKind.Workspace,
@@ -925,7 +925,7 @@ public sealed class NavigationScopeOperationTests
         await using NavigationSessionTests.Fixture fixture =
             await NavigationSessionTests.Fixture.CreateAsync(selectPackage: false);
         var lens = new NavigationLensIdentity(
-            fixture.Session.InstalledSnapshot.Workspace,
+            fixture.Session.CurrentSnapshot.Workspace,
             new ViewFacetId("workspace.overview"));
         fixture.Override = id => wasUnavailable && id == lens.Facet
             ? new ViewFacetAvailability.Unavailable(
@@ -933,7 +933,7 @@ public sealed class NavigationScopeOperationTests
             : null;
         await fixture.Session.ActivateLensAsync(lens, TestContext.Current.CancellationToken);
         NavigationState initial = fixture.Session.State;
-        Assert.Null(initial.InstalledSnapshot.ActiveOccurrence);
+        Assert.Null(initial.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(NavigationLensBasisKind.ExactRequest,
             initial.Snapshot.LensOutcome.Basis);
 
@@ -1263,12 +1263,12 @@ public sealed class NavigationScopeOperationTests
         NavigationState state,
         NavigationEffectAuthority authority)
     {
-        NavigationTransition installed =
-            NavigationTransitions.RecordConsumerInstallation(
+        NavigationTransition posted =
+            NavigationTransitions.RecordConsumerPosting(
                 state,
                 authority);
         return NavigationTransitions.Acknowledge(
-            installed.State,
+            posted.State,
             authority).State;
     }
 

@@ -63,7 +63,7 @@ public sealed partial class CompleteRestorationExecutionTests
             };
             Assert.Equal(requested, state.Initialization.Subject);
             NavigationWorkspaceSnapshot installed =
-                activated.Workspace.Snapshot.Navigation.State.InstalledSnapshot;
+                activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
             Assert.Equal(requested, installed.ActiveSubject);
             Assert.Equal(retained, installed.RetainedContext);
             Assert.Equal(facet ?? "type.api",
@@ -123,7 +123,7 @@ public sealed partial class CompleteRestorationExecutionTests
                 activated.Workspace.Snapshot.Resolved);
             Assert.Equal(0, resolved.ActiveStateIndex);
             Assert.Equal(StructuralSubjectKind.Workspace,
-                activated.Workspace.Snapshot.Navigation.State.InstalledSnapshot
+                activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot
                     .ActiveSubject.Kind);
             Assert.Equal(StructuralSubjectKind.Type,
                 resolved.States[1].Initialization!.Subject!.Kind);
@@ -182,7 +182,7 @@ public sealed partial class CompleteRestorationExecutionTests
             CompleteRestorationResolvedViewState state = resolved.States[1];
             Assert.Equal("type.metadata", state.Initialization!.Lens!.Facet.Value);
             NavigationWorkspaceSnapshot installed =
-                activated.Workspace.Snapshot.Navigation.State.InstalledSnapshot;
+                activated.Workspace.Snapshot.Navigation.State.CurrentSnapshot;
             Assert.Null(installed.LensOutcome.EffectiveLens);
             var exact = Assert.IsType<NavigationLensEvaluationBasis.ExactRequest>(
                 installed.LensOutcome.Basis);
@@ -256,7 +256,7 @@ public sealed partial class CompleteRestorationExecutionTests
             Assert.Null(state.Context.Type);
             Assert.Null(state.Context.Member);
             Assert.Equal(library, activated.Workspace.Snapshot.Navigation.State
-                .InstalledSnapshot.ActiveSubject);
+                .CurrentSnapshot.ActiveSubject);
         }
         finally
         {
