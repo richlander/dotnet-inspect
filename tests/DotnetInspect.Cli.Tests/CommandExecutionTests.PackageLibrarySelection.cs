@@ -518,7 +518,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageAllLibraries_JsonPreservesLiteralEntityTextLikeJsonl()
+    public async Task PackageAllLibraries_JsonPreservesWrapperShapedAndEntityTextLikeJsonl()
     {
         var (packagePath, tempDir) =
             CreateLocalEntityNamedLibraryPackage();
@@ -586,17 +586,30 @@ public partial class CommandExecutionTests
                 }
             }
 
-            Assert.All(
-                jsonRows,
-                row => Assert.Equal(
-                    "lib/net10.0/A&amp;B.dll",
-                    row["library"]));
             Assert.Equal(
                 "A&amp;B",
                 Assert.Single(
                     jsonRows,
                     row =>
-                        row["field"] == "Name")["value"]);
+                        row["library"]
+                            == "lib/net10.0/A&amp;B.dll"
+                        && row["field"] == "Name")["value"]);
+            Assert.Equal(
+                "<code>Literal Company</code>",
+                Assert.Single(
+                    jsonRows,
+                    row =>
+                        row["library"]
+                            == "lib/net10.0/A&amp;B.dll"
+                        && row["field"] == "Company")["value"]);
+            Assert.Equal(
+                "`A`",
+                Assert.Single(
+                    jsonRows,
+                    row =>
+                        row["library"]
+                            == "lib/net10.0/`A`.dll"
+                        && row["field"] == "Name")["value"]);
             Assert.Empty(jsonl.Error);
             Assert.Empty(json.Error);
         }
@@ -1119,7 +1132,17 @@ public partial class CommandExecutionTests
         CompileBodyStateFixture(
             targetDir,
             "A&amp;B",
-            "public sealed class EntityNamedLibrary { }");
+            """
+            using System.Reflection;
+
+            [assembly: AssemblyCompany("<code>Literal Company</code>")]
+
+            public sealed class EntityNamedLibrary { }
+            """);
+        CompileBodyStateFixture(
+            targetDir,
+            "`A`",
+            "public sealed class BacktickNamedLibrary { }");
         string packagePath = Path.Combine(
             tempDir,
             "Test.EntityNamedLibrary.1.0.0.nupkg");

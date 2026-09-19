@@ -358,7 +358,7 @@ public class LibraryInspectionView
             .ThenBy(g => g.IntegrationType, StringComparer.Ordinal)
             .Select(g => new IntegrationOpportunityRow(
                 g.Integration,
-                MarkoutInline.Code(g.Api),
+                g.Api,
                 g.IntegrationType,
                 g.LookFor))
             .ToList();
@@ -383,7 +383,7 @@ public class LibraryInspectionView
                         signal.Shape == IntegrationSignalShape.Api
                             ? "API"
                             : "Type",
-                        MarkoutInline.Code(signal.Name))))
+                        signal.Name)))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
@@ -1098,7 +1098,19 @@ public class LibraryInspectionView
 internal static class LibraryViewText
 {
     [return: NotNullIfNotNull(nameof(value))]
-    public static string? Contain(string? value) => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+    public static string? Contain(string? value)
+    {
+        if (value is null)
+            return null;
+
+        string contained = CSharpIdentifier.ContainRenderedText(value);
+        // Nest literal Markout delimiters so formatters can distinguish them
+        // from the outer code span owned by this view.
+        return contained.Contains("<code>", StringComparison.OrdinalIgnoreCase)
+            || contained.Contains("</code>", StringComparison.OrdinalIgnoreCase)
+                ? MarkoutInline.Code(contained)
+                : contained;
+    }
 
     public static InertString Field(string value) =>
         new(TextPolicy.Field, value);
@@ -2122,7 +2134,9 @@ public record IntegrationOpportunityRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("API")]
-    public string Api { get; init; } = LibraryViewText.Contain(Api);
+    public string Api { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Api).ToString());
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Integration Type")]
@@ -2151,7 +2165,9 @@ public record IntegrationSignalRow(
     public string Shape { get; init; } = LibraryViewText.Contain(Shape);
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string Symbol { get; init; } = LibraryViewText.Contain(Symbol);
+    public string Symbol { get; init; } =
+        MarkoutInline.Code(
+            new InertString(TextPolicy.Field, Symbol).ToString());
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

@@ -154,13 +154,6 @@ internal sealed class CapturedLibraryTableFormatter :
 
     private static string LowerJsonCell(string value)
     {
-        if (value is { Length: > 1 }
-            && value[0] == '`'
-            && value[^1] == '`')
-        {
-            return WebUtility.HtmlDecode(value[1..^1]);
-        }
-
         const string openCode = "<code>";
         const string closeCode = "</code>";
         if (value.StartsWith(
@@ -2171,8 +2164,7 @@ public static class OutputFormatter
                                     var row =
                                         new IntegrationOpportunityRow(
                                             opportunity.Integration,
-                                            MarkoutInline.Code(
-                                                opportunity.Api),
+                                            opportunity.Api,
                                             opportunity.IntegrationType,
                                             opportunity.LookFor);
                                     return (
@@ -2279,8 +2271,7 @@ public static class OutputFormatter
                                                                 == IntegrationSignalShape.Api
                                                                 ? "API"
                                                                 : "Type",
-                                                            MarkoutInline.Code(
-                                                                signal.Name))))))
+                                                            signal.Name)))))
                     .Select(
                         item =>
                             AggregateRow(
