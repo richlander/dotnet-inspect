@@ -199,8 +199,8 @@ public sealed class PackageAssemblyContextRolesTests
 
         ResolvedAssemblyReference collision =
             Assembly("Surface", marker: 3);
-        InvalidOperationException duplicate =
-            Assert.Throws<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException duplicate =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
                 () => workspace.CreatePackageAssemblyContextRoles(
                     [surface, collision],
                     implementationAssemblies: null,

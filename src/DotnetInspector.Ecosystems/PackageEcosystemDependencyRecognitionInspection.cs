@@ -376,7 +376,11 @@ public static class PackageEcosystemDependencyRecognitionInspection
             catch (Exception failure) when (
                 failure is PackageAssemblyRoleCorrespondenceException
                     or InvalidDataException
-                    or BadImageFormatException)
+                    or BadImageFormatException
+                && !failure.Data.Contains(
+                    "Inspector.Artifacts.Workspaces.CleanupFailures")
+                && !failure.Data.Contains(
+                    "DotnetInspector.Queries.WorkspaceCleanupFailure"))
             {
                 EcosystemDependencyInputIssueIdentity issue =
                     AddIssue(

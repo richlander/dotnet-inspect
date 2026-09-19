@@ -1027,6 +1027,46 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_DuplicateCompileIdentityDisclosesIncompleteRecognition()
+    {
+        string id = $"Pinned.DuplicateIdentity.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreatePackage(
+            id,
+            "duplicate identity ecosystem package",
+            library: library,
+            libraryName: "First.dll",
+            extraEntries:
+            [
+                ("lib/net11.0/nested/Second.dll", library),
+            ],
+            dependencies:
+            [
+                ("Microsoft.Extensions.AI.Abstractions", "10.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        Assert.DoesNotContain(
+            "| Ecosystem Dependencies |",
+            result.Output);
+        Assert.Contains(
+            "| Ecosystem Dependency Status | Incomplete (1 issue) |",
+            result.Output);
+    }
+
+    [Fact]
     public async Task PackageCommand_CompleteEmptyRecognitionOmitsEcosystemFields()
     {
         string id = $"Pinned.EmptyEcosystems.{Guid.NewGuid():N}";
