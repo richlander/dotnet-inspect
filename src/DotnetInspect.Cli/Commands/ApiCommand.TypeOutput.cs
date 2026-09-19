@@ -673,7 +673,8 @@ public partial class ApiCommand
         if (options.Print)
         {
             int result = await PrintApiProjectionAsync(
-                view, type, options, sourceAssembly, packageName, packageVersion,
+                view, type, options, memberCodeSourceAssembly ?? sourceAssembly,
+                packageName, packageVersion,
                 sourceClient ?? DotnetInspector.Networking.HttpClientFactory.Shared);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return result;
@@ -1064,23 +1065,40 @@ public partial class ApiCommand
                 return 1;
             }
 
-            return await TypeSourceDocumentPrinter.PrintAsync(
-                type, rows[selected.Row - 1], selected.Row,
+            var source = rows[selected.Row - 1];
+            return await AuthoredSourceDocumentPrinter.PrintAsync(
+                type,
+                new PrintableRow(selected.Row, section, source.Url, null, source.Url),
+                source.FilePath,
                 options, sourceAssembly, packageName, packageVersion, sourceClient);
         }
 
         if (section.Equals(SectionNames.SourceLocations, StringComparison.OrdinalIgnoreCase))
         {
-            return await PrintUrlProjectionAsync(
-                section,
-                view.SourceLocationRows?.Select((row, index) => (
+            var rows = view.SourceLocationRows ?? [];
+            var selection = SelectPrintableRow(
+                rows.Select((row, index) => (
                     Row: index + 1,
                     Label: (string?)row.File ?? row.Url,
-                    Url: row.Url,
-                    FilePath: row.FilePath,
-                    row.Checksum,
-                    row.ChecksumAlgorithm)),
-                options);
+                    Url: row.Url)).ToList(),
+                options.PrintRow,
+                out var selectionError);
+            if (selection is not { } selected)
+            {
+                CommandError.Write(selectionError);
+                return 1;
+            }
+
+            return await AuthoredSourceDocumentPrinter.PrintAsync(
+                type,
+                new PrintableRow(
+                    selected.Row,
+                    section,
+                    string.IsNullOrWhiteSpace(selected.Label) ? selected.Url! : selected.Label,
+                    null,
+                    selected.Url),
+                rows[selected.Row - 1].FilePath,
+                options, sourceAssembly, packageName, packageVersion, sourceClient);
         }
 
         var documents = section switch
@@ -1272,65 +1290,6 @@ public partial class ApiCommand
         }
 
         return selected;
-    }
-
-    private static async Task<int> PrintUrlProjectionAsync(
-        string section,
-        IEnumerable<(
-            int Row,
-            string? Label,
-            string? Url,
-            string? FilePath,
-            byte[]? Checksum,
-            string? ChecksumAlgorithm)>? rows,
-        ApiOptions options)
-    {
-        var materialized = (rows ?? []).ToList();
-        var selection = SelectPrintableRow(
-            materialized.Select(row => (row.Row, row.Label, row.Url)).ToList(),
-            options.PrintRow,
-            out var selectionError);
-        if (selection is not { } selectedRow)
-        {
-            CommandError.Write(selectionError);
-            return 1;
-        }
-
-        var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
-        var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
-        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await PdbSourceHouse.AcquireVerifiedSourceTextAsync(
-            fetcher,
-            selectedSource.FilePath,
-            rawUrl,
-            selectedSource.ChecksumAlgorithm,
-            selectedSource.Checksum,
-            options.SourceRepositories);
-        if (fetch.Text is null)
-        {
-            CommandError.Write(
-                $"failed to fetch verified source for row {selectedRow.Row}: "
-                + (fetch.Failure ?? "source is unavailable."));
-            return 1;
-        }
-
-        var document = new PrintableDocument(
-            selectedRow.Row,
-            section,
-            string.IsNullOrWhiteSpace(selectedRow.Label) ? selectedRow.Url! : selectedRow.Label!,
-            null,
-            selectedRow.Url,
-            fetch.Text);
-
-        return PrintProjectionOutput.Write(
-            [document],
-            new PrintProjectionOptions(
-                Row: null,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                options.Bare,
-                new ProjectionDestination(null, options.Rows)));
     }
 
     private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)
