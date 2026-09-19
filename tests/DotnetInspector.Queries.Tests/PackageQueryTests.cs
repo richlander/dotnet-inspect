@@ -2450,6 +2450,40 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_MalformedModuleDefinitionNameRemainsVisible()
+    {
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Module.dll",
+                    WithMalformedModuleDefinitionName(
+                        AssemblyReferenceModule()))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyDefinitionNameRemainsVisible()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Caller.dll",
+                    WithMalformedAssemblyDefinitionName(caller))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyReferenceNameRemainsVisible()
+    {
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Module.dll",
+                    WithMalformedAssemblyReferenceNameUtf8(
+                        AssemblyReferenceModule()))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceBudgetsRejectBeforeExpansion()
     {
         byte[] caller = File.ReadAllBytes(
@@ -3534,6 +3568,40 @@ public sealed class PackageQueryTests
             + metadata.GetTableMetadataOffset(TableIndex.Module)
             + sizeof(ushort);
         malformed.AsSpan(nameOffset, sizeof(ushort)).Clear();
+        return malformed;
+    }
+
+    private static byte[] WithMalformedModuleDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetModuleDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetAssemblyDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyReferenceNameUtf8(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata =>
+                metadata.GetAssemblyReference(
+                    Assert.Single(metadata.AssemblyReferences)).Name);
+
+    private static byte[] WithMalformedUtf8(
+        byte[] image,
+        Func<MetadataReader, StringHandle> selectHandle)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        StringHandle handle = selectHandle(metadata);
+        Assert.False(handle.IsNil);
+        int stringOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetHeapMetadataOffset(HeapIndex.String)
+            + MetadataTokens.GetHeapOffset(handle);
+        malformed[stringOffset] = 0xff;
         return malformed;
     }
 

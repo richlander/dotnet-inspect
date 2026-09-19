@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -34,6 +35,11 @@ public sealed record AssemblyIdentityNames(
 /// </summary>
 public static class AssemblyIdentityScanner
 {
+    private static readonly MetadataStringDecoder s_strictUtf8Decoder = new(
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true));
+
     public static AssemblyIdentityNames Scan(string assemblyPath)
         => OwnedResourceCleanup.ReadPeImage(
             () => File.OpenRead(assemblyPath),
@@ -41,24 +47,22 @@ public static class AssemblyIdentityScanner
 
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
-        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-        string moduleName =
-            reader.GetString(reader.GetModuleDefinition().Name);
-        if (moduleName.Length == 0)
-        {
-            throw new BadImageFormatException(
-                "The Module definition has an empty required name.");
-        }
+        var reader = MetadataFormatAdmission.GetMetadataReader(
+            peReader,
+            MetadataReaderOptions.None,
+            s_strictUtf8Decoder);
+        _ = ReadRequiredName(
+            reader,
+            reader.GetModuleDefinition().Name,
+            "Module definition");
 
         bool hasAssemblyDefinition = reader.IsAssembly;
         string name = hasAssemblyDefinition
-            ? reader.GetString(reader.GetAssemblyDefinition().Name)
+            ? ReadRequiredName(
+                reader,
+                reader.GetAssemblyDefinition().Name,
+                "Assembly definition")
             : string.Empty;
-        if (hasAssemblyDefinition && name.Length == 0)
-        {
-            throw new BadImageFormatException(
-                "The Assembly definition has an empty required name.");
-        }
 
         // A malformed row must not discard the identity that was read successfully. Reporting the
         // name with an incomplete reference set lets a consumer keep the assembly under
@@ -69,15 +73,10 @@ public static class AssemblyIdentityScanner
         {
             try
             {
-                string reference =
-                    reader.GetString(reader.GetAssemblyReference(handle).Name);
-                if (reference.Length == 0)
-                {
-                    complete = false;
-                    continue;
-                }
-
-                references.Add(reference);
+                references.Add(ReadRequiredName(
+                    reader,
+                    reader.GetAssemblyReference(handle).Name,
+                    "AssemblyRef row"));
             }
             catch (BadImageFormatException)
             {
@@ -92,5 +91,29 @@ public static class AssemblyIdentityScanner
         {
             HasAssemblyDefinition = hasAssemblyDefinition,
         };
+    }
+
+    private static string ReadRequiredName(
+        MetadataReader reader,
+        StringHandle handle,
+        string owner)
+    {
+        try
+        {
+            string value = reader.GetString(handle);
+            if (value.Length == 0)
+            {
+                throw new BadImageFormatException(
+                    $"The {owner} has an empty required name.");
+            }
+
+            return value;
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new BadImageFormatException(
+                $"The {owner} has a required name with invalid UTF-8.",
+                exception);
+        }
     }
 }
