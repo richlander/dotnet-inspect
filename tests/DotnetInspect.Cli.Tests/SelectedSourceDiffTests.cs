@@ -738,6 +738,62 @@ public sealed class SelectedSourceDiffTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task GeneralSourceBatch_InspectsIndependentlyBoundAssemblies()
+    {
+        string[] before =
+        [
+            FixtureCatalog.SourceDiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+        ];
+        string[] after =
+        [
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            FixtureCatalog.SourceDiffPair.NewAssemblyPath(),
+        ];
+        var options = Options("MovedBlockAndEdit") with
+        {
+            TypeFilter =
+                ["SourceDiffFixture.Counter", "DiffFixtureSample.DiffSample"],
+            MemberFilter =
+            [
+                "SourceDiffFixture.Counter.MovedBlockAndEdit",
+                "DiffFixtureSample.DiffSample.ConstantValue",
+            ],
+        };
+        var local = DiffCommand.BuildImplementationDiff(before, after, options);
+        var handler = new SourceHandler(HttpStatusCode.BadRequest, []);
+        using var client = new HttpClient(handler);
+
+        var result = await DiffCommand.BuildImplementationDiffWithSourceAsync(
+            local, before, after, options, client, new VerboseLogger(false));
+        var view = DiffOutputFormatter.BuildImplementationDiffView(
+            "MultiAssemblySourceDiff", result.Local, "v1", "v2");
+        var sourceRows = view.Rows!
+            .Where(row => row.Mechanism == "PDB Source")
+            .ToArray();
+
+        Assert.Null(result.SelectedSource);
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "SourceDiffFixture.Counter.MovedBlockAndEdit",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence == "+     return first + second + 1;");
+        Assert.Contains(
+            sourceRows,
+            row => row.Member.Contains(
+                    "DiffFixtureSample.DiffSample.ConstantValue",
+                    StringComparison.Ordinal)
+                && row.Change == "added"
+                && row.Evidence == "+ public static int ConstantValue() => 2;");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.Change is "failed" or "unavailable");
+        Assert.Empty(handler.Requests);
+    }
+
     [Theory]
     [InlineData("property", "Value")]
     [InlineData("property", "Value:1")]

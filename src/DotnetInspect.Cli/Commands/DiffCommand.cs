@@ -1830,8 +1830,6 @@ public class DiffCommand
 
         var sourceContext = CreateSourceQueryContext(options, httpClient, logger);
         await using var workspace = new InspectionWorkspace();
-        using var group = workspace.CreateAssemblyContextGroup(
-            indexed.Select(item => item.Participant));
 
         foreach ((string path, LibraryBodyIndex index,
             AssemblyContextParticipant participant) in indexed)
@@ -1924,6 +1922,7 @@ public class DiffCommand
             if (targets.Count == 0)
                 continue;
 
+            using var group = workspace.CreateAssemblyContextGroup([participant]);
             PdbSourceRequestIndex? generatedRequestIndex = null;
             string? generatedRequestIndexFailure = null;
             foreach (var target in targets)

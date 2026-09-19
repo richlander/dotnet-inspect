@@ -289,8 +289,10 @@ and token and consumes the completed
 `MemberSourceInspection.ExecuteAsync`. The CLI does not parse the Research
 display label or compare it textually with the API anchor.
 
-One workspace, assembly-context group, source-query context, PDB store, and
-source-content cache are reused across each endpoint batch. The ordinary
+One workspace, source-query context, PDB store, and source-content cache are
+reused across each endpoint batch. Each independently bound participant uses
+its own assembly-context group, preserving that participant's binding-policy
+snapshot rather than combining unrelated policy identities. The ordinary
 include-all API projection supplies requests for authored methods and
 accessors. If a selected token is absent only because it is compiler-generated,
 the CLI lazily projects the compiler-generated API surface and SourceHouse
@@ -332,6 +334,13 @@ local-function contributors, generated local-function targets, explicit
 implementations, removed and bodyless methods, disabled PDB Source retrieval,
 and the diagnosed nested-generic ambiguity. The exact selected-member pair
 route and its neighboring output remain unchanged.
+
+The multi-assembly production case compares
+`Avalonia@11.3.14..12.1.2` with type filter `Avalonia.Build.Tasks.*`.
+`SelectedSourceDiffTests.GeneralSourceBatch_InspectsIndependentlyBoundAssemblies`
+gates authored edits from two independently bound fixture assemblies, with
+their endpoint order reversed, through the production batch and output
+projection. This is a focused PR-fast case, not an exhaustive assembly sweep.
 
 ## Authority and exact claim
 
