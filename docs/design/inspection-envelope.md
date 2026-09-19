@@ -10,7 +10,7 @@ same baseline and may compose additional owner-issued content or host-owned
 experience state around it without changing the baseline.
 
 The optional [service-evidence enrichment](#service-evidence-enrichment)
-composes that baseline with a second owner-issued type. It is a proposed
+composes that baseline with a second owner-issued type. It is an implemented
 extension of this envelope pattern, not another primary-content model.
 Host-visible evidence capture and complete evidence-envelope delivery are
 available only in Debug builds until a separately approved retail adoption
