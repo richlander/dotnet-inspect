@@ -41,10 +41,11 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-`--envelope` implies JSON and emits the complete service value with
-`schema_version`, `result_kind`, `content`, `share`, and `diagnostics`. It is
-not a presentation format above `--json`: use it only when Share or service
-diagnostics are part of the answer.
+`--envelope` normally implies JSON and emits the complete service value with
+`schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
+Workspace coordinate replacement is the exception: request
+`--json --envelope` together. An envelope is not a presentation format above
+`--json`: use it only when Share or service diagnostics are part of the answer.
 
 | Route | Why the envelope can matter |
 | ----- | --------------------------- |
@@ -54,7 +55,7 @@ diagnostics are part of the answer.
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
 | `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
-| Workspace coordinate replacement | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
+| Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
 
 For adopted routes whose unprojected `--json` is complete Content, that JSON is
 semantically identical to `--envelope`'s `content`; whitespace and property

@@ -54,9 +54,10 @@ constraints.
 
 Use unprojected `--json` when Content alone answers the question. Use
 `--envelope` when the answer also needs the operation's Share outcome or
-ordered diagnostics. It implies JSON and is not a more verbose presentation
-format; incompatible section, field, row, count, and rendering projections
-fail rather than shaping the service value.
+ordered diagnostics. It normally implies JSON and is not a more verbose
+presentation format. Workspace coordinate replacement is the exception and
+requires `--json --envelope` together. Incompatible section, field, row, count,
+and rendering projections fail rather than shaping the service value.
 
 High-value envelope cases:
 
@@ -68,8 +69,8 @@ High-value envelope cases:
   restorable Dependencies URL when the request is projectable.
 - Online package version populations retain completion and source evidence.
   `--count --envelope` makes the selected Count the envelope Content.
-- Workspace coordinate replacement retains the derived Share, actual Scope
-  outcome, fallback decision, and diagnostics.
+- Workspace coordinate replacement with `--json --envelope` retains the
+  derived Share, actual Scope outcome, fallback decision, and diagnostics.
 - API Diff, Package Activity, and Package Query retain complete typed outcomes
   and diagnostics, but a Share may be `nonProjectable`; inspect `share.kind`
   before offering a URL.
