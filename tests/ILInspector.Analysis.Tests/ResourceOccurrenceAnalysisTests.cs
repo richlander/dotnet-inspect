@@ -18,6 +18,8 @@ public sealed class ResourceOccurrenceAnalysisTests
         new("test.resource-occurrence.conflict-transparent");
     static readonly ResourceEffectModelIdentity UnsupportedTargetModel =
         new("test.resource-occurrence.unsupported-target");
+    static readonly ResourceEffectModelIdentity MixedTargetModel =
+        new("test.resource-occurrence.mixed-target");
     static readonly ResourceKindIdentity FirstKind =
         new("test.resource-occurrence.first");
     static readonly ResourceKindIdentity SecondKind =
@@ -327,6 +329,35 @@ public sealed class ResourceOccurrenceAnalysisTests
     }
 
     [Fact]
+    public void ExecutePath_KeepsUnresolvedOrdinaryValueFlowVisible()
+    {
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        ResourceOccurrenceAnalysisResult method =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                result =>
+                    result.Method.Name == "RentAddressThenObserve");
+
+        Assert.Single(method.Roots);
+        Assert.False(method.IsComplete);
+        Assert.Contains(
+            method.Limitations,
+            limitation =>
+                limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
+                && limitation.Effect is null
+                && limitation.Call is not null);
+    }
+
+    [Fact]
     public void ExecutePath_DoesNotRunResourceOccurrencesWithoutAdmission()
     {
         LibraryBodyAnalysisExecution execution =
@@ -495,6 +526,53 @@ public sealed class ResourceOccurrenceAnalysisTests
             limitation =>
                 limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
                 && limitation.Effect is ResourceEffect.Acquire);
+    }
+
+    [Fact]
+    public void ExecutePath_DoesNotAttachUnsupportedAcquisitionToValidRoot()
+    {
+        ResourceEffectAdmissionOutcome admission =
+            ResourceEffectAdmissionBuilder.Admit(
+                [MixedTargetDefinition()]);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    Assert.IsType<
+                        ResourceEffectAdmissionOutcome.Admitted>(
+                            admission).Admission),
+                resolver);
+        ResourceOccurrenceAnalysisResult method =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                result =>
+                    result.Method.Name == "RentAndReturnFromHelper");
+        ResourceOccurrence occurrence =
+            Assert.Single(
+                method.Occurrences,
+                candidate =>
+                    candidate.Operations.Contains(
+                        ResourceOccurrenceOperationKind.Acquisition));
+        ResourceOccurrenceEffect effect =
+            Assert.Single(
+                occurrence.Effects,
+                candidate => candidate.Effect is ResourceEffect.Acquire);
+        ResourceEffect.Acquire acquisition =
+            Assert.IsType<ResourceEffect.Acquire>(effect.Effect);
+
+        Assert.IsType<ResourceEffectLocation.Return>(acquisition.Target);
+        Assert.Contains(
+            method.Limitations,
+            limitation =>
+                limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
+                && limitation.Effect is ResourceEffect.Acquire
+                {
+                    Target: ResourceEffectLocation.Parameter,
+                });
     }
 
     static ResourceEffectAdmission PathologicalAdmission()
@@ -703,6 +781,51 @@ public sealed class ResourceOccurrenceAnalysisTests
                         Correspondence: null,
                         Lender: null),
                     1),
+            ]);
+    }
+
+    static ResourceEffectModelDefinition MixedTargetDefinition()
+    {
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(CoreType("Byte"));
+        ResourceKindReference first = new(FirstKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            MixedTargetModel,
+            [
+                new ResourceKindDefinition(
+                    FirstKind,
+                    arity: 0,
+                    [Provenance(MixedTargetModel, 0)]),
+            ],
+            [],
+            [
+                Declaration(
+                    MixedTargetModel,
+                    FixtureEntryType(),
+                    "ReturnRentedArrayToCaller",
+                    [byteArray],
+                    byteArray,
+                    new ResourceEffect.Acquire(
+                        first,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        Correspondence: null,
+                        Lender: null),
+                    1),
+                Declaration(
+                    MixedTargetModel,
+                    FixtureEntryType(),
+                    "ReturnRentedArrayToCaller",
+                    [byteArray],
+                    byteArray,
+                    new ResourceEffect.Acquire(
+                        first,
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        Correspondence: null,
+                        Lender: null),
+                    2),
             ]);
     }
 

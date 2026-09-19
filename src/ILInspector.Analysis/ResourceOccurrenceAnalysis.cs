@@ -402,12 +402,7 @@ internal static class ResourceOccurrenceAnalysisService
 
                 ImmutableArray<ResourceRootKey> affectedRoots =
                     effect.Effect is ResourceEffect.Acquire
-                        ?
-                        [
-                            ResourceRootKey.Acquisition(
-                                call.ILOffset,
-                                ResourceDomainKey(effect.ResourceKinds)),
-                        ]
+                        ? AcquisitionRoots(effect)
                         : AffectedRoots(effect, roots);
                 if (source is not null
                     && ValueAt(
@@ -506,13 +501,30 @@ internal static class ResourceOccurrenceAnalysisService
         foreach (DirectCall call in callsByOffset.Values
             .OrderBy(call => call.ILOffset))
         {
-            AddBoundaryOccurrences(call, roots, groups);
+            AddBoundaryOccurrences(
+                method,
+                call,
+                roots,
+                groups,
+                limitations);
         }
 
         foreach (FieldStoreFact store in fieldStores
             .Where(store => store.EvidenceMethod == method)
             .OrderBy(store => store.ILOffset))
         {
+            if (!store.Value.IsResolved)
+            {
+                AddUnresolvedValueLimitation(
+                    method,
+                    store.ILOffset,
+                    call: null,
+                    "A field-store value could not be assigned to a "
+                    + "terminal-resource root.",
+                    roots,
+                    limitations);
+                continue;
+            }
             foreach (ResourceRootKey rootKey in MatchingRoots(
                 store.Value,
                 roots))
@@ -552,6 +564,23 @@ internal static class ResourceOccurrenceAnalysisService
         {
             if (sink.ResolvedValue is not { } value)
                 continue;
+            if (method.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void")))
+            {
+                continue;
+            }
+            if (!value.IsResolved)
+            {
+                AddUnresolvedValueLimitation(
+                    method,
+                    sink.ILOffset,
+                    call: null,
+                    "A returned value could not be assigned to a "
+                    + "terminal-resource root.",
+                    roots,
+                    limitations);
+                continue;
+            }
             foreach (ResourceRootKey rootKey in MatchingRoots(value, roots))
             {
                 if (!roots.TryGetValue(rootKey, out ResourceOccurrenceRoot? root))
@@ -588,16 +617,31 @@ internal static class ResourceOccurrenceAnalysisService
     }
 
     static void AddBoundaryOccurrences(
+        MethodIdentity method,
         DirectCall call,
         Dictionary<ResourceRootKey, ResourceOccurrenceRoot> roots,
         Dictionary<(ResourceRootKey Root, int ILOffset), OccurrenceBuilder>
-            groups)
+            groups,
+        List<ResourceOccurrenceLimitation> limitations)
     {
-        IEnumerable<ResolvedValueSet> values =
-            call.ResolvedArgumentValues.Concat(
+        ImmutableArray<ResolvedValueSet> values =
+        [
+            .. call.ResolvedArgumentValues.Concat(
                 call.ResolvedReceiverValue is { } receiver
                     ? [receiver]
-                    : Enumerable.Empty<ResolvedValueSet>());
+                    : Enumerable.Empty<ResolvedValueSet>()),
+        ];
+        if (values.Any(value => !value.IsResolved))
+        {
+            AddUnresolvedValueLimitation(
+                method,
+                call.ILOffset,
+                ResourceOccurrenceCallSite.From(call),
+                "A direct-call boundary value could not be assigned to a "
+                + "terminal-resource root.",
+                roots,
+                limitations);
+        }
         foreach (ResourceRootKey rootKey in values
             .SelectMany(value => MatchingRoots(value, roots))
             .Distinct())
@@ -613,6 +657,28 @@ internal static class ResourceOccurrenceAnalysisService
             group.Operations.Add(
                 ResourceOccurrenceOperationKind.DirectCallBoundary);
         }
+    }
+
+    static void AddUnresolvedValueLimitation(
+        MethodIdentity method,
+        int offset,
+        ResourceOccurrenceCallSite? call,
+        string message,
+        Dictionary<ResourceRootKey, ResourceOccurrenceRoot> roots,
+        List<ResourceOccurrenceLimitation> limitations)
+    {
+        if (roots.Count == 0)
+            return;
+
+        limitations.Add(
+            new ResourceOccurrenceLimitation(
+                ResourceOccurrenceLimitationKind.ValueFlow,
+                message)
+            {
+                Method = method,
+                ILOffset = offset,
+                Call = call,
+            });
     }
 
     static ImmutableArray<ResourceRootKey> AffectedRoots(
@@ -637,6 +703,17 @@ internal static class ResourceOccurrenceAnalysisService
                         : ResourceDomainKey(effect.ResourceKinds)),
             ];
     }
+
+    static ImmutableArray<ResourceRootKey> AcquisitionRoots(
+        ResolvedResourceEffect effect) =>
+        IsSupportedAcquisitionTarget(effect)
+            ?
+            [
+                ResourceRootKey.Acquisition(
+                    effect.DirectCall.Call.ILOffset,
+                    ResourceDomainKey(effect.ResourceKinds)),
+            ]
+            : [];
 
     static IEnumerable<ResourceRootKey> MatchingRoots(
         ResolvedValueSet value,

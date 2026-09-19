@@ -155,7 +155,11 @@ Method completeness is the conjunction of:
 A limitation associated with one root cannot make an unrelated root
 incomplete. A method-level limitation cannot be projected as root-local
 evidence by guessing from type, display name, or the presence of another
-resource in the method.
+resource in the method. Once a method has a retained root, an unresolved
+ordinary call-boundary, storage, or return value remains method-level
+incompleteness because the value-flow substrate intentionally carries no
+partial provenance from which the producer could soundly prove that the value
+is unrelated.
 
 Positive occurrence evidence survives unrelated limitations. Unsupported or
 incomplete evidence does not become a successful empty result. Resolution
