@@ -388,6 +388,24 @@ note; this doc pins only the constraint that nothing in the slices below may
 widen the printer's string seam — new emission logic funnels through the
 choke-point functions that a composer can later replace node-for-node.
 
+### Full-expression contexts
+
+Conditional arms and compound-assignment right-hand sides accept a complete
+expression, not an atomic operand. Their fallback spelling therefore does not
+add an outer pair of parentheses. Required grouping inside that expression,
+type coercions, checked/unchecked contexts, and evaluation order remain owned
+by their existing renderers and decided IR. This is a spelling adoption under
+issue #2376, not a new raising rule or a claim to recover redundant authored syntax.
+
+The motivating real witness is `System.Data.SqlTypes.SqlBytes.MaxLength`:
+its conditional cast arms need their cast syntax, but not another enclosing
+pair. `OrderedBinarySpillSamples.SnapshotAcrossMutation` supplies the
+compiler-produced mutation boundary. `ExpressionContextParenthesesTests`
+gates these full-expression contexts and retains required nested grouping;
+the existing ordered-spill native gate covers compound-update fidelity.
+Both CLI and Browser/Wasm consume the shared printer in this same adoption
+step. Other operand contexts retain their existing precedence policy.
+
 ## Scope and constraints
 
 This stays inside the decompiler's deliberate ceilings:

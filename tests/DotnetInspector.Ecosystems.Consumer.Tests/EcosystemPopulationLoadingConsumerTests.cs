@@ -1,11 +1,38 @@
 using System.Collections.Immutable;
 using DotnetInspector.EcosystemLoading;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 
 namespace DotnetInspector.Ecosystems.Consumer.Tests;
 
 public sealed class EcosystemPopulationLoadingConsumerTests
 {
+    [Fact]
+    public async Task PublicCatalogSelectsLoaderForExactWorkspaceRegistration()
+    {
+        WorkspacePlan plan =
+            EcosystemPackCatalog.CreateWorkspacePlan(
+                [EcosystemPackIds.Runtime]);
+        await using var workspace = new InspectionWorkspace(plan);
+        WorkspaceRegistrationRevision revision =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        WorkspaceEcosystemRegistrationDeclaration registration =
+            Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(revision.Registrations)).Declaration;
+
+        var known =
+            Assert.IsAssignableFrom<EcosystemPopulationLoaderSelection.Known>(
+                EcosystemPackCatalog.SelectPopulationLoader(
+                    revision,
+                    registration,
+                    EcosystemPopulationDemand.WholePopulation.Instance));
+
+        Assert.Equal("ecosystem-loader.runtime", known.Binding.Id.Value);
+        Assert.Same(registration, known.Registration);
+        Assert.Same(revision, known.Revision);
+    }
+
     [Fact]
     public async Task PublicSurfaceSelectsAndInvokesStaticLoader()
     {
