@@ -93,6 +93,15 @@ dotnet build dotnet-inspect.slnx -c Release
 dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
 ```
 
+Debug-only CLI host contracts retain Release code generation while explicitly
+enabling their conditional surface:
+
+```bash
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release \
+  -p:DefineConstants=DEBUG -- \
+  --filter-class DotnetInspect.Cli.Tests.DependsAssetCommandTests
+```
+
 This is a Microsoft Testing Platform executable. Use `--filter-class` and
 `--filter-method` after `--` for focused selections; PR CI excludes
 `Speed=Slow`, while Deep Inspect runs the complete suite. Compiler-produced
