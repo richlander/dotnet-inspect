@@ -192,6 +192,7 @@ internal sealed class LibraryMethodAnalysisResult
     public ArrayPoolOwnershipMethodEvidence? OwnershipFlow;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
+    public MethodBodyAnalysisContext? ResourceOccurrenceContext;
 }
 
 internal readonly record struct UnsafeEvidencePresenceMethodResult(
@@ -589,6 +590,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         bool includeJsonWireContractFlow = plan.Includes(
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        bool includeCallValueFlow = plan.RequiresCallValueFlow;
         bool includeLocalThrows = plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
         LibraryBodyExceptionTypeClassifier? localExceptionTypes =
@@ -630,23 +632,23 @@ internal sealed class LibraryMethodAnalysisRunner(
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
         ImmutableArray<MethodResultSink>.Builder? resultSinks =
-            includeJsonWireContractFlow
+            includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<MethodResultSink>()
                 : null;
         ImmutableArray<FieldStoreFact>.Builder? fieldStores =
-            includeJsonWireContractFlow
+            includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<FieldStoreFact>()
                 : null;
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads =
-            includeJsonWireContractFlow
+            includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<FieldLoadFact>()
                 : null;
         ImmutableArray<int>.Builder? currentInstanceMutations =
-            includeJsonWireContractFlow
+            includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<int>()
                 : null;
         ImmutableArray<MethodReturnFlow>.Builder? returnFlows =
-            includeJsonWireContractFlow
+            includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<MethodReturnFlow>()
                 : null;
         MetadataReader reader = _infrastructure.Reader;
@@ -919,6 +921,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 localTypes.Types,
                 localTypes.DeclaredCount,
                 localTypes.IncompleteReason);
+            if (plan.IncludesResourceOccurrences)
+                result.ResourceOccurrenceContext = context;
             MethodInstructions methodInstructions =
                 context.Instructions;
             if (includeImplementationProfiles)
@@ -1024,7 +1028,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         || hasUnsafeSignature
                         || hasUnsafeLocals,
                     includeCallValueFlow:
-                        includeJsonWireContractFlow,
+                        includeCallValueFlow,
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
