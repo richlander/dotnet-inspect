@@ -499,6 +499,12 @@ for (const [lens, label] of [
     await expect(page.getByRole("heading", {
       name: `${label} requires one Library`,
     })).toBeVisible();
+    const shared = page.url();
+    await page.reload();
+    await expect(page.getByRole("heading", {
+      name: `${label} requires one Library`,
+    })).toBeVisible();
+    await expect(page).toHaveURL(shared);
   });
 }
 

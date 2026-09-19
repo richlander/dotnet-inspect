@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   subjectTab,
   chooseInspector,
+  chooseSubject,
   selectLibrary,
   other,
   installFacades,
@@ -141,6 +142,29 @@ test("Library Metadata omits Package coordinate selectors", async ({ page }) => 
     "data-metadata-coordinate",
     JSON.stringify(["System.Text.Json", "10.0.0", "net10.0", other.id]));
 });
+
+for (const change of packageCoordinateChanges) {
+  test(`package ${change.name} replacement preserves latent exact Library selection`, async ({ page }) => {
+    await installPackageLoadingFacades(page);
+    await page.goto(frameworkRoot);
+    await selectLibrary(page, other.id);
+    await chooseSubject(page, "package", "Package");
+
+    await selectPackageCoordinate(page, change, change.selected);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-query-pending",
+      JSON.stringify(["System.Text.Json", change.version, change.framework]));
+    await releaseFacade(page, "finish-package-query");
+
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expectPackageCoordinateSelection(page, change, change.selected);
+    await chooseSubject(page, "library", "Library");
+    await expect(page.locator(".library-overview-surface h1")).toHaveText(other.name);
+    await expect(page.locator(
+      `.library-subject-list [data-library-subject="${other.id}"]`))
+      .toHaveAttribute("aria-selected", "true");
+  });
+}
 
 for (const width of [1280, 390]) {
   test(`Package Framework keyboard navigation selects a TFM at ${width}px`, async ({ page }) => {
