@@ -464,8 +464,23 @@ dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
   --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+dotnet-inspect package System.Text.Json --workspace "$packet"
+dotnet-inspect package System.Text.Json \
+  --workspace "$packet" --share packet
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
+
+`package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
+in the packet's selected context, independently of its focused tab, and reuses
+the exact Package Root and target admitted during Workspace restoration.
+Appending `--share` preserves ordinary stdout and writes a derived Package
+packet or URL as the final stderr line. An exact selector can inspect a
+currently resolved floating Package member, but Share refuses rather than
+silently pinning that preserved definition.
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file

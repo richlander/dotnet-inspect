@@ -1,0 +1,714 @@
+using System.IO.Compression;
+using System.Net;
+using System.CommandLine;
+using System.Text.Json;
+
+using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Views;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
+using NuGetFetch;
+
+namespace DotnetInspect.Cli.Tests;
+
+[Collection("Console")]
+public sealed class ExactPackageWorkspaceRouteTests
+{
+    const string SelectedPackage = "selected.package";
+    const string FocusedPackage = "focused.package";
+    const string Version = "1.0.0";
+    const string Framework = "net11.0";
+    const string SourceUrl = "https://example.test/v3/index.json";
+
+    static readonly PackageSource Source = new("test", SourceUrl);
+
+    [Fact]
+    public async Task PackageHelpAdvertisesWorkspaceAndShare()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var result = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(
+                root.Parse(["package", "--help"]).InvokeAsync().Result));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("--workspace", result.Output, StringComparison.Ordinal);
+        Assert.Contains("--share", result.Output, StringComparison.Ordinal);
+#if DEBUG
+        Assert.Contains(
+            "--evidence-envelope",
+            result.Output,
+            StringComparison.Ordinal);
+#else
+        Assert.DoesNotContain(
+            "--evidence-envelope",
+            result.Output,
+            StringComparison.Ordinal);
+#endif
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task WorkspaceRouteUsesSelectedContextAndDerivesPackageShare(
+        int format)
+    {
+        var store = await StoreAsync(
+            SelectedPackage,
+            FocusedPackage);
+        string packet = EncodePacket(
+            format,
+            tabs:
+            [
+                (SelectedPackage, Version, Framework),
+                (FocusedPackage, Version, Framework),
+            ],
+            contexts: [[0, 1]],
+            focusedTab: 1,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var ordinaryOptions = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+        InspectionOptions options = ordinaryOptions with
+        {
+            ShareFormat = WorkspaceShareFormat.Packet,
+        };
+
+        var ordinary = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                ordinaryOptions,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    options,
+                    new CommandContext(verbose: false),
+                    LoadOptions(client, store)));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(ordinary.Output, output);
+        Assert.Contains(
+            $"# {SelectedPackage}",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            FocusedPackage,
+            output,
+            StringComparison.Ordinal);
+        string derivedPacket = Assert.Single(
+            error.Split(
+                Environment.NewLine,
+                StringSplitOptions.RemoveEmptyEntries));
+        WorkspaceSharePacket derived =
+            WorkspaceSharePacketCodec.Decode(
+                derivedPacket,
+                TestContext.Current.CancellationToken);
+        Assert.Equal(format, derived.FormatVersion);
+        Assert.Equal(0, derived.FocusedTabIndex);
+        Assert.Equal(0, derived.SelectedContextIndex);
+        Assert.Single(derived.Contexts);
+        Assert.Equal([0, 1], derived.Contexts[0].TabIndexes);
+        Assert.Equal(FocusedPackage, derived.Tabs[1].Source);
+        Assert.IsType<PortableSubjectRequest.Package>(
+            derived.ViewStates[1].Subject);
+        Assert.Equal(
+            "package.overview",
+            derived.ViewStates[1].Facet);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            derived.ViewStates[2].Subject);
+    }
+
+    [Fact]
+    public async Task WorkspaceLayoutReusesRestorationIssuedContent()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            ListLayout = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            $"{SelectedPackage}.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task UnsupportedShareSectionPreservesOrdinaryOutput()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            ShareFormat = WorkspaceShareFormat.Packet,
+            IncludeSections = [PackageSections.Files],
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            $"{SelectedPackage}.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--share is not projectable",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "section selection",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoMatchIsDistinctAndDoesNotFallBackToFeed()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = ["missing.package"],
+            WorkspacePacket = packet,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "is not a direct occurrence",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExactVersionMismatchDoesNotFallBackToFeed()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [$"{SelectedPackage}@2.0.0"],
+            WorkspacePacket = packet,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    options,
+                    new CommandContext(verbose: false),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "but not at version '2.0.0'",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExactSelectorOverFloatingMemberRefusesOnlyShare()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, null, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new VersionListingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [$"{SelectedPackage}@{Version}"],
+            WorkspacePacket = packet,
+            ShareFormat = WorkspaceShareFormat.Packet,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    options,
+                    new CommandContext(verbose: false),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(
+            $"# {SelectedPackage}",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--share is not projectable",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "floating Workspace Package member",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MissingSelectedContextIsDistinct()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        WorkspaceSharePacket workspace =
+            WorkspaceSharePacketCodec.ParseJson(
+                """
+                {"f":4,"t":[],"g":[],"r":[["p","Test."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
+                """,
+                TestContext.Current.CancellationToken);
+        string packet = WorkspaceSharePacketCodec.Encode(workspace);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    options,
+                    new CommandContext(verbose: false),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "no selected context",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task WorkspaceRouteRejectsUrlInput()
+    {
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = "https://dotnet-inspect.net/?w=packet",
+            TipLevel = TipLevel.Quiet,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    options,
+                    new CommandContext(verbose: false),
+                    new WorkspaceContextLoadOptions
+                    {
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = new InMemoryPackageStore(),
+                        HttpClient = new HttpClient(new FailingHandler()),
+                    }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "URLs are not supported",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("selected.package.nupkg")]
+    [InlineData("https://example.test/selected.package.nupkg")]
+    public async Task WorkspaceRouteRejectsAlternatePackageLocations(
+        string package)
+    {
+        var options = new InspectionOptions
+        {
+            PackageArgs = [package],
+            WorkspacePacket = "not-restored",
+            TipLevel = TipLevel.Quiet,
+        };
+        using var client = new HttpClient(new FailingHandler());
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, new InMemoryPackageStore())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "canonical NuGet Package ID",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+#if DEBUG
+    [Fact]
+    public async Task EvidenceSidecarPreservesOutputAndPublishesRoutingFrame()
+    {
+        var store = await StoreAsync(
+            SelectedPackage,
+            FocusedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs:
+            [
+                (SelectedPackage, Version, Framework),
+                (FocusedPackage, Version, Framework),
+            ],
+            contexts: [[0, 1]],
+            focusedTab: 1,
+            selectedContext: 0);
+        using var directory =
+            new TemporaryTestDirectory("package-workspace-evidence-");
+        string sidecar = Path.Combine(directory.FullName, "evidence.json");
+        using var client = new HttpClient(new FailingHandler());
+        var ordinaryOptions = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+        InspectionOptions evidenceOptions = ordinaryOptions with
+        {
+            EvidenceEnvelopePath = sidecar,
+        };
+
+        var ordinary = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                ordinaryOptions,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+        var withEvidence = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                evidenceOptions,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+
+        using JsonDocument document = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement root = document.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "package-workspace",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(
+            root.GetProperty("content").TryGetProperty(
+                "inspection",
+                out _));
+        Assert.True(root.TryGetProperty("share", out _));
+        Assert.True(root.TryGetProperty("diagnostics", out _));
+        JsonElement evidence = root.GetProperty("evidence");
+        Assert.Equal(
+            2,
+            evidence.GetProperty(
+                "considered_occurrence_count").GetInt32());
+        JsonElement candidate = Assert.Single(
+            evidence.GetProperty("exact_candidates").EnumerateArray());
+        Assert.Equal(
+            SelectedPackage,
+            candidate.GetProperty("package_id").GetString());
+        Assert.Equal(
+            Version,
+            candidate.GetProperty("declared_version").GetString());
+        Assert.Equal(
+            Version,
+            candidate.GetProperty("effective_version").GetString());
+        Assert.Equal(
+            0,
+            candidate.GetProperty("context_order").GetInt32());
+        Assert.Equal(
+            0,
+            candidate.GetProperty("member_order").GetInt32());
+        Assert.Equal(
+            Framework,
+            candidate.GetProperty("target_framework").GetString());
+        Assert.True(
+            JsonElement.DeepEquals(
+                candidate,
+                evidence.GetProperty("selected")));
+    }
+
+    [Fact]
+    public async Task EvidenceSidecarRejectsNonInspectionLensBeforeRestoration()
+    {
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = "not-restored",
+            EvidenceEnvelopePath = Path.Combine(
+                Path.GetTempPath(),
+                "package-workspace-evidence.json"),
+            ListLayout = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(
+                    new HttpClient(new FailingHandler()),
+                    new InMemoryPackageStore())));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires section-based Package inspection",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+#endif
+
+    static WorkspaceContextLoadOptions LoadOptions(
+        HttpClient client,
+        IPackageStore store) =>
+        new()
+        {
+            HttpClient = client,
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization([Source]),
+            PackageStore = store,
+        };
+
+    static async Task<InMemoryPackageStore> StoreAsync(
+        params string[] packageIds)
+    {
+        var store = new InMemoryPackageStore();
+        string[] assemblyPaths =
+        [
+            typeof(ApiType).Assembly.Location,
+            typeof(PackageCommand).Assembly.Location,
+        ];
+        for (int index = 0; index < packageIds.Length; index++)
+        {
+            string packageId = packageIds[index];
+            await CommitAsync(
+                store,
+                packageId,
+                await PackageAsync(
+                    packageId,
+                    assemblyPaths[index % assemblyPaths.Length]));
+        }
+
+        return store;
+    }
+
+    static async Task<byte[]> PackageAsync(
+        string packageId,
+        string assemblyPath)
+    {
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        return Archive(
+            ($"lib/{Framework}/{packageId}.dll", assembly),
+            ($"{packageId}.nuspec", Nuspec(packageId)));
+    }
+
+    static async Task CommitAsync(
+        InMemoryPackageStore store,
+        string packageId,
+        byte[] package) =>
+        await store.CommitAsync(
+            packageId,
+            Version,
+            NuGetCache.GetSourceKey(SourceUrl),
+            new MemoryStream(package),
+            TestContext.Current.CancellationToken);
+
+    static string EncodePacket(
+        int format,
+        (string Package, string? Version, string Framework)[] tabs,
+        int[][] contexts,
+        int focusedTab,
+        int? selectedContext)
+    {
+        string tabJson = string.Join(
+            ',',
+            tabs.Select(tab =>
+                $"[\"{tab.Package}\","
+                    + (tab.Version is null
+                        ? "null"
+                        : $"\"{tab.Version}\"")
+                    + $",\"{tab.Framework}\",null]"));
+        string contextJson = string.Join(
+            ',',
+            contexts.Select(context =>
+                $"[{string.Join(',', context)}]"));
+        string viewJson = string.Join(
+            ',',
+            Enumerable.Range(0, tabs.Length + 1).Select(index =>
+                index == 0
+                    ? """{"t":null,"u":{"k":"workspace"}}"""
+                    : "{\"t\":" + (index - 1)
+                        + ",\"u\":{\"k\":\"workspace\"}}"));
+        string json =
+            "{\"f\":" + format
+                + ",\"t\":[" + tabJson
+                + "],\"g\":[" + contextJson
+                + "],\"r\":[],\"a\":" + focusedTab
+                + ",\"x\":"
+                + (selectedContext?.ToString() ?? "null")
+                + ",\"v\":[" + viewJson + "]}";
+        return WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                json,
+                TestContext.Current.CancellationToken));
+    }
+
+    static byte[] Nuspec(string packageId) =>
+        System.Text.Encoding.UTF8.GetBytes(
+            """
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>PACKAGE_ID</id>
+                <version>1.0.0</version>
+                <authors>dotnet-inspect tests</authors>
+                <description>Workspace Package route fixture.</description>
+              </metadata>
+            </package>
+            """.Replace(
+                "PACKAGE_ID",
+                packageId,
+                StringComparison.Ordinal));
+
+    static byte[] Archive(
+        params (string EntryPath, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            foreach ((string entryPath, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(entryPath).Open();
+                stream.Write(content);
+            }
+        }
+
+        return buffer.ToArray();
+    }
+
+    sealed class FailingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "The Package Workspace route attempted a feed request: "
+                    + request.RequestUri);
+    }
+
+    sealed class VersionListingHandler : HttpMessageHandler
+    {
+        const string FlatContainer = "https://example.test/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                SourceUrl =>
+                    $$"""
+                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """,
+                $"{FlatContainer}selected.package/index.json" =>
+                    $$"""{"versions":["{{Version}}"]}""",
+                _ => null,
+            };
+            if (body is null)
+            {
+                throw new InvalidOperationException(
+                    "The Package Workspace route attempted an unexpected "
+                        + "feed request: "
+                        + request.RequestUri);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body),
+                    RequestMessage = request,
+                });
+        }
+    }
+}
