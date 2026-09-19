@@ -1,3 +1,4 @@
+using System.Text;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
@@ -135,6 +136,74 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         Assert.Equal("net10.0", group.Framework);
         Assert.Equal("linux-x64", group.RuntimeIdentifier);
         Assert.Null(packet.ViewStates[1].Subject);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_AllowsStateBeyondFormat1DecodedLimit()
+    {
+        string groupName = new('A', 12_500);
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    runtimeIdentifier: "linux-x64",
+                    platformSubscription:
+                        $":Platform@10.0.10+{groupName}",
+                    focusId: "t1",
+                    selectedContextName: "g0"),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+        string json = WorkspaceSharePacketCodec.SerializeJson(packet);
+        int decodedLength = Encoding.UTF8.GetByteCount(json);
+        Assert.True(
+            decodedLength
+                > WorkspaceSharePacketCodec.MaxFormat1DecodedUtf8Length);
+        Assert.True(
+            decodedLength <= WorkspaceSharePacketCodec.MaxDecodedUtf8Length);
+        Assert.Equal(1, packet.FocusedTabIndex);
+        Assert.Equal(0, packet.SelectedContextIndex);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[2].Subject);
+        Assert.Null(packet.ViewStates[2].Context);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_Format3DecodedLimitIsTypedRefusal()
+    {
+        string groupName = new('A', 25_000);
+        Assert.True(
+            Encoding.UTF8.GetByteCount(groupName)
+                > WorkspaceSharePacketCodec.MaxDecodedUtf8Length);
+
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    runtimeIdentifier: "linux-x64",
+                    platformSubscription:
+                        $":Platform@10.0.10+{groupName}",
+                    focusId: "t1",
+                    selectedContextName: "g0"),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("$", projection.Failure?.Path);
+        Assert.Contains(
+            WorkspaceSharePacketCodec.MaxDecodedUtf8Length.ToString(),
+            projection.Failure?.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "format-3",
+            projection.Failure?.Message,
+            StringComparison.Ordinal);
     }
 
     [Theory]

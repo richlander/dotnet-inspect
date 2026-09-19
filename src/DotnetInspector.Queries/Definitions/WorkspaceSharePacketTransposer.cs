@@ -103,6 +103,15 @@ public static class WorkspaceSharePacketTransposer
                 nameof(packet));
         }
 
+        return ToDefinitionsCore(canonical, cancellationToken);
+    }
+
+    private static WorkspaceSharePacketDefinitionSet ToDefinitionsCore(
+        WorkspaceSharePacket canonical,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var contexts = new WorkspaceContextDefinition[canonical.Contexts.Count];
         for (int contextIndex = 0; contextIndex < canonical.Contexts.Count; contextIndex++)
         {
@@ -369,7 +378,7 @@ public static class WorkspaceSharePacketTransposer
         WorkspaceSharePacket effectivePacket =
             effectiveTopology.Packet ?? throw new UnreachableException();
         WorkspaceSharePacketDefinitionSet effectiveDefinitions =
-            ToDefinitions(effectivePacket, cancellationToken);
+            ToDefinitionsCore(effectivePacket, cancellationToken);
 
         for (int index = 0; index < effectivePacket.Tabs.Count; index++)
         {

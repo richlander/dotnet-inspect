@@ -3447,13 +3447,20 @@ Definition records and product demos (this slice):
   against the existing unique effective-target projection, so a navigation row
   may inherit framework and RID from its matched context or member. Floating
   Package coordinates, unpinned groups, a non-root view, and non-Package focus
-  return the existing typed projection refusal. It does not canonicalize or
-  automatically upgrade an existing packet, and its pure Definitions
-  transposition is not a completed host-orchestration API.
+  return the existing typed projection refusal. The validated effective
+  topology is transposed semantically rather than re-encoded through format 1,
+  so complete state above format 1's 12 KiB decoded limit remains projectable
+  through format 3's 24 KiB decoded limit; the final format-3 projection owns
+  that limit and returns the existing typed refusal when it is exceeded. This
+  does not change the public format-1 packet-to-record canonicalization. It
+  does not canonicalize or automatically upgrade an existing packet, and its
+  pure Definitions transposition is not a completed host-orchestration API.
   `CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState`,
   `CompleteWorkspaceCapture_PreservesContextInheritedPackageTargets`,
   `CompleteWorkspaceCapture_PreservesMemberInheritedPackageTargets`,
   `CompleteWorkspaceCapture_PreservesInactiveGroupInheritedTargets`,
+  `CompleteWorkspaceCapture_AllowsStateBeyondFormat1DecodedLimit`,
+  `CompleteWorkspaceCapture_Format3DecodedLimitIsTypedRefusal`,
   `CompleteWorkspaceCapture_RejectsFloatingCoordinates`,
   `CompleteWorkspaceCapture_RejectsFloatingGroup`,
   `CompleteWorkspaceCapture_RejectsNonRootView`, and
