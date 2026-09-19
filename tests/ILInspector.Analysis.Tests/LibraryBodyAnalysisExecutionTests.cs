@@ -20,6 +20,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Same(
             execution.Receipt,
             execution.ImplementationProfiles.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.Optimization.Receipt);
         Assert.False(
             execution.Safety.Evidence.IsDefault);
         Assert.True(
@@ -36,6 +39,22 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures
                     .OptimizationOpportunities));
+        Assert.False(
+            execution.Optimization.WasRequested);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.Empty(
+            execution.Optimization.Opportunities);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.Empty(
+            execution.Optimization
+                .AllocationFanoutOpportunities);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.NotEmpty(
             execution.ImplementationProfiles.Profiles);
         Assert.NotEmpty(
@@ -101,6 +120,43 @@ public sealed class LibraryBodyAnalysisExecutionTests
             index.OverloadRelationships());
         Assert.True(
             execution.ImplementationProfiles
+                .GeneratedFrameworkTypes.SetEquals(
+                    index.GeneratedFrameworkTypes));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompatibilityIndex_PreservesFocusedOptimizationResults()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                typeof(LibraryBodyAnalysisExecutionTests)
+                    .Assembly.Location,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+
+        LibraryBodyIndex index =
+            execution.CompatibilityIndex();
+
+        Assert.True(execution.Optimization.WasRequested);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.NotEmpty(
+            execution.Optimization.Opportunities);
+        Assert.True(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
+        Assert.Equal(
+            execution.Optimization.Opportunities,
+            index.OptimizationOpportunities);
+        Assert.Equal(
+            execution.Optimization
+                .AllocationFanoutOpportunities,
+            index.AllocationFanoutOpportunities);
+        Assert.True(
+            execution.Optimization
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
     }
