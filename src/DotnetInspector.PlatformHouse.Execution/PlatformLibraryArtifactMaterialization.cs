@@ -127,6 +127,7 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
         PlatformViewDemand view,
         PlatformHouseConsumedWork consumedWork,
         IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+        PlatformTargetSelectionContext? targetSelection,
         out PlatformLibraryArtifactMaterializationPlan? plan)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -147,7 +148,19 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
                 [PlatformSourceFacet.Implementation],
             _ => [],
         };
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        PlatformFamilyTarget? target = request.Target switch
+        {
+            PlatformTargetDemand.Exact exact
+                when targetSelection is null => exact.Target,
+            PlatformTargetDemand.FamilyDefault demand
+                when targetSelection is not null
+                    && ReferenceEquals(
+                        targetSelection.TargetSettlement.Demand,
+                        demand) =>
+                targetSelection.Target,
+            _ => null,
+        };
+        if (target is null
             || request.Operation is not PlatformHouseOperation.Realize
             {
                 View: var requestView,
@@ -174,7 +187,7 @@ internal sealed class PlatformLibraryArtifactMaterializationPlan
                 || !ReferenceEquals(
                     contribution.Request,
                     request.Snapshot)
-                || contribution.Target != exact.Target
+                || contribution.Target != target
                 || !ReferenceEquals(
                     contribution.Population,
                     operation.Population)
@@ -309,6 +322,63 @@ public static class PlatformHouseArtifactMaterializer
                 PlatformLibraryArtifactMaterializationItem> items,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix)
+        => await MaterializeCoreAsync(
+                request,
+                view,
+                items,
+                consumedWork,
+                identityPrefix,
+                targetSelection: null,
+                retainedSettlements: null,
+                currentWork: null,
+                materializationCancellation:
+                    request.CancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<
+        PlatformLibraryArtifactMaterializationOutcome>
+        MaterializeSelectedAsync(
+            PlatformHouseRequest request,
+            PlatformViewDemand view,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix,
+            PlatformTargetSelectionContext targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>
+                retainedSettlements,
+            Func<PlatformHouseConsumedWork> currentWork,
+            CancellationToken materializationCancellation)
+    {
+        ArgumentNullException.ThrowIfNull(targetSelection);
+        ArgumentNullException.ThrowIfNull(retainedSettlements);
+        ArgumentNullException.ThrowIfNull(currentWork);
+        return await MaterializeCoreAsync(
+                request,
+                view,
+                items,
+                consumedWork,
+                identityPrefix,
+                targetSelection,
+                retainedSettlements,
+                currentWork,
+                materializationCancellation)
+            .ConfigureAwait(false);
+    }
+
+    static async ValueTask<
+        PlatformLibraryArtifactMaterializationOutcome> MaterializeCoreAsync(
+            PlatformHouseRequest request,
+            PlatformViewDemand view,
+            IReadOnlyList<
+                PlatformLibraryArtifactMaterializationItem> items,
+            PlatformHouseConsumedWork consumedWork,
+            string identityPrefix,
+            PlatformTargetSelectionContext? targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements,
+            Func<PlatformHouseConsumedWork>? currentWork,
+            CancellationToken materializationCancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(items);
@@ -316,6 +386,10 @@ public static class PlatformHouseArtifactMaterializer
         ArgumentException.ThrowIfNullOrWhiteSpace(identityPrefix);
         request.CancellationToken.ThrowIfCancellationRequested();
 
+        PlatformHouseConsumedWork CurrentWork() =>
+            currentWork?.Invoke() ?? consumedWork;
+
+        consumedWork = CurrentWork();
         if (PlatformHouseLibraryRealizer.ExceedsBudget(
                 consumedWork,
                 request))
@@ -324,7 +398,11 @@ public static class PlatformHouseArtifactMaterializer
                 PlatformHouseLibraryRealizer.Incomplete(
                     request,
                     consumedWork,
-                    $"{identityPrefix}.work-incomplete"));
+                    $"{identityPrefix}.work-incomplete",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements)));
         }
 
         PlatformLibraryArtifactPreparationKind preparation =
@@ -333,6 +411,7 @@ public static class PlatformHouseArtifactMaterializer
                 view,
                 consumedWork,
                 items,
+                targetSelection,
                 out PlatformLibraryArtifactMaterializationPlan? plan);
         if (preparation == PlatformLibraryArtifactPreparationKind.Invalid)
         {
@@ -341,7 +420,11 @@ public static class PlatformHouseArtifactMaterializer
                     request,
                     consumedWork,
                     PlatformHouseRejectionKind.InvalidOwnerResult,
-                    $"{identityPrefix}.invalid-source-result"));
+                    $"{identityPrefix}.invalid-source-result",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements)));
         }
         if (preparation == PlatformLibraryArtifactPreparationKind.Incomplete)
         {
@@ -349,7 +432,11 @@ public static class PlatformHouseArtifactMaterializer
                 PlatformHouseLibraryRealizer.Incomplete(
                     request,
                     consumedWork,
-                    $"{identityPrefix}.materialization-incomplete"));
+                    $"{identityPrefix}.materialization-incomplete",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements)));
         }
 
         PlatformLibraryArtifactMaterializationPlan preparedPlan = plan!;
@@ -415,7 +502,8 @@ public static class PlatformHouseArtifactMaterializer
                                     contributions,
                                     ArtifactAcquisitionLeases.None));
                     },
-                    cancellationToken: request.CancellationToken)
+                    cancellationToken:
+                        materializationCancellation)
                 .ConfigureAwait(false);
 
             var projections =
@@ -432,18 +520,21 @@ public static class PlatformHouseArtifactMaterializer
                                 projections,
                                 identityPrefix,
                                 cancellationToken),
-                        request.CancellationToken)
+                        materializationCancellation)
                     .ConfigureAwait(false);
             if (publication
                 is ArtifactSetPublicationOutcome.NotPublished notPublished)
             {
+                consumedWork = CurrentWork();
                 return Terminal(
                     PublicationFailure(
                         request,
                         consumedWork,
                         preparedPlan,
                         notPublished,
-                        identityPrefix));
+                        identityPrefix,
+                        targetSelection,
+                        retainedSettlements));
             }
 
             ArtifactQueryAuthorization authorization =
@@ -493,15 +584,29 @@ public static class PlatformHouseArtifactMaterializer
             queryLease.Dispose();
             queryLease = null;
 
+            consumedWork = CurrentWork();
             PlatformLibraryRealizationResult realization =
-                Realize(
-                    request,
-                    view,
-                    selections,
-                    compiledXmlDocumentation,
-                    contentLeases,
+                PlatformHouseLibraryRealizer.ExceedsBudget(
                     consumedWork,
-                    identityPrefix);
+                    request)
+                    ? PlatformHouseLibraryRealizer.Incomplete(
+                        request,
+                        consumedWork,
+                        $"{identityPrefix}.materialization-duration-incomplete",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements))
+                    : Realize(
+                        request,
+                        view,
+                        selections,
+                        compiledXmlDocumentation,
+                        contentLeases,
+                        consumedWork,
+                        identityPrefix,
+                        targetSelection,
+                        retainedSettlements);
             if (realization
                 is PlatformLibraryRealizationResult.Completed completed)
             {
@@ -524,7 +629,9 @@ public static class PlatformHouseArtifactMaterializer
                         preparedPlan,
                         realization,
                         cancellationObserved: false,
-                        identityPrefix));
+                        identityPrefix,
+                        targetSelection,
+                        retainedSettlements));
             }
 
             return Terminal(
@@ -533,6 +640,7 @@ public static class PlatformHouseArtifactMaterializer
         catch (OperationCanceledException)
             when (request.CancellationToken.IsCancellationRequested)
         {
+            consumedWork = CurrentWork();
             IReadOnlyList<Exception> cleanup =
                 await CleanupAsync(
                         session,
@@ -548,9 +656,48 @@ public static class PlatformHouseArtifactMaterializer
                         preparedPlan.Contributions,
                         [PlatformHouseFailureKind.ArtifactRetirement],
                         cancellationObserved: true,
-                        $"{identityPrefix}.cancellation-cleanup-failed"));
+                        $"{identityPrefix}.cancellation-cleanup-failed",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements)));
             }
             throw;
+        }
+        catch (OperationCanceledException)
+            when (materializationCancellation.IsCancellationRequested)
+        {
+            consumedWork = CurrentWork();
+            IReadOnlyList<Exception> cleanup =
+                await CleanupAsync(
+                        session,
+                        queryLease,
+                        contentLeases)
+                    .ConfigureAwait(false);
+            if (cleanup.Count != 0)
+            {
+                return Terminal(
+                    PlatformHouseLibraryRealizer.Failed(
+                        request,
+                        consumedWork,
+                        preparedPlan.Contributions,
+                        [PlatformHouseFailureKind.ArtifactRetirement],
+                        cancellationObserved: false,
+                        $"{identityPrefix}.duration-cleanup-failed",
+                        targetSelection?.TargetSettlement,
+                        TerminalRetainedSettlements(
+                            targetSelection,
+                            retainedSettlements)));
+            }
+            return Terminal(
+                PlatformHouseLibraryRealizer.Incomplete(
+                    request,
+                    consumedWork,
+                    $"{identityPrefix}.materialization-duration-incomplete",
+                    targetSelection?.TargetSettlement,
+                    TerminalRetainedSettlements(
+                        targetSelection,
+                        retainedSettlements)));
         }
         catch (Exception failure)
         {
@@ -619,12 +766,58 @@ public static class PlatformHouseArtifactMaterializer
         ArtifactContentReference? compiledXmlDocumentation,
         IReadOnlyList<ArtifactContentLease> leases,
         PlatformHouseConsumedWork consumedWork,
-        string identityPrefix) =>
-        view switch
+        string identityPrefix,
+        PlatformTargetSelectionContext? targetSelection,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements) =>
+        targetSelection is null
+            ? view switch
+            {
+                PlatformViewDemand.Reference =>
+                    PlatformHouseLibraryRealizer
+                        .RealizeReferenceWithCompanion(
+                        request,
+                        selections[0],
+                        leases[0],
+                        compiledXmlDocumentation,
+                        compiledXmlDocumentation is null
+                            ? null
+                            : leases[^1],
+                        consumedWork),
+                PlatformViewDemand.ReferenceAndImplementation =>
+                    PlatformHouseLibraryRealizer
+                        .RealizeReferenceAndImplementationWithCompanion(
+                            request,
+                            selections[0],
+                            leases[0],
+                            selections[1],
+                            leases[1],
+                            compiledXmlDocumentation,
+                            compiledXmlDocumentation is null
+                                ? null
+                                : leases[^1],
+                            new PlatformLibraryViewCorrespondence(
+                                selections[0],
+                                selections[1],
+                                $"{identityPrefix}-views"),
+                            consumedWork),
+                PlatformViewDemand.Implementation =>
+                    PlatformHouseLibraryRealizer.RealizeImplementation(
+                        request,
+                        selections[0],
+                        leases[0],
+                        PlatformLibraryViewCorrespondence
+                            .CreateImplementationDeclarationSurface(
+                                selections[0],
+                                $"{identityPrefix}-declarations"),
+                        consumedWork),
+                _ => throw new ArgumentOutOfRangeException(nameof(view)),
+            }
+            : view switch
         {
             PlatformViewDemand.Reference =>
                 PlatformHouseLibraryRealizer
-                    .RealizeReferenceWithCompanion(
+                    .RealizeSelectedReferenceWithCompanion(
                     request,
                     selections[0],
                     leases[0],
@@ -632,10 +825,12 @@ public static class PlatformHouseArtifactMaterializer
                     compiledXmlDocumentation is null
                         ? null
                         : leases[^1],
-                    consumedWork),
+                    consumedWork,
+                    targetSelection,
+                    retainedSettlements!),
             PlatformViewDemand.ReferenceAndImplementation =>
                 PlatformHouseLibraryRealizer
-                    .RealizeReferenceAndImplementationWithCompanion(
+                    .RealizeSelectedReferenceAndImplementationWithCompanion(
                         request,
                         selections[0],
                         leases[0],
@@ -649,9 +844,12 @@ public static class PlatformHouseArtifactMaterializer
                             selections[0],
                             selections[1],
                             $"{identityPrefix}-views"),
-                        consumedWork),
+                        consumedWork,
+                        targetSelection,
+                        retainedSettlements!),
             PlatformViewDemand.Implementation =>
-                PlatformHouseLibraryRealizer.RealizeImplementation(
+                PlatformHouseLibraryRealizer
+                    .RealizeSelectedImplementation(
                     request,
                     selections[0],
                     leases[0],
@@ -659,7 +857,9 @@ public static class PlatformHouseArtifactMaterializer
                         .CreateImplementationDeclarationSurface(
                             selections[0],
                             $"{identityPrefix}-declarations"),
-                    consumedWork),
+                    consumedWork,
+                    targetSelection,
+                    retainedSettlements!),
             _ => throw new ArgumentOutOfRangeException(nameof(view)),
         };
 
@@ -668,7 +868,10 @@ public static class PlatformHouseArtifactMaterializer
         PlatformHouseConsumedWork consumedWork,
         PlatformLibraryArtifactMaterializationPlan plan,
         ArtifactSetPublicationOutcome.NotPublished publication,
-        string identityPrefix)
+        string identityPrefix,
+        PlatformTargetSelectionContext? targetSelection,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements)
     {
         var failures = new List<PlatformHouseFailureKind>();
         if (publication.Failures.Any(
@@ -694,7 +897,11 @@ public static class PlatformHouseArtifactMaterializer
             plan.Contributions,
             failures,
             cancellationObserved: false,
-            $"{identityPrefix}.publication-failed");
+            $"{identityPrefix}.publication-failed",
+            targetSelection?.TargetSettlement,
+            TerminalRetainedSettlements(
+                targetSelection,
+                retainedSettlements));
     }
 
     static PlatformLibraryRealizationResult CleanupFailure(
@@ -703,7 +910,10 @@ public static class PlatformHouseArtifactMaterializer
         PlatformLibraryArtifactMaterializationPlan plan,
         PlatformLibraryRealizationResult primary,
         bool cancellationObserved,
-        string identityPrefix)
+        string identityPrefix,
+        PlatformTargetSelectionContext? targetSelection,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements)
     {
         var failures = new List<PlatformHouseFailureKind>();
         if (primary.Outcome
@@ -719,8 +929,32 @@ public static class PlatformHouseArtifactMaterializer
             plan.Contributions,
             failures.Distinct(),
             cancellationObserved,
-            $"{identityPrefix}.cleanup-failed");
+            $"{identityPrefix}.cleanup-failed",
+            targetSelection?.TargetSettlement,
+            TerminalRetainedSettlements(
+                targetSelection,
+                retainedSettlements));
     }
+
+    static IReadOnlyList<PlatformSourceSettlement>?
+        TerminalRetainedSettlements(
+            PlatformTargetSelectionContext? targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>?
+                retainedSettlements) =>
+        targetSelection is null || retainedSettlements is null
+            ? null
+            :
+            [.. retainedSettlements.Select(
+                settlement =>
+                    settlement.Disposition
+                            == PlatformSourceSettlementDisposition.Selected
+                        && settlement.Contribution.Facet
+                            != PlatformSourceFacet.TargetDiscovery
+                        ? new PlatformSourceSettlement(
+                            settlement.Contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant)
+                        : settlement)];
 
     static async ValueTask<IReadOnlyList<Exception>> CleanupAsync(
         ArtifactSetSession session,

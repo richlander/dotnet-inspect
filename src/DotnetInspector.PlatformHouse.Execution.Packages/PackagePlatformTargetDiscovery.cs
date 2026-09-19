@@ -34,19 +34,24 @@ public static class PackagePlatformTargetDiscovery
     /// </summary>
     public static PlatformTargetDiscoverySource CreateSource(
         PackagePlatformHouseAdapter adapter,
-        Func<PlatformHouseRequest, PackageSourceOperationLease>
+        Func<
+            PlatformHouseRequest,
+            PlatformHouseWorkBudget,
+            PackageSourceOperationLease>
             issueOperation)
     {
         ArgumentNullException.ThrowIfNull(adapter);
         ArgumentNullException.ThrowIfNull(issueOperation);
         return new(
             adapter.TargetDiscovery,
-            async request =>
+            async (request, remainingWork) =>
                 PrepareAttempt(
                     await adapter.DiscoverTargetsAsync(
                         request,
-                        issueOperation(request))
-                    .ConfigureAwait(false)));
+                        remainingWork,
+                        issueOperation(request, remainingWork))
+                    .ConfigureAwait(false)),
+            adapter.AssociationRoute);
     }
 
     public static PlatformTargetDiscoveryAttempt PrepareAttempt(
