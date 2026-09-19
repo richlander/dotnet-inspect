@@ -1916,6 +1916,30 @@ public sealed class DependsAssetCommandTests
         Assert.Empty(error);
         Assert.Contains("| Root | column |", output, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task EffectiveDiscoveryRetainsItsProjectionSchema()
+    {
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "-D",
+            "--effective",
+            "--json",
+            "--columns",
+            "Name",
+        ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.True(row.TryGetProperty("name", out _)));
+    }
 #endif
 
     [Fact]

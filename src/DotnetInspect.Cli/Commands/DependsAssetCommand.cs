@@ -396,7 +396,8 @@ public partial class DependsCommand
             && candidateSections.Contains(
                 DependsAssetSections.Failures,
                 StringComparer.OrdinalIgnoreCase);
-        if (hierarchyFailuresJsonl
+        if (!discoveryMode
+            && hierarchyFailuresJsonl
             && IsColumnProjectionRequested(options))
         {
             CommandError.Write(
@@ -407,7 +408,8 @@ public partial class DependsCommand
             options.Tabular && !options.Count
                 ? DependsAssetSections.CreateTableSchema()
                 : DependsAssetSections.CreateSchema();
-        if (!ProjectionDiagnostics.ValidateProjection(
+        if (!discoveryMode
+            && !ProjectionDiagnostics.ValidateProjection(
                 projectionSchema,
                 candidateSections,
                 options.Fields,
