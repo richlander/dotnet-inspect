@@ -623,16 +623,27 @@ public static class InspectionCommandDefinitions
                 return 1;
             }
 
+            if (!LibrarySourceAdapter.TryDeclare(
+                    assemblyPath,
+                    packagePath,
+                    platformAssembly,
+                    "source",
+                    out var sourceIntent,
+                    out string? sourceIntentError))
+            {
+                CommandError.Write(sourceIntentError!);
+                return 1;
+            }
+
             var options = new LibraryOptions
             {
+                SourceIntent = sourceIntent,
                 AssemblyName = assemblyPath,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
                 ReferenceHierarchyDepth = parseResult.GetValue(referenceDepthOption),
-                PackagePath = packagePath,
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
-                PlatformAssembly = platformAssembly,
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
