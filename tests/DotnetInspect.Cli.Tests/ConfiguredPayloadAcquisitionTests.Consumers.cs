@@ -110,8 +110,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         else
         {
             Assert.Contains("Unevaluated", result.Output);
-            Assert.Contains($"--source {ShellCommandText.Quote(FirstFeed)}", result.Output);
-            Assert.Contains("--nugetconfig-directory", result.Output);
+            Assert.DoesNotContain("Recommendation", result.Output);
         }
         if (selection == "sparse")
             Assert.Contains("Gap (1)", result.Output);
@@ -238,14 +237,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         const string Id = "range.timeline.replay";
         string source = Path.Combine(_root, "timeline-feed");
         foreach (string version in new[] { "1.0.0", "2.0.0-preview.1", "3.0.0" })
-            WriteApiPackage(source, Id, version);
+            WriteApiPackage(source, Id, version, useV2: version == "3.0.0");
         string originalDirectory = Directory.GetCurrentDirectory();
         string replayDirectory = Directory.CreateDirectory(Path.Combine(_root, "replay")).FullName;
 
         var result = await RunCommandAsync(
             ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                 "--finding", "api.type", "--source", Path.GetRelativePath(originalDirectory, source),
-                "--preview", "--all", "--tfm", "net10.0", "--tips", "q"]);
+                "--preview", "--all", "--tfm", "net10.0",
+                "--at", "first", "--at", "last", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, result.Error);
         string recommendation = result.Output.Split('\n').Single(line => line.Contains("Probe #2", StringComparison.Ordinal));
@@ -255,6 +255,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("--preview", recommendation);
         Assert.Contains("--all", recommendation);
         Assert.Contains("--tfm 'net10.0'", recommendation);
+        Assert.Contains("--at '#1' --at '#2' --at '#3'", recommendation);
 
         try
         {
@@ -263,7 +264,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                     "--finding", "api.type", "--source", source,
                     "--nugetconfig-directory", originalDirectory,
-                    "--preview", "--all", "--tfm", "net10.0", "--at", "#2", "--tips", "q"]);
+                    "--preview", "--all", "--tfm", "net10.0",
+                    "--at", "#1", "--at", "#2", "--at", "#3", "--tips", "q"]);
             Assert.True(replay.Exit == 0, replay.Error);
             Assert.Contains("| #2 | 2.0.0-preview.1 | Present |", replay.Output);
         }
@@ -387,18 +389,31 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(Directory.EnumerateDirectories(temporary, "inspect-api*", SearchOption.TopDirectoryOnly));
     }
 
-    private static void WriteApiPackage(string source, string id, string version)
+    private static void WriteApiPackage(
+        string source,
+        string id,
+        string version,
+        bool useV2 = false)
     {
         Directory.CreateDirectory(source);
-        File.WriteAllBytes(Path.Combine(source, $"{id}.{version}.nupkg"), CreateApiPackage(id, version));
+        File.WriteAllBytes(
+            Path.Combine(source, $"{id}.{version}.nupkg"),
+            CreateApiPackage(id, version, useV2));
     }
 
-    private static byte[] CreateApiPackage(string id, string version)
+    private static byte[] CreateApiPackage(
+        string id,
+        string version,
+        bool useV2 = false)
     {
         using var buffer = new MemoryStream();
         buffer.Write(CreatePackage(id, version, version: version));
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Update, leaveOpen: true))
-            archive.CreateEntryFromFile(FixtureCatalog.DiffV1.AssemblyPath(), "lib/net10.0/RangeFixture.dll");
+        {
+            archive.CreateEntryFromFile(
+                (useV2 ? FixtureCatalog.DiffV2 : FixtureCatalog.DiffV1).AssemblyPath(),
+                "lib/net10.0/RangeFixture.dll");
+        }
         return buffer.ToArray();
     }
 }
