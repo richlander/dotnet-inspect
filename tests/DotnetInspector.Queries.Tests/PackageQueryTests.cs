@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.QueryOperations;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -224,6 +225,83 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             license.Options.Select(option => option.Value));
+    }
+
+    [Fact]
+    public void OperationRoute_ProjectsTheCompleteExecutableVocabulary()
+    {
+        IQueryOperationRoute route = PackageQuery.OperationRoute;
+
+        Assert.Equal(PackageQuery.OperationRouteIdentity, route.Identity);
+        Assert.Equal(PackageQuery.OperationIdentity, route.OperationIdentity);
+        Assert.Equal(
+            PackageQuery.OperationSubjectRole,
+            route.SubjectRole);
+        Assert.Equal(
+            PackageQuery.OperationResultGrain,
+            route.ResultGrain);
+        Assert.Equal(
+            [PackageQuery.OperationPackagesRowSet],
+            route.RowSets);
+        Assert.Equal(
+            PackageQuery.OperationProfileIdentity,
+            route.ProfileIdentity);
+        Assert.Equal(
+            PackageQuery.VocabularyIdentity,
+            route.Capabilities.Vocabulary);
+        Assert.Equal(
+            PackageQuery.Terms.Select(term => term.Key),
+            route.Capabilities.Terms.Select(term =>
+                term.Binding.Key));
+        Assert.All(
+            route.Capabilities.Terms,
+            term => Assert.Equal(
+                [PortableQueryOperator.Equal],
+                term.Operators));
+        Assert.Equal(
+            ["candidates", "matches"],
+            route.Capabilities.Dimensions);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Tail,
+                RowSelectionStageKind.Window,
+            ],
+            route.Capabilities.Stages);
+
+        QueryOperationTermCapability packageContent =
+            route.Capabilities.Terms.Single(term =>
+                term.Binding.Key == PackageQuery.SkillTermKey);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.Capability
+                && effect.Identity
+                    == PackageQuery.PackageContentCapability);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.AcquisitionTier
+                && effect.Identity == "package-content");
+    }
+
+    [Fact]
+    public void RegisteredTerms_AreTheEffectiveOperationProjection()
+    {
+        Assert.Equal(
+            PackageQuery.OperationRoute.Capabilities.Terms.Select(
+                capability => capability.Binding.Key),
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor.Key));
+        Assert.Equal(
+            PackageQuery.OperationRoute.Capabilities.Terms.Select(
+                capability => capability.Operators.Single()),
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Operators.Single()));
+        Assert.Equal(
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor),
+            PackageQuery.Terms);
     }
 
     [Theory]
