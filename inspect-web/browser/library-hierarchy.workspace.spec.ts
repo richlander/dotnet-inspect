@@ -206,7 +206,12 @@ test("active subject continuity retains explicit browsing until the subject chan
   await selectLibrary(page, other.id);
   await expect(libraryTab).toHaveAttribute("aria-selected", "true");
   await expectCurrentSubjectVisible(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
+  await expect(inspectorTab(page, "data-library-lens", "references"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Example.Other.Dependency");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-reference-request", other.id);
 });
 
 test("active subject continuity preserves focus without making a manual window", async ({ page }) => {
