@@ -52,9 +52,9 @@ public enum ImplementationComplexityChangeKind
 /// </param>
 /// <param name="PercentileRank">
 /// Percentage (0-100) of the population whose absolute delta is less than or
-/// equal to this change's absolute delta. A higher value means this change's
-/// complexity delta is larger in magnitude than more of its peers in this
-/// comparison - evidence for "unusual change," not a claim of defect.
+/// equal to this change's absolute delta. This is an inclusive positional
+/// fact, not an unusualness signal: when all absolute deltas are equal, every
+/// change has a value of 100.
 /// </param>
 public sealed record ImplementationComplexityPopulationContext(
     int PopulationSize,

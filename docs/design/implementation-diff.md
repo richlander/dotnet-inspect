@@ -296,11 +296,12 @@ per-request population issue #7696 calls for in diff analysis ("local
 comparison populations"), not a corpus-wide distribution across a package or
 assembly family - that broader population belongs to the separate
 library-report initiative and is intentionally out of scope here. A higher
-percentile is evidence that a change's complexity delta is larger in
-magnitude than more of its peers in this comparison; it is not a claim of
-defect, and a small `PopulationSize` (for example 1-2) makes the percentile a
-weak signal. No CLI rendering consumes this field yet - it is Research-API
-evidentiary plumbing for later ranking/outlier work.
+percentile means a greater proportion of the population has an absolute delta
+less than or equal to this change's own. It does not by itself identify an
+unusual change: when all absolute deltas are equal, every change has a
+percentile of 100. A small `PopulationSize` (for example 1-2) also limits the
+context the value provides. No CLI rendering consumes this field yet - it is
+Research-API evidentiary plumbing for later comparison work.
 
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id
