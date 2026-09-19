@@ -89,7 +89,8 @@ public sealed record MemberProjectionRequest(
     /// or observe a consistent absence when it has none.
     /// </summary>
     ResearchAssemblyContext? Assembly = null,
-    IReadOnlyList<DirectCall>? CallSites = null);
+    IReadOnlyList<DirectCall>? CallSites = null,
+    SelectedPropertyAccessorSource? PropertySource = null);
 
 public sealed record MemberProjectionResult(
     DecompilerResult? AnnotatedSource,

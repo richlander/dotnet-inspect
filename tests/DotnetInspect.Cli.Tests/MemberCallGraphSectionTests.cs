@@ -1511,6 +1511,55 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Count"],
+            IncludeSections =
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+                SectionNames.AnnotatedSourceDocument,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, result.Output.Split("public int Count", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, result.Output.Split("field + 1", StringSplitOptions.None).Length - 1);
+        Assert.Contains("// IL_0000: ldarg.0", result.Output);
+        Assert.Contains("// IL_0007: add", result.Output);
+        Assert.DoesNotContain("get_Count(", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Fact]
+    public async Task SelectedProperty_FieldBindingDoesNotReachBodyOnlyDocument()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Count"],
+            IncludeSections = [SectionNames.AnnotatedSourceDocument],
+            JsonOutput = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(result.Output);
+        string text = document.RootElement.GetProperty("text").GetString()!;
+        Assert.Contains("this.Count + 1", text);
+        Assert.DoesNotContain("field + 1", text);
+    }
+
+    [Fact]
     public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
     {
         var result = await RunDecompiledAsync(

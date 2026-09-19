@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
+using ILInspector.Instructions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -211,7 +212,6 @@ public sealed class SelectedPropertySourceTests
     [InlineData("MutableCount", "set")]
     [InlineData("InitialCount", "get")]
     [InlineData("InitialCount", "set")]
-    [InlineData("ComputedCount", "get")]
     [InlineData("DescribedCount", "get")]
     [InlineData("DebugCount", "get")]
     public void UnsupportedBackingStorageRetainsMethodForm(string propertyName, string role)
@@ -223,6 +223,165 @@ public sealed class SelectedPropertySourceTests
         Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
         Assert.Contains($"{role}_{propertyName}(", result.Text);
         Assert.DoesNotContain("{ get; }", result.Text);
+    }
+
+    [Theory]
+    [InlineData("SelectedAutoPropertySamples", "ComputedCount", "field + 1", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "Count", "field + 1", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "SharedCount", "field + 2", true, false)]
+    [InlineData("SelectedFieldPropertySamples", "RepeatedCount", "field + field", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "CheckedCount", "checked", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "Label", "field ?? \"this.Label / field\"", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "event", "field + 3", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "BranchedCount", "field", false, false)]
+    [InlineData("SelectedFieldPropertySamples", "AttributedCount", "[DebuggerStepThrough]", false, false)]
+    [InlineData("GenericFieldPropertySamples`1", "Value", "field", false, false)]
+    [InlineData("GenericFieldPropertySamples`1", "SharedCount", "field + 2", true, false)]
+    [InlineData("ReadonlyFieldPropertySamples", "Count", "field + 1", false, true)]
+    [InlineData("DerivedFieldPropertySamples", "Limit", "override int Limit", false, false)]
+    public void ComputedGetterPreservesItsFieldAndComputation(
+        string typeName, string propertyName, string expected, bool isStatic, bool isReadOnly)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path,
+                $"ILInspector.Decompiler.Fixtures.{typeName}", propertyName, "get");
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains(expected, result.Text);
+            Assert.DoesNotContain($"get_{propertyName}(", result.Text);
+            var compilation = AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!, path);
+            var projectedType = Assert.IsAssignableFrom<INamedTypeSymbol>(
+                compilation.Assembly.GetTypeByMetadataName(type.FullName));
+            var storage = Assert.Single(projectedType.GetMembers().OfType<IFieldSymbol>());
+            Assert.Equal(isReadOnly, storage.IsReadOnly);
+            Assert.Equal(isStatic, storage.IsStatic);
+            var property = Assert.IsAssignableFrom<IPropertySymbol>(storage.AssociatedSymbol);
+            Assert.Null(property.SetMethod);
+            if (propertyName is "Count" or "ComputedCount" or "SharedCount"
+                or "RepeatedCount" or "CheckedCount" or "event")
+                AssertGetterInstructionsMatch(compilation, path, accessor);
+        }
+    }
+
+    static void AssertGetterInstructionsMatch(CSharpCompilation compilation, string path, ApiMember accessor)
+    {
+        using var original = new PEReader(File.OpenRead(path));
+        var originalReader = original.GetMetadataReader();
+        var originalMethod = originalReader.GetMethodDefinition(
+            (MethodDefinitionHandle)MetadataTokens.EntityHandle(accessor.MetadataToken!.Value));
+        using var image = new MemoryStream();
+        Assert.True(compilation.Emit(image, cancellationToken: TestContext.Current.CancellationToken).Success);
+        image.Position = 0;
+        using var projected = new PEReader(image);
+        var projectedReader = projected.GetMetadataReader();
+        var projectedHandle = Assert.Single(projectedReader.MethodDefinitions,
+            handle => projectedReader.GetString(projectedReader.GetMethodDefinition(handle).Name) == accessor.Name);
+        var projectedMethod = projectedReader.GetMethodDefinition(projectedHandle);
+        var originalInstructions = MethodInstructions.Decode(original.GetMethodBody(originalMethod.RelativeVirtualAddress));
+        var projectedInstructions = MethodInstructions.Decode(projected.GetMethodBody(projectedMethod.RelativeVirtualAddress));
+        Assert.True(originalInstructions.IsComplete);
+        Assert.True(projectedInstructions.IsComplete);
+        Assert.Equal(originalInstructions.Instructions.Select(instruction => instruction.OpCode),
+            projectedInstructions.Instructions.Select(instruction => instruction.OpCode));
+        Assert.Equal(originalInstructions.Instructions
+                .Where(instruction => instruction.Operand != OperandKind.InlineField)
+                .Select(instruction => instruction.OperandValue),
+            projectedInstructions.Instructions
+                .Where(instruction => instruction.Operand != OperandKind.InlineField)
+                .Select(instruction => instruction.OperandValue));
+    }
+
+    [Theory]
+    [InlineData("ChangingCount")]
+    [InlineData("LazyLabel")]
+    [InlineData("MutableCount")]
+    [InlineData("InitialCount")]
+    [InlineData("DescribedCount")]
+    [InlineData("NestedCount")]
+    [InlineData("ProtectedCount")]
+    public void UnsupportedFieldGetterRetainsMethodForm(string propertyName)
+    {
+        string path = FixturePath(false);
+        var (type, accessor) = Select(path,
+            "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples", propertyName, "get");
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains($"get_{propertyName}(", result.Text);
+    }
+
+    [Fact]
+    public void FieldNamedPdbLocalRetainsMethodForm()
+    {
+        string path = FixturePath(false);
+        var (type, accessor) = Select(path,
+            "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples", "ShadowedCount", "get");
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, Path.ChangeExtension(path, ".pdb"));
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("get_ShadowedCount()", result.Text);
+    }
+
+    [Theory]
+    [InlineData("own-receiver", true)]
+    [InlineData("other-receiver", false)]
+    [InlineData("address", false)]
+    [InlineData("volatile", false)]
+    [InlineData("additional-field", false)]
+    [InlineData("readonly", false)]
+    public void FieldGetterRequiresOnlyOrdinaryReadsOfItsOwnStorage(string shape, bool expectedProperty)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"field-read-{Guid.NewGuid():N}.dll");
+        try
+        {
+            var assembly = new PersistedAssemblyBuilder(new AssemblyName("FieldRead"), typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule("FieldRead");
+            var declaringType = module.DefineType("FieldRead", TypeAttributes.Public);
+            var field = declaringType.DefineField(
+                "<Count>k__BackingField", typeof(int),
+                FieldAttributes.Private | (shape == "readonly" ? FieldAttributes.InitOnly : 0));
+            field.SetCustomAttribute(new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []));
+            var getter = declaringType.DefineMethod(
+                "get_Count", MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(int), Type.EmptyTypes);
+            var body = getter.GetILGenerator();
+            body.Emit(shape == "other-receiver" ? OpCodes.Ldnull : OpCodes.Ldarg_0);
+            if (shape == "volatile")
+                body.Emit(OpCodes.Volatile);
+            body.Emit(shape == "address" ? OpCodes.Ldflda : OpCodes.Ldfld, field);
+            if (shape == "address")
+                body.Emit(OpCodes.Ldind_I4);
+            if (shape == "additional-field")
+            {
+                var extra = declaringType.DefineField("_offset", typeof(int), FieldAttributes.Private);
+                body.Emit(OpCodes.Ldarg_0);
+                body.Emit(OpCodes.Ldfld, extra);
+            }
+            else
+                body.Emit(OpCodes.Ldc_I4_1);
+            body.Emit(OpCodes.Add);
+            body.Emit(OpCodes.Ret);
+            declaringType.DefineProperty("Count", PropertyAttributes.None, typeof(int), Type.EmptyTypes)
+                .SetGetMethod(getter);
+            declaringType.CreateType();
+            assembly.Save(path);
+
+            var (type, accessor) = Select(path, "FieldRead", "Count", "get");
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Equal(expectedProperty,
+                result.Text!.Contains("public int Count => field + 1;", StringComparison.Ordinal));
+            if (expectedProperty)
+                AssertGetterInstructionsMatch(
+                    AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!), path, accessor);
+            else
+                Assert.Contains("get_Count()", result.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -240,18 +399,20 @@ public sealed class SelectedPropertySourceTests
         AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!, path);
     }
 
-    [Fact]
-    public void ExplicitAutomaticGetterKeepsItsInterfaceBinding()
+    [Theory]
+    [InlineData("ExplicitAutoPropertySamples", "int IAutoPropertySample.Count { get; }")]
+    [InlineData("ExplicitFieldPropertySamples", "int IAutoPropertySample.Count => field + 1;")]
+    public void ExplicitAutomaticGetterKeepsItsInterfaceBinding(string typeName, string expected)
     {
         string path = FixturePath(false);
-        var type = Extract(path, "ILInspector.Decompiler.Fixtures.ExplicitAutoPropertySamples");
+        var type = Extract(path, $"ILInspector.Decompiler.Fixtures.{typeName}");
         var property = Assert.Single(type.Members, member =>
             member.Kind == "property" && member.GetterToken is not null);
         var accessor = Assert.Single(ApiMemberAccessors.Create(property, type));
         type.Members = [accessor];
         var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
         Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
-        Assert.Contains("int IAutoPropertySample.Count { get; }", result.Text);
+        Assert.Contains(expected, result.Text);
         var compilation = AssertCompiles(
             MemberBodyProducer.Project(type, path, pdbPath: null).Output!, path);
         var projectedType = Assert.IsAssignableFrom<INamedTypeSymbol>(
@@ -267,8 +428,14 @@ public sealed class SelectedPropertySourceTests
     [InlineData(false, false, false, false)]
     [InlineData(false, false, false, true)]
     [InlineData(false, true, true, true)]
+    [InlineData(false, false, true, false, true)]
+    [InlineData(true, false, false, false, true)]
+    [InlineData(false, true, false, false, true)]
+    [InlineData(false, false, true, true, true)]
+    [InlineData(false, true, false, true, true)]
     public void AutomaticGetterRequiresItsOwnReadonlyGenericStorage(
-        bool foreignInstantiation, bool readonlyStorage, bool expectedAutomatic, bool sameNameNeighbor)
+        bool foreignInstantiation, bool readonlyStorage, bool expectedAutomatic, bool sameNameNeighbor,
+        bool computed = false)
     {
         string path = Path.Combine(Path.GetTempPath(), $"selected-storage-{Guid.NewGuid():N}.dll");
         try
@@ -297,6 +464,11 @@ public sealed class SelectedPropertySourceTests
             var body = getter.GetILGenerator();
             body.Emit(OpCodes.Ldsfld, TypeBuilder.GetField(
                 declaringType.MakeGenericType(foreignInstantiation ? typeof(int) : parameter), field));
+            if (computed)
+            {
+                body.Emit(OpCodes.Ldc_I4_1);
+                body.Emit(OpCodes.Add);
+            }
             body.Emit(OpCodes.Ret);
             declaringType.DefineProperty("Count", PropertyAttributes.None, typeof(int), Type.EmptyTypes)
                 .SetGetMethod(getter);
@@ -309,7 +481,8 @@ public sealed class SelectedPropertySourceTests
             type.Members = [accessor];
             var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
             Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
-            Assert.Equal(expectedAutomatic, result.Text!.Contains("{ get; }", StringComparison.Ordinal));
+            Assert.Equal(expectedAutomatic, result.Text!.Contains(
+                computed ? "=> field + 1;" : "{ get; }", StringComparison.Ordinal));
             if (expectedAutomatic)
                 AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!);
             else
@@ -326,7 +499,11 @@ public sealed class SelectedPropertySourceTests
     [InlineData(false, false)]
     [InlineData(true, true)]
     [InlineData(false, true)]
-    public void AutomaticGetterDeclinesModifiedStorage(bool required, bool nested)
+    [InlineData(true, false, true)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, true)]
+    public void AutomaticGetterDeclinesModifiedStorage(bool required, bool nested, bool computed = false)
     {
         string path = Path.Combine(Path.GetTempPath(), $"modified-storage-{Guid.NewGuid():N}.dll");
         try
@@ -340,7 +517,8 @@ public sealed class SelectedPropertySourceTests
             var field = declaringType.DefineField(
                 "<Count>k__BackingField", storageType,
                 required ? [modifier] : null, required ? null : [modifier],
-                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
+                FieldAttributes.Private | FieldAttributes.Static
+                    | (computed ? 0 : FieldAttributes.InitOnly));
             var marker = new CustomAttributeBuilder(
                 typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
             field.SetCustomAttribute(marker);
@@ -349,6 +527,11 @@ public sealed class SelectedPropertySourceTests
                     | MethodAttributes.SpecialName | MethodAttributes.HideBySig, storageType, Type.EmptyTypes);
             getter.SetCustomAttribute(marker);
             getter.GetILGenerator().Emit(OpCodes.Ldsfld, field);
+            if (computed)
+            {
+                getter.GetILGenerator().Emit(OpCodes.Dup);
+                getter.GetILGenerator().Emit(OpCodes.Pop);
+            }
             getter.GetILGenerator().Emit(OpCodes.Ret);
             declaringType.DefineProperty("Count", PropertyAttributes.None, storageType, Type.EmptyTypes)
                 .SetGetMethod(getter);

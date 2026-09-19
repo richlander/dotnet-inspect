@@ -151,6 +151,13 @@ internal static class MemberCodeProvider
             if (request.FindingCensus && !methodHasBody)
                 continue;
 
+            var propertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
+                && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
+                ? Decompiler.SelectedPropertyAccessorSource.Create(
+                    pipelineSource, propertyMethodToken, method,
+                    includeAttributes: request.AnnotatedSource)
+                : null;
+
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;
             Decompiler.DecompilerResult? projectionResult = null;
@@ -178,7 +185,8 @@ internal static class MemberCodeProvider
                     publicOnly,
                     methodToken,
                     projectionRenderOptions,
-                    out raisedFunction));
+                    out raisedFunction,
+                    propertySource));
                 projectionResult = projectionResult with
                 {
                     Trace = new Decompiler.DecompilerTrace(
@@ -259,7 +267,8 @@ internal static class MemberCodeProvider
                         CaretFocus: request.CaretFocus,
                         SourceDocument:
                             request.SourceDocument || request.FindingCensus,
-                        Assembly: researchAssembly));
+                        Assembly: researchAssembly,
+                        PropertySource: propertySource));
 
                 // Promotion never hides a fact, so a focus that matched nothing
                 // renders identically to no focus at all. Say so, and name the
@@ -355,13 +364,6 @@ internal static class MemberCodeProvider
             IReadOnlyList<ILInspector.Research.FactRow>? facts = null;
             if ((request.Facts || request.FindingCensus) && researchProjection is not null)
                 facts = researchProjection.Facts;
-
-            var propertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
-                && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
-                ? Decompiler.SelectedPropertyAccessorSource.Create(
-                    pipelineSource, propertyMethodToken, method,
-                    includeAttributes: request.AnnotatedSource)
-                : null;
 
             results.Add((method, new Item(
                 decompiledResult,
@@ -486,7 +488,8 @@ internal static class MemberCodeProvider
         bool publicOnly,
         int? methodToken,
         PrinterOptions? renderOptions,
-        out IrFunction? imported)
+        out IrFunction? imported,
+        Decompiler.SelectedPropertyAccessorSource? propertySource)
     {
         imported = null;
         try
@@ -495,6 +498,7 @@ internal static class MemberCodeProvider
                 ? IrImporter.Import(source, type, method, overloadIndex, publicOnly)
                 : IrImporter.Import(source, methodToken.Value))
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
+            propertySource?.BindBody(imported);
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
                 target => IrImporter.Import(source, target),

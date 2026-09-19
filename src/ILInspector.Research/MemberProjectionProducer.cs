@@ -131,6 +131,7 @@ public static class MemberProjectionProducer
                 // not depend on projection order.
                 var annotatedFunction = ImportFunction()
                     ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                request.PropertySource?.BindBody(annotatedFunction);
                 annotatedSource = WithTrace(
                     RunProjection(() => RenderMixedCore(
                         request.Source,
@@ -148,6 +149,8 @@ public static class MemberProjectionProducer
                     request.Source);
             }
 
+            if (request.CostOverlay || request.SemanticsOverlay)
+                request.PropertySource?.BindBody(imported);
             CostOverlayResult? costOverlay = null;
             if (request.CostOverlay)
             {
