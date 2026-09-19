@@ -33,6 +33,14 @@ public enum ImplementationComplexityChangeKind
     Incomplete,
 }
 
+/// <summary>
+/// One paired complexity observation for a logical member. <see cref="OldProfile"/>
+/// and <see cref="NewProfile"/> retain the full Analysis-owned structural
+/// facts (instructions, branches, switches, loops, exception regions, calls,
+/// allocations, async/state-machine) behind the narrow complexity number, so
+/// later comparison-population or clustering work can build on the same
+/// paired evidence without re-deriving correspondence.
+/// </summary>
 public sealed record ImplementationComplexityChange(
     ResearchSubjectKey Subject,
     ImplementationComplexityChangeKind Kind,
@@ -42,7 +50,9 @@ public sealed record ImplementationComplexityChange(
     bool OldIsComplete,
     bool NewIsComplete,
     MethodIdentity? OldEvidenceMethod = null,
-    MethodIdentity? NewEvidenceMethod = null);
+    MethodIdentity? NewEvidenceMethod = null,
+    MethodImplementationProfile? OldProfile = null,
+    MethodImplementationProfile? NewProfile = null);
 
 public sealed record ImplementationComplexityDiff(
     bool IsAvailable,
