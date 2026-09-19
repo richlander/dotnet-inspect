@@ -260,20 +260,14 @@ adds host-owned experience state. For a Copilot App canvas this typically
 includes layout, expanded groups, zoom, active selection, navigation history,
 and panel arrangement.
 
-Canvas input and actions use schema-validated operation requests. They do not
-accept arbitrary command text or presentation labels as identity. A canvas
-instance associates every document-local selection with the exact Document
-revision that issued it:
+This pattern requires only that a document-local target remain local to the
+Document that issued it. A follow-up operation that leaves that Document uses
+owner-issued identity, Share, or another owner-defined portable request rather
+than treating the local target or its rendered label as portable identity.
 
-```text
-DocumentRevision
-TargetKind
-DocumentLocalId
-```
-
-The provider resolves that selection through the current Document before
-starting a follow-up operation. Reopening or replacing the Document does not
-silently carry local ids into the new revision.
+The focused interactive-host owner defines its request schemas, action
+protocol, selection lifetime, replacement behavior, and restoration policy.
+Those contracts do not become properties of every multi-part Document.
 
 Representations such as Mermaid, SVG, or mapped display text are named
 compositions around the baseline:
@@ -334,8 +328,8 @@ The pattern is established when focused adopter gates prove:
   Document;
 - heterogeneous category requests fail atomically in row formats;
 - bounded, partial, and failed evidence remains typed and visible; and
-- an interactive follow-up resolves its target through the exact Document
-  revision rather than a rendered label.
+- an interactive follow-up does not use a document-local id or rendered label
+  as portable identity.
 
 Each adopting owner supplies its own authentic fixture and pathological case.
 This pattern does not create one synthetic universal Document fixture.
