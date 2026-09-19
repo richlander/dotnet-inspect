@@ -83,7 +83,8 @@ public abstract class SourceHouseAuthoredMapping
         public SourceLinkResolver.TypeSourceInfo SourceMapping { get; }
         public SourceDocumentObservation Document { get; }
         public IReadOnlyList<SourceHouseAdditionalTypeDocument>
-            AdditionalDocuments { get; }
+            AdditionalDocuments
+        { get; }
 
         private static SourceHouseSourceUnitScope DocumentScope(
             SourceLinkResolver.TypeSourceInfo mapping,
@@ -389,8 +390,11 @@ public sealed record SourceHouseFailure
         Stage = stage;
         Code = SourceHouseContractName.Validate(code);
         DetailWasTruncated =
-            detail is { Length: >
-                SourceHouseContractText.MaximumDiagnosticCharacters };
+            detail is
+            {
+                Length: >
+                SourceHouseContractText.MaximumDiagnosticCharacters
+            };
         Detail = detail is null
             ? null
             : SourceHouseContractText.CaptureDiagnostic(detail);

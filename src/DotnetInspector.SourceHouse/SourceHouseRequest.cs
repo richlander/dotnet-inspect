@@ -231,8 +231,11 @@ public sealed record SourceHouseCapabilityObservation
     {
         Code = SourceHouseContractName.Validate(code);
         DetailWasTruncated =
-            detail is { Length: >
-                SourceHouseContractText.MaximumDiagnosticCharacters };
+            detail is
+            {
+                Length: >
+                SourceHouseContractText.MaximumDiagnosticCharacters
+            };
         Detail = detail is null
             ? null
             : SourceHouseContractText.CaptureDiagnostic(detail);
