@@ -713,7 +713,7 @@ Resolution consumes one host-neutral selected-context exact-Library operation
 that accepts the complete realized context and returns either:
 
 - one unique exact participant with its live operation-bounded assembly,
-  detached source coordinate, and exact assembly identity;
+  detached Package source coordinate, and exact assembly identity;
 - no matching participant;
 - multiple exact candidates;
 - incomplete participant evidence; or
@@ -730,12 +730,12 @@ operation. Resolution never:
   position, or rendered text; or
 - adds a packet-specific Library inventory or matching algorithm.
 
-The selected live participant retains its Package, Platform, project, or local
-provenance while the admitted Workspace operation remains valid. Execution
-must not materialize the selected bytes and silently downgrade the request to
-an unrelated local-file inspection. Without `--share`, the command preserves
-ordinary exact-Library output, sections, formats, projections, diagnostics,
-counts, source-sensitive behavior, and exit behavior.
+The selected live participant retains its exact Package coordinate, selected
+target and asset provenance while the admitted Workspace operation remains
+valid. Execution must not materialize the selected bytes and silently downgrade
+the request to an unrelated local-file inspection. Without `--share`, the
+command preserves ordinary exact-Library output, sections, formats,
+projections, diagnostics, counts, source-sensitive behavior, and exit behavior.
 
 Appending `--share[=url|packet]` follows the additive
 [CLI Workspace Sharing](cli-workspace-sharing.md) contract and performs neither
@@ -745,7 +745,8 @@ packet:
 1. moves focus to the existing tab for the exact effective source containing
    the selected Library;
 2. carries `PortableSubjectRequest.Library`;
-3. retains the owner-issued exact Library identity; and
+3. retains the owner-issued exact Library identity beneath that direct Package
+   row; and
 4. includes a Library facet or query only when the ordinary command choice has
    a faithful portable representation.
 
@@ -784,6 +785,11 @@ own Package aggregate execution, tools-v2 containment, authoritative Package
 identity, aggregate-by-default routing, namesake narrowing, aliases, and
 `--all-libraries` retirement. #7746 owns only exact Library selection from
 Workspace packet context.
+
+Platform, project, local, and registration-only Library activation remain
+outside this slice. Packet format 4 intentionally leaves non-Package
+coordinates as dormant inventory, so this adoption does not imply a
+non-Package active-descendant grammar.
 
 ### Packet completeness
 
