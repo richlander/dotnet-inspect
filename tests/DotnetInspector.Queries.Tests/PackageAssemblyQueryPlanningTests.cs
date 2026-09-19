@@ -230,7 +230,7 @@ public sealed class PackageAssemblyQueryPlanningTests
                 PackageArtifactRootRequest.Create(
                     coordinate,
                     initial.CompileTargetFramework,
-                    initial.Root.RequestedTargetFramework,
+                    initial.ImplementationSelectionTargetFramework,
                     initial.Root.RequestedRuntimeIdentifier,
                     initial.HasSelectedImplementationUniverse,
                     initial.UsesCompatibleImplementationSelection,

@@ -252,7 +252,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             PackageArtifactRootRequest.Create(
                 legacyCoordinate,
                 binding.CompileTargetFramework,
-                binding.Root.RequestedTargetFramework,
+                binding.ImplementationSelectionTargetFramework,
                 binding.Root.RequestedRuntimeIdentifier,
                 binding.HasSelectedImplementationUniverse,
                 binding.UsesCompatibleImplementationSelection,

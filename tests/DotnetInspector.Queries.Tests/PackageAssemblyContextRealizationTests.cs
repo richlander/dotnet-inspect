@@ -615,6 +615,65 @@ public sealed class PackageAssemblyContextRealizationTests
 
     [Fact]
     public void
+        TargetlessImplementationRequest_RejectsReplacementImplementationTarget()
+    {
+        const string packageId = "targetless.implementation.replacement";
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(packageId, "1.0.0");
+        var initialPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net8.0/Targetless.Implementation.Replacement.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding initial =
+            PackageRootBinding.CreateFromSource(initialPayload);
+        PackageRootReacquisitionRequest request =
+            initial.CreateReacquisitionRequest();
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        PackageRootBinding reopened =
+            Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                PackageRootAcquisition.BindReacquired(
+                    decoded,
+                    initialPayload)).Binding;
+        var replacementPayload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("lib/net7.0/Targetless.Implementation.Replacement.dll", [0x02])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        PackageRootRebindingOutcome.Failed failure =
+            Assert.IsType<PackageRootRebindingOutcome.Failed>(
+                PackageRootAcquisition.BindReacquired(
+                    decoded,
+                    replacementPayload));
+
+        Assert.Null(initial.Coordinate.Framework);
+        Assert.Null(initial.Root.RequestedTargetFramework);
+        Assert.Equal("net8.0", request.CompileTargetFramework);
+        Assert.Equal("net8.0", request.SelectionTargetFramework);
+        Assert.True(request.HasSelectedImplementationUniverse);
+        Assert.False(request.AllowsCompatibleTargetSelection);
+        Assert.False(request.UsesCompatibleImplementationSelection);
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind
+                .SelectionRequestNotReproduced,
+            failure.Kind);
+    }
+
+    [Fact]
+    public void
         CompatibleImplementationRequest_RejectsReplacementImplementationTarget()
     {
         const string packageId = "compatible.split.replacement";
@@ -1258,6 +1317,12 @@ public sealed class PackageAssemblyContextRealizationTests
             PackageCompileAssetSelectionStatus.NoCompileAssets,
             binding.Root.AssetSelection.Status);
         Assert.Null(binding.Coordinate.Framework);
+        Assert.Null(
+            binding.CreateReacquisitionRequest()
+                .CompileTargetFramework);
+        Assert.Null(
+            binding.CreateReacquisitionRequest()
+                .SelectionTargetFramework);
         Assert.True(binding.Root.ReferencesContent(content));
     }
 

@@ -74,7 +74,13 @@ public sealed class PackageRootBinding
         SourceProducer = sourceProducer;
         ContentGenerationIdentity = contentGenerationIdentity;
         SelectionIdentity = selectionIdentity;
-        CompileTargetFramework = compileTargetFramework;
+        CompileTargetFramework =
+            compileTargetFramework
+            ?? root.AssetSelection.TargetFramework;
+        ImplementationSelectionTargetFramework =
+            root.RequestedTargetFramework
+            ?? root.AssetSelection.ImplementationTargetFramework
+            ?? root.AssetSelection.TargetFramework;
         HasSelectedImplementationUniverse =
             root.AssetSelection.ImplementationTargetFramework is not null;
         UsesCompatibleImplementationSelection =
@@ -94,6 +100,8 @@ public sealed class PackageRootBinding
     public PackageRootSelectionIdentity SelectionIdentity { get; }
 
     internal string? CompileTargetFramework { get; }
+
+    internal string? ImplementationSelectionTargetFramework { get; }
 
     internal bool HasSelectedImplementationUniverse { get; }
 

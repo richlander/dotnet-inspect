@@ -58,7 +58,7 @@ internal readonly record struct PackageArtifactRootRequest(
         return Create(
             binding.Coordinate,
             binding.CompileTargetFramework,
-            binding.Root.RequestedTargetFramework,
+            binding.ImplementationSelectionTargetFramework,
             binding.Root.RequestedRuntimeIdentifier,
             usesCompatibleImplementationSelection:
                 binding.UsesCompatibleImplementationSelection,

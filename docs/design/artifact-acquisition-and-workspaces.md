@@ -3217,6 +3217,14 @@ no unique universe exists would fail with `MissingAcquisitionTarget`, misstate
 the selection policy, prevent a later consumer from applying the authorized
 policy, or silently select a different compile or implementation outcome.
 
+Framework-neutral acquisition remains separate from selection fidelity. When a
+caller supplies no target, the realized coordinate and the Root's requested
+target remain absent, while the binding freezes any selector-issued compile and
+implementation targets into the reacquisition request. Reopening therefore
+repeats the selected target against newly authorized content rather than
+silently choosing that content's new highest target. A Root with no compile or
+implementation target retains both request targets as absent.
+
 The request carries no generation, selection identity, Workspace identity,
 content, session, lease, callback, opener, path authority, or credential. It is
 therefore safe to hold across candidate Workspace disposal and to observe a
@@ -3390,6 +3398,9 @@ and rejects replacement content that adds `lib/net8.0`;
 `OwnerDefaultImplementationRequest_RejectsReplacementImplementationTarget`
 gates rejection when owner-default replacement content changes the frozen
 implementation universe from `lib/net8.0` to `lib/net7.0`;
+`TargetlessImplementationRequest_RejectsReplacementImplementationTarget` gates
+framework-neutral acquisition with a frozen `lib/net8.0` selection and rejects
+replacement content whose highest implementation universe is `lib/net7.0`;
 `PackageRootBinding_CompatibleAuthorizationSurvivesExactSelection` gates
 authorization retention when exact target selection wins;
 `PackageRootBinding_CompatibleSelectionPreservesLowerImplementationTarget`
