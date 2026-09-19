@@ -1772,7 +1772,6 @@ public partial class CommandExecutionTests
     /// </summary>
     [Theory]
     [InlineData("--all")]
-    [InlineData("--shape")]
     public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
     {
         var (exit, output, _) = await RunAppAsync(
@@ -2751,26 +2750,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_ExplicitShapeWithSelect_WarnsAndKeepsShape()
-    {
-        var options = new TypeOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
-            ShapeOutput = true,
-            ShapeExplicitlySet = true,
-            Select = ["Properties"]
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => TypeCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        Assert.Contains("--shape does not support", error);
-        Assert.Contains("├─", output);
-    }
-
-    [Fact]
     public async Task Type_SingleType_SelectEmptySection_WritesNote()
     {
         var options = new TypeOptions
@@ -3696,10 +3675,56 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_ExactType_DefaultAndTreeOutputAreEquivalent()
+    {
+        var defaultResult = await RunAppAsync(
+            "type", "System.Math", "--tips", "q");
+        var treeResult = await RunAppAsync(
+            "type", "System.Math", "--tree", "--tips", "q");
+
+        Assert.Equal(defaultResult, treeResult);
+        Assert.Equal(0, defaultResult.Exit);
+    }
+
+    [Fact]
+    public async Task Type_ExactType_TreeOverridesEnvironmentTable()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var (exit, output, error) = await RunAppAsync(
+                "type", "System.Math", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.StartsWith(
+                "static class System.Math",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains("─ Methods", output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Kind    Name    Return Type",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
     public async Task Type_StringShape_RendersLearnMemberOrder()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "String", "--platform", "System.Private.CoreLib", "--shape");
+            "type", "String", "--platform", "System.Private.CoreLib", "--tree");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3728,7 +3753,7 @@ public partial class CommandExecutionTests
     public async Task Type_StaticClass_RendersStaticClassModifierOnly()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Math", "--shape", "--tips", "q", "-n", "1", "--lines");
+            "type", "System.Math", "--tree", "--tips", "q", "-n", "1", "--lines");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3740,7 +3765,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareStringAlias_RendersCoreLibString()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "string", "--shape", "--tips", "q");
+            "type", "string", "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -3754,7 +3779,7 @@ public partial class CommandExecutionTests
     public async Task Type_BareDictionaryGeneric_RendersCoreLibDictionary(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", typeName, "--shape", "--tips", "q");
+            "type", typeName, "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

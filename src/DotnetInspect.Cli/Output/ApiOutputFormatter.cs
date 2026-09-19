@@ -417,7 +417,7 @@ public static class ApiOutputFormatter
         && !SectionRequested(options.IncludeSections, SectionNames.Methods)
         && !DiscoveryRequests(options, SectionNames.Methods);
 
-    // ===== Shape Output (--shape) =====
+    // ===== Type tree output =====
 
     public static void WriteShapeOutput(
         ApiType type,
