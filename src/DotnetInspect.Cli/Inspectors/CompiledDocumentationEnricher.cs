@@ -591,7 +591,7 @@ internal static class CompiledDocumentationEnricher
                 "CLI compiled documentation"));
     }
 
-    private static bool TryGetPlatformReferenceLocation(
+    internal static bool TryGetPlatformReferenceLocation(
         string assemblyPath,
         string framework,
         string version,
@@ -658,7 +658,7 @@ internal static class CompiledDocumentationEnricher
         return false;
     }
 
-    private sealed record PlatformReferenceLocation(string? DotnetRoot)
+    internal sealed record PlatformReferenceLocation(string? DotnetRoot)
     {
         internal bool IsPackageBacked => DotnetRoot is null;
     }
