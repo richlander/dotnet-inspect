@@ -29,6 +29,8 @@
                      Version="[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="System.Text.Json"
                      Version="[11.0.0-preview.7.26381.103];[8.0.6];[9.0.0];[10.0.0]" />
+    <PackageDownload Include="Microsoft.Extensions.Http"
+                     Version="[10.0.0]" />
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
   </ItemGroup>
 
@@ -105,6 +107,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/10.0.0/lib/net10.0/System.Text.Json.xml"
           Link="RealAssets/DocumentationQuery/System.Text.Json.xml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.extensions.http/10.0.0/microsoft.extensions.http.10.0.0.nupkg"
+          Link="RealAssets/PackageQuery/microsoft.extensions.http.10.0.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/11.3.14/avalonia.11.3.14.nupkg"
           Link="RealAssets/ApiMatching/avalonia.11.3.14.nupkg"

@@ -1,6 +1,11 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.RowSelection;
@@ -146,6 +151,7 @@ public sealed class PackageQueryTests
                 ("readme", 400),
                 ("tool", 500),
                 ("tool-format", 510),
+                ("references", 550),
                 ("skill", 600),
             ],
             PackageQuery.Terms.Select(term =>
@@ -155,6 +161,7 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
+                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -239,6 +246,16 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             license.Options.Select(option => option.Value));
+        PackageQueryTermDescriptor references = PackageQuery.Terms.Single(
+            term => term.Key == PackageQuery.ReferencesTermKey);
+        Assert.Equal(
+            PackageQueryAcquisitionTier.PackageContent,
+            references.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            references.ControlKind);
+        Assert.Equal("assembly simple name", references.ValueKind);
+        Assert.Null(references.SelectionGroupId);
     }
 
     [Theory]
@@ -271,6 +288,11 @@ public sealed class PackageQueryTests
         "dependency-target",
         PortableQueryOperator.Equal,
         "not/a/tfm",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "references",
+        PortableQueryOperator.Equal,
+        "System.Text.Json, Version=10.0.0.0",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     public void PlanInput_RejectsInvalidTermsBeforeExecution(
         string key,
@@ -362,6 +384,27 @@ public sealed class PackageQueryTests
                         PackageQuery.DependencyTargetTermKey,
                         "net8.0"),
                 ])).Reason);
+    }
+
+    [Fact]
+    public void PlanInput_BindsAssemblyReferenceNamesCaseInsensitively()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(PackageQuery.ReferencesTermKey, "System.Text.Json"),
+                    Term(PackageQuery.ReferencesTermKey, "system.text.json"),
+                ],
+                maximumCandidates:
+                    PackageQuery.MaximumPackageContentCandidates));
+
+        PortableQueryTerm term = Assert.Single(
+            plan.Terms,
+            term => term.Key == PackageQuery.ReferencesTermKey);
+        Assert.Equal("System.Text.Json", term.Value);
+        Assert.True(plan.RequiresPackageContent);
     }
 
     [Fact]
@@ -2072,6 +2115,383 @@ public sealed class PackageQueryTests
             content.Requests);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferencesMatchAcrossAdmittedGroups()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        byte[] target = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var archive = FakePackageContent.FromBytes(
+            ("ref/net8.0/Caller.dll", caller),
+            ("lib/net9.0/Caller.dll", caller),
+            ("lib/net10.0/nested/Caller.dll", caller),
+            ("ref/net11.0/Caller.dll", caller),
+            ("lib/net8.0/Target.dll", target),
+            ("lib/net7.0/Native.dll", WithoutManagedMetadata(caller)),
+            ("runtimes/linux-x64/lib/net8.0/Excluded.dll", caller));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "ilinspector.analysis.callergraphtarget"),
+                        Term(PackageQuery.ReferencesTermKey, "System.Runtime"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal(PackageQueryAcquisitionTier.PackageContent, match.Tier);
+        Assert.Equal(
+            [
+                "ilinspector.analysis.callergraphtarget",
+                "System.Runtime",
+            ],
+            match.Answers.Select(answer => answer.Value));
+        PackageQueryEvidence targetEvidence = Assert.Single(
+            match.Evidence,
+            evidence => evidence.Term?.Value
+                == "ilinspector.analysis.callergraphtarget");
+        PackageQueryEvidenceSummary targetSummary =
+            Assert.IsType<PackageQueryEvidenceSummary>(
+                targetEvidence.Summary);
+        Assert.Equal(4, targetSummary.Count);
+        Assert.Equal(
+            [
+                "net10.0: lib/net10.0/nested/Caller.dll -> ILInspector.Analysis.CallerGraphTarget",
+                "net9.0: lib/net9.0/Caller.dll -> ILInspector.Analysis.CallerGraphTarget",
+                "net11.0: ref/net11.0/Caller.dll -> ILInspector.Analysis.CallerGraphTarget",
+            ],
+            targetSummary.Preview.Select(item => item.ToString()));
+        Assert.Equal(
+            PackageQuery.MaximumEvidencePreviewItems,
+            targetSummary.Preview.Length);
+        Assert.DoesNotContain(
+            archive.EntryRequests,
+            path => path.StartsWith("runtimes/", StringComparison.Ordinal));
+        Assert.Contains("lib/net7.0/Native.dll", archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceNonmatchIsNotAResult()
+    {
+        byte[] target = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = FakePackageContent.FromBytes(
+                    ("lib/net8.0/Target.dll", target)),
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "Contoso.NotReferenced"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAdmittedAssemblyRemainsVisible()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = FakePackageContent.FromBytes(
+                    ("lib/net8.0/Caller.dll", caller),
+                    ("lib/net8.0/Broken.dll", [0x42, 0x61, 0x64])),
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "ILInspector.Analysis.CallerGraphTarget"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_IncompleteAssemblyReferenceTableRemainsVisible()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Caller.dll",
+                    WithMalformedAssemblyReferenceName(caller))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AssemblyReferenceBudgetsRejectBeforeExpansion()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var tooManyEntries = Enumerable
+            .Range(0, PackageQuery.MaximumAssemblyReferenceAssets + 1)
+            .Select(index =>
+                ($"lib/net8.0/Caller{index:D3}.dll", caller))
+            .ToArray();
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(tooManyEntries),
+            expectedEntryRequests: 0);
+
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytesWithDeclaredLengths(
+                ("lib/net8.0/Caller.dll",
+                    caller,
+                    PackageQuery.MaximumAssemblyReferenceEntryBytes + 1)),
+            expectedEntryRequests: 0);
+
+        var aggregateEntries = Enumerable
+            .Range(
+                0,
+                checked((int)(
+                    PackageQuery.MaximumAssemblyReferenceTotalBytes
+                    / PackageQuery.MaximumAssemblyReferenceEntryBytes)) + 1)
+            .Select(index =>
+                ($"lib/net8.0/Caller{index:D2}.dll",
+                    caller,
+                    PackageQuery.MaximumAssemblyReferenceEntryBytes))
+            .ToArray();
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytesWithDeclaredLengths(
+                aggregateEntries),
+            expectedEntryRequests: 0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DuplicateAssemblyAssetPathRemainsVisible()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytesWithDuplicatePath(
+                "lib/net8.0/Caller.dll",
+                caller),
+            expectedEntryRequests: 0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RealPackageMatchesAssemblyReferenceWithinBudgets()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQuery",
+            "microsoft.extensions.http.10.0.0.nupkg");
+        var archive = new InMemoryPackageContent(
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken),
+            fromCache: true,
+            producerKey: "nuget.org");
+        PackageCompileAsset[] assets =
+        [
+            .. PackageCompileAssetSelector.Select(
+                archive,
+                "Microsoft.Extensions.Http").CandidateAssets,
+        ];
+        Assert.Equal(5, assets.Length);
+        long[] lengths =
+        [
+            .. assets.Select(asset =>
+            {
+                Assert.True(
+                    archive.TryGetEntryLength(asset.Path, out long length));
+                return length;
+            }),
+        ];
+        Assert.Equal(93_456, lengths.Max());
+        Assert.Equal(450_880, lengths.Sum());
+        Assert.All(lengths, length => Assert.InRange(
+            length,
+            1,
+            PackageQuery.MaximumAssemblyReferenceEntryBytes));
+        Assert.InRange(
+            lengths.Sum(),
+            1,
+            PackageQuery.MaximumAssemblyReferenceTotalBytes);
+
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.Extensions.Http"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.Extensions.Http"),
+            "Microsoft.Extensions.Http");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.Extensions.Http",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "Microsoft.Extensions.DependencyInjection.Abstractions"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(
+                Assert.Single(
+                    match.Evidence,
+                    evidence =>
+                        evidence.Id == PackageQuery.ReferencesTermKey)
+                    .Summary);
+        Assert.Equal(5, summary.Count);
+        Assert.Equal(
+            PackageQuery.MaximumEvidencePreviewItems,
+            summary.Preview.Length);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReferencePackFitsAssemblyReferenceBudgets()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "CompleteRestoration",
+            "microsoft.netcore.app.ref.10.0.10.nupkg");
+        var archive = new InMemoryPackageContent(
+            await File.ReadAllBytesAsync(
+                path,
+                TestContext.Current.CancellationToken),
+            fromCache: true,
+            producerKey: "nuget.org");
+        PackageCompileAsset[] assets =
+        [
+            .. PackageCompileAssetSelector.Select(
+                archive,
+                "Microsoft.NETCore.App.Ref").CandidateAssets,
+        ];
+        Assert.Equal(167, assets.Length);
+        long[] lengths =
+        [
+            .. assets.Select(asset =>
+            {
+                Assert.True(
+                    archive.TryGetEntryLength(asset.Path, out long length));
+                return length;
+            }),
+        ];
+        Assert.Equal(862_544, lengths.Max());
+        Assert.Equal(6_046_168, lengths.Sum());
+        Assert.InRange(
+            lengths.Max(),
+            1,
+            PackageQuery.MaximumAssemblyReferenceEntryBytes);
+        Assert.InRange(
+            lengths.Sum(),
+            1,
+            PackageQuery.MaximumAssemblyReferenceTotalBytes);
+
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Microsoft.NETCore.App.Ref"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("Microsoft.NETCore.App.Ref"),
+            "Microsoft.NETCore.App.Ref");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Microsoft.NETCore.App.Ref",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "System.Runtime"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(
+                Assert.Single(
+                    match.Evidence,
+                    evidence =>
+                        evidence.Id == PackageQuery.ReferencesTermKey)
+                    .Summary);
+        Assert.True(summary.Count > PackageQuery.MaximumEvidencePreviewItems);
+        Assert.Equal(
+            PackageQuery.MaximumEvidencePreviewItems,
+            summary.Preview.Length);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("<DotNetCliTool Version=\"3\"><Commands /></DotNetCliTool>")]
@@ -2857,6 +3277,40 @@ public sealed class PackageQueryTests
             </package>
             """);
 
+    private static byte[] WithoutManagedMetadata(byte[] image)
+    {
+        byte[] native = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(native, writable: false));
+        PEHeader header = Assert.IsType<PEHeader>(reader.PEHeaders.PEHeader);
+        int directories = reader.PEHeaders.PEHeaderStartOffset
+            + 24
+            + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+        native.AsSpan(directories + (14 * 8), 8).Clear();
+        return native;
+    }
+
+    private static byte[] WithMalformedAssemblyReferenceName(byte[] image)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        Assert.NotEmpty(metadata.AssemblyReferences);
+        Assert.True(
+            metadata.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && metadata.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int nameOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            malformed.AsSpan(nameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return malformed;
+    }
+
     private static async Task<List<PackageQueryEvent>> CollectAsync(
         IAsyncEnumerable<PackageQueryEvent> source)
     {
@@ -2926,6 +3380,44 @@ public sealed class PackageQueryTests
             PackageQueryCompletionKind.Exhausted,
             Assert.IsType<PackageQueryEvent.Completed>(events[^1])
                 .Value.Completion);
+    }
+
+    private static async Task AssertAssemblyReferenceEvaluationFailureAsync(
+        FakePackageContent archive,
+        int expectedEntryRequests)
+    {
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "ILInspector.Analysis.CallerGraphTarget"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Equal(expectedEntryRequests, archive.EntryRequests.Count);
     }
 
     private static PackageSourceResultFactory CreateResultFactory()
@@ -3026,7 +3518,8 @@ public sealed class PackageQueryTests
         public PackageSourceResultIdentity Source => _results.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search
-            | PackageSourceCapabilities.Manifest;
+            | PackageSourceCapabilities.Manifest
+            | PackageSourceCapabilities.VersionEnumeration;
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>
             SearchByPrefixAsync(
@@ -3085,8 +3578,29 @@ public sealed class PackageQueryTests
             GetVersionsAsync(
                 string packageId,
                 CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null) =>
-            throw new NotSupportedException();
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageCandidateObservation[] candidates =
+            [
+                .. matches
+                    .Where(match => StringComparer.OrdinalIgnoreCase.Equals(
+                        match.Id,
+                        packageId))
+                    .Select(match =>
+                        _results.Candidate(
+                            PackageSourceCoordinate.Create(
+                                match.Id,
+                                match.Version),
+                            PackageDiscoveryContract.CompleteVersionEnumeration,
+                            PackageListingState.Listed)),
+            ];
+            return Task.FromResult(
+                _results.SucceededVersions(
+                    _results.Versions(
+                        candidates,
+                        hasAuthoritativeListingState: true)));
+        }
 
         public Task<PackageSourceOperationResult<PackageSourcePayload>>
             GetPackageAsync(
@@ -3135,15 +3649,69 @@ public sealed class PackageQueryTests
         }
     }
 
-    private sealed class FakePackageContent(
-        params (string Path, string Content)[] entries)
-        : IPackageContent
+    private sealed class FakePackageContent
+        : IPackageContent, IPackageContentEntryManifest
     {
-        readonly IReadOnlyDictionary<string, byte[]> _entries =
-            entries.ToDictionary(
-                entry => entry.Path,
-                entry => Encoding.UTF8.GetBytes(entry.Content),
-                StringComparer.Ordinal);
+        readonly IReadOnlyDictionary<string, byte[]> _entries;
+        readonly IReadOnlyDictionary<string, long> _declaredLengths;
+        readonly IReadOnlyList<string> _entryPaths;
+
+        public FakePackageContent(
+            params (string Path, string Content)[] entries)
+            : this(
+                entries.ToDictionary(
+                    entry => entry.Path,
+                    entry => Encoding.UTF8.GetBytes(entry.Content),
+                    StringComparer.Ordinal),
+                declaredLengths: null)
+        {
+        }
+
+        private FakePackageContent(
+            IReadOnlyDictionary<string, byte[]> entries,
+            IReadOnlyDictionary<string, long>? declaredLengths,
+            IReadOnlyList<string>? entryPaths = null)
+        {
+            _entries = entries;
+            _declaredLengths = declaredLengths
+                ?? entries.ToDictionary(
+                    entry => entry.Key,
+                    entry => (long)entry.Value.LongLength,
+                    StringComparer.Ordinal);
+            _entryPaths = entryPaths ?? [.. entries.Keys];
+        }
+
+        public static FakePackageContent FromBytes(
+            params (string Path, byte[] Content)[] entries) =>
+            new(
+                entries.ToDictionary(
+                    entry => entry.Path,
+                    entry => entry.Content,
+                    StringComparer.Ordinal),
+                declaredLengths: null);
+
+        public static FakePackageContent FromBytesWithDeclaredLengths(
+            params (string Path, byte[] Content, long DeclaredLength)[] entries) =>
+            new(
+                entries.ToDictionary(
+                    entry => entry.Path,
+                    entry => entry.Content,
+                    StringComparer.Ordinal),
+                entries.ToDictionary(
+                    entry => entry.Path,
+                    entry => entry.DeclaredLength,
+                    StringComparer.Ordinal));
+
+        public static FakePackageContent FromBytesWithDuplicatePath(
+            string path,
+            byte[] content) =>
+            new(
+                new Dictionary<string, byte[]>(StringComparer.Ordinal)
+                {
+                    [path] = content,
+                },
+                declaredLengths: null,
+                entryPaths: [path, path]);
 
         public string? RootPath => null;
         public string? NupkgPath => null;
@@ -3190,6 +3758,18 @@ public sealed class PackageQueryTests
             return true;
         }
 
-        public IEnumerable<string> EnumerateEntries() => _entries.Keys;
+        public IEnumerable<string> EnumerateEntries() => _entryPaths;
+
+        public bool TryGetEntryLength(
+            string relativePath,
+            out long length) =>
+            _declaredLengths.TryGetValue(relativePath, out length);
+
+        public IReadOnlyList<PackageContentEntry>
+            EnumerateEntriesWithLengths() =>
+        [
+            .. _declaredLengths.Select(entry =>
+                new PackageContentEntry(entry.Key, entry.Value)),
+        ];
     }
 }

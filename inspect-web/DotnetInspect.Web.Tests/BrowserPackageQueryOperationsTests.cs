@@ -384,6 +384,27 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
+    public void Plan_AdmitsAssemblyReferenceIntentAtTheContentBound()
+    {
+        var term = new PortableQueryTerm(
+            PackageQuery.ReferencesTermKey,
+            PortableQueryOperator.Equal,
+            "System.Text.Json");
+
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Microsoft.Extensions.*",
+                [term],
+                maximumCandidates:
+                    PackageQuery.MaximumPackageContentCandidates,
+                maximumMatches: 10,
+                includePrerelease: false));
+
+        Assert.Same(term, Assert.Single(accepted.Plan.Terms));
+        Assert.True(accepted.Plan.RequiresPackageContent);
+    }
+
+    [Fact]
     public void TryCreateTerms_ParsesCanonicalOperatorsWithoutChangingText()
     {
         Assert.True(BrowserPackageQueryOperations.TryCreateTerms(
@@ -596,20 +617,22 @@ public sealed class BrowserPackageQueryOperationsTests
             PackageQueryAcquisitionTier.PackageContent,
             [
                 new PackageQueryAnswer(
-                    PackageQuery.SkillTermKey,
-                    new InertString(TextPolicy.Field, "true")),
+                    PackageQuery.ReferencesTermKey,
+                    new InertString(TextPolicy.Field, "System.Text.Json")),
             ],
             [
-                new PackageQueryEvidence(PackageQuery.SkillTermKey)
+                new PackageQueryEvidence(PackageQuery.ReferencesTermKey)
                 {
                     Scope = PackageQueryEvidenceScope.Package,
                     Summary = new PackageQueryEvidenceSummary(
                         2,
                         [
-                            new InertString(TextPolicy.Field, "skills/SKILL.md"),
                             new InertString(
                                 TextPolicy.Field,
-                                "skills/build/SKILL.md"),
+                                "net8.0: lib/net8.0/One.dll -> System.Text.Json"),
+                            new InertString(
+                                TextPolicy.Field,
+                                "net9.0: ref/net9.0/Two.dll -> System.Text.Json"),
                         ]),
                 },
                 new PackageQueryEvidence("package.query.source-selection")
@@ -641,7 +664,7 @@ public sealed class BrowserPackageQueryOperationsTests
             BrowserPackageQueryAcquisitionTier.PackageContent,
             projectedMatch.Row!.Tier);
         Assert.Equal(
-            "true",
+            "System.Text.Json",
             Assert.Single(projectedMatch.Row.Answers).Value);
         Assert.Collection(
             projectedMatch.Row.Evidence,
@@ -652,7 +675,10 @@ public sealed class BrowserPackageQueryOperationsTests
                     evidence.Scope);
                 Assert.Equal(2, evidence.Summary!.Count);
                 Assert.Equal(
-                    ["skills/SKILL.md", "skills/build/SKILL.md"],
+                    [
+                        "net8.0: lib/net8.0/One.dll -> System.Text.Json",
+                        "net9.0: ref/net9.0/Two.dll -> System.Text.Json",
+                    ],
                     evidence.Summary.Preview);
             },
             evidence =>

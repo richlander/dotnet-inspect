@@ -101,8 +101,8 @@ operator, value-kind, and example metadata.
 The Browser and CLI share the first production vocabulary:
 `dependencies=none`, `dependency-target=all|<tfm>`,
 `depends=<package-id>`, `depends-ecosystem=<ecosystem-id>`,
-`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`skill=true`.
+`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`,
+`references=<assembly-simple-name>`, and `skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.
@@ -146,6 +146,9 @@ these mappings in TypeScript.
 The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
 the operand, or infer a term from evidence text. Product-issued term
 attribution remains structured across the Browser engine boundary.
+`references` is another free-input term: the Browser submits the simple name
+unchanged and neither scans assemblies nor reconstructs reference semantics in
+TypeScript.
 
 This delivery keeps request state in memory only. `/query` URL persistence and
 Workspace packet attachment remain later owner slices. Portable intent
@@ -246,6 +249,11 @@ and
   makes the broad and specific presets replace one another without making
   display grouping define compatibility. `skill=true` matches package entries
   at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively. The rail
+  exposes `references` as a free-input term for a direct assembly simple name;
+  product evaluation covers bounded managed `ref/` and `lib/` assets across
+  package framework groups and returns count-plus-preview evidence.
+  The Browser does not resolve references or inspect assemblies itself.
+  The rail
   persistently discloses that package-content terms may download up to 20
   candidate archives.
 - **Active terms and palette**: free-input descriptors such as `depends` add
@@ -283,7 +291,8 @@ and
   first row appears once above the current result list. Each card is a compact
   package summary plus direct semantic answers and only its package-scoped
   structured evidence. The Browser authors compact presentation for shared
-  count-and-preview facts such as dependencies and embedded skill documents.
+  count-and-preview facts such as dependencies, assembly-reference
+  occurrences, and embedded skill documents.
   Metadata-only rows retain their
   nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
@@ -612,10 +621,11 @@ and browser-history and focus-return outcomes are proved by
    package-content progress advances before completion without manufacturing
    rows. Confirm semantic completion crosses the Browser boundary only once.
 9. Confirm `tool=true` remains nuspec-only. Select `tool-format=v1`,
-   `tool-format=v2`, or `skill=true`; confirm the request bound drops to 20
-   candidates, archive acquisition uses the Browser package store and
-   deadline, and acquisition/evaluation failures remain visible. Remove the
-   final package-content term and confirm the default returns to 200.
+   `tool-format=v2`, `references=System.Text.Json`, or `skill=true`; confirm
+   the request bound drops to 20 candidates, archive acquisition uses the
+   Browser package store and deadline, and acquisition/evaluation failures
+   remain visible. Remove the final package-content term and confirm the
+   default returns to 200.
 10. Confirm `/query` has no Gallery search/browse action, package-type control,
     or source-order control. Confirm blank **Run query** starts no source work
     and Spotlight remains the open-text package discovery path.

@@ -512,7 +512,17 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.Configuration" --count
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions"
 ```
+
+Use `references=<assembly-simple-name>` to require a direct `AssemblyRef`
+declaration from at least one admitted managed assembly under the package's
+`ref/` or `lib/` groups. Matching is ordinal case-insensitive and covers every
+admitted target-framework group; it does not resolve the reference, traverse
+dependencies, inspect runtime-specific assets, or match version, culture, or
+public-key token. Repeat `references` to require every named assembly, which
+may be declared by different package assemblies.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
@@ -551,8 +561,9 @@ Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and semantic answers. Structured evidence remains
 available in unprojected JSON and the inspection envelope. The initial CLI
 vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, skill packages, and nuspec license
-identity. Discover the admitted keys and values before constructing a query:
+.NET tools and their CLI v1/v2 format, assembly references, skill packages, and
+nuspec license identity. Discover the admitted keys and values before
+constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages
@@ -560,6 +571,8 @@ dotnet-inspect package query Azure.Mcp \
   --where "tool=true"
 dotnet-inspect package query 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions"
 ```
 
 Repeat `--where` to combine terms; the engine rejects incompatible selections.
