@@ -684,7 +684,8 @@ public static class RouterCommandDefinition
                 includeAll: false,
                 sourceOptions,
                 context.HttpClient,
-                context.Logger);
+                context.Logger,
+                frameworkSpec);
             if (memberFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = memberFind.TypeResolution.Match!;
@@ -734,7 +735,8 @@ public static class RouterCommandDefinition
                 includeAll: false,
                 sourceOptions,
                 context.HttpClient,
-                context.Logger);
+                context.Logger,
+                frameworkSpec);
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;

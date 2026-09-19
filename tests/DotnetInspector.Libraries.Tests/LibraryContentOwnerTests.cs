@@ -41,6 +41,18 @@ public sealed partial class LibraryReferenceTests
                 return view.Content[0];
             },
             cancellationToken);
+        Stream escaped = operation.Snapshot(
+            library.ApiAssembly,
+            static (view, _) => view.UseReadStream(
+                static stream =>
+                {
+                    Assert.Equal(0, stream.ReadByte());
+                    return stream;
+                }),
+            cancellationToken);
+        Assert.False(escaped.CanRead);
+        Assert.Throws<ObjectDisposedException>(
+            () => escaped.ReadByte());
         LibraryContentReference pdb =
             Assert.Single(
                 library.Contents,

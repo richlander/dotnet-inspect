@@ -811,16 +811,25 @@ public sealed class MemorySafetyMetadataIndexTests
     {
         using OpenedMetadata opened = Open(
             BuildSyntheticImage([2, 2]));
-        var rules =
-            Assert.IsType<MemorySafetyRulesResult.Unavailable>(
-                MemorySafetyMetadataIndex.Create(
-                    opened.Reader,
-                    associationRowBudget: 100,
-                    attributeRowBudget: 1).Rules);
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(
+                opened.Reader,
+                associationRowBudget: 100,
+                attributeRowBudget: 1);
+        var rules = Assert.IsType<MemorySafetyRulesResult.Unavailable>(
+            index.Rules);
 
         Assert.Equal(
             MemorySafetyMetadataFailureKind.BudgetExceeded,
             rules.Failure.Kind);
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.BudgetExceeded,
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    FindMethod(
+                        opened.Reader,
+                        "Samples.Target",
+                        "AttributeOnly"))).Failure.Kind);
     }
 
     [Fact]
@@ -848,8 +857,110 @@ public sealed class MemorySafetyMetadataIndexTests
             MemorySafetyMetadataFailureKind.BudgetExceeded,
             index.AssociationFailure?.Kind);
         Assert.Equal(
-            MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+            MemorySafetyMemberContractFailureKind.BudgetExceeded,
             result.Failure.Kind);
+    }
+
+    [Fact]
+    public void DirectAttributeRowBudgetFailureIsTyped()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                duplicateDirectCarrier: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(
+                opened.Reader,
+                associationRowBudget: 100,
+                attributeRowBudget: 1);
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(
+                    FindMethod(
+                        opened.Reader,
+                        "Samples.Target",
+                        "AttributeOnly")));
+
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+        Assert.Equal(
+            RequiresUnsafeAttributeEvidenceState.Unavailable,
+            result.Evidence.DirectAttribute.State);
+    }
+
+    [Fact]
+    public void AssociatedAttributeRowBudgetFailureIsTyped()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                duplicateAssociatedCarrier: true));
+        MemorySafetyMetadataIndex index =
+            MemorySafetyMetadataIndex.Create(
+                opened.Reader,
+                associationRowBudget: 100,
+                attributeRowBudget: 1);
+        MethodDefinitionHandle getter =
+            opened.Reader.GetPropertyDefinition(
+                (PropertyDefinitionHandle)FindPropertyOrEvent(
+                    opened.Reader,
+                    "Samples.Target",
+                    "AssociatedProperty"))
+                .GetAccessors().Getter;
+
+        var result =
+            Assert.IsType<MemorySafetyMemberContractResult.Unavailable>(
+                index.GetMemberContract(getter));
+
+        Assert.Equal(
+            MemorySafetyMemberContractFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+        Assert.Equal(
+            RequiresUnsafeAttributeEvidenceState.Unavailable,
+            result.Evidence.AssociatedAttribute.State);
+    }
+
+    [Fact]
+    public void DirectAttributeNameWorkBudgetFailureIsTyped()
+    {
+        using OpenedMetadata opened = Open(
+            BuildSyntheticImage(
+                [2],
+                duplicateDirectCarrier: true));
+        MemorySafetyMemberContractResult.Unavailable? budgetFailure = null;
+        for (int budget = 1; budget <= 1_024; budget++)
+        {
+            MemorySafetyMetadataIndex index =
+                MemorySafetyMetadataIndex.Create(
+                    opened.Reader,
+                    associationRowBudget: 100,
+                    attributeRowBudget: 100,
+                    nameWorkBudget: budget);
+            if (index.Rules is not MemorySafetyRulesResult.Available)
+                continue;
+
+            MemorySafetyMemberContractResult result =
+                index.GetMemberContract(
+                    FindMethod(
+                        opened.Reader,
+                        "Samples.Target",
+                        "AttributeOnly"));
+            if (result
+                    is MemorySafetyMemberContractResult.Unavailable unavailable
+                && unavailable.Failure.Kind
+                    == MemorySafetyMemberContractFailureKind.BudgetExceeded)
+            {
+                budgetFailure = unavailable;
+                break;
+            }
+        }
+
+        Assert.NotNull(budgetFailure);
+        Assert.Equal(
+            RequiresUnsafeAttributeEvidenceState.Unavailable,
+            budgetFailure.Evidence.DirectAttribute.State);
     }
 
     [Fact]
@@ -1005,7 +1116,9 @@ public sealed class MemorySafetyMetadataIndexTests
         bool eventAdderIsOrdinaryMethod = false,
         bool nestedClassOrdered = false,
         bool duplicatePropertySemantics = false,
-        bool propertySetterHasGetterArity = false)
+        bool propertySetterHasGetterArity = false,
+        bool duplicateDirectCarrier = false,
+        bool duplicateAssociatedCarrier = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -1415,6 +1528,14 @@ public sealed class MemorySafetyMetadataIndexTests
                 malformedRequiresUnsafe
                     ? new byte[] { 0x01, 0x00, 0x01 }
                     : new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        if (duplicateDirectCarrier)
+        {
+            metadata.AddCustomAttribute(
+                attributeOnly,
+                requiresUnsafeCarrierConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
         metadata.AddCustomAttribute(
             property,
             requiresUnsafeCarrierConstructor,
@@ -1422,6 +1543,14 @@ public sealed class MemorySafetyMetadataIndexTests
                 malformedAssociatedCarrier
                     ? new byte[] { 0x01, 0x00, 0x01 }
                     : new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        if (duplicateAssociatedCarrier)
+        {
+            metadata.AddCustomAttribute(
+                property,
+                requiresUnsafeCarrierConstructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x01, 0x00, 0x00, 0x00 }));
+        }
         metadata.AddCustomAttribute(
             @event,
             requiresUnsafeCarrierConstructor,

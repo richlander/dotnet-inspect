@@ -68,7 +68,7 @@ internal static class MemberCodeProvider
         Request request, string? pdbPath = null, bool includeAll = false,
         PrinterOptions? renderOptions = null,
         ResolvedAssemblyReference? sourceAssembly = null,
-        ResearchAssemblyContext? researchAssembly = null)
+        MemberProjectionAnalysisInput? researchAnalysis = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -259,7 +259,7 @@ internal static class MemberCodeProvider
                         CaretFocus: request.CaretFocus,
                         SourceDocument:
                             request.SourceDocument || request.FindingCensus,
-                        Assembly: researchAssembly));
+                        Analysis: researchAnalysis));
 
                 // Promotion never hides a fact, so a focus that matched nothing
                 // renders identically to no focus at all. Say so, and name the
