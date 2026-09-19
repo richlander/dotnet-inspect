@@ -178,7 +178,7 @@ public sealed class SelectedPropertyAccessorSource
             return false;
         var typeHandle = method.GetDeclaringType();
         if (!MemberBodyProducer.IsCompilerGeneratedAutoProperty(
-                source, reader, typeHandle, property, methodHandle, null))
+                source, reader, typeHandle, property, methodHandle, null, out var backingFieldHandle))
             return false;
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
@@ -218,35 +218,28 @@ public sealed class SelectedPropertyAccessorSource
         else if (genericNames.Length != 0)
             return false;
 
-        foreach (var fieldHandle in type.GetFields())
+        var definition = reader.GetFieldDefinition(backingFieldHandle);
+        var expected = FieldAttributes.Private | FieldAttributes.InitOnly
+            | (property.IsStatic ? FieldAttributes.Static : 0);
+        if (definition.Attributes != expected || definition.GetOffset() >= 0)
+            return false;
+        foreach (var attributeHandle in definition.GetCustomAttributes())
         {
-            var definition = reader.GetFieldDefinition(fieldHandle);
-            if (reader.GetString(definition.Name) == field.Name)
+            var attribute = reader.GetCustomAttribute(attributeHandle);
+            string? name = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
+            if (name == "System.Diagnostics.DebuggerBrowsableAttribute")
             {
-                var expected = FieldAttributes.Private | FieldAttributes.InitOnly
-                    | (property.IsStatic ? FieldAttributes.Static : 0);
-                if (definition.Attributes != expected || definition.GetOffset() >= 0)
+                var value = reader.GetBlobReader(attribute.Value);
+                if (value.RemainingBytes != 8 || value.ReadUInt16() != 1
+                    || value.ReadInt32() != (int)System.Diagnostics.DebuggerBrowsableState.Never
+                    || value.ReadUInt16() != 0)
                     return false;
-                foreach (var attributeHandle in definition.GetCustomAttributes())
-                {
-                    var attribute = reader.GetCustomAttribute(attributeHandle);
-                    string? name = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
-                    if (name == "System.Diagnostics.DebuggerBrowsableAttribute")
-                    {
-                        var value = reader.GetBlobReader(attribute.Value);
-                        if (value.RemainingBytes != 8 || value.ReadUInt16() != 1
-                            || value.ReadInt32() != (int)System.Diagnostics.DebuggerBrowsableState.Never
-                            || value.ReadUInt16() != 0)
-                            return false;
-                    }
-                    else if (name is not (KnownAttributeNames.CompilerGeneratedAttribute
-                        or KnownAttributeNames.NullableAttribute))
-                        return false;
-                }
-                return true;
             }
+            else if (name is not (KnownAttributeNames.CompilerGeneratedAttribute
+                or KnownAttributeNames.NullableAttribute))
+                return false;
         }
-        return false;
+        return true;
     }
 
     /// <summary>

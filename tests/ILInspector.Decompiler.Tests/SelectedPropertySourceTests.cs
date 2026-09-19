@@ -260,11 +260,13 @@ public sealed class SelectedPropertySourceTests
     }
 
     [Theory]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, false, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(false, true, true, true)]
     public void AutomaticGetterRequiresItsOwnReadonlyGenericStorage(
-        bool foreignInstantiation, bool readonlyStorage, bool expectedAutomatic)
+        bool foreignInstantiation, bool readonlyStorage, bool expectedAutomatic, bool sameNameNeighbor)
     {
         string path = Path.Combine(Path.GetTempPath(), $"selected-storage-{Guid.NewGuid():N}.dll");
         try
@@ -273,11 +275,18 @@ public sealed class SelectedPropertySourceTests
             var module = assembly.DefineDynamicModule("SelectedStorage");
             var declaringType = module.DefineType("SelectedStorage", TypeAttributes.Public);
             var parameter = declaringType.DefineGenericParameters("T")[0];
+            var marker = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
+            if (sameNameNeighbor)
+            {
+                var otherField = declaringType.DefineField(
+                    "<Count>k__BackingField", typeof(long), FieldAttributes.Private | FieldAttributes.Static
+                        | (readonlyStorage ? 0 : FieldAttributes.InitOnly));
+                otherField.SetCustomAttribute(marker);
+            }
             var field = declaringType.DefineField(
                 "<Count>k__BackingField", typeof(int), FieldAttributes.Private | FieldAttributes.Static
                     | (readonlyStorage ? FieldAttributes.InitOnly : 0));
-            var marker = new CustomAttributeBuilder(
-                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
             field.SetCustomAttribute(marker);
             var getter = declaringType.DefineMethod(
                 "get_Count", MethodAttributes.Public | MethodAttributes.Static

@@ -1834,8 +1834,10 @@ public static class MemberBodyProducer
         TypeDefinitionHandle typeHandle,
         ApiMember member,
         MethodDefinitionHandle? getterHandle,
-        MethodDefinitionHandle? setterHandle)
+        MethodDefinitionHandle? setterHandle,
+        out FieldDefinitionHandle backingFieldHandle)
     {
+        backingFieldHandle = default;
         if (getterHandle is null && setterHandle is null)
             return false;
 
@@ -1888,7 +1890,6 @@ public static class MemberBodyProducer
             return false;
         }
 
-        FieldDefinitionHandle backingFieldHandle = default;
         string backingFieldName = $"<{member.Name}>k__BackingField";
         foreach (var fieldHandle in type.GetFields())
         {
@@ -2027,7 +2028,8 @@ public static class MemberBodyProducer
                     typeHandle,
                     member,
                     getterHandle,
-                    setterHandle))
+                    setterHandle,
+                    out _))
             {
                 return false;
             }
@@ -2198,7 +2200,8 @@ public static class MemberBodyProducer
                 typeHandle,
                 member,
                 getterHandle,
-                setterHandle)
+                setterHandle,
+                out _)
             && accessors.All(a => IsTrivialAutoAccessor(
                 a.Keyword,
                 a.Body,

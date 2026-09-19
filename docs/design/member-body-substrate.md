@@ -239,7 +239,9 @@ mere presence of a compiler-shaped field. Metadata must associate the selected
 getter with a non-indexed property without a setter and a matching private,
 readonly compiler-generated backing field. The existing whole-property
 auto-accessor proof supplies association, field-type, staticness, and
-compiler-marker checks. Complete IL must contain only the current receiver
+compiler-marker checks. Its exact field definition remains the identity for
+storage flags and attributes; a same-name field cannot supply those facts.
+Complete IL must contain only the current receiver
 load (for instance storage), one exact backing-field load, and return, with
 optional no-ops but no locals or exception regions. A generic field reference
 must retain the declaring type's own ordered type arguments, not another
@@ -279,7 +281,8 @@ mutable/init, computed-body and field-attribute boundaries.
 `AutomaticGetterRetainsAccessorAttributes` gates attribute attachment.
 `ExplicitAutomaticGetterKeepsItsInterfaceBinding` compiles the interface
 implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
-the metadata-only foreign-instantiation and mutable-storage negatives.
+the metadata-only foreign-instantiation, mutable-storage, and same-name
+different-field-type boundaries.
 The real-library case is `Speed=Slow` (measured 5.4 seconds in isolation),
 covered by focused pre-merge validation and daily Deep Inspect.
 The CLI four-view case also requires the original
