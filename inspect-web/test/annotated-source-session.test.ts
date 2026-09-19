@@ -360,6 +360,85 @@ test("viewer model rejects await completion paths on non-await nodes", () => {
   );
 });
 
+test("viewer model retains allocation exception paths by exact fact", () => {
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      allocationExceptionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{
+          factId: 0,
+          kind: "ThrownValue",
+        }],
+      },
+    },
+  });
+
+  assert.equal(
+    model.allocationExceptionPathsByFactId.get(0)?.kind,
+    "ThrownValue");
+});
+
+test("viewer model rejects allocation exception paths on non-allocation facts", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 2,
+            kind: "ExceptionHandler",
+          }],
+        },
+      },
+    }),
+    /typed allocation evidence/,
+  );
+});
+
+test("viewer model rejects missing or duplicate allocation exception paths", () => {
+  const observation = {
+    factId: 0,
+    kind: "ThrownValue" as const,
+  };
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [observation, observation],
+        },
+      },
+    }),
+    /unique typed allocation evidence/,
+  );
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 99,
+            kind: "ExceptionHandler",
+          }],
+        },
+      },
+    }),
+    /unique typed allocation evidence/,
+  );
+});
+
 test("viewer model rejects call relationships without exact occurrence evidence", () => {
   assert.throws(
     () => createAnnotatedSourceViewerModel({

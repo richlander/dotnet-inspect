@@ -321,7 +321,11 @@ recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
 shows the exact synchronous-completion structure without claiming that runtime
-blocking was measured.
+blocking was measured. Selecting a proven classic `await` explains its inline
+and suspension/resume paths, while selecting an exception-related allocation
+distinguishes a thrown value from an allocation inside a catch, filter, or
+fault handler. Both are compiled-structure evidence and make no runtime path or
+frequency claim.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
