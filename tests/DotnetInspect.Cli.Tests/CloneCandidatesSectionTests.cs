@@ -518,31 +518,8 @@ public sealed class CloneCandidatesSectionTests
     [Fact]
     public async Task PackageLibraryRouteRejectsBareFields()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(),
-            $"clone-package-{Guid.NewGuid():N}");
-        string content = Path.Combine(directory, "content");
-        string libraryDirectory = Path.Combine(content, "lib", "net10.0");
-        Directory.CreateDirectory(libraryDirectory);
-        string libraryName = Path.GetFileName(FixturePath);
-        File.Copy(FixturePath, Path.Combine(libraryDirectory, libraryName));
-        File.WriteAllText(
-            Path.Combine(content, "Clone.Candidates.Tests.nuspec"),
-            """
-            <?xml version="1.0" encoding="utf-8"?>
-            <package>
-              <metadata>
-                <id>Clone.Candidates.Tests</id>
-                <version>1.0.0</version>
-                <authors>tests</authors>
-                <description>Clone Candidates routing fixture</description>
-              </metadata>
-            </package>
-            """);
-        string package = Path.Combine(
-            directory,
-            "Clone.Candidates.Tests.1.0.0.nupkg");
-        ZipFile.CreateFromDirectory(content, package);
+        var (package, directory, libraryName) =
+            CreateCloneCandidatePackage();
 
         try
         {
@@ -564,6 +541,110 @@ public sealed class CloneCandidatesSectionTests
                 "is row-oriented and does not support --fields",
                 result.Error,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryRouteObservesSemanticSelection()
+    {
+        var (package, directory, libraryName) =
+            CreateCloneCandidatePackage();
+
+        try
+        {
+            var direct = await Run(
+                "library",
+                FixturePath,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--json",
+                "-T",
+                "q");
+            var delegated = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--json",
+                "-T",
+                "q");
+            var tailCount = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--count",
+                "--json",
+                "-T",
+                "q");
+            var windowCount = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "--rows",
+                "1..1",
+                "--count",
+                "-T",
+                "q");
+
+            Assert.Equal(0, direct.ExitCode);
+            Assert.Equal(0, delegated.ExitCode);
+            Assert.Equal(0, tailCount.ExitCode);
+            Assert.Equal(0, windowCount.ExitCode);
+            Assert.Equal("1", tailCount.Output.Trim());
+            Assert.Equal("1", windowCount.Output.Trim());
+            Assert.Empty(direct.Error);
+            Assert.Empty(delegated.Error);
+            Assert.Empty(tailCount.Error);
+            Assert.Empty(windowCount.Error);
+
+            using var directJson = JsonDocument.Parse(direct.Output);
+            using var delegatedJson = JsonDocument.Parse(delegated.Output);
+            JsonElement directRoot = directJson.RootElement;
+            JsonElement delegatedRoot = delegatedJson.RootElement;
+            Assert.Equal(
+                directRoot.GetProperty("rows")[0]
+                    .GetProperty("rank")
+                    .GetInt32(),
+                delegatedRoot.GetProperty("rows")[0]
+                    .GetProperty("rank")
+                    .GetInt32());
+            Assert.Equal(
+                directRoot.GetProperty("rows")[0]
+                    .GetProperty("right")
+                    .GetProperty("address_display")
+                    .GetString(),
+                delegatedRoot.GetProperty("rows")[0]
+                    .GetProperty("right")
+                    .GetProperty("address_display")
+                    .GetString());
+            Assert.Equal(
+                directRoot.GetProperty("receipt")
+                    .GetProperty("returned_pairs")
+                    .GetInt32(),
+                delegatedRoot.GetProperty("receipt")
+                    .GetProperty("returned_pairs")
+                    .GetInt32());
         }
         finally
         {
@@ -996,6 +1077,42 @@ public sealed class CloneCandidatesSectionTests
             "The Clone Candidates result is incomplete.",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    static (string Package, string Directory, string LibraryName)
+        CreateCloneCandidatePackage()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"clone-package-{Guid.NewGuid():N}");
+        string content = Path.Combine(directory, "content");
+        string libraryDirectory = Path.Combine(
+            content,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string libraryName = Path.GetFileName(FixturePath);
+        File.Copy(
+            FixturePath,
+            Path.Combine(libraryDirectory, libraryName));
+        File.WriteAllText(
+            Path.Combine(content, "Clone.Candidates.Tests.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Clone.Candidates.Tests</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>Clone Candidates routing fixture</description>
+              </metadata>
+            </package>
+            """);
+        string package = Path.Combine(
+            directory,
+            "Clone.Candidates.Tests.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, package);
+        return (package, directory, libraryName);
     }
 
     static CloneCandidateDocument IncompleteDocument()

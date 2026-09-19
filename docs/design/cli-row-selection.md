@@ -918,12 +918,12 @@ visible and nonzero rather than being replaced by a row-selection failure.
 
 ## Clone Candidates adoption
 
-An exact `Clone Candidates` section on `library`, `type`, or `member` declares
-one semantic row per Query-issued `CloneCandidateRow`. Workspace realization,
-seed expansion, candidate admission, retrieval, suppression, and global ranking
-finish before Head/Tail or strict Window stages select from that ranked vector.
-The same declaration applies when a `Breadth` or `Discovery` predicate infers
-the section.
+An exact `Clone Candidates` section on `library`, including the delegated
+`package --library` route, `type`, or `member` declares one semantic row per
+Query-issued `CloneCandidateRow`. Workspace realization, seed expansion,
+candidate admission, retrieval, suppression, and global ranking finish before
+Head/Tail or strict Window stages select from that ranked vector. The same
+declaration applies when a `Breadth` or `Discovery` predicate infers the section.
 
 ```console
 $ dotnet-inspect type Cases.Widget --library ./app.dll \
@@ -1271,7 +1271,7 @@ The Clone Candidates adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `CloneCandidatesSectionTests.SemanticTailSelectsTheSameCandidateAcrossFormats`, `CountObservesSemanticHeadAcrossSubjectHosts`, and `QueryPredicateImplicitSelectionAdoptsSemanticRows` | The Query-issued global ranking receives semantic Head or Tail once before Markdown, table, TSV, JSONL, projected JSON, or complete JSON lowering; Count observes the selected vector across Library, Type, and Member hosts; Clone predicates reach the same declaration. |
+| `CloneCandidatesSectionTests.SemanticTailSelectsTheSameCandidateAcrossFormats`, `CountObservesSemanticHeadAcrossSubjectHosts`, `PackageLibraryRouteObservesSemanticSelection`, and `QueryPredicateImplicitSelectionAdoptsSemanticRows` | The Query-issued global ranking receives semantic Head or Tail once before Markdown, table, TSV, JSONL, projected JSON, or complete JSON lowering; Count observes the selected vector across Library, delegated package-backed Library, Type, and Member hosts; Clone predicates reach the same declaration. |
 | `CloneCandidatesSectionTests.UnavailableSemanticWindowWithholdsOutput`, `SemanticSelectionFailureKeepsIncompleteCoverageVisible`, `JsonLineSelectionRejectsBeforeSourceResolution`, and `NumericLegacyRowsAreRejectedBeforeSourceResolution` | One strict unavailable Window emits no partial payload, incomplete coverage remains visible beside a selection failure, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before library resolution. |
 | `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | The adjacent Type-catalog and projected Member Facts semantic declarations retain their own activation and row identities. |
 

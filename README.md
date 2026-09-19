@@ -983,6 +983,8 @@ dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
   --where "Discovery=All"
 dotnet-inspect type Cases.Widget --library ./app.dll \
   -S "Clone Candidates" -n 2
+dotnet-inspect package ./app.nupkg --library app.dll \
+  -S "Clone Candidates" -n 2
 dotnet-inspect type Cases.Widget --library ./app.dll \
   -S "Clone Candidates" -n 1 --tail --count
 dotnet-inspect type -Q "Clone Candidates"
