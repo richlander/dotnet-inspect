@@ -182,6 +182,9 @@ public static class UtilityCommandDefinitions
             skillCommand,
             static _ => OutputFormat.Markdown,
             skillLineLimit);
+        opts.AddOutputSelectorTo(
+            skillCommand,
+            CliOutputSelection.Markdown);
         skillCommand.SetAction((parseResult) => SkillCommand.Execute());
 
         // Subcommand: list (supports the standard output formats)
@@ -215,6 +218,9 @@ public static class UtilityCommandDefinitions
                 focusedCommand,
                 static _ => OutputFormat.Markdown,
                 skillLineLimit);
+            opts.AddOutputSelectorTo(
+                focusedCommand,
+                CliOutputSelection.Markdown);
             focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
             skillCommand.Subcommands.Add(focusedCommand);
         }

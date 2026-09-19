@@ -31,6 +31,9 @@ internal static class ApiCoordinateMatchOptionsParser
         if (SharedParsers.GetStructuralParseError(parseResult) is { } parseError)
             return new Failure(parseError);
 
+        if (options.IsTreeOutput(parseResult))
+            return new Failure("--match cannot be combined with --tree.");
+
         if (GetUnsupportedOption(
                 parseResult,
                 [
@@ -84,6 +87,9 @@ internal static class ApiCoordinateMatchOptionsParser
     {
         if (SharedParsers.GetStructuralParseError(parseResult) is { } parseError)
             return new Failure(parseError);
+
+        if (options.IsTreeOutput(parseResult))
+            return new Failure("--match cannot be combined with --tree.");
 
         if (GetUnsupportedOption(
                 parseResult,

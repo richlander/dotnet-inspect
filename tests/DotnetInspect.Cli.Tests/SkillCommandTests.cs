@@ -151,6 +151,66 @@ public class SkillCommandTests
         Assert.Contains($"name: dotnet-inspect-{name}", output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkillDocuments_AcceptMarkdownSelector(
+        bool focused)
+    {
+        string[] args = focused
+            ? ["skill", "query", "-o", "markdown"]
+            : ["skill", "-o", "markdown"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            focused
+                ? "name: dotnet-inspect-query"
+                : "name: dotnet-inspect",
+            output);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_RejectsUnsupportedOutputSelector()
+    {
+        string[] args = ["skill", "query", "-o", "json"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("does not support", error);
+    }
+
+    [Fact]
+    public async Task SkillList_RetainsStructuredOutputSelector()
+    {
+        string[] args = ["skill", "list", "-o", "json"];
+        var parseResult =
+            CommandLineBuilder.CreateRootCommand().Parse(args);
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeWithLineWindowAsync(
+                    parseResult,
+                    args));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("\"skill\":", output.Replace(" ", ""));
+    }
+
     [Fact]
     public async Task ExecuteSkill_UnknownName_FailsWithGuidance()
     {

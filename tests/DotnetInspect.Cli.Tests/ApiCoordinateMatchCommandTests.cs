@@ -134,9 +134,11 @@ public sealed class ApiCoordinateMatchCommandTests
     [InlineData("type", "--project", ".")]
     [InlineData("type", "--platform", "System.Text.Json")]
     [InlineData("type", "--table", null)]
+    [InlineData("type", "-o", "tree")]
     [InlineData("member", "--rows", "1..1")]
     [InlineData("member", "-S", "IL")]
     [InlineData("member", "--repo", ".")]
+    [InlineData("member", "-o", "tree")]
     public async Task Match_RejectsUnsupportedModesBeforeAcquisition(
         string command,
         string option,
