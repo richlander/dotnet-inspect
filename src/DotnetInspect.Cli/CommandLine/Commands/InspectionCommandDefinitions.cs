@@ -20,7 +20,7 @@ public static class InspectionCommandDefinitions
     {
         var command = new Command(
             TimelineCommand.Name,
-            "Correlate API or member-body Findings across a package version range");
+            "Locate API or member-body Finding changes with bounded bisection or explicit probes");
         var argsArgument = new Argument<string[]>("args")
         {
             Description = "Package@A..B and type focus when --package/--type are omitted",
@@ -46,8 +46,12 @@ public static class InspectionCommandDefinitions
         };
         var atOption = new Option<string[]>("--at")
         {
-            Description = "Evaluate an exact version, #N, first, last, or all; repeat for sparse probes",
+            Description = "Manually evaluate an exact version, #N, first, last, or all; repeat for sparse probes",
             AllowMultipleArgumentsPerToken = false,
+        };
+        var maxProbesOption = new Option<int?>("--max-probes")
+        {
+            Description = "Automatically bisect differing endpoints with at most N evaluated versions (minimum 2)",
         };
         var membersOption = new Option<bool>("--members")
         {
@@ -82,6 +86,7 @@ public static class InspectionCommandDefinitions
         command.Options.Add(memberOption);
         command.Options.Add(findingOption);
         command.Options.Add(atOption);
+        command.Options.Add(maxProbesOption);
         command.Options.Add(membersOption);
         command.Options.Add(typePresenceOption);
         command.Options.Add(attributesOption);
@@ -159,6 +164,7 @@ public static class InspectionCommandDefinitions
                     ? aliases[0]
                     : explicitFinding ?? MetadataFindings.MemberDescriptor.Id,
                 At = parseResult.GetValue(atOption) ?? [],
+                MaxProbes = parseResult.GetValue(maxProbesOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
                 IncludePrerelease = parseResult.GetValue(prereleaseOption),
@@ -259,6 +265,7 @@ public static class InspectionCommandDefinitions
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
         var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
+        var configDirectoryOption = NuGetConfigDirectoryOption.Create();
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -284,6 +291,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
         diffCommand.Options.Add(unavailableCountOption);
+        diffCommand.Options.Add(configDirectoryOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -338,16 +346,30 @@ public static class InspectionCommandDefinitions
                     return 1;
 
                 case DiffOptionsParser.Success success:
-                    var exitCode = await DiffCommand.ExecuteAsync(success.Options);
+                    if (!NuGetConfigDirectoryOption.TryApply(
+                            parseResult.GetValue(configDirectoryOption),
+                            success.Options.SourceOptions ?? NuGetSourceOptions.Default,
+                            out NuGetSourceOptions sourceOptions,
+                            out string? sourceError))
+                    {
+                        CommandError.Write(sourceError!);
+                        return 1;
+                    }
+
+                    DiffOptions options = success.Options with
+                    {
+                        SourceOptions = sourceOptions,
+                    };
+                    var exitCode = await DiffCommand.ExecuteAsync(options);
 
                     if (exitCode == 0)
                     {
-                        if (success.Options.Legend)
+                        if (options.Legend)
                             Hints.WriteDiffLegend();
 
-                        if (!success.Options.FormatExplicitlySet)
+                        if (!options.FormatExplicitlySet)
                         {
-                            var tips = DiffOptionsParser.BuildTips(success.Options, success.Options.TypeFilter);
+                            var tips = DiffOptionsParser.BuildTips(options, options.TypeFilter);
                             Hints.WriteTips(success.TipLevel, [.. tips]);
                         }
                     }

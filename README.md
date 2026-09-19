@@ -151,7 +151,7 @@ stderr rather than mixed into structured output.
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
-| Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
+| Timeline correlation | `timeline` | Automatically bisect API or member-body Finding changes within a bounded probe budget, or correlate explicitly selected versions. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, explicit package/nuspec/library/restored-project dependency graphs, reference graphs, extension methods/properties, implementors, and subclasses. |
@@ -178,7 +178,7 @@ stderr rather than mixed into structured output.
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
 | `diff X` | Compare API surfaces by default; opt into analysis or implementation evidence. |
-| `timeline X` | Correlate API or member-body Findings across a package version range. |
+| `timeline X` | Locate API or member-body Finding changes across a package version range with bounded automatic bisection or explicit probes. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set; `-n`, `--tail`, and `--rows` select complete logical edges after graph construction. |
 | `graph calls TYPE MEMBER` | Explain one package member's outgoing calls that cross assembly boundaries, retaining only boundary calls and their shortest local connectors. |
 | `graph libraries` | Show exact resolved cross-library calls, direct-use clusters, and public entrypoint paths to one selected cluster. |
@@ -955,9 +955,16 @@ dotnet-inspect diff --package Markout@0.33.0..0.35.2
 dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --breaking
 dotnet-inspect type System.Text.Json.Schema.JsonSchemaExporter --package System.Text.Json@9.0.0..8.0.6 --match
 dotnet-inspect member System.Text.Json.JsonSerializer Deserialize:1 --package System.Text.Json@9.0.0..10.0.0 --match
-dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all -S Transitions -n 10 --tail
+dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --max-probes 8
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all -S Evaluations --rows 2..
 ```
+
+`timeline --max-probes N` evaluates both endpoints and automatically bisects
+only observed changed gaps, counting the endpoints within the acquisition
+budget. Equal endpoint states stop without recommending interior sampling.
+Repeat `--at` for manually selected probes. `--at all` is the expensive
+forensic mode for a complete chronological census, including transient changes
+later reverted; it is normally unnecessary for endpoint migration.
 
 `type`/`member --match` follows one source API coordinate across exactly two
 literal package versions, preserving the written direction. Member matching

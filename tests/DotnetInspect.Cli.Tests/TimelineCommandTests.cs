@@ -366,6 +366,47 @@ public sealed class TimelineCommandTests
         Assert.Null(view.Recommendation);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task AutomaticBisection_RequiresBothEndpointProbes(int maxProbes)
+    {
+        var result = await ConsoleCapture.RunAsync(() =>
+            TimelineCommand.ExecuteAsync(new TimelineOptions
+            {
+                PackageVersionRange = "Sample@1.0.0..2.0.0",
+                TypeName = "Sample.Widget",
+                Finding = "api.type",
+                MaxProbes = maxProbes,
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--max-probes must be at least 2",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AutomaticBisection_CannotCombineWithManualAddresses()
+    {
+        var result = await ConsoleCapture.RunAsync(() =>
+            TimelineCommand.ExecuteAsync(new TimelineOptions
+            {
+                PackageVersionRange = "Sample@1.0.0..2.0.0",
+                TypeName = "Sample.Widget",
+                Finding = "api.type",
+                MaxProbes = 4,
+                At = ["first", "last"],
+            }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "--max-probes cannot be combined with --at",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SparseMemberTimeline_QualifiesGapWithoutClaimingExactVersion()
     {
