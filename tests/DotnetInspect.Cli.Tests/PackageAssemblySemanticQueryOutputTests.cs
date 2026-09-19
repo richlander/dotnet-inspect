@@ -40,7 +40,8 @@ public sealed class PackageAssemblySemanticQueryOutputTests
         await fixture.CacheAssemblyAsync(
             packageIds[1],
             await File.ReadAllBytesAsync(
-                typeof(PackageQueryCommand).Assembly.Location,
+                typeof(PackageAssemblySemanticQueryDocument)
+                    .Assembly.Location,
                 TestContext.Current.CancellationToken));
         await fixture.CacheAsync(packageIds[2]);
         await fixture.CacheAssemblyAsync(
