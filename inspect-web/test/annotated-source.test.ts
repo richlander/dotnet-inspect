@@ -1189,6 +1189,52 @@ test("Finding detail renders typed synchronous completion without a runtime clai
   assert.doesNotMatch(html, /blocks the current thread awaiting/);
 });
 
+test("Finding detail renders allocation exception paths without a runtime claim", () => {
+  const cases = [
+    [
+      "ThrownValue",
+      "Thrown value",
+      "constructs the value used by a throw",
+    ],
+    [
+      "ExceptionHandler",
+      "Exception handler",
+      "occurs in a catch, filter, or fault handler",
+    ],
+  ] as const;
+  for (const [kind, label, statement] of cases) {
+    const exceptionPathResult: AnnotatedSourceResult = {
+      ...result,
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 0,
+            kind,
+          }],
+        },
+      },
+    };
+    const model = createAnnotatedSourceViewerModel(exceptionPathResult);
+    const html = renderAnnotatedSourceModal({
+      result: exceptionPathResult,
+      session: selectFinding(
+        createEmbeddedSession(model),
+        { kind: "inspector", factId: 0 },
+      ),
+      escapeHtml,
+    });
+
+    assert.match(html, /<h4>Exception path<\/h4>/);
+    assert.ok(html.includes(label));
+    assert.ok(html.includes(statement));
+    assert.match(html, /no runtime exception, handler execution, or frequency was measured/);
+    assert.doesNotMatch(html, /exception occurred/);
+  }
+});
+
 test("selected await presents both compiled paths without a runtime path claim", () => {
   const awaitDocument: AnnotatedSourceDocument = {
     ...sampleDocument,
@@ -1305,6 +1351,11 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         observations: [],
       },
       awaitCompletionPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      allocationExceptionPaths: {
         available: false,
         unavailableReason: "NotProjected",
         observations: [],

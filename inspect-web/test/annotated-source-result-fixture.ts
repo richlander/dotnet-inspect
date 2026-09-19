@@ -106,6 +106,11 @@ export const sampleViewerCatalog = {
     unavailableReason: "NotProjected",
     observations: [],
   },
+  allocationExceptionPaths: {
+    available: false,
+    unavailableReason: "NotProjected",
+    observations: [],
+  },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;
 
 export const csharpOnlyEmptyViewerCatalog = {
@@ -138,6 +143,11 @@ export const csharpOnlyEmptyViewerCatalog = {
     observations: [],
   },
   awaitCompletionPaths: {
+    available: false,
+    unavailableReason: "NotProjected",
+    observations: [],
+  },
+  allocationExceptionPaths: {
     available: false,
     unavailableReason: "NotProjected",
     observations: [],
