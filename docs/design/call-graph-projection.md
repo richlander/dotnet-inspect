@@ -680,6 +680,71 @@ that the branch is semantically a fallback. The motivating real shape is the
 carries `path=error-path` and `escape=throw-path`; the typed sidecar removes the
 browser's need to parse that presentation string.
 
+Annotated Source can additionally compose a bounded positive path from the
+selected exact MethodDef to a same-module MethodDef containing an
+Analysis-proven local `throw new`. Research Queries supplies the selected
+MethodDef as the only
+[library-body root](library-body-root-paths.md), supplies exact local
+destinations whose `MethodLocalThrowEvidence` contains at least one known
+site, and requests deterministic shortest witnesses with fixed depth, node,
+edge, and retained-path limits. The operation reuses the member projection's
+one `LibraryBodyIndex`; it performs no second body acquisition, source open, or
+graph build.
+
+Each projected witness retains every physical `call.edge` fact for the
+Analysis-admitted `call`, `callvirt`, and `newobj` occurrences on its first
+logical edge, one typed call-graph target for every path step, and every known
+terminal local-throw site with its exception `TypeRef`, qualified TypeDef
+address, construction offset, constructor token, and physical `throw` offset.
+Function-pointer loads and indirect calls may share the relationship
+projection's stable edge row, but they neither begin the proven direct-call
+path nor enter its physical receipt set.
+The first-edge fact ids, not a rendered path or member label, attach the
+witness to source. Repeated physical calls therefore share the same logical
+shortest path without losing their separate source occurrences. A path that
+cannot map its first edge or one of its typed methods to the retained
+projection is omitted with an explicit correspondence boundary.
+
+The root-path operation retains at most one deterministic shortest witness for
+each root/destination pair. Equal-length alternatives are therefore not a
+per-first-edge census. When the operation retains a witness elsewhere but none
+begins with the selected relationship, Finding detail says only that no
+retained deterministic shortest witness begins there; it does not claim that
+no path through that relationship exists.
+
+Research supplies only Analysis-proven local-throw destinations. When none are
+available, it does not run a synthetic root/destination search: the receipt
+reports zero destinations and zero search work while independent Analysis,
+traversal, local-throw, and correspondence boundaries still constrain empty
+use.
+
+Completeness combines the Analysis root-path boundaries with local-throw
+coverage. Positive witnesses remain valid when either operation is incomplete.
+An inspected unresolved throw site, a relevant unavailable body, exhausted
+search work, unattributed generated execution, unresolved local call, Analysis
+diagnostic, or failed source correspondence prevents an empty result from
+becoming an absence claim. A method with no managed body is not a hidden local
+IL throw site; runtime override dispatch remains outside the direct-call
+contract. The viewer may state only that no path was observed within the
+available bounded evidence.
+
+The detail wording is deliberately not exception propagation. It says that the
+selected root has a bounded static direct-call path to a method containing a
+proven local construction-fed `throw`. It does not claim that the root or any
+intermediate method throws at runtime, that the terminal throw is reached or
+escapes its method, that an exception propagates to the root, or that a caller
+catch, filter, or fault intercepts it. It also makes no frequency, latency, or
+runtime-path claim. Calls, catch declarations, `rethrow`, exception
+construction without a consuming `throw`, unresolved throw operands, and
+same-looking foreign-module identities do not create positive witnesses.
+
+The motivating real asset is CoreLib's
+`ArgumentNullException.ThrowIfNull(object, string)`, which has no local throw
+but directly calls the internal `ArgumentNullException.Throw(string)` body
+that Analysis proves constructs and throws `ArgumentNullException`. The
+composition preserves that distinction: the path is positive, the selected
+root remains locally clean, and no propagation statement is synthesized.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -689,8 +754,8 @@ Browser/Wasm transport alongside existing callee evidence.
 `MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus`, and
 `MemberFindingCensus_ProjectsExactMutualCycleWitness` gate the cycle identity,
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
-This adoption does not yet transport ownership witnesses, add a relationship
-diagram, or reuse the separately requested full member Call Graph surface.
+This adoption does not transport ownership witnesses or reuse the separately
+requested full member Call Graph surface.
 `MemberProjection_ProjectsSynchronousTaskCompletionOperations` and
 `MemberFindingCensus_ProjectsSynchronousTaskCompletionOperation` gate the
 framework identity, physical `call.edge` join, Browser/Wasm transport, and
@@ -704,6 +769,13 @@ transport, and bounded no-runtime-claim presentation.
 `MemberFindingCensus_ProjectsAllocationExceptionPath` gate the typed allocation
 payload, exact source-Finding join, thrown-value versus handler distinction,
 Browser/Wasm transport, and branch-only close negative.
+`MemberProjection_ProjectsBoundedLocalThrowPaths` gates the CoreLib
+`ThrowIfNull` path, root-local negative, terminal type and offsets, exact
+first-edge physical receipts, deterministic shortest path, and visible
+Analysis/local-throw/correspondence boundaries.
+`MemberFindingCensus_ProjectsBoundedLocalThrowPath` gates Browser/Wasm
+transport, typed path targets and exception identity, static-evidence wording,
+and unchanged Analysis-build/source-open counts.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
