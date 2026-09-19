@@ -2165,12 +2165,12 @@ The focused Type and Member Source state contract is
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
 publication, loading/error/result transitions, annotated selection reset,
-runtime documentation suppression, and focus-preserving completion.
+package/platform documentation routing, and focus-preserving completion.
 `dotnet-inspect.ts` validates the selected overload, constructs exact engine
 requests, and retains mutable state, rendering, and annotated-source
 interaction handlers. `test/member-detail-inspection.test.ts` gates current and
-stale completion, cached failures, runtime documentation, exact request
-coordinates, cross-surface invalidation, and focus restoration;
+stale completion, cached failures, platform reference-pack documentation, exact
+request coordinates, cross-surface invalidation, and focus restoration;
 `test/composition-root-member-source.test.ts` gates composition-root wiring.
 
 `src/call-graph-inspection.ts` owns member call-graph request coordination:
