@@ -46,10 +46,15 @@ public class InspectionResultView
                     TextPolicy.Field,
                     folders).ToString()
                 : null),
-        new("TFM Count", static view =>
-            view.PackageMeasurements?.AvailableTargetFrameworkCount
-                is { } count
-                ? count.ToString()
+        new("TFMs", static view =>
+            view.PackageMeasurements?.AvailableTargetFrameworks
+                is { } frameworks
+                ? frameworks.Count == 0
+                    ? "None"
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        frameworks).ToString()
                 : null),
         new("Selected-TFM Size", static view =>
             view.PackageMeasurements?.SelectedLibraryPayloadBytes
@@ -244,6 +249,9 @@ public class InspectionResultView
     // its siblings instead of re-deriving the readme from PackageReadmeFile.
     [MarkoutSection(Name = PackageSections.FilesReadme)]
     public List<PackageFileRow>? PackageReadme => FamilyRows(PackageSections.FilesReadme);
+
+    [MarkoutSection(Name = PackageSections.FilesLicenses)]
+    public List<PackageFileRow>? LicenseFiles => FamilyRows(PackageSections.FilesLicenses);
 
     [MarkoutSection(Name = PackageSections.FilesSkills)]
     public List<PackageFileRow>? SkillFiles => FamilyRows(PackageSections.FilesSkills);
@@ -686,10 +694,17 @@ public class InspectionResultView
         {
             fields.Add(new("Selected TFM", selectedTfm));
         }
-        if (PackageMeasurements?.AvailableTargetFrameworkCount
-            is { } targetFrameworkCount)
+        if (PackageMeasurements?.AvailableTargetFrameworks
+            is { } targetFrameworks)
         {
-            fields.Add(new("TFM Count", targetFrameworkCount.ToString()));
+            fields.Add(new(
+                "TFMs",
+                targetFrameworks.Count == 0
+                    ? "None"
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        targetFrameworks).ToString()));
         }
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));

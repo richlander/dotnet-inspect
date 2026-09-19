@@ -286,6 +286,10 @@ The request carries the exact lower
 verifies that the selected application pack and loader binding correspond to
 that retained declaration before invocation. Equal display text or equal
 serialized identity without owner-issued correspondence is insufficient.
+The application catalog recognizes a declaration projected by its current
+static manifest through exact retained object correspondence. It does not look
+up a binding from the declaration ID or structurally compare a separately
+constructed declaration.
 
 Population demand is explicit:
 
@@ -496,13 +500,20 @@ ordinary resource-free contributions. They do not serialize:
 - loaded Library owners; or
 - a claim that the Ecosystem is currently realized.
 
-After restoration constructs a fresh Workspace, application composition
-selects the current static pack by owner-issued correspondence. Explicit
-realization of a known pack with no current loader returns selection
-`Unavailable`; an unknown or mismatched pack returns selection `Rejected`.
-Neither produces a bound request or loader receipt. Restoration does not fall
-back to a Platform component, infer a loader from either Ecosystem ID, or reuse
-a loader recorded by an older process.
+Restoration reconstructs lower declarations and therefore does not preserve
+the live object correspondence issued by the current application catalog.
+Until a later application-owned durable rebind operation validates the
+portable declaration and issues new correspondence, explicit realization
+returns selection `Rejected`. It does not match a pack or loader from equal
+identity text or equal serialized content.
+
+Once such correspondence exists, explicit realization of a known pack with no
+current loader returns selection `Unavailable`; an unknown or mismatched pack
+returns selection `Rejected`. Neither produces a bound request or loader
+receipt. Restoration does not fall back to a Platform component, infer a
+loader from either Ecosystem ID, or reuse a loader recorded by an older
+process. Durable rebind is not part of the live-selection stage implemented
+here.
 
 Changing the shipped loader affects later operations. It does not mutate a
 live Workspace, reinterpret a completed receipt, or alter the identity of
@@ -596,9 +607,9 @@ The contract must preserve these cases:
 7. Two Ecosystems produce a relation to one exact Library; their receipts and
    routes remain distinct without duplicate Library identity.
 8. A restored `ecosystem.runtime` or `ecosystem.aspnetcore` registration has no
-   corresponding loader in the current application catalog; restoration
-   succeeds as registration state, and explicit realization returns visible
-   selection `Unavailable` without inventing a binding or receipt.
+   current application-issued correspondence; restoration succeeds as
+   registration state, and explicit realization returns visible selection
+   `Rejected` without matching identity text or inventing a binding or receipt.
 9. Workspace admission fails after successful PlatformHouse realization; every
    untransferred Library owner is retired, and no loader receipt is relabeled
    as admission success.
@@ -622,9 +633,11 @@ This shared capability has eight focused stages:
 3. **Implemented:** Static Ecosystem Packs define `ecosystem.runtime` and
    `ecosystem.aspnetcore`, their package prefixes, and their independent loader
    bindings; retire the user-facing `Platform` pack identity.
-4. Have Workspace Ecosystem Registration Handoff preserve the lower
-   registration and exact application correspondence needed for loader
-   selection without moving executable callbacks into Workspace state.
+4. **Implemented for live catalog-issued registrations:** Workspace Ecosystem
+   Registration Handoff preserves the exact lower declaration used by
+   application loader selection without moving executable callbacks into
+   Workspace state. Durable correspondence reissue after portable restoration
+   remains staged.
 5. Implement the `.NET Runtime` and ASP.NET Core loaders over PlatformHouse and the
    shared Library contract, preserving focus and binding-support roles.
 6. Have Workspace admission and Navigation retain loader and admission

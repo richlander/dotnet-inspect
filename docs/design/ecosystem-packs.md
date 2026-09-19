@@ -309,6 +309,12 @@ pack without that capability, and `Unknown` preserves an unregistered ID.
 `SelectPopulationLoader` follows the same exact, non-invoking shape with
 `EcosystemPopulationLoaderSelectionResult`. Neither missing case selects a
 neighboring binding or a default.
+The operational overload instead accepts one live Workspace registration
+revision, its exact retained declaration, and an explicit demand. It returns
+the Ecosystem Population Loading-owned `Known`, `Unavailable`, or `Rejected`
+selection without exposing private loader input types or invoking the loader.
+Only the exact declaration paired by the static manifest can select its
+binding; equal identity or declaration content is not correspondence.
 Exact demo selection returns one `EcosystemDemoSelection`, retaining the
 catalog descriptor beside the Workspace-Definitions-owned resolved scenario.
 Hosts use descriptor title and summary for product discovery and display;
@@ -499,7 +505,10 @@ The application manifest follows the repository's static-registry pattern:
 - selecting Integration analysis returns only the selected pack's static
   scanner binding to Integration orchestration; and
 - selecting special population loading returns only the selected pack's opaque
-  non-generic binding to later correspondence orchestration.
+  non-generic binding to later correspondence orchestration; and
+- selecting from one live Workspace revision uses the exact paired lower
+  declaration to return the loading-owned bound or unbound selection without
+  invoking the loader.
 
 Workspace projection follows the same inert materialization rule. Selecting a
 pack's lower declaration returns only retained immutable handoff values. It

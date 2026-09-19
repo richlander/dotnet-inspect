@@ -8,7 +8,7 @@ namespace DotnetInspect.Cli.Sections;
 /// <summary>The section catalog for asset-mode <c>depends</c>.</summary>
 internal static class DependsAssetSections
 {
-    public const string DependencyGraph = "Dependency Graph";
+    public const string DependencyHierarchy = "Dependency Hierarchy";
     public const string Roots = "Roots";
     public const string Dependencies = "Dependencies";
     public const string Pruning = "Pruning";
@@ -19,7 +19,7 @@ internal static class DependsAssetSections
 
     private static string[] ConsumerSectionOrder { get; } =
     [
-        DependencyGraph,
+        DependencyHierarchy,
         Dependencies,
         Failures,
     ];
@@ -29,16 +29,6 @@ internal static class DependsAssetSections
 
     public static string[] SectionOrder { get; } =
         Catalog.Pipeline.AllSectionNames;
-
-    public static SectionCatalog<DependsAssetProjection> GraphCatalog
-    { get; } = new SectionPipeline<DependsAssetProjection>()
-            .UseCuratedCatalog()
-            .WithoutComputedPoles()
-            .Add<GraphSection>()
-            .AddBaseCategory(
-                SectionCategoryNames.Dependencies,
-                DependencyGraph)
-            .Compile();
 
     public static DocumentSchema CreateSchema() =>
         CreateTableSchema();
@@ -50,17 +40,12 @@ internal static class DependsAssetSections
                 .ToDocumentSchema(),
             Catalog.SelectableSectionNames);
 
-    public static DocumentSchema CreateGraphSchema() =>
-        DependsAssetViewContext.Default
-            .GetSchemaInfo<DependsGraphTableView>()!
-            .ToDocumentSchema();
-
     public static int CountRows(
         DependsAssetProjection projection,
         string section) =>
         section switch
         {
-            DependencyGraph => projection.GraphRows.Length,
+            DependencyHierarchy => projection.HierarchyRows.Length,
             Roots => projection.Roots.Length,
             Dependencies => projection.Dependencies.Length,
             Pruning => projection.Pruning.Length,
@@ -89,7 +74,7 @@ internal static class DependsAssetSections
         var pipeline = new SectionPipeline<DependsAssetProjection>()
             .UseCuratedCatalog()
             .WithoutComputedPoles()
-            .Add<GraphSection>()
+            .Add<HierarchySection>()
             .Add<DependencySection>()
             .Add<PruningSection>()
             .Add<FailureSection>()
@@ -140,16 +125,16 @@ internal static class DependsAssetSections
         return result;
     }
 
-    public sealed class GraphSection :
+    public sealed class HierarchySection :
         ISectionDescriptor<DependsAssetProjection>
     {
-        public static string Name => DependencyGraph;
+        public static string Name => DependencyHierarchy;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static SectionCost Cost => SectionCost.NetworkFree;
         public static bool CanRender(DependsAssetProjection model) =>
-            !model.Graph.Nodes.IsEmpty;
+            !model.Hierarchy.Roots.IsEmpty;
     }
 
     public sealed class RootSection :
