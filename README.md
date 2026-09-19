@@ -892,6 +892,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
@@ -911,14 +912,23 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
 
+With exact `member -S Calls`, `-n`, `--tail`, and strict `--rows A..B`
+select complete direct call-site rows after analysis of the selected overload
+and its generated evidence methods. Repeated calls to the same target remain
+distinct. Markdown, table, TSV, JSONL, structured JSON, and Count observe the
+same selected call sites in their existing IL-offset order. Add `--lines` only
+to clip rendered text. `Callers`, `Call Graph`, `@Calls`, mixed sections,
+discovery, and Calls included only by verbosity retain their existing row
+contracts or rendered-line fallback.
+
 With exact `member -S Callers`, `-n`, `--tail`, and strict `--rows A..B`
 select complete deduplicated caller-site rows after the selected target
 overload and all authorized caller scopes have been scanned. Markdown, table,
 TSV, JSONL, structured JSON, and Count observe the same selected call sites,
 including Source when the completed caller rows came from multiple assemblies.
-Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed
-sections, discovery, and scope-implied Callers without the exact selector retain
-their existing row contracts or rendered-line fallback.
+Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
+mixed sections, discovery, and scope-implied Callers without the exact selector
+retain their existing row contracts or rendered-line fallback.
 
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
