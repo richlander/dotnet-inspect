@@ -16,7 +16,10 @@ public sealed record LibraryBodyAnalysisReceipt(
 /// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
-    ImmutableArray<UnsafeEvidence> Evidence)
+    ImmutableArray<UnsafeEvidence> Evidence,
+    IReadOnlyDictionary<
+        int,
+        ImmutableArray<UnsafetyOccurrence>> Occurrences)
 {
     /// <summary>Whether unsafe-evidence production participated in this execution.</summary>
     public bool WasRequested =>
@@ -80,7 +83,11 @@ public sealed class LibraryBodyAnalysisExecution
             generatedFrameworkTypes);
         Safety = new(
             Receipt,
-            analysis.Safety.Evidence);
+            analysis.Safety.Evidence,
+            analysis.Safety.Occurrences);
+        Allocations = new(
+            Receipt,
+            analysis.Allocations);
         ImplementationProfiles =
             CreateImplementationProfileResult(
                 Receipt,
@@ -102,6 +109,9 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused unsafe-evidence result.</summary>
     public LibrarySafetyAnalysisResult Safety { get; }
+
+    /// <summary>Focused allocation-occurrence result.</summary>
+    public LibraryAllocationAnalysisResult Allocations { get; }
 
     /// <summary>Focused implementation-profile result.</summary>
     public LibraryImplementationProfileAnalysisResult
