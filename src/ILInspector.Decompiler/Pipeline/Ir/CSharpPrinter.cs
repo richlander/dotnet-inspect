@@ -80,6 +80,8 @@ public sealed partial class CSharpPrinter
         _reservedScopeNames = reservedScopeNames is null
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
+        if (function.HasAccessorStorageBinding)
+            _reservedScopeNames.Add("field");
         _capturedScopeNames = new HashSet<string>(
             CSharpSpellability
                 .ExternalArgumentNamesInScope(
@@ -4622,7 +4624,7 @@ public sealed partial class CSharpPrinter
         Constant { Value: double value } c when !double.IsFinite(value)
             => WithNodeKind(c, DoubleText(value), "MemberAccessExpression"),
         Constant c => ConstantText(c),
-        LoadField f => MemberTargetText(f, FieldTarget(f.Field, f.Instance)),
+        LoadField f => MemberTargetText(f, FieldTarget(f)),
         Binary b => BinaryText(b),
         Comparison c => ComparisonText(c),
         // A LogicalNot in value position (a folded `brfalse x; ldc.0/ldc.1` select,
@@ -4980,7 +4982,7 @@ public sealed partial class CSharpPrinter
             LoadLocalAddress local => LocalName(local.Index),
             LoadLocal local => LocalName(local.Index),
             LoadFieldAddress field => FieldTarget(field.Field, field.Instance),
-            LoadField field => FieldTarget(field.Field, field.Instance),
+            LoadField field => FieldTarget(field),
             _ => null,
         };
     }
@@ -7116,7 +7118,12 @@ public sealed partial class CSharpPrinter
     {
         string rendered = TypeTextCore(type);
 
-        if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
+        // A type parameter has no global qualification; escape the contextual keyword.
+        if (_function.HasAccessorStorageBinding
+            && type is { Kind: TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter,
+                GenericParameterName: "field" })
+            rendered = "@field";
+        else if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
 
         RecordFrameworkTypeImportDecision(type, rendered);

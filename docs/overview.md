@@ -403,7 +403,16 @@ substrates, and inspection producers that will extend that space.
   Definitions retains demo records, resolution, run plans, and execution. Only
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
-  not reference it. The
+  not reference it. The proposed
+  [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md)
+  owner separately defines a product-authored Package and assembly association
+  profile, classification of already-issued direct-dependency observations,
+  Package/Library recognition Documents, and the application-owned composition
+  that pairs exact lower Dependency inspection Content with recognition
+  evidence while preserving the existing dependency direction. Recognition
+  performs no traversal, provenance inference, or reinterpretation of discovery
+  metadata.
+  The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
   is the focused one-way projection from a selected application pack and the
   Ecosystems-owned curated manifest into lower immutable declarations and one
@@ -837,6 +846,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   static shipped-pack manifest that compose package-set identity, typed
   package-prefix requests, and opaque Integration-owned semantic-scanner
   bindings without making reusable infrastructure depend on the catalog.
+- [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md):
+  the product-authored Package ID and assembly-name association profile,
+  direct-observation matching, overlap evidence, completion, counts, and
+  detached cross-host outcome.
 - [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
   explicit application-pack correspondence, lower immutable retrieval,
   population, and Integration contributions, typed projection outcomes, and

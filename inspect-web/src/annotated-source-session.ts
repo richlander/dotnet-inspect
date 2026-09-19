@@ -50,6 +50,7 @@ export interface AnnotatedSourceResult
 
 type AnnotatedSurface = "embedded" | "modal";
 export type AnnotationState = "Default" | "All" | "Clear" | "Custom";
+export type RelationshipPresentation = "Table" | "Diagram";
 
 export type AnnotatedPrimary =
   | { kind: "finding"; id: number }
@@ -79,6 +80,7 @@ export interface AnnotatedSourceSession {
   activeRegionIds: readonly number[];
   visibleMedia: readonly SourceMedium[];
   coordinatesVisible: boolean;
+  relationshipPresentation: RelationshipPresentation;
   detail: FindingDetailState | null;
 }
 
@@ -139,6 +141,7 @@ export type AnnotatedFocusTarget =
   | { kind: "finding-toggle"; factId: number }
   | { kind: "medium-toggle"; medium: SourceMedium }
   | { kind: "coordinate-toggle" }
+  | { kind: "relationship-presentation"; value: RelationshipPresentation }
   | { kind: "inspector"; factId: number }
   | { kind: "relationship"; factId: number }
   | ({ kind: "annotation" } & AnnotationTargetIdentity)
@@ -289,6 +292,7 @@ export function createEmbeddedSession(
     activeRegionIds: [],
     visibleMedia: ["CSharp"],
     coordinatesVisible: false,
+    relationshipPresentation: "Table",
     detail: null,
   };
 }
@@ -316,6 +320,7 @@ export function openModalSession(
       activeRegionIds: [],
       visibleMedia: ["CSharp"],
       coordinatesVisible: false,
+      relationshipPresentation: "Table",
       detail: null,
     },
     focus: transferred === null
@@ -531,6 +536,32 @@ export function toggleCoordinates(
       coordinatesVisible: !session.coordinatesVisible,
     },
     focus: { kind: "coordinate-toggle" },
+  };
+}
+
+export function selectRelationshipPresentation(
+  session: AnnotatedSourceSession,
+  value: RelationshipPresentation,
+): AnnotatedTransition {
+  return {
+    state: {
+      ...session,
+      relationshipPresentation: value,
+    },
+    focus: { kind: "relationship-presentation", value },
+  };
+}
+
+export function showRelationshipOccurrences(
+  session: AnnotatedSourceSession,
+  factId: number,
+): AnnotatedTransition {
+  return {
+    state: {
+      ...session,
+      relationshipPresentation: "Table",
+    },
+    focus: { kind: "relationship", factId },
   };
 }
 
