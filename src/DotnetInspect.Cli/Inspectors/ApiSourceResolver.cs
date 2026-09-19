@@ -466,7 +466,7 @@ internal static class ApiSourceResolver
         }
     }
 
-    private static string? TryGetReferencePackTargetFramework(
+    internal static string? TryGetReferencePackTargetFramework(
         string assemblyPath)
     {
         string? targetFrameworkDirectory =

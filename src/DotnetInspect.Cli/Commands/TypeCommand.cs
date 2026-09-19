@@ -1860,13 +1860,23 @@ public static class TypeCommand
                 g => g.Key,
                 g => g.Select(r => r.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase));
 
+        bool hasExplicitTarget =
+            !string.IsNullOrWhiteSpace(options.PlatformFramework);
         var merged = new ApiSurface
         {
             Name = query,
             Source = SourceKind.Platform,
-            Version = string.Join(", ", distinctResults.Select(r => $"{r.Source}@{r.SourceVersion}").Distinct()),
-            Tfm = "platform"
+            Version = hasExplicitTarget
+                ? null
+                : string.Join(
+                    ", ",
+                    distinctResults
+                        .Select(r => $"{r.Source}@{r.SourceVersion}")
+                        .Distinct()),
+            Tfm = hasExplicitTarget ? null : "platform"
         };
+        string? targetVersion = null;
+        string? targetTfm = null;
 
         foreach (var ((framework, assembly, _), fullNames) in resultNamesByAssembly)
         {
@@ -1880,6 +1890,36 @@ public static class TypeCommand
             {
                 logger.LogWarning($"Could not resolve platform library '{assembly}' in {framework}: {error}");
                 continue;
+            }
+
+            if (hasExplicitTarget)
+            {
+                string? resolvedTfm =
+                    ApiSourceResolver
+                        .TryGetReferencePackTargetFramework(assemblyPath);
+                if (string.IsNullOrWhiteSpace(version)
+                    || string.IsNullOrWhiteSpace(resolvedTfm))
+                {
+                    throw new InvalidOperationException(
+                        "The explicit platform target did not resolve "
+                            + "an exact version and reference-pack TFM.");
+                }
+                if (targetVersion is not null
+                    && (!string.Equals(
+                            targetVersion,
+                            version,
+                            StringComparison.Ordinal)
+                        || !string.Equals(
+                            targetTfm,
+                            resolvedTfm,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(
+                        "The explicit platform prefix browse resolved "
+                            + "multiple target identities.");
+                }
+                targetVersion = version;
+                targetTfm = resolvedTfm;
             }
 
             var loaded = ApiServices.LoadFullApi(
@@ -1920,6 +1960,11 @@ public static class TypeCommand
                 assemblyPath);
         }
 
+        if (hasExplicitTarget)
+        {
+            merged.Version = targetVersion;
+            merged.Tfm = targetTfm;
+        }
         merged.Types = merged.Types
             .DistinctBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
             .OrderBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)

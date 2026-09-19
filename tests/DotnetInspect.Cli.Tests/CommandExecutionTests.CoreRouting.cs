@@ -998,14 +998,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_VersionedPlatformPrefixBrowse_UsesRequestedCatalog()
+    public async Task Type_VersionedPlatformPrefixBrowse_UsesRequestedCatalogIdentity()
     {
         var (exit, output, error) = await RunAppAsync(
             "type",
             "System.Time",
             "--framework",
             "runtime@3.1.0",
-            "--markdown",
+            "--json",
             "--verbose",
             "--tips",
             "q");
@@ -1015,6 +1015,13 @@ public partial class CommandExecutionTests
             "Resolved from installed packs: runtime 3.1.0",
             error);
         Assert.DoesNotContain("runtime 11", error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "3.1.0",
+            document.RootElement.GetProperty("version").GetString());
+        Assert.Equal(
+            "netcoreapp3.1",
+            document.RootElement.GetProperty("tfm").GetString());
         Assert.Contains("System.TimeSpan", output);
         Assert.DoesNotContain("System.TimeProvider", output);
     }
