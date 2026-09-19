@@ -30,15 +30,10 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
-        // previously recompile failures: the
+        // CompoundAssignDictionaryIndexer was previously a recompile failure: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
-        // product printer's short names assume, so they never compiled to be
-        // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (static
-        // method-group caching, compound dictionary-indexer double access)
-        // that were masked, not introduced. Triage tracked separately.
-        "CachedStaticMethodGroup",
+        // product printer's short names assume, so it never compiled to be
+        // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
@@ -149,6 +144,10 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #4229: compiler-cache provenance restores a cache-regenerating
+        // method-group conversion in both official C# views.
+        "CachedStaticMethodGroup",
+        "ExplicitStaticMethodGroupArgument",
         // #4281: the nested enumerator's region-exit leave now raises to a
         // side-effect-preserving break in both official C# views.
         "AllOuterMatchInner",

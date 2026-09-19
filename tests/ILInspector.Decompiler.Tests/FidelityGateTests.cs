@@ -38,15 +38,10 @@ public class FidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
-        // previously recompile failures: the
+        // CompoundAssignDictionaryIndexer was previously a recompile failure: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
-        // product printer's short names assume, so they never compiled to be
-        // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (static
-        // method-group caching, compound dictionary-indexer double access)
-        // that were masked, not introduced. Triage tracked separately.
-        "CachedStaticMethodGroup",
+        // product printer's short names assume, so it never compiled to be
+        // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
@@ -457,6 +452,11 @@ public class FidelityGateTests
         "ULongSumIndexAsSigned",
         "ULongSumIndexBare",
         "Finalize",
+        // #4229: cache provenance selects a target-pinning method-group
+        // conversion, so csc regenerates the original <>O cache. The explicit
+        // construction close negative remains allocation-shaped and Exact.
+        "CachedStaticMethodGroup",
+        "ExplicitStaticMethodGroupArgument",
         // Promoted from KnownDiffs by #3584 after they were measured Exact on the
         // current main. Most are the benign reconstruction-ordinal class that #3505
         // retired by canonicalizing synthesized-member ordinals in the oracle — the

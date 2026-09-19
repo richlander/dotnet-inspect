@@ -54,8 +54,20 @@ public class LambdaCachePassTests
         string output = PrintRaised(nameof(CfgSampleClass.CachedStaticMethodGroup));
 
         AssertCacheCollapsed(output);
-        Assert.Contains("CacheMethodGroupIdentity", output);
-        Assert.Contains("Select", output);
+        Assert.Contains(
+            "Select<string, string>(items, (Func<string, string>)CfgSampleClass.CacheMethodGroupIdentity)",
+            output);
+        Assert.DoesNotContain("new Func<string, string>", output);
+    }
+
+    [Fact]
+    public void ExplicitStaticMethodGroupArgument_RemainsExplicitConstruction()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ExplicitStaticMethodGroupArgument));
+
+        Assert.Contains(
+            "Select<string, string>(items, new Func<string, string>(CfgSampleClass.CacheMethodGroupIdentity))",
+            output);
     }
 
     [Fact]
@@ -90,8 +102,9 @@ public class LambdaCachePassTests
         Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
         Assert.Empty(function.Descendants.OfType<LoadField>());
         Assert.Empty(function.Descendants.OfType<StoreField>());
-        Assert.Single(function.Descendants.OfType<DelegateCreation>());
+        Assert.True(Assert.Single(function.Descendants.OfType<DelegateCreation>()).HasCollapsedCompilerCache);
         Assert.Equal(2, function.Body.Blocks.Count);
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -127,6 +140,9 @@ public class LambdaCachePassTests
         Assert.Single(function.Descendants.OfType<IfStatement>());
         Assert.Contains(function.Descendants.OfType<StoreField>(), store => store.Field.Equals(cacheField));
         Assert.Equal(2, function.Descendants.OfType<LoadField>().Count(load => load.Field.Equals(cacheField)));
+        Assert.All(
+            function.Descendants.OfType<DelegateCreation>(),
+            creation => Assert.False(creation.HasCollapsedCompilerCache));
         function.CheckInvariant();
     }
 
@@ -163,6 +179,9 @@ public class LambdaCachePassTests
         Assert.Single(function.Descendants.OfType<ConditionalBranch>());
         Assert.Contains(function.Descendants.OfType<StoreField>(), store => store.Field.Equals(cacheField));
         Assert.Equal(2, function.Descendants.OfType<LoadField>().Count(load => load.Field.Equals(cacheField)));
+        Assert.All(
+            function.Descendants.OfType<DelegateCreation>(),
+            creation => Assert.False(creation.HasCollapsedCompilerCache));
         function.CheckInvariant();
     }
 }
