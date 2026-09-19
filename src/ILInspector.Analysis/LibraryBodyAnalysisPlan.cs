@@ -10,7 +10,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         TypeScopeEvidenceSources = null,
     IReadOnlySet<int>? RequestedMethodScope = null,
     ImmutableArray<AnalysisDiagnostic>
-        ScopeExpansionDiagnostics = default)
+        ScopeExpansionDiagnostics = default,
+    ResourceEffectAdmission? ResourceEffects = null)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -18,10 +19,18 @@ internal sealed record LibraryBodyAnalysisPlan(
     internal bool Includes(LibraryBodyAnalysisFeatures feature)
         => (Features & feature) != 0;
 
+    internal bool IncludesResourceOccurrences =>
+        ResourceEffects is not null;
+
+    internal bool RequiresCallValueFlow =>
+        IncludesResourceOccurrences
+        || Includes(LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+
     internal static LibraryBodyAnalysisPlan Create(
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? methodScope,
-        Func<TypeRef, bool>? typeScope)
+        Func<TypeRef, bool>? typeScope,
+        ResourceEffectAdmission? resourceEffects = null)
     {
         if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
             throw new ArgumentOutOfRangeException(nameof(features));
@@ -49,6 +58,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         {
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         }
+        if (resourceEffects is not null)
+            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
             && (methodScope is not null || typeScope is not null))
         {
@@ -60,6 +71,7 @@ internal sealed record LibraryBodyAnalysisPlan(
             features,
             methodScope,
             typeScope,
-            RequestedMethodScope: methodScope);
+            RequestedMethodScope: methodScope,
+            ResourceEffects: resourceEffects);
     }
 }

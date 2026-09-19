@@ -72,16 +72,16 @@ public class ILOffsetProjectionProducerTests
         string path =
             typeof(ILOffsetProjectionProducerTests)
                 .Assembly.Location;
-        LibraryBodyIndex index =
-            LibraryBodyIndex.Open(path);
+        LibraryBodyAnalysisExecution execution =
+            AnalyzePath(path);
         DirectCall call = Assert.Single(
-            index.DirectCalls,
+            execution.CallGraph.DirectCalls,
             call => call.Caller.MetadataToken
                     == sourceMethod.MetadataToken
                 && call.EvidenceMethod != call.Caller
                 && call.Callee.Name
                     == nameof(OffsetVirtualTarget.Compute));
-        using var source = SourceLinkService.Open(path);
+        using var source = SourceLinkService.OpenPrefetched(path);
 
         ILOffsetProjectionOutcome outcome =
             ResearchViews.ProjectILOffset(
@@ -90,7 +90,8 @@ public class ILOffsetProjectionProducerTests
                     call.EvidenceMethod.MetadataToken,
                     call.ILOffset,
                     ILOffsetProjectionCapabilities
-                        .CostContext));
+                        .CostContext,
+                    Analysis: AnalysisInput(execution)));
 
         Assert.True(outcome.Succeeded);
         ILOffsetCostContext cost = Assert.Single(
@@ -115,10 +116,14 @@ public class ILOffsetProjectionProducerTests
             typeof(ILOffsetProjectionProducerTests)
                 .Assembly.Location;
         byte[] retainedImage = File.ReadAllBytes(sourcePath);
-        LibraryBodyIndex baseline =
-            LibraryBodyIndex.Open(sourcePath);
+        LibraryBodyAnalysisExecution baseline =
+            LibraryBodyAnalysisService.ExecuteImage(
+                sourcePath,
+                [.. retainedImage],
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
         DirectCall call = Assert.Single(
-            baseline.DirectCalls,
+            baseline.CallGraph.DirectCalls,
             call => call.Caller.MetadataToken
                     == sourceMethod.MetadataToken
                 && call.EvidenceMethod != call.Caller
@@ -136,7 +141,8 @@ public class ILOffsetProjectionProducerTests
                     writable: false),
                 AssemblyResolutionProvenance.Local(
                     "IL-offset acquisition-continuity test"));
-            using var source = SourceLinkService.Open(assembly);
+            using var source =
+                SourceLinkService.OpenPrefetched(assembly);
 
             File.WriteAllBytes(path, [0x01, 0x02, 0x03]);
 
@@ -148,7 +154,7 @@ public class ILOffsetProjectionProducerTests
                         call.ILOffset,
                         ILOffsetProjectionCapabilities
                             .CostContext,
-                        Assembly: assembly));
+                        Analysis: AnalysisInput(baseline)));
 
             Assert.True(outcome.Succeeded);
             ILOffsetCostContext cost = Assert.Single(
@@ -180,12 +186,12 @@ public class ILOffsetProjectionProducerTests
                     .Assembly.Location,
                 AssemblyResolutionProvenance.Local(
                     "IL-offset source-generation test"));
-        ResolvedAssemblyReference analysisAssembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                typeof(LibraryBodyIndex).Assembly.Location,
-                AssemblyResolutionProvenance.Local(
-                    "IL-offset analysis-generation test"));
-        using var source = SourceLinkService.Open(sourceAssembly);
+        LibraryBodyAnalysisExecution analysis =
+            AnalyzePath(
+                typeof(LibraryBodyAnalysisExecution)
+                    .Assembly.Location);
+        using var source =
+            SourceLinkService.OpenPrefetched(sourceAssembly);
 
         ILOffsetProjectionOutcome outcome =
             ResearchViews.ProjectILOffset(
@@ -194,7 +200,7 @@ public class ILOffsetProjectionProducerTests
                     sourceMethod.MetadataToken,
                     ILOffset: 0,
                     ILOffsetProjectionCapabilities.CostContext,
-                    Assembly: analysisAssembly));
+                    Analysis: AnalysisInput(analysis)));
 
         Assert.False(outcome.Succeeded);
         Assert.Equal(
@@ -202,6 +208,111 @@ public class ILOffsetProjectionProducerTests
             outcome.Failure!.Kind);
         Assert.Contains(
             "different module generations",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_MissingFocusedAnalysisIsVisible()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(AddOne),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ILOffset: 0,
+                    ILOffsetProjectionCapabilities.CostContext));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(
+            ILOffsetProjectionFailureKind.CostAnalysisUnavailable,
+            outcome.Failure!.Kind);
+        Assert.Contains(
+            "no focused Analysis input",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ILOffsetAnalysisInput_RejectsMixedExecutionReceipts()
+    {
+        LibraryBodyAnalysisExecution first =
+            AnalyzePath(
+                typeof(ILOffsetProjectionProducerTests)
+                    .Assembly.Location);
+        LibraryBodyAnalysisExecution second =
+            AnalyzePath(
+                typeof(LibraryBodyAnalysisExecution)
+                    .Assembly.Location);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => new ILOffsetAnalysisInput(
+                first.Allocations,
+                second.Safety,
+                first.CallGraph));
+
+        Assert.Contains(
+            "one execution receipt",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        ILOffsetProjectionCapabilities.AllocationContext,
+        ILOffsetProjectionFailureKind
+            .AllocationAnalysisUnavailable)]
+    [InlineData(
+        ILOffsetProjectionCapabilities.SafetyContext,
+        ILOffsetProjectionFailureKind
+            .SafetyAnalysisUnavailable)]
+    [InlineData(
+        ILOffsetProjectionCapabilities.CostContext,
+        ILOffsetProjectionFailureKind
+            .CostAnalysisUnavailable)]
+    public void
+        ProjectILOffset_UnrequestedFocusedResultIsVisible(
+            ILOffsetProjectionCapabilities capability,
+            ILOffsetProjectionFailureKind expectedFailure)
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(AddOne),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        string path =
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location;
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.None));
+        using var source =
+            SourceLinkService.OpenPrefetched(path);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ILOffset: 0,
+                    capability,
+                    Analysis: AnalysisInput(execution)));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(expectedFailure, outcome.Failure!.Kind);
+        Assert.Contains(
+            "was not requested",
             outcome.Failure.Message,
             StringComparison.Ordinal);
     }
@@ -217,6 +328,19 @@ public class ILOffsetProjectionProducerTests
     {
         public virtual int Compute() => 1;
     }
+
+    static LibraryBodyAnalysisExecution AnalyzePath(string path) =>
+        LibraryBodyAnalysisService.ExecutePath(
+            path,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence));
+
+    static ILOffsetAnalysisInput AnalysisInput(
+        LibraryBodyAnalysisExecution execution) =>
+        new(
+            execution.Allocations,
+            execution.Safety,
+            execution.CallGraph);
 
     static AssemblyReferenceIdentity ReadIdentity(byte[] image)
     {

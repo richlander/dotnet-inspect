@@ -218,7 +218,11 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
-        _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
+        (_data.AssemblyReferenceDisplayOrder
+            ?? _data.AssemblyReferenceInspection
+                .PayloadsForRendering()
+                .OrderBy(r => r.Name, StringComparer.Ordinal)
+                .ToArray())
             .Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
