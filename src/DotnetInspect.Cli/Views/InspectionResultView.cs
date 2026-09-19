@@ -1208,7 +1208,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
-[MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {
 }

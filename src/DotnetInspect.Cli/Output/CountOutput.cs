@@ -72,6 +72,26 @@ public static class CountOutput
         return false;
     }
 
+    public static bool ValidateRowSetTableFormat(
+        OutputFormat format,
+        bool tree = false,
+        bool embeddedMermaid = false)
+    {
+        if (tree)
+        {
+            CommandError.Write(
+                "--count cannot render multiple row sets as --tree; --tree requires exactly one selected shape.");
+            return false;
+        }
+
+        if (format != OutputFormat.Mermaid && !embeddedMermaid)
+            return true;
+
+        CommandError.Write(
+            "--count cannot render multiple row sets as Mermaid. Use Markdown, JSON, TSV, JSONL, table, or plain-text output.");
+        return false;
+    }
+
     /// <summary>
     /// Writes a single count and records that the <c>--count</c> projection was honored.
     /// Count-emitting paths should route through this rather than writing to the console
@@ -174,6 +194,58 @@ public static class CountOutput
         if (format == OutputFormat.Json)
             return JsonSerializer.Serialize(rows, CountOutputJsonContext.Default.SectionCountArray);
 
+        return RenderCountRows(
+            ["Section", "Count"],
+            ["section", "count"],
+            rows.Select(row => new[]
+            {
+                row.Section,
+                row.Count.ToString(CultureInfo.InvariantCulture)
+            }),
+            format,
+            noHeader);
+    }
+
+    internal static void WriteRowSetCounts(
+        IReadOnlyList<RowSetCount> rows,
+        OutputFormat format,
+        bool noHeader = false,
+        string? outputPath = null,
+        RowWindow? rowWindow = null)
+        => WriteCountResult(
+            RenderRowSetCounts(rows, format, noHeader),
+            outputPath,
+            rowWindow);
+
+    internal static string RenderRowSetCounts(
+        IReadOnlyList<RowSetCount> rows,
+        OutputFormat format,
+        bool noHeader = false)
+    {
+        if (format == OutputFormat.Json)
+            return JsonSerializer.Serialize(
+                rows,
+                CountOutputJsonContext.Default.RowSetCountArray);
+
+        return RenderCountRows(
+            ["Row Set", "Count"],
+            ["row_set", "count"],
+            rows.Select(row => new[]
+            {
+                row.RowSet,
+                row.Count.ToString(CultureInfo.InvariantCulture)
+            }),
+            format,
+            noHeader);
+    }
+
+    private static string RenderCountRows(
+        string[] displayColumns,
+        string[] stableColumns,
+        IEnumerable<string[]> rows,
+        OutputFormat format,
+        bool noHeader)
+    {
         var output = new StringWriter { NewLine = "\n" };
         IMarkoutFormatter formatter = format switch
         {
@@ -193,24 +265,22 @@ public static class CountOutput
             options.TableMode = MarkoutTableMode.Jsonl;
         var writer = new MarkoutWriter(output, formatter, options);
         writer.WriteTable(
-            ["Section", "Count"],
-            ["section", "count"],
-            rows.Select(row => new[]
-            {
-                row.Section,
-                row.Count.ToString(CultureInfo.InvariantCulture)
-            }).ToArray());
+            displayColumns,
+            stableColumns,
+            rows.ToArray());
         writer.Flush();
         return output.ToString().TrimEnd();
     }
 }
 
 internal sealed record SectionCount(string Section, int Count);
+internal sealed record RowSetCount(string RowSet, int Count);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     WriteIndented = true)]
 [JsonSerializable(typeof(SectionCount[]))]
+[JsonSerializable(typeof(RowSetCount[]))]
 internal partial class CountOutputJsonContext : JsonSerializerContext
 {
 }

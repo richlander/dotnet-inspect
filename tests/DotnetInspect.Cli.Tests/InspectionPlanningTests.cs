@@ -91,6 +91,221 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void PackageAllLibrariesRowSchema_DerivesSharedLibraryShape()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate),
+                StructuralOutputShape.Rows);
+
+        Assert.Equal(
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Name",
+                "Version",
+                "Public Key Token",
+            ],
+            projection.Schema
+                .GetSection(SectionNames.References)!
+                .Items
+                .Select(item => item.Name));
+        Assert.Equal(
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Field",
+                "Value",
+            ],
+            projection.Schema
+                .GetSection(SectionNames.LibraryInfo)!
+                .Items
+                .Select(item => item.Name));
+        StructuralSchemaProjection documentProjection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate),
+                StructuralOutputShape.Document);
+        Assert.Equal(
+            [
+                "Library",
+                "TFM",
+                "Kind",
+                "Switch",
+                "API",
+            ],
+            documentProjection.Schema
+                .GetSection(SectionNames.Switches)!
+                .Items
+                .Select(item => item.Name));
+        Assert.DoesNotContain(
+            projection.Schema.SectionNames,
+            MetadataSectionNames.IsMetadataSection);
+        Assert.DoesNotContain(
+            SectionNames.CloneCandidates,
+            projection.Schema.SectionNames);
+    }
+
+    [Fact]
+    public void PackageAllLibrariesStructuralSchema_OmitsExactOnlyReferenceHierarchy()
+    {
+        foreach (StructuralOutputShape outputShape in
+                 Enum.GetValues<StructuralOutputShape>())
+        {
+            StructuralSchemaProjection projection =
+                StructuralViewRegistry.Project(
+                    StructuralViewRegistry.Route(
+                        StructuralViewIdentity.PackageAllLibraries,
+                        InspectionCatalogIdentity.LibraryAggregate),
+                    outputShape);
+
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                projection.Schema.SectionNames,
+                StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                projection.SelectableSectionNames,
+                StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAllLibraries_StaticSchemaMatchesAggregateRows()
+    {
+        string target =
+            $"Missing.Package.{Guid.NewGuid():N}";
+        string archive = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+        var references = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            SectionNames.References,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+        var namedReferences = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "-D",
+            SectionNames.References,
+            "--table",
+            "--tips",
+            "q");
+        var metadata = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            "Metadata: TypeDef",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+        var switches = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            SectionNames.Switches,
+            "--schema",
+            "--tips",
+            "q");
+        var projectedSwitches = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.Switches,
+            "--columns",
+            "Library",
+            "--rows",
+            "1",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, references.Exit);
+        Assert.Equal(
+            [
+                "Package column",
+                "Package Version column",
+                "Library column",
+                "TFM column",
+                "Name column",
+                "Version column",
+                "Public Key Token column",
+            ],
+            references.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => string.Join(
+                    ' ',
+                    line.Split(
+                        ' ',
+                        StringSplitOptions.RemoveEmptyEntries))));
+        Assert.Empty(references.Error);
+        Assert.Equal(references.Output, namedReferences.Output);
+        Assert.Empty(namedReferences.Error);
+
+        Assert.Equal(0, switches.Exit);
+        Assert.Equal(
+            [
+                "Library column",
+                "TFM column",
+                "Kind column",
+                "Switch column",
+                "API column",
+            ],
+            switches.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Skip(2)
+                .Select(line => string.Join(
+                    ' ',
+                    line.Split(
+                        '|',
+                        StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries))));
+        Assert.Empty(switches.Error);
+
+        Assert.Equal(0, projectedSwitches.Exit);
+        Assert.Contains(
+            "| Library | TFM |",
+            projectedSwitches.Output);
+        Assert.DoesNotContain(
+            "| Kind |",
+            projectedSwitches.Output);
+        Assert.Empty(projectedSwitches.Error);
+
+        Assert.Equal(1, metadata.Exit);
+        Assert.Empty(metadata.Output);
+        Assert.Contains(
+            "Section 'Metadata: TypeDef' not found.",
+            metadata.Error);
+        Assert.DoesNotContain(target, metadata.Error);
+    }
+
+    [Fact]
     public void PackageLibrarySchema_IsDerivedFromAvailableRouteInputs()
     {
         StructuralSchemaProjection packageLibrary =
@@ -144,52 +359,6 @@ public sealed class InspectionPlanningTests
             pair => Assert.Equal(
                 StructuralSectionInput.None,
                 pair.Value));
-    }
-
-    [Fact]
-    public void PackageAllLibraries_DoesNotDeclareFieldOrColumnProjection()
-    {
-        StructuralViewDescriptor view =
-            StructuralViewRegistry.Get(
-                StructuralViewIdentity.PackageAllLibraries);
-
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Fields));
-        Assert.False(
-            view.ParserCapabilities.HasFlag(
-                StructuralParserCapabilities.Columns));
-    }
-
-    [Fact]
-    public void PackageAllLibrariesRowSchema_MatchesRendererDeclarations()
-    {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate),
-                StructuralOutputShape.Rows);
-
-        Assert.Equal(
-            PackageCommand.AllLibrariesRowSchemas.Select(
-                row => row.Section),
-            projection.Schema.SectionNames);
-        foreach (PackageCommand.AllLibrariesRowSchema rowSchema in
-                 PackageCommand.AllLibrariesRowSchemas)
-        {
-            Assert.Equal(
-                ["Package", "Version", "Library", "TFM"],
-                rowSchema.Headers[..4]);
-            Assert.Equal(
-                rowSchema.Headers
-                    .Concat(rowSchema.AlternateHeaders ?? [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase),
-                projection.Schema
-                    .GetSection(rowSchema.Section)!
-                    .Items
-                    .Select(item => item.Name));
-        }
     }
 
     [Theory]
@@ -1786,37 +1955,6 @@ public sealed class InspectionPlanningTests
             result.Error);
         Assert.DoesNotContain(
             "File not found",
-            result.Error);
-    }
-
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task PackageAllLibraries_StaticSchemaRejectsUnsupportedProjection(
-        string projection)
-    {
-        string target =
-            $"Missing.Package.{Guid.NewGuid():N}";
-
-        var result = await RunAppAsync(
-            "package",
-            target,
-            "--all-libraries",
-            "-D",
-            "Library Info",
-            "--schema",
-            projection,
-            "NoSuchValue",
-            "--tips",
-            "q");
-
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains(
-            $"--all-libraries cannot be combined with {projection}",
-            result.Error);
-        Assert.DoesNotContain(
-            target,
             result.Error);
     }
 

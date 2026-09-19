@@ -2894,6 +2894,30 @@ public class OutputFormatterTests
         }
     }
 
+    [Theory]
+    [InlineData(OutputFormat.Markdown)]
+    [InlineData(OutputFormat.Json)]
+    [InlineData(OutputFormat.Tsv)]
+    [InlineData(OutputFormat.Jsonl)]
+    [InlineData(OutputFormat.Table)]
+    [InlineData(OutputFormat.PlainText)]
+    public void CountProjection_RowSetRowsRenderThroughEveryCompatibleFormat(
+        OutputFormat format)
+    {
+        RowSetCount[] counts =
+        [
+            new("net9.0 / Signals", 17),
+            new("net8.0 / Signals", 23)
+        ];
+
+        string output = CountOutput.RenderRowSetCounts(counts, format);
+
+        Assert.Contains("net9.0 / Signals", output);
+        Assert.Contains("17", output);
+        Assert.Contains("net8.0 / Signals", output);
+        Assert.Contains("23", output);
+    }
+
     [Fact]
     public void AssertMarkdownTablesHaveUniformColumnCounts_CatchesMalformedRows()
     {
@@ -3390,14 +3414,23 @@ public class OutputFormatterTests
             () => OutputFormatter.WriteLibraryResults(inspections, options, pipeline));
 
         Assert.Empty(markdownError);
-        Assert.StartsWith("# Test\n\n## Libraries\n", markdown);
+        Assert.StartsWith(
+            "# Test\n\n## Library Info: Test.dll (net9.0)\n",
+            markdown);
+        Assert.DoesNotContain("## Libraries", markdown);
         Assert.Single(
             markdown.ReplaceLineEndings("\n").Split('\n'),
             line => line.StartsWith("# ", StringComparison.Ordinal));
-        Assert.Contains("### Test.dll (net9.0)", markdown);
-        Assert.Contains("### Test.dll (net8.0)", markdown);
-        Assert.Equal(2, markdown.Split("#### Library Info", StringSplitOptions.None).Length - 1);
-        Assert.Equal(2, markdown.Split("#### Signals", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            markdown.Split(
+                "## Library Info: Test.dll (net",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            markdown.Split(
+                "## Signals: Test.dll (net",
+                StringSplitOptions.None).Length - 1);
 
         var quietOptions = options with
         {
@@ -3428,6 +3461,181 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task MultiAssemblyReport_TsvEmitsOneHeader()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        inspections[0].FileName = "First.dll";
+        inspections[1].FileName = "Second.dll";
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Library Info"],
+            Format = OutputFormat.Tsv,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Single(
+            lines,
+            line => line.StartsWith("library\t", StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            line => line.StartsWith("First.dll\t", StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            line => line.StartsWith("Second.dll\t", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MultiAssemblyReport_TsvHeaderFollowsFirstEmittedTable()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        inspections[0].FileName = "First.dll";
+        inspections[1].FileName = "Second.dll";
+        inspections[1].EcosystemIntegrationInspection =
+            MetadataFindings.InspectEcosystemIntegrations(
+                [
+                    new EcosystemIntegrationSignalInfo(
+                        EcosystemIntegrationNames.AspNetCore,
+                        "Middleware",
+                        "Test.UseMiddleware")
+                ],
+                FindingTestData.Subject);
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Integrations"],
+            Format = OutputFormat.Tsv,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(error);
+        string[] lines = output.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            "library\tintegration\tkind\tshape\tsymbol",
+            lines[0]);
+        Assert.Single(
+            lines,
+            line => line.StartsWith("library\t", StringComparison.Ordinal));
+        Assert.StartsWith("Second.dll\t", lines[1]);
+    }
+
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("plaintext")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    public async Task LibraryReports_HonorOutputDestination(
+        string format)
+    {
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("library-output-");
+        try
+        {
+            var pipeline = LibrarySections.CreatePipeline();
+            string singlePath =
+                Path.Combine(tempDirectory.FullName, $"single.{format}");
+            string aggregatePath =
+                Path.Combine(tempDirectory.FullName, $"aggregate.{format}");
+
+            static LibraryOptions CreateOptions(
+                string format,
+                string outputPath)
+            {
+                var options = new LibraryOptions
+                {
+                    IncludeSections = ["Library Info"],
+                    OutputPath = outputPath
+                };
+                return format switch
+                {
+                    "markdown" => options,
+                    "plaintext" => options with
+                    {
+                        Format = OutputFormat.PlainText,
+                        PlainText = true
+                    },
+                    "table" => options with
+                    {
+                        Format = OutputFormat.Table,
+                        Tabular = true,
+                        TabularExplicitlySet = true
+                    },
+                    "tsv" => options with
+                    {
+                        Format = OutputFormat.Tsv,
+                        Tabular = true,
+                        Tsv = true,
+                        TabularExplicitlySet = true
+                    },
+                    "jsonl" => options with
+                    {
+                        Format = OutputFormat.Jsonl,
+                        Tabular = true,
+                        Jsonl = true,
+                        TabularExplicitlySet = true
+                    },
+                    "json" => options with
+                    {
+                        Format = OutputFormat.Json,
+                        JsonOutput = true
+                    },
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(format),
+                        format,
+                        null)
+                };
+            }
+
+            var (singleOutput, singleError) =
+                await ConsoleCapture.RunAsync(
+                    () => OutputFormatter.WriteLibraryResult(
+                        CreateTestAudit("Test.dll", "net9.0"),
+                        CreateOptions(format, singlePath),
+                        pipeline));
+            var (aggregateOutput, aggregateError) =
+                await ConsoleCapture.RunAsync(
+                    () => OutputFormatter.WriteLibraryResults(
+                        CreateTestAudits("net9.0", "net8.0"),
+                        "Test",
+                        CreateOptions(format, aggregatePath),
+                        pipeline));
+
+            Assert.Empty(singleOutput);
+            Assert.Empty(singleError);
+            Assert.Contains("Test", File.ReadAllText(singlePath));
+            Assert.Empty(aggregateOutput);
+            Assert.Empty(aggregateError);
+            Assert.Contains("Test", File.ReadAllText(aggregatePath));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task MultiAssemblyReport_ProjectionPreservesAssemblyHeadings()
     {
         var inspections = CreateTestAudits("net9.0", "net8.0");
@@ -3446,8 +3654,9 @@ public class OutputFormatterTests
         Assert.Equal(
             2,
             columns.ReplaceLineEndings("\n").Split('\n')
-                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
-        Assert.Equal(2, columns.Split("#### Signals", StringSplitOptions.None).Length - 1);
+                .Count(line => line.StartsWith(
+                    "## Signals: Test.dll (net",
+                    StringComparison.Ordinal)));
 
         var fieldOptions = columnOptions with
         {
@@ -3463,7 +3672,9 @@ public class OutputFormatterTests
         Assert.Equal(
             2,
             fields.ReplaceLineEndings("\n").Split('\n')
-                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+                .Count(line => line.StartsWith(
+                    "## Library Info: Test.dll (net",
+                    StringComparison.Ordinal)));
 
         var plainOptions = columnOptions with
         {
@@ -3486,9 +3697,9 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public async Task MultiAssemblyReport_CountAggregatesChildSections()
+    public async Task MultiAssemblyReport_CountAggregatesLibrariesWithinFramework()
     {
-        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var inspections = CreateTestAudits("net9.0", "net9.0");
         var pipeline = LibrarySections.CreatePipeline();
 
         var scalarOptions = new LibraryOptions
@@ -3516,22 +3727,54 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ShiftMarkdownHeadingLevels_LeavesFencedPayloadHeadings()
+    public async Task MultiFrameworkReport_CountPreservesFrameworkScopes()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
+        var options = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = ["Signals"]
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(
+                inspections,
+                "Test",
+                options,
+                pipeline));
+
+        Assert.Empty(error);
+        Assert.Contains("| Row Set | Count |", output);
+        Assert.Contains("| net9.0 / Signals | 1 |", output);
+        Assert.Contains("| net8.0 / Signals | 1 |", output);
+        Assert.DoesNotContain("| 2 |", output);
+    }
+
+    [Fact]
+    public void QualifyMarkdownSectionHeadings_LeavesFencedPayloadHeadings()
     {
         const string markdown = """
             # Document
 
             ## Section
 
+            ### Detail
+
             ```text
             # Payload heading
             ```
             """;
 
-        var shifted = OutputFormatter.ShiftMarkdownHeadingLevels(markdown, 2);
+        var qualified = OutputFormatter.QualifyMarkdownSectionHeadings(
+            markdown,
+            "Test.dll (net9.0)");
 
-        Assert.StartsWith("### Document\n\n#### Section", shifted);
-        Assert.Contains("```text\n# Payload heading\n```", shifted);
+        Assert.StartsWith(
+            "# Document\n\n## Section: Test.dll (net9.0)",
+            qualified);
+        Assert.Contains("### Detail", qualified);
+        Assert.Contains("```text\n# Payload heading\n```", qualified);
     }
 
     [Fact]
@@ -3547,12 +3790,26 @@ public class OutputFormatterTests
 
         var (output, error) = await ConsoleCapture.RunAsync(
             () => OutputFormatter.WriteLibraryResults(
-                inspections, options, LibrarySections.CreatePipeline()));
+                inspections,
+                "Aggregate<tag>&\n## FORGED",
+                options,
+                LibrarySections.CreatePipeline()));
 
         Assert.Empty(error);
         Assert.DoesNotContain("\n## FORGED", output);
-        Assert.StartsWith("# Test&lt;tag&gt;&amp; ## FORGED\n", output);
-        Assert.Contains("### Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)", output);
+        Assert.StartsWith("# Aggregate&lt;tag&gt;&amp; ## FORGED\n", output);
+        string[] signalHeadings =
+        [
+            .. output.ReplaceLineEndings("\n")
+                .Split('\n')
+                .Where(line => line.StartsWith(
+                    "## Signals:",
+                    StringComparison.Ordinal)),
+        ];
+        Assert.Equal(2, signalHeadings.Length);
+        Assert.Equal(
+            "## Signals: Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)",
+            signalHeadings[0]);
         Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n'),
             line => line.StartsWith("# ", StringComparison.Ordinal));
@@ -4598,73 +4855,6 @@ public class OutputFormatterTests
         return error;
     }
 
-    /// <summary>
-    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
-    /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
-    /// writer seam. This is the gate for that routing: a window set on the writer options must
-    /// drop rows from a runtime-column table it never saw at compile time.
-    /// </summary>
-    [Fact]
-    public void AggregatedSection_RowWindow_AppliesAtTheWriterSeam()
-    {
-        var document = new AggregatedSectionDocument
-        {
-            Sections =
-            [
-                new AggregatedSectionView
-                {
-                    Name = "Switches",
-                    Body = new MarkoutTable(
-                        ["Kind", "Switch"],
-                        [["AppContext", "A"], ["AppContext", "B"], ["Feature Switch", "C"]])
-                }
-            ]
-        };
-
-        var all = MarkoutSerializer.Serialize(document, InspectionContext.Default);
-        var windowed = MarkoutSerializer.Serialize(
-            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
-
-        Assert.Contains("## Switches", all, StringComparison.Ordinal);
-        Assert.Contains("| Feature Switch | C |", all, StringComparison.Ordinal);
-        Assert.DoesNotContain("| Feature Switch | C |", windowed, StringComparison.Ordinal);
-        Assert.Contains("| AppContext | B |", windowed, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Routing aggregate cells through markout's semantic code tag rather than literal backticks
-    /// corrects two escapes that a hand-written code span gets wrong, neither of which the
-    /// differential corpus exercises. This is the gate that keeps them fixed.
-    ///
-    /// A pipe must not become <c>&amp;#124;</c> inside a code span, where it would render as that
-    /// literal text; GFM unescapes <c>\|</c> while splitting table rows, before code spans are
-    /// parsed. A backtick must not be backslash-escaped, because backslash escapes do not apply
-    /// inside a code span; the delimiter has to be doubled instead.
-    /// </summary>
-    [Theory]
-    [InlineData("Foo.Bar(a|b)", "\\|")]
-    [InlineData("IEnumerable`1", "``")]
-    public void AggregatedSection_CodeCell_EscapesForACodeSpanRatherThanForPlainText(
-        string value, string expectedSpelling)
-    {
-        var document = new AggregatedSectionDocument
-        {
-            Sections =
-            [
-                new AggregatedSectionView
-                {
-                    Name = "Switches",
-                    Body = new MarkoutTable(["API"], [[MarkoutInline.Code(value)]])
-                }
-            ]
-        };
-
-        var rendered = MarkoutSerializer.Serialize(document, InspectionContext.Default);
-
-        Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
-        Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
-        Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
-    }
 }
 
 internal static class OutputFormatterAsyncSiblingFixture

@@ -64,6 +64,7 @@ public enum StructuralOutputShape
 {
     Document,
     Rows,
+    Count,
 }
 
 public sealed record StructuralViewDescriptor(
@@ -262,8 +263,6 @@ public static class StructuralViewRegistry
                 "all-libraries",
                 [InspectionCatalogIdentity.LibraryAggregate],
                 SharedProjectionCapabilities
-                & ~StructuralParserCapabilities.Fields
-                & ~StructuralParserCapabilities.Columns
                 | StructuralParserCapabilities.TypeFilter),
             new(
                 StructuralViewIdentity.DirectLibrary,
@@ -885,10 +884,8 @@ public static class StructuralViewRegistry
             case InspectionCatalogIdentity.LibraryAggregate:
             {
                 var catalog = LibrarySections.CreateCatalog();
-                schema = outputShape == StructuralOutputShape.Rows
-                    ? PackageCommand
-                        .PackageAllLibrariesDiscoverySchema()
-                    : LibraryCommand.CreateStructuralSchema();
+                schema = PackageCommand.PackageAllLibrariesDiscoverySchema(
+                    outputShape);
                 selectableSections =
                     catalog.Sections.SelectableSectionNames;
                 defaultSections = catalog.Sections.InfoSectionNames;
@@ -1436,8 +1433,10 @@ public static class StructuralViewRegistry
         StructuralDiscoveryRequest request,
         IEnumerable<StructuralRoute> routes)
     {
-        if (!routes.Any(route => route.Catalog is
-                InspectionCatalogIdentity.Library or InspectionCatalogIdentity.LibraryAggregate))
+        if (!routes.Any(route =>
+                route.Catalog is
+                    InspectionCatalogIdentity.Library
+                    or InspectionCatalogIdentity.LibraryAggregate))
         {
             return (request, null);
         }

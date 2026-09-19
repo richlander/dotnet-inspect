@@ -3522,7 +3522,8 @@ public partial class CommandExecutionTests
                 "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
 
             Assert.Equal(0, markdownExit);
-            Assert.Contains("## Libraries", markdownOutput);
+            Assert.Contains("## Library Info:", markdownOutput);
+            Assert.DoesNotContain("## Libraries", markdownOutput);
             Assert.Empty(markdownError);
             Assert.Equal(0, jsonExit);
             using var document = JsonDocument.Parse(jsonOutput);
@@ -3570,7 +3571,8 @@ public partial class CommandExecutionTests
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
                 "-S", "Async*", "--markdown", "--tips", "q");
             Assert.Equal(0, wildcardExit);
-            Assert.Contains("## Libraries", wildcardOutput);
+            Assert.StartsWith("# Lib", wildcardOutput);
+            Assert.DoesNotContain("## Libraries", wildcardOutput);
             Assert.Equal(
                 "Note: 1 matched section has no data: Async Methods.",
                 wildcardError.Trim());
@@ -3580,7 +3582,8 @@ public partial class CommandExecutionTests
                 "-S", "Async Methods", "--markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Libraries", output);
+            Assert.Contains("## Async Methods:", output);
+            Assert.DoesNotContain("## Libraries", output);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
                 output);
@@ -3593,7 +3596,8 @@ public partial class CommandExecutionTests
                 "-S", "Async Methods", "--tips", "q");
 
             Assert.Equal(0, defaultExit);
-            Assert.Contains("## Libraries", defaultOutput);
+            Assert.Contains("## Async Methods:", defaultOutput);
+            Assert.DoesNotContain("## Libraries", defaultOutput);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
                 defaultOutput);
@@ -3627,7 +3631,12 @@ public partial class CommandExecutionTests
             Assert.Equal(0, multiCountExit);
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
-            Assert.Equal(singleCountOutput, multiCountOutput);
+            Assert.Contains(
+                "net10.0 / Async Methods\t0",
+                multiCountOutput);
+            Assert.Contains(
+                $"net8.0 / Async Methods\t{singleCountOutput.Trim()}",
+                multiCountOutput);
             Assert.Equal(1, multiTreeCountExit);
             Assert.Empty(multiTreeCountOutput);
             Assert.Contains("Reference Hierarchy", multiTreeCountError);
@@ -3682,7 +3691,9 @@ public partial class CommandExecutionTests
                 "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Contains(
+                "## Audit: Identifier Confusion: Lib.dll (net8.0)",
+                output);
             Assert.Contains("U+0405→S", output);
             Assert.Contains(
                 "Warning: Identifier audit failed for "
@@ -3876,13 +3887,6 @@ public partial class CommandExecutionTests
                 {
                     IncludeSections = [SectionNames.LibraryInfo],
                 },
-                LibrarySections.CreatePipeline(),
-                FailedResourceTriageInspection()));
-        Assert.Equal(
-            1,
-            PackageCommand.AllLibrariesCompletionExitCode(
-                incomplete: false,
-                options,
                 LibrarySections.CreatePipeline(),
                 FailedResourceTriageInspection()));
     }

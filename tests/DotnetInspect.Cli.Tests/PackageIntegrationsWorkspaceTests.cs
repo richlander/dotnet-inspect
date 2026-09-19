@@ -106,116 +106,16 @@ public sealed class PackageIntegrationsWorkspaceTests
         }
     }
 
-    [Fact]
-    public async Task ArtifactBackedImplementationRejection_PreservesSurfaceWithoutPathFallback()
-    {
-        const string surfacePath =
-            "ref/net11.0/Artifact.Rejected.Sample.dll";
-        const string implementationPath =
-            "lib/net11.0/Artifact.Rejected.Sample.dll";
-        string directory = Directory.CreateTempSubdirectory(
-            "package-artifact-rejection-").FullName;
-        string selectedPath = Path.Combine(
-            directory,
-            surfacePath.Replace('/', Path.DirectorySeparatorChar));
-        Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
-        byte[] surface = IntegrationAssembly(
-            "Artifact.Rejected.Sample",
-            "SurfaceOnlyMarker");
-        byte[] malformed = [1, 2, 3];
-        File.WriteAllBytes(selectedPath, surface);
-        DateTime selectedTimestamp =
-            new(2024, 6, 7, 8, 9, 10, DateTimeKind.Utc);
-        File.SetLastWriteTimeUtc(selectedPath, selectedTimestamp);
-        PackageRootBinding binding = await CreateBindingAsync(
-            (surfacePath, surface),
-            (implementationPath, malformed));
-        PackageIntegrationsWorkspace? workspace =
-            await PackageIntegrationsWorkspace.TryCreateArtifactBackedAsync(
-                [new(selectedPath, "net11.0")],
-                directory,
-                binding,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.NotNull(workspace);
-        List<(string FileName, string Reason)> failures = [];
-        int inspectionCount = 0;
-
-        try
-        {
-            LibraryInspection? inspection =
-                await Commands.PackageCommand
-                    .InspectGroupedAssemblyAsync(
-                        workspace,
-                        selectedPath,
-                        surfacePath,
-                        failures,
-                        (retained, integrations, _) =>
-                        {
-                            inspectionCount++;
-                            Assert.IsType<
-                                ArtifactAcquisitionRegistration>(
-                                Assert.IsType<
-                                        ResolvedAssemblyReference>(
-                                        retained)
-                                    .Registration
-                                    .ArtifactRegistration);
-                            Assert.IsType<
-                                AssemblyIntegrationsEntry.Rejected>(
-                                integrations);
-                            return Task.FromResult<
-                                LibraryInspection?>(new());
-                        });
-
-            Assert.NotNull(inspection);
-            Assert.Equal(selectedTimestamp, inspection.LastModified);
-            Assert.Equal(1, inspectionCount);
-            var failure = Assert.Single(failures);
-            Assert.Equal(surfacePath, failure.FileName);
-            Assert.NotEmpty(failure.Reason);
-        }
-        finally
-        {
-            await workspace.DisposeAsync();
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
     [Theory]
-    [InlineData(false, "net11.0", "producer", "ref/net11.0/Test.dll", true)]
-    [InlineData(false, "net11.0", "producer", "lib/net11.0/Test.dll", true)]
-    [InlineData(true, "net11.0", "producer", "lib/net11.0/Test.dll", false)]
-    [InlineData(false, null, "producer", "lib/net11.0/Test.dll", false)]
-    [InlineData(false, "net11.0", null, "lib/net11.0/Test.dll", false)]
-    [InlineData(false, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
-    [InlineData(false, "net35-Unity Full v3.5", "producer", "lib/net35-Unity Full v3.5/Test.dll", false)]
-    public void CompileRoleSelection_RequiresOneRemoteCompileFramework(
-        bool isLocalFile,
-        string? selectedTargetFramework,
-        string? selectedProducerKey,
-        string selectedPackagePath,
-        bool expected)
-    {
-        Assert.Equal(
-            expected,
-            Commands.PackageCommand
-                .ShouldUsePackageCompileRoles(
-                    isLocalFile,
-                    selectedTargetFramework,
-                    selectedProducerKey,
-                    [selectedPackagePath]));
-    }
-
-    [Theory]
-    [InlineData(null, false, true)]
-    [InlineData("net10.0", false, true)]
-    [InlineData("all", false, false)]
-    [InlineData("net10.0", true, false)]
-    [InlineData("net35-Unity Full v3.5", false, false)]
-    public async Task PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles(
+    [InlineData(null, false, 1)]
+    [InlineData("net10.0", false, 1)]
+    [InlineData("all", false, 2)]
+    [InlineData("net10.0", true, 1)]
+    [InlineData("net35-Unity Full v3.5", false, 1)]
+    public async Task PackageAllLibraries_ExplicitTfmPreservesCompileLibrarySelection(
         string? targetFramework,
         bool includeReferenceRole,
-        bool artifactBacked)
+        int expectedLibraries)
     {
         const string packageName = "Artifact.Command.Sample";
         const string source = "https://artifact-command.invalid/v3/index.json";
@@ -284,27 +184,10 @@ public sealed class PackageIntegrationsWorkspaceTests
             Assert.Contains("## Integration Opportunities", output);
             Assert.Contains("Npgsql.NpgsqlConnection", output);
             Assert.Equal(
-                includeReferenceRole || targetFramework == "all" ? 2 : 1,
+                expectedLibraries,
                 output.Split(
                     "| Aspire | `Npgsql.NpgsqlConnection` |",
                     StringSplitOptions.None).Length - 1);
-            Assert.Equal(
-                artifactBacked,
-                error.Contains(
-                    "Using artifact-backed package Integrations for ",
-                    StringComparison.Ordinal));
-            if (artifactBacked)
-            {
-                Assert.Contains(
-                    $"Using artifact-backed package Integrations for {targetFramework ?? "net11.0"}.",
-                    error);
-            }
-            else
-            {
-                Assert.Contains(
-                    "Using artifact-backed selected-entry package Integrations.",
-                    error);
-            }
             if (targetFramework == "all")
             {
                 Assert.Contains("net10.0", output);
@@ -570,14 +453,14 @@ public sealed class PackageIntegrationsWorkspaceTests
 
             await using var workspace = await CreateSelectedWorkspaceAsync(
                 [
-                    Commands.PackageCommand
-                        .CreatePackageIntegrationAssembly(
-                            first,
-                            "lib/net8.0/First.dll"),
-                    Commands.PackageCommand
-                        .CreatePackageIntegrationAssembly(
-                            second,
-                            "runtimes/win-x64/lib/net8.0/Second.dll"),
+                    new PackageIntegrationAssembly(
+                        first,
+                        "net8.0",
+                        "lib/net8.0"),
+                    new PackageIntegrationAssembly(
+                        second,
+                        "net8.0",
+                        "runtimes/win-x64/lib/net8.0"),
                 ],
                 "Test.Package",
                 "1.0.0");
@@ -673,20 +556,6 @@ public sealed class PackageIntegrationsWorkspaceTests
         {
             Directory.Delete(directory, recursive: true);
         }
-    }
-
-    [Fact]
-    public void OpportunityOnlyDemand_RequiresGroupedIntegrations()
-    {
-        HashSet<InspectionQueryDefinition> queries =
-            [AssemblyContextIntegrationOpportunitiesQuery.Definition];
-
-        Assert.True(
-            Commands.PackageCommand.RequiresGroupedIntegrations(
-                queries,
-                out bool includeIntegrationOpportunities));
-        Assert.True(includeIntegrationOpportunities);
-        Assert.Empty(queries);
     }
 
     [Fact]
@@ -961,137 +830,18 @@ public sealed class PackageIntegrationsWorkspaceTests
         Assert.NotNull(inspection.OpenTelemetryInspection);
     }
 
-    [Fact]
-    public async Task GroupedRejection_DoesNotFallBackToPathInspection()
-    {
-        string path =
-            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        await using var workspace = await CreateSelectedWorkspaceAsync(
-            [new(path, "net11.0")],
-            "Test.Package",
-            "1.0.0",
-            maxRetainedImageBytes: 1);
-        List<(string FileName, string Reason)> failures = [];
-        int inspectionCount = 0;
-
-        LibraryInspection? inspection =
-            await Commands.PackageCommand.InspectGroupedAssemblyAsync(
-                workspace,
-                path,
-                "ref/net11.0/Test.dll",
-                failures,
-                (_, _, _) =>
-                {
-                    inspectionCount++;
-                    return Task.FromResult<LibraryInspection?>(new());
-                });
-
-        Assert.Null(inspection);
-        Assert.Equal(0, inspectionCount);
-        var failure = Assert.Single(failures);
-        Assert.Equal("ref/net11.0/Test.dll", failure.FileName);
-        Assert.Contains(
-            "budget",
-            failure.Reason,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task UnreadablePreflight_DoesNotFallBackToPathInspection()
-    {
-        string directory = Directory.CreateTempSubdirectory(
-            "package-integrations-unreadable-").FullName;
-        string path = Path.Combine(directory, "Locked.dll");
-        File.Copy(
-            typeof(PackageIntegrationsWorkspaceTests)
-                .Assembly.Location,
-            path);
-        try
-        {
-            using var locked = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.ReadWrite,
-                FileShare.None);
-            await using var workspace =
-                await CreateSelectedWorkspaceAsync(
-                    [new(path, "net11.0")],
-                    "Test.Package",
-                    "1.0.0");
-            List<(string FileName, string Reason)> failures = [];
-            int inspectionCount = 0;
-
-            LibraryInspection? inspection =
-                await Commands.PackageCommand
-                    .InspectGroupedAssemblyAsync(
-                        workspace,
-                        path,
-                        "ref/net11.0/Locked.dll",
-                        failures,
-                        (_, _, _) =>
-                        {
-                            inspectionCount++;
-                            return Task.FromResult<
-                                LibraryInspection?>(new());
-                        });
-
-            Assert.Null(inspection);
-            Assert.Equal(0, inspectionCount);
-            var failure = Assert.Single(failures);
-            Assert.Equal(
-                "ref/net11.0/Locked.dll",
-                failure.FileName);
-            Assert.Contains(
-                "could not be read",
-                failure.Reason,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task GroupedIntegrationsFailure_IsVisibleAndDeduplicated()
-    {
-        (string FileName, string Reason) failure =
-            ("lib/net10.0/Test.dll", "invalid method body");
-
-        bool incomplete = false;
-        var (_, error) = await ConsoleCapture.RunAsync(() =>
-        {
-            incomplete =
-                Commands.PackageCommand.WriteGroupedIntegrationsFailures(
-                    [failure, failure]);
-        });
-
-        Assert.True(incomplete);
-        Assert.Equal(
-            1,
-            Commands.PackageCommand.AllLibrariesCompletionExitCode(
-                incomplete));
-        Assert.Contains(
-            "Integrations inspection failed for 'lib/net10.0/Test.dll': invalid method body",
-            error,
-            StringComparison.Ordinal);
-        Assert.Equal(
-            1,
-            error.Split(
-                "Integrations inspection failed",
-                StringSplitOptions.None).Length - 1);
-    }
-
     [Theory]
     [InlineData("empty-compile", 1)]
     [InlineData("all-frameworks", 2)]
     [InlineData("nested", 2)]
-    [InlineData("tools", 2)]
+    [InlineData("tools", 1)]
     [InlineData("no-nuspec", 1)]
     [InlineData("invalid-nuspec-id", 1)]
     [InlineData("invalid-nuspec-version", 1)]
     [InlineData("native-image", 1)]
     [InlineData("invalid-image", 1)]
+    [InlineData("unsupported-metadata", 1)]
+    [InlineData("unsupported-metadata-only", 0)]
     public async Task PackageCommand_LocalInspectionSelectionPreservesSupportedShapes(
         string shape,
         int expectedLibraries)
@@ -1101,7 +851,9 @@ public sealed class PackageIntegrationsWorkspaceTests
         {
             byte[] image = File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location);
             List<(string Path, byte[] Content)> entries =
-                [("lib/net11.0/Npgsql.dll", image)];
+                shape == "unsupported-metadata-only"
+                    ? []
+                    : [("lib/net11.0/Npgsql.dll", image)];
             switch (shape)
             {
                 case "empty-compile":
@@ -1129,6 +881,12 @@ public sealed class PackageIntegrationsWorkspaceTests
                     break;
                 case "invalid-image":
                     entries.Add(("lib/net11.0/Invalid.dll", [1, 2, 3]));
+                    break;
+                case "unsupported-metadata":
+                case "unsupported-metadata-only":
+                    entries.Add((
+                        "lib/net11.0/Unsupported.dll",
+                        TimelineCommandTests.BuildWindowsMetadataImage()));
                     break;
             }
             if (shape != "no-nuspec")
@@ -1183,25 +941,81 @@ public sealed class PackageIntegrationsWorkspaceTests
             string output = await stdout;
             string error = await stderr;
 
-            Assert.True(exit == 0, error);
-            Assert.Contains("Using artifact-backed selected-entry package Integrations.", error);
+            if (shape == "unsupported-metadata-only")
+            {
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains(
+                    "Could not select library descriptor for "
+                    + "'lib/net11.0/Unsupported.dll'",
+                    error);
+                Assert.Contains(
+                    "The selected image uses an unsupported metadata format.",
+                    error);
+                Assert.DoesNotContain(
+                    "Assembly context integrations requires at least one assembly.",
+                    error);
+                return;
+            }
+
+            if (shape == "empty-compile")
+            {
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains(
+                    "declares an empty compile group for TFM 'net11.0'",
+                    error);
+                return;
+            }
+
+            Assert.Equal(
+                shape is
+                    "native-image"
+                    or "invalid-image"
+                    or "unsupported-metadata"
+                    ? 1
+                    : 0,
+                exit);
             Assert.Contains("## Integration Opportunities", output);
             Assert.Equal(expectedLibraries, output.Split(
                 "| Aspire | `Npgsql.NpgsqlConnection` |", StringSplitOptions.None).Length - 1);
             Assert.Contains("Health Checks", output);
-            foreach ((string path, _) in entries.Where(entry => entry.Path.EndsWith("Npgsql.dll")))
+            foreach ((string path, _) in entries.Where(
+                         entry => entry.Path.EndsWith(
+                                      "Npgsql.dll",
+                                      StringComparison.Ordinal)
+                                  && (entry.Path.StartsWith(
+                                          "lib/",
+                                          StringComparison.Ordinal)
+                                      || entry.Path.StartsWith(
+                                          "ref/",
+                                          StringComparison.Ordinal))))
                 Assert.Contains(path, output);
-            if (shape is "native-image" or "invalid-image")
+            if (shape is
+                "native-image"
+                or "invalid-image"
+                or "unsupported-metadata")
             {
                 Assert.DoesNotContain("Native.dll", output);
                 Assert.DoesNotContain("Invalid.dll", output);
-            }
-            if (shape == "invalid-image")
-            {
-                Assert.Contains("Could not read library:", error);
-            }
-            if (shape == "native-image")
-            {
+                Assert.DoesNotContain("Unsupported.dll", output);
+                string fileName = shape switch
+                {
+                    "native-image" => "Native.dll",
+                    "invalid-image" => "Invalid.dll",
+                    "unsupported-metadata" => "Unsupported.dll",
+                    _ => throw new UnreachableException(),
+                };
+                Assert.Contains(
+                    "Could not select library descriptor for "
+                    + $"'lib/net11.0/{fileName}'",
+                    error);
+                if (shape == "unsupported-metadata")
+                {
+                    Assert.Contains(
+                        "The selected image uses an unsupported metadata format.",
+                        error);
+                }
                 Assert.DoesNotContain("Could not read library:", error);
             }
             TestContext.Current.TestOutputHelper?.WriteLine($"{shape}: exit {exit}\n{output}");

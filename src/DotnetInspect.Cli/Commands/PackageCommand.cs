@@ -94,12 +94,13 @@ public partial class PackageCommand
                 : StructuralViewRegistry.Route(
                     StructuralViewIdentity.PackageSingleLibrary,
                     InspectionCatalogIdentity.Library);
-            StructuralOutputShape shape =
-                options.AllLibraries
-                && options.TabularExplicitlySet
-                && !options.Count
-                    ? StructuralOutputShape.Rows
-                    : StructuralOutputShape.Document;
+            StructuralOutputShape shape = options.AllLibraries
+                ? options.Count
+                    ? StructuralOutputShape.Count
+                    : options.TabularExplicitlySet
+                        ? StructuralOutputShape.Rows
+                        : StructuralOutputShape.Document
+                : StructuralOutputShape.Document;
             return StructuralViewRegistry.Execute(
                 route,
                 StructuralDiscoveryRequest.From(options),
@@ -1134,17 +1135,12 @@ public partial class PackageCommand
 
             if (options.AllLibraries)
             {
-                // Authority-backed input must not be reacquired through a legacy producer key.
                 return await ExecutePackageAllLibrariesAsync(
-                    client,
-                    extractPath,
                     target.IsLocalFile,
                     target.OriginalArgument,
+                    resolution.NupkgPath,
                     packageName,
                     version,
-                    resolution,
-                    nuspec?.PackageName,
-                    nuspec?.Version,
                     options);
             }
 

@@ -45,122 +45,64 @@ public partial class PackageCommand
                     .GetSchemaInfo<InspectionResultView>()!
                     .ToDocumentSchema()));
 
-    internal sealed record AllLibrariesRowSchema(
-        string Section,
-        string[] Headers,
-        string[] StableHeaders,
-        string[]? AlternateHeaders = null,
-        string[]? AlternateStableHeaders = null);
-
-    internal static IReadOnlyList<AllLibrariesRowSchema>
-        AllLibrariesRowSchemas { get; } =
-        CreateAllLibrariesRowSchemas();
-
-    internal static DocumentSchema PackageAllLibrariesDiscoverySchema()
+    internal static DocumentSchema PackageAllLibrariesDiscoverySchema(
+        StructuralOutputShape outputShape)
     {
+        DocumentSchema librarySchema =
+            LibraryCommand.CreateStructuralSchema();
         var schema = new DocumentSchema();
-        foreach (AllLibrariesRowSchema rowSchema in
-                 AllLibrariesRowSchemas)
-            schema.Add(
-                rowSchema.Section,
-                "column",
-                rowSchema.Headers
-                    .Concat(rowSchema.AlternateHeaders ?? [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray());
+        foreach (string name in librarySchema.SectionNames)
+        {
+            if (name.Equals(
+                    SectionNames.CloneCandidates,
+                    StringComparison.OrdinalIgnoreCase)
+                || name.Equals(
+                    SectionNames.ReferenceHierarchy,
+                    StringComparison.OrdinalIgnoreCase)
+                || outputShape != StructuralOutputShape.Count
+                && MetadataSectionNames.IsMetadataSection(name))
+            {
+                continue;
+            }
+
+            var section = librarySchema.GetSection(name);
+            if (section is null)
+            {
+                schema.AddSection(name);
+                continue;
+            }
+
+            string[] items =
+                [.. section.Items.Select(item => item.Name)];
+            bool pooledDocumentSection =
+                outputShape == StructuralOutputShape.Document
+                && OutputFormatter.IsAggregateLibrarySection(name);
+            if (outputShape != StructuralOutputShape.Rows
+                && !pooledDocumentSection)
+            {
+                if (items.Length == 0)
+                    schema.AddSection(name);
+                else
+                    schema.Add(name, section.ItemKind, items);
+                continue;
+            }
+
+            string[] provenanceColumns =
+                outputShape == StructuralOutputShape.Rows
+                    ? ["Package", "Package Version", "Library", "TFM"]
+                    : ["Library", "TFM"];
+            string[] columns = section.ItemKind.Equals(
+                "field",
+                StringComparison.OrdinalIgnoreCase)
+                ? [.. provenanceColumns, "Field", "Value"]
+                : [.. provenanceColumns, .. items];
+            if (columns.Length == provenanceColumns.Length)
+                schema.AddSection(name);
+            else
+                schema.Add(name, "column", columns);
+        }
 
         return schema;
-    }
-
-    private static IReadOnlyList<AllLibrariesRowSchema>
-        CreateAllLibrariesRowSchemas()
-    {
-        var schemas = new List<AllLibrariesRowSchema>
-        {
-            new(
-                SectionNames.LibraryInfo,
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Field",
-                    "Value",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "field",
-                    "value",
-                ]),
-            new(
-                "Switches",
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Kind",
-                    "Switch",
-                    "API",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "kind",
-                    "switch",
-                    "api",
-                ]),
-            new(
-                IntegrationSectionNames.Opportunities,
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Integration",
-                    "API",
-                    "Integration Type",
-                    "Look For",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "integration",
-                    "api",
-                    "integration_type",
-                    "look_for",
-                ]),
-            new(
-                IntegrationSectionNames.Integrations,
-                [
-                    "Package",
-                    "Version",
-                    "Library",
-                    "TFM",
-                    "Integration",
-                    "Kind",
-                    "Shape",
-                    "Symbol",
-                ],
-                [
-                    "package",
-                    "version",
-                    "library",
-                    "tfm",
-                    "integration",
-                    "kind",
-                    "shape",
-                    "symbol",
-                ]),
-        };
-        return schemas;
     }
 
     private static bool ValidatePackageProjection(

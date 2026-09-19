@@ -9,7 +9,8 @@ namespace DotnetInspect.Cli.Inspectors;
 
 internal sealed record AssemblyContextIntegrationsInput(
     string Path,
-    AssemblyResolutionProvenance Provenance);
+    AssemblyResolutionProvenance Provenance,
+    ResolvedAssemblyReference? Assembly = null);
 
 internal sealed class AssemblyContextIntegrationsBatch
 {
@@ -79,14 +80,15 @@ internal static class AssemblyContextIntegrationsRunner
         AssemblyContextIntegrationsInput[] inputArray = [.. inputs];
         if (inputArray.Length == 0)
         {
-            throw new InspectionQueryException(
-                "Assembly context integrations requires at least one assembly.");
+            return new AssemblyContextIntegrationsBatch([]);
         }
 
         var candidates = inputArray
             .Select(input => (
                 Input: input,
-                Assembly: TryCreateManagedParticipant(input)))
+                Assembly:
+                    input.Assembly
+                    ?? TryCreateManagedParticipant(input)))
             .ToArray();
         var roots = candidates
             .Where(candidate => candidate.Assembly is not null)
@@ -208,12 +210,10 @@ internal static class AssemblyContextIntegrationsRunner
             // producing evidence.
             //
             // NotSupportedException is deliberately absent, so an unsupported
-            // participant propagates instead of becoming null. Every current
-            // call site passes exactly one input, and a null-for-every-input
-            // run returns an all-null batch rather than a visible failure.
-            // Catching it here would turn a named rejection into
-            // success-shaped empty output. Revisit if this runner ever takes
-            // multiple inputs, where scoping would matter more than loudness.
+            // participant propagates instead of becoming null. Aggregate
+            // callers classify package participants first and supply only
+            // ready assemblies; direct callers rely on propagation to keep a
+            // named rejection from becoming success-shaped empty output.
             return null;
         }
     }
