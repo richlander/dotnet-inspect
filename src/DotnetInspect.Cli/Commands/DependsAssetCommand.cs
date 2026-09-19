@@ -666,6 +666,7 @@ public partial class DependsCommand
             traversalDepth: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
+            sharePreparation: null,
             cancellationToken);
     }
 
