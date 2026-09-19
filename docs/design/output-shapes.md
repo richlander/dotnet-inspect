@@ -51,13 +51,15 @@ This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
 the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
-The envelope owner's proposed
+The envelope owner's
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
-adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope <path>` consumer is tracked by
-[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), with the
-dependency value adopted under #7117. It is a Debug-only diagnostic attachment,
-not a new rung in this ladder or an already available output option.
+adds a typed companion without changing that content boundary. Asset-mode
+`depends` adopts `--evidence-envelope <path>` under
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117); remaining
+consumers are tracked by
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293). It is a
+Debug-only diagnostic attachment, not a new rung in this ladder or a retail
+output option.
 
 ### Implementation status
 
@@ -129,11 +131,12 @@ projection, discovery, Count, and competing formats remain on compatibility
 paths or are rejected with `--envelope`. Typed incomplete or unavailable
 Content remains visible before the command returns a nonzero exit.
 
-Asset-mode `depends`, other Type routes, other commands, Discover, Count,
-`--evidence-envelope`, optional evidence capture from
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
-unadopted. Library API Diff's complete Browser baseline transport is governed
-by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
+Asset-mode `depends` registers the Debug-only `asset-dependencies` baseline and
+enriched forms when `--evidence-envelope` is present. Its standalone
+`--envelope` route remains unadopted, as do other Type routes, other commands,
+Discover, and Count unless named above. Library API Diff's complete Browser
+baseline transport is governed by its
+[Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
 
@@ -529,6 +532,11 @@ likewise exercise their public command entry point:
   same-path preflight; and
 - prove the contained stderr locator, Share ordering, explicit nonzero failure,
   and absence of raw envelope JSON from stderr.
+
+The asset-mode dependency adopter assigns its Debug public-entry gates,
+generated baseline and enriched serialization gates, and Release rejection
+gate to
+[Dependency inspection](dependency-inspection-command.md#gates-and-production-adoption).
 
 Use the authentic Npgsql type-dependency scenario recorded above and, for the
 second adopter, the existing `System.Text.Json@9.0.0..10.0.0` comparison, with

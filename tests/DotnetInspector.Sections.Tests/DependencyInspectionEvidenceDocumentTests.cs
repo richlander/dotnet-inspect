@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -9,6 +11,46 @@ namespace DotnetInspector.Sections.Tests;
 
 public sealed class DependencyInspectionEvidenceDocumentTests
 {
+    [Fact]
+    public void OperationPreservesSettledShareAcrossOrdinaryAndEnriched()
+    {
+        DependencyInspectionEvidenceDocument evidence = EmptyDocument();
+        var share = new InspectionShare.NonProjectable(
+            "asset-dependencies/share",
+            "No exact package root was requested.");
+        var request = new DependencyInspectionOperationRequest(
+            new DependencyInspectionPlan(
+                Declarations: false,
+                RestoredRelationships: false,
+                Traversal: false,
+                Pruning: false,
+                RequestedFramework: null,
+                RequestedDepth: null),
+            requestedRoots: 0,
+            isPrefixRootSet: false,
+            evidence.PackageInputs,
+            evidence.AdmittedRootOccurrences,
+            evidence.FailedRootOccurrences,
+            roots: [],
+            new DependencyGraphDocument([], [], [], [], []),
+            additionalFailures: [],
+            pruning: [],
+            pruningFailures: [],
+            DependencyInspectionPruningSummary.NotRequested,
+            share);
+        InspectionEnvelope<DependencyInspectionContent> ordinary =
+            DependencyInspectionOperation.Execute(request);
+        EvidenceInspectionEnvelope<
+            DependencyInspectionContent,
+            DependencyInspectionEvidenceDocument> enriched =
+                DependencyInspectionOperation.ExecuteWithEvidence(request);
+
+        Assert.Equal(ordinary, enriched.Inspection);
+        Assert.Same(share, ordinary.Share);
+        Assert.Same(share, enriched.Inspection.Share);
+        Assert.Same(evidence.PackageInputs, enriched.Evidence.PackageInputs);
+    }
+
     [Fact]
     public void ConstructionPreservesParallelAssociations()
     {
@@ -177,6 +219,340 @@ public sealed class DependencyInspectionEvidenceDocumentTests
         Assert.Equal("failedRootOccurrences", failedFailure.ParamName);
     }
 
+    [Fact]
+    public void GeneratedJsonRetainsConcretePackageEvidence()
+    {
+        var document = new DependencyInspectionEvidenceDocument(
+            Outcome(admittedRoots: 1),
+            [new DependencyRootOccurrenceIdentity(1)],
+            []);
+
+        JsonElement root = JsonSerializer.SerializeToElement(
+            document,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionEvidenceDocument);
+        JsonElement packageRoot =
+            root.GetProperty("package_inputs")
+                .GetProperty("roots")[0];
+
+        Assert.Equal(
+            "package",
+            packageRoot.GetProperty("identity")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "example.package.0",
+            packageRoot.GetProperty("identity")
+                .GetProperty("coordinate")
+                .GetProperty("package_id")
+                .GetString());
+        Assert.Equal(
+            "package",
+            packageRoot.GetProperty("provenance")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "DirectNuspec",
+            packageRoot.GetProperty("provenance")
+                .GetProperty("acquisition_form")
+                .GetString());
+
+    }
+
+    [Fact]
+    public void GeneratedContentJsonRetainsConcreteGraphEvidenceIdentity()
+    {
+        var graph = new DependencyGraphDocument(
+            [new DependencyGraphRootOccurrence(1, 0)],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Type("Root"),
+                    new InertString(TextPolicy.Field, "root")),
+                new DependencyGraphNode(
+                    1,
+                    new DependencyGraphNodeIdentity.Type("Dependency"),
+                    new InertString(TextPolicy.Field, "dependency")),
+            ],
+            [
+                new DependencyGraphEdge(
+                    0,
+                    0,
+                    1,
+                    "depends",
+                    [1],
+                    1,
+                    DependencyGraphResolutionState.Resolved,
+                    new DependencyGraphEvidenceIdentity
+                        .PackageVersionConstraint(
+                            new InertString(TextPolicy.Field, "[1.0.0,)"))),
+            ],
+            [],
+            []);
+        var content = new DependencyInspectionContent(
+            new DependencyInspectionSummary(
+                DependencyInspectionRootSetCompletion.Complete,
+                RequestedRoots: 1,
+                AdmittedRoots: 1,
+                FailedRoots: 0,
+                DependencyInspectionTraversalCompletion.Complete,
+                RequestedDepth: null,
+                HierarchyOccurrences: 1,
+                CanonicalNodes: 2,
+                Relationships: 1,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionPruningSummary.NotRequested,
+                IsPrefixRootSet: false,
+                PackagePrefix: null),
+            DependencyHierarchyDocument.Create(graph),
+            [],
+            [],
+            [],
+            []);
+
+        JsonElement root = JsonSerializer.SerializeToElement(
+            content,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
+        JsonElement evidenceIdentity =
+            root.GetProperty("hierarchy")
+                .GetProperty("backing_graph")
+                .GetProperty("edges")[0]
+                .GetProperty("evidence_identity");
+
+        Assert.Equal(
+            "package-version-constraint",
+            evidenceIdentity.GetProperty("kind").GetString());
+        Assert.Equal(
+            "[1.0.0,)",
+            evidenceIdentity.GetProperty("value").GetString());
+
+        DependencyInspectionContent? roundTrip = JsonSerializer.Deserialize(
+            root.GetRawText(),
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
+        Assert.NotNull(roundTrip);
+        Assert.IsType<
+            DependencyGraphEvidenceIdentity.PackageVersionConstraint>(
+                Assert.Single(roundTrip.Hierarchy.BackingGraph.Edges)
+                    .EvidenceIdentity);
+    }
+
+    [Fact]
+    public void GeneratedContentJsonRetainsNestedFailureCases()
+    {
+        var rootIdentity = new PackageDependencyEvidenceRootIdentity.Package(
+            PackageSourceCoordinate.Create("Example.Package", "1.0.0"));
+        var groupIdentity = new PackageDependencyEvidenceGroupIdentity.Package(
+            rootIdentity,
+            IsImplicitManifestGroup: false,
+            FirstSourceOccurrence: 0);
+        var declarationIdentity =
+            new PackageDependencyEvidenceDeclarationIdentity(
+                groupIdentity,
+                "example.dependency");
+        var declaration = new PackageDependencyEvidenceDeclaration(
+            declarationIdentity,
+            "example.dependency",
+            "[1.0.0,)",
+            new InertString(TextPolicy.Field, "Example.Dependency"),
+            new InertString(TextPolicy.Field, "[1.0.0,)"),
+            SourceOccurrenceCount: 1,
+            PackageDependencyEvidenceAuthorship.LibraryDeclared);
+        var content = new DependencyInspectionContent(
+            new DependencyInspectionSummary(
+                DependencyInspectionRootSetCompletion.Partial,
+                RequestedRoots: 1,
+                AdmittedRoots: 1,
+                FailedRoots: 0,
+                DependencyInspectionTraversalCompletion.Failed,
+                RequestedDepth: null,
+                HierarchyOccurrences: 0,
+                CanonicalNodes: 0,
+                Relationships: 0,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                DependencyInspectionPruningSummary.NotRequested,
+                IsPrefixRootSet: false,
+                PackagePrefix: null),
+            DependencyHierarchyDocument.Empty,
+            [],
+            [],
+            [],
+            [
+                new DependencyInspectionFailure.Traversal(
+                    new DependencyInspectionTraversalFailure(
+                        "NoMatchingVersion",
+                        SourceProjectionIndex: 0,
+                        NodeIndex: null,
+                        ProjectionIndex: null,
+                        DeclarationIdentity: declarationIdentity,
+                        PackageId: "example.dependency",
+                        VersionConstraint: "[1.0.0,)",
+                        CandidateOutcome:
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                new PackageDependencyTraversalCandidateResult
+                                    .Failed(
+                                        new PackageDependencyTraversalCandidateFailure
+                                            .NoMatchingVersion())),
+                        ManifestFailure: null,
+                        BudgetKind: null,
+                        BudgetLimit: null,
+                        RestoredFailure: null,
+                        AffectedRootOccurrences: [1])),
+                new DependencyInspectionFailure.Pruning(
+                    new DependencyInspectionPruningFailure.Candidate(
+                        RootOccurrence: 1,
+                        RootIdentity: rootIdentity,
+                        DeclarationIdentity: declarationIdentity,
+                        PackageId: "example.dependency",
+                        VersionConstraint: "[1.0.0,)",
+                        Outcome:
+                            DependencyInspectionPackageCandidateOutcome.Create(
+                                new PackageDependencyCandidateResult.Failed(
+                                    declaration,
+                                    new PackageDependencyCandidateFailure
+                                        .NoMatchingVersion())))),
+            ]);
+
+        JsonElement root = JsonSerializer.SerializeToElement(
+            content,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
+        JsonElement traversalCandidate =
+            root.GetProperty("failures")[0]
+                .GetProperty("value")
+                .GetProperty("candidate_outcome");
+        JsonElement pruningCandidate =
+            root.GetProperty("failures")[1]
+                .GetProperty("value")
+                .GetProperty("outcome");
+
+        Assert.Equal(
+            "failed",
+            traversalCandidate.GetProperty("kind").GetString());
+        Assert.Equal(
+            "no-matching-version",
+            traversalCandidate.GetProperty("failure")
+                .GetProperty("kind")
+                .GetString());
+        Assert.Equal(
+            "failed",
+            pruningCandidate.GetProperty("kind").GetString());
+        Assert.Equal(
+            "no-matching-version",
+            pruningCandidate.GetProperty("failure")
+                .GetProperty("kind")
+                .GetString());
+    }
+
+    [Fact]
+    public void GeneratedContentJsonRetainsPruningResult()
+    {
+        PackageDependencyEvidenceRoot evidenceRoot =
+            Assert.Single(Outcome(admittedRoots: 1).Roots);
+        var groupIdentity = new PackageDependencyEvidenceGroupIdentity.Package(
+            (PackageDependencyEvidenceRootIdentity.Package)
+                evidenceRoot.Identity,
+            IsImplicitManifestGroup: false,
+            FirstSourceOccurrence: 0);
+        var declaration = new PackageDependencyEvidenceDeclaration(
+            new PackageDependencyEvidenceDeclarationIdentity(
+                groupIdentity,
+                "example.dependency"),
+            "example.dependency",
+            "[1.0.0,)",
+            new InertString(TextPolicy.Field, "Example.Dependency"),
+            new InertString(TextPolicy.Field, "[1.0.0,)"),
+            SourceOccurrenceCount: 1,
+            PackageDependencyEvidenceAuthorship.LibraryDeclared);
+        var applicability = new PackageHouseDependencyPruningApplicability(
+            evidenceRoot,
+            declaration,
+            PackageHouseDependencyPruningApplicabilityState
+                .CandidateRequired,
+            Processing: null,
+            TargetUnavailableReason: null);
+        var pruning = new DependencyInspectionPruning(
+            RootOccurrence: 1,
+            evidenceRoot.Identity,
+            evidenceRoot.Display,
+            declaration.Identity,
+            RequestedFramework:
+                new InertString(TextPolicy.Field, "net11.0"),
+            SelectedFramework:
+                new InertString(TextPolicy.Field, "net11.0"),
+            declaration.CanonicalPackageId,
+            declaration.SourcePackageIdSpelling,
+            declaration.CanonicalVersionConstraint,
+            declaration.SourceVersionConstraintSpelling,
+            CandidateVersion: "1.0.0",
+            PlatformFamily: "DotNetRuntime",
+            PlatformTargetFramework: "net11.0",
+            PlatformVersion: "11.0.0",
+            PlatformProvidedVersion: "2.0.0",
+            DependencyInspectionPruningDisposition.PlatformDelegation,
+            Reason: PlatformSubsumption.Subsumed.ToString(),
+            applicability,
+            CandidateOutcome: null,
+            new DependencyInspectionPruningResult.Evaluated(
+                PackageSourceCoordinate.Create(
+                    "Example.Dependency",
+                    "1.0.0"),
+                DotnetInspector.Platforms.PlatformFamily.DotNetRuntime,
+                "net11.0",
+                "11.0.0",
+                "2.0.0",
+                PlatformSubsumption.Subsumed,
+                DelegatesToPlatform: true));
+        var content = new DependencyInspectionContent(
+            new DependencyInspectionSummary(
+                DependencyInspectionRootSetCompletion.Complete,
+                RequestedRoots: 1,
+                AdmittedRoots: 1,
+                FailedRoots: 0,
+                DependencyInspectionTraversalCompletion.NotRequested,
+                RequestedDepth: null,
+                HierarchyOccurrences: 0,
+                CanonicalNodes: 0,
+                Relationships: 0,
+                DependencyInspectionEvidencePhaseCompletion.Complete,
+                DependencyInspectionEvidencePhaseCompletion.NotRequested,
+                new DependencyInspectionPruningSummary(
+                    DependencyInspectionPruningCompletion.Complete,
+                    Roots: 1,
+                    Declarations: 1,
+                    Evaluated: 1,
+                    Delegated: 1,
+                    Retained: 0,
+                    NotEvaluated: 0,
+                    SourceBounded: 0,
+                    Failed: 0),
+                IsPrefixRootSet: false,
+                PackagePrefix: null),
+            DependencyHierarchyDocument.Empty,
+            [],
+            [],
+            [pruning],
+            []);
+
+        JsonElement root = JsonSerializer.SerializeToElement(
+            content,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
+        JsonElement result =
+            root.GetProperty("pruning")[0]
+                .GetProperty("result");
+
+        Assert.Equal("evaluated", result.GetProperty("kind").GetString());
+        Assert.Equal(
+            "Subsumed",
+            result.GetProperty("subsumption").GetString());
+        Assert.True(
+            result.GetProperty("delegates_to_platform").GetBoolean());
+    }
+
     private static PackageDependencyEvidenceOutcome Outcome(
         int admittedRoots = 0,
         ImmutableArray<PackageDependencyEvidenceRootFailure> failedRoots =
@@ -194,6 +570,12 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                 ],
                 failedRoots));
     }
+
+    private static DependencyInspectionEvidenceDocument EmptyDocument() =>
+        new(
+            Outcome(),
+            [],
+            []);
 
     private static PackageManifestFacts PackageFacts(string packageId) =>
         new(

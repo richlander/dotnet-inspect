@@ -83,6 +83,8 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
 
     public bool EnvelopeOutput { get; init; }
 
+    public string? EvidenceEnvelopePath { get; init; }
+
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>The selected output format for the graph projection.</summary>

@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Diagnostics;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -607,6 +608,8 @@ public static class SearchCommandDefinitions
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
+        var evidenceEnvelopeRegistration =
+            new EvidenceEnvelopeOptionRegistration();
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
 
@@ -649,6 +652,10 @@ public static class SearchCommandDefinitions
             dependsCommand,
             opts.Discover, opts.Schema, opts.Effective, opts.Select,
             opts.Verbosity, opts.Count);
+        RegisterEvidenceEnvelopeOption(
+            dependsCommand,
+            targetTypeArg,
+            evidenceEnvelopeRegistration);
 
         dependsCommand.Validators.Add(result =>
         {
@@ -673,7 +680,24 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
-            if (result.GetValue(opts.Envelope) && !typeMode)
+            Option<string?>? evidenceEnvelopeOption =
+                evidenceEnvelopeRegistration.Option;
+            bool evidenceEnvelopeRequested =
+                evidenceEnvelopeOption is not null
+                && result.GetResult(evidenceEnvelopeOption)
+                    is { Implicit: false };
+            if (evidenceEnvelopeRequested
+                && (result.GetResult(opts.Discover)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Effective)
+                    || result.GetValue(opts.Schema)))
+            {
+                result.AddError(
+                    "--evidence-envelope requires dependency inspection, not discovery or schema output.");
+            }
+            if (result.GetValue(opts.Envelope)
+                && !typeMode
+                && !evidenceEnvelopeRequested)
             {
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
@@ -847,6 +871,14 @@ public static class SearchCommandDefinitions
                         : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
+                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                    EvidenceEnvelopePath =
+                        evidenceEnvelopeRegistration.Option
+                            is { } registeredEvidenceEnvelopeOption
+                            ? ResolveEvidenceEnvelopePath(
+                                parseResult.GetValue(
+                                    registeredEvidenceEnvelopeOption))
+                            : null,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -987,6 +1019,85 @@ public static class SearchCommandDefinitions
                     lowering));
 
         return dependsCommand;
+    }
+
+    [Conditional("DEBUG")]
+    private static void RegisterEvidenceEnvelopeOption(
+        Command command,
+        Argument<string?> targetType,
+        EvidenceEnvelopeOptionRegistration registration)
+    {
+        var option = new Option<string?>("--evidence-envelope")
+        {
+            Description =
+                "Write the complete Debug evidence envelope to a JSON file",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        registration.Option = option;
+        command.Options.Add(option);
+        command.Validators.Add(result =>
+        {
+            if (result.Errors.Any()
+                || result.Children.Any(static child => child.Errors.Any())
+                || result.GetResult(option) is not { Implicit: false })
+            {
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(result.GetValue(targetType)))
+            {
+                result.AddError(
+                    "--evidence-envelope is available only without a positional type.");
+                return;
+            }
+
+            string? path = result.GetValue(option);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                result.AddError(
+                    "--evidence-envelope requires a non-empty path.");
+                return;
+            }
+
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(path);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException
+                    or NotSupportedException
+                    or PathTooLongException)
+            {
+                result.AddError(
+                    "--evidence-envelope requires a valid file path.");
+                return;
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                result.AddError(
+                    "--evidence-envelope requires a file path, not a directory.");
+                return;
+            }
+
+            string? parent = Path.GetDirectoryName(fullPath);
+            if (parent is null || !Directory.Exists(parent))
+            {
+                result.AddError(
+                    "--evidence-envelope requires an existing parent directory.");
+            }
+        });
+    }
+
+    private static string? ResolveEvidenceEnvelopePath(string? path) =>
+        path is null
+            ? null
+            : Path.GetFullPath(path);
+
+    private sealed class EvidenceEnvelopeOptionRegistration
+    {
+        internal Option<string?>? Option { get; set; }
     }
 
     private static DependsAssetRoot[] ParseDependsAssetRoots(

@@ -16,7 +16,8 @@ Dependency adoption rather than target grammar.
 The host-neutral dependency settlement operation and ordinary CLI adoption are
 implemented under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
-sidecar serialization and Browser/Wasm adoption remain proposed.
+service-evidence enrichment and sidecar serialization are also implemented for
+the CLI; Browser/Wasm adoption remains proposed.
 
 ## Owner and claim
 
@@ -797,11 +798,11 @@ demonstration that diagnostic registration disappears from retail compilation.
 
 ## Debug service-evidence enrichment
 
-**Status:** partially implemented under
+**Status:** implemented for the host-neutral settlement operation and CLI under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
-host-neutral ordinary and enriched settlement entry points and ordinary CLI
-cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
-remain proposed.
+ordinary and enriched settlement entry points, ordinary CLI cutover, generated
+Content/Evidence serialization, and Debug sidecar are implemented. Browser/Wasm
+adoption remains proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -832,13 +833,18 @@ these roles:
 The same owner-issued fact may support a baseline row and remain in Evidence.
 That is deliberate: optional capture cannot make Content incomplete or force a
 baseline consumer to understand `TEvidence`.
+Pruning Content retains closed portable candidate and pruning-result
+projections instead of serializing PackageHouse receipts, configured
+authorities, or package-layer runtime associations into the Sections-owned wire
+contract.
 
 ### Concrete evidence value
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption, and closed generated serialization are implemented. Generated
-sidecar serialization and Browser/Wasm adoption remain proposed.
+CLI consumption are implemented together with closed generated serialization,
+full package-input capture, generated sidecar serialization, and Debug CLI
+adoption. Browser/Wasm adoption remains proposed.
 
 The dependency service issues one named settled Document:
 
@@ -1010,18 +1016,16 @@ pathological fixtures. They cover:
 - parsed-wire equality for existing `DependsAssetDocument` JSON with and
   without the sidecar, including selected-section presence and row windows;
   rejection of standalone asset-mode `--envelope`; and
-- matching runtime JSON and generated Browser/Wasm types for the complete
-  closed enrichment.
+- Release rejection of the Debug-only `--evidence-envelope` host surface.
 
 The Debug CLI public-entry gates required by Output Shapes additionally cover
 ordinary tree, JSON, and selected diagnostic-section output while the sidecar
 receives the complete closed enrichment; paired `--envelope` baseline
 equality including identical framing and Content serialization; and ordinary
 output plus nonzero status when sidecar publication fails. Demonstrations use
-the restored CLI project and each thin diagnostic view. A Debug Browser/Wasm
-demonstration consumes the same evidence value. These gates do not verify the
-already documented Release host-surface absence, which remains **unverified**
-under the generic envelope policy.
+the restored CLI project and each thin diagnostic view. A future Debug
+Browser/Wasm adoption must consume the same evidence value and add matching
+runtime JSON and generated-type gates for the complete closed enrichment.
 
 ## Hierarchy rendering and row currency
 

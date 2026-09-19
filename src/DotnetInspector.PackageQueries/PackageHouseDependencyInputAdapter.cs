@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using NuGetFetch;
@@ -5,6 +6,13 @@ using NuGetFetch;
 namespace DotnetInspector.PackageQueries;
 
 /// <summary>One normalized dependency subject adopted for PackageHouse processing.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
+[JsonDerivedType(
+    typeof(PackageHouseDependencySubject.Declaration),
+    "declaration")]
+[JsonDerivedType(
+    typeof(PackageHouseDependencySubject.Relationship),
+    "relationship")]
 public abstract record PackageHouseDependencySubject
 {
     private PackageHouseDependencySubject()
