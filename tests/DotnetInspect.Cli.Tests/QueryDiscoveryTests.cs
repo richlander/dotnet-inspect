@@ -370,6 +370,13 @@ public class QueryDiscoveryTests
                     == PackageQuery.DependsTermKey)
                 .GetProperty("value_kind").GetString());
         Assert.Equal(
+            ["any", "MIT", "OSMF"],
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.LicenseTermKey)
+                .GetProperty("values").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
             "all or NuGet target framework",
             facets.Single(facet =>
                 facet.GetProperty("name").GetString()

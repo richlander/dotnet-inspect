@@ -137,13 +137,13 @@ internal abstract record PackageIndexProduction
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v17";
-    internal const string Projection = "package-index-projection-v17";
-    private const int FormatVersion = 17;
+    internal const string Category = "pkg-index-v18";
+    internal const string Projection = "package-index-projection-v18";
+    private const int FormatVersion = 18;
     private const int CompletionMarker = unchecked((int)0x434F4D50);
     private const int EndMarker = unchecked((int)0x454E4421);
     private const int MaxCollectionCount = 1_000_000;
-    private static readonly byte[] Magic = "PKGIDX17"u8.ToArray();
+    private static readonly byte[] Magic = "PKGIDX18"u8.ToArray();
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -188,6 +188,7 @@ internal static class PackageIndexCache
                 Authors = ReadNullableString(reader),
                 License = ReadNullableString(reader),
                 LicenseUrl = ReadNullableString(reader),
+                DeclaredLicenseFile = ReadNullableString(reader),
                 Repository = ReadNullableString(reader),
                 RepositoryType = ReadNullableString(reader),
                 RepositoryCommit = ReadNullableString(reader),
@@ -282,6 +283,7 @@ internal static class PackageIndexCache
             WriteNullableString(writer, result.Authors);
             WriteNullableString(writer, result.License);
             WriteNullableString(writer, result.LicenseUrl);
+            WriteNullableString(writer, result.DeclaredLicenseFile);
             WriteNullableString(writer, result.Repository);
             WriteNullableString(writer, result.RepositoryType);
             WriteNullableString(writer, result.RepositoryCommit);

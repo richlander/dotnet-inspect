@@ -45,6 +45,7 @@
 
   <ItemGroup>
     <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="TestData/StructuralReview/*.json" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\tests\CSharpText.Tests\PdbScopeFixtures.cs" Link="PdbScopeFixtures.cs" />
   </ItemGroup>
 

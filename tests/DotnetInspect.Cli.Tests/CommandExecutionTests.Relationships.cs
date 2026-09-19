@@ -448,15 +448,15 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries));
         using JsonDocument document =
             JsonDocument.Parse(compact.Output);
-        JsonElement graph = document.RootElement.GetProperty(
-            "dependency_graph");
+        JsonElement hierarchy = document.RootElement.GetProperty(
+            "dependency_hierarchy");
         Assert.Equal(
             JsonValueKind.Object,
             document.RootElement.ValueKind);
         Assert.True(
-            graph.GetProperty("edges").GetArrayLength() > 0);
-        JsonElement evidence = graph
-            .GetProperty("edges")[0]
+            hierarchy.GetProperty("occurrences").GetArrayLength() > 0);
+        JsonElement evidence = hierarchy
+            .GetProperty("occurrences")[0]
             .GetProperty("evidence_identity");
         Assert.Equal(
             "assembly-reference",
@@ -492,8 +492,8 @@ public partial class CommandExecutionTests
             using JsonDocument document =
                 JsonDocument.Parse(graph.Output);
             JsonElement root = Assert.Single(
-                document.RootElement.GetProperty("dependency_graph")
-                    .GetProperty("nodes")
+                document.RootElement.GetProperty("dependency_hierarchy")
+                    .GetProperty("roots")
                     .EnumerateArray());
             JsonElement library = root.GetProperty("identity")
                 .GetProperty("library");
@@ -508,8 +508,8 @@ public partial class CommandExecutionTests
                 library.GetProperty("module_version_id")
                     .GetGuid());
             Assert.Empty(
-                document.RootElement.GetProperty("dependency_graph")
-                    .GetProperty("edges")
+                document.RootElement.GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences")
                     .EnumerateArray());
         }
         finally
@@ -535,8 +535,8 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement edge =
-                document.RootElement.GetProperty("dependency_graph")
-                    .GetProperty("edges")
+                document.RootElement.GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences")
                     .EnumerateArray()
                     .First();
             Assert.Equal(

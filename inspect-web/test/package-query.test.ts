@@ -127,11 +127,13 @@ function row(packageId: string): QueryResultRow {
     packageId,
     version: "1.0.0",
     tier: "nuspec",
+    answers: [],
     evidence: [{
       id: "test.package",
-      text: "net45",
       scope: "package",
       summary: null,
+      properties: [{ name: "value", value: "net45" }],
+      number: null,
     }],
     totalDownloads: 100,
   };
