@@ -496,6 +496,9 @@ available Package Dependencies scalar.
 The baseline transport is a supported public machine contract.
 `--evidence-envelope` uses the same typed, versioned framing as a supported
 Debug-only machine contract; its availability does not make it an ad-hoc dump.
+A Release-configuration PR gate explicitly defines `DEBUG` and exercises the
+adopter's public command contracts; the ordinary Release binary, where that
+host surface is absent, cannot enforce them.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
