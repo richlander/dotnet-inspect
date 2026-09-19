@@ -345,10 +345,15 @@ spelling. A body consumer that constructs the owning property may explicitly
 pass its selected-property descriptor to typed body production, applying the
 same binding before raising. Selected composition separately materializes the
 complete automatic-getter body proof: a compiler marker alone cannot authorize
-discarding a computed body in favor of `get;`. Declaration attribute support
-does not change that body decision. Native reconstruction retains its existing
-automatic getter-body handling when selected-source composition declines custom
-field attributes; this is not a claim to reconstruct those attributes.
+discarding a computed body in favor of `get;`. That body proof requires the
+complete trivial getter, exact private compiler field, matching staticness,
+readonly storage and own ordered generic instantiation. Selected-source
+declaration eligibility is a separate question: its unsafe-signature, storage
+layout, field-flag and attribute restrictions do not change the body decision.
+Native reconstruction retains its existing automatic getter-body handling when
+the native shell can represent the declaration, including pointer and function-
+pointer automatic properties. This does not expand selected-source recovery or
+claim reconstruction of custom field attributes or explicit storage layout.
 
 Native compile-back adopts this explicit context for the selected getter under
 both Selected and Full body policies. It consumes the shared storage and
@@ -416,6 +421,12 @@ and `PublishedDocoptNativeGetterRetainsItsStorageAndNullFallback` run native
 reconstruction with repair floors disabled, comparing complete getter opcodes,
 resolved operands and storage flags in the emitted artifact. They inherit the
 native suite's Slow classification and run as focused pre-merge evidence.
+`NativeAutomaticGetterPreservesBodyWhenSelectedDeclarationDeclines` covers
+instance/static pointer and function-pointer automatic properties plus an
+explicit-layout integer neighbor in the C# legacy-rules compiler fixture.
+`ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility`
+keeps the corresponding selected-source declines while retaining the complete
+automatic-body decision.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32

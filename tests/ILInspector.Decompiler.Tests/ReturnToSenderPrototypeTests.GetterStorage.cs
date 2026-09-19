@@ -68,6 +68,31 @@ public partial class ReturnToSenderPrototypeTests
         Assert.Contains("return field ?? Array.Empty<T>();", result.TargetBody);
     }
 
+    [Theory]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "Pointer", false)]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "Pointer", true)]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedPointer", false)]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "FunctionPointer", false)]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "FunctionPointer", true)]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedFunctionPointer", false)]
+    [InlineData("SelectedLayoutAutoPropertySamples", "Count", false)]
+    [InlineData("SelectedLayoutAutoPropertySamples", "Count", true)]
+    public async Task NativeAutomaticGetterPreservesBodyWhenSelectedDeclarationDeclines(
+        string typeName, string propertyName, bool full)
+    {
+        string path = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath();
+        var result = Assert.Single(await ReturnToSender.CompileBackTargets(
+            path,
+            [new ReturnToSender.RequestedTarget(
+                $"ILInspector.Decompiler.Fixtures.{typeName}", $"get_{propertyName}", 0)],
+            RoundTripScope.Cluster,
+            full ? RoundTripBodyPolicy.Full : RoundTripBodyPolicy.Selected,
+            applyCompileBackFloor: false));
+
+        AssertNativeGetterStorage(path, typeName, propertyName, result);
+        Assert.Contains($"{propertyName} {{ get; }}", result.Source);
+    }
+
     static void AssertNativeGetterStorage(
         string path, string typeName, string propertyName, ReturnToSender.Result result)
     {

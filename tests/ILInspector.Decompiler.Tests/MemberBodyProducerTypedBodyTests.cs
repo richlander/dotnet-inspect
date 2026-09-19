@@ -166,6 +166,23 @@ public sealed class MemberBodyProducerTypedBodyTests
         Assert.True(automaticGetterBody);
     }
 
+    [Theory]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "Pointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedPointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "FunctionPointer")]
+    [InlineData("SelectedUnsafeAutoPropertySamples", "SharedFunctionPointer")]
+    [InlineData("SelectedLayoutAutoPropertySamples", "Count")]
+    public void ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility(
+        string typeName, string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.True(automaticGetterBody);
+    }
+
     static MethodDefinitionHandle FindMethod(
         MetadataReader reader,
         string typeName,

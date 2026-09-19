@@ -196,10 +196,15 @@ public sealed class SelectedPropertyAccessorSource
                 },
             };
             FieldDefinitionHandle backingField = default;
+            var fieldScope = GenericScope.Empty;
             automaticGetterBody = hasBackingStorage
-                && IsAutomaticGetter(source, handle, methodHandle, selectedProperty, out backingField);
+                && IsAutomaticGetterBody(
+                    source, handle, methodHandle, selectedProperty, out backingField, out fieldScope);
+            var automaticFieldFlags = FieldAttributes.Private | FieldAttributes.InitOnly
+                | (selectedProperty.IsStatic ? FieldAttributes.Static : 0);
             bool automaticGetter = automaticGetterBody
-                && HasSupportedBackingFieldAttributes(reader, backingField);
+                && !selectedProperty.IsUnsafe
+                && HasSupportedBackingField(reader, backingField, fieldScope, automaticFieldFlags);
             SelectedGetterStorage? getterStorage = null;
             if (hasBackingStorage && !automaticGetter)
             {
@@ -213,16 +218,16 @@ public sealed class SelectedPropertyAccessorSource
         return null;
     }
 
-    static bool IsAutomaticGetter(
+    static bool IsAutomaticGetterBody(
         MetadataSource source, PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle methodHandle, ApiMember property,
-        out FieldDefinitionHandle backingFieldHandle)
+        out FieldDefinitionHandle backingFieldHandle, out GenericScope scope)
     {
         backingFieldHandle = default;
+        scope = GenericScope.Empty;
         var reader = source.Reader;
         var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-        if (accessors.Getter != methodHandle || !accessors.Setter.IsNil
-            || property.IsUnsafe)
+        if (accessors.Getter != methodHandle || !accessors.Setter.IsNil)
             return false;
         var method = reader.GetMethodDefinition(methodHandle);
         if (method.GetGenericParameters().Count != 0)
@@ -252,12 +257,10 @@ public sealed class SelectedPropertyAccessorSource
         var genericNames = type.GetGenericParameters()
             .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
             .ToImmutableArray();
-        var scope = new GenericScope(genericNames, []);
+        scope = new GenericScope(genericNames, []);
         var field = IrImporter.ResolveField(
             reader, MetadataTokens.EntityHandle((int)fieldInstruction.OperandValue),
             scope);
-        if (field.Type.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(field.Type))
-            return false;
         if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
         {
             var arguments = field.DeclaringType.TypeArguments;
@@ -270,9 +273,7 @@ public sealed class SelectedPropertyAccessorSource
         else if (genericNames.Length != 0)
             return false;
 
-        var expected = FieldAttributes.Private | FieldAttributes.InitOnly
-            | (property.IsStatic ? FieldAttributes.Static : 0);
-        return HasSupportedBackingFieldShape(reader, backingFieldHandle, scope, expected);
+        return (reader.GetFieldDefinition(backingFieldHandle).Attributes & FieldAttributes.InitOnly) != 0;
     }
 
     internal static bool HasSupportedBackingField(
