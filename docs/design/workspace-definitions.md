@@ -2054,7 +2054,7 @@ gated by `product-home-demos.test.ts`,
 `saved-workspace-navigation.test.ts`, the home-demo source contract in
 `composition-root-workspace-navigation.test.ts`, and the package/Platform
 Methods and Call Graph production-composition cases in
-`library-hierarchy.spec.ts`.
+`library-hierarchy.demos.spec.ts`.
 
 The System.Text.Json and Microsoft.Extensions migrations are gated by two
 independent exact facts: `PlatformPrunePolicy` reports that each former package
