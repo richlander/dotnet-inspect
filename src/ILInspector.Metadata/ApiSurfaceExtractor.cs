@@ -1337,7 +1337,7 @@ public static partial class ApiSurfaceExtractor
                         methodImplementationBodyCounts.GetValueOrDefault(
                             methodHandle) switch
                         {
-                            0 => true,
+                            0 => !isOperator || explicitSeparator < 0,
                             1 => isFinalizer
                                 || isExplicitInterfaceImplementation
                                     && explicitInterfaceQualifierMatches,
@@ -1373,13 +1373,11 @@ public static partial class ApiSurfaceExtractor
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
                     AccessibilityIsRepresentable =
                         isExplicitInterfaceImplementation
-                            && !isOperator
                             && !isFinalizer
                             ? methodAccess == MethodAttributes.Private
                             : IsRepresentableMethodAccessibility(methodAccess),
                     Accessibility =
                         isExplicitInterfaceImplementation
-                            && !isOperator
                             && !isFinalizer
                             ? null
                             : GetAccessibility(methodAccess),

@@ -1483,6 +1483,67 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
+    [Fact]
+    public void MemberDeclaration_FormatsExplicitInterfaceBinaryOperator()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Value",
+            Kind = "struct",
+        };
+        var member = new ApiMember
+        {
+            Name = "IAddition<Value>.op_Addition",
+            Kind = "operator",
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "IAddition<Value>.op_Addition",
+                ReturnType = "Value",
+                Parameters =
+                [
+                    new ApiParameter { Type = "Value", Name = "left" },
+                    new ApiParameter { Type = "Value", Name = "right" },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            "static Value IAddition<Value>.operator +(Value left, Value right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
+    public void MemberDeclaration_FormatsExplicitInterfaceConversionOperator()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Value",
+            Kind = "struct",
+        };
+        var member = new ApiMember
+        {
+            Name = "IConversion<Value>.op_Explicit",
+            Kind = "operator",
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "IConversion<Value>.op_Explicit",
+                ReturnType = "int",
+                Parameters =
+                [
+                    new ApiParameter { Type = "Value", Name = "value" },
+                ],
+            },
+        };
+
+        Assert.Equal(
+            "static explicit IConversion<Value>.operator int(Value value)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
     [Theory]
     // MAI-Code round-3 finding: a ')' inside a string default terminated the parameter
     // list early, so the trailing-context rule saw leftover text and declined to escape.

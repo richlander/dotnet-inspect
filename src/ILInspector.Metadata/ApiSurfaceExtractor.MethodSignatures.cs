@@ -362,8 +362,12 @@ public static partial class ApiSurfaceExtractor
         int genericParameterCount = method.GetGenericParameters().Count;
         bool constructorFlagsAreRepresentable =
             ConstructorFlagsAreRepresentable(methodName, method.Attributes);
+        bool isQualifiedOperator =
+            IsOperatorMethodName(methodName)
+            && methodName.LastIndexOf('.') > 0;
         bool operatorFlagsAreRepresentable =
             !IsOperatorMethodName(methodName)
+            || isQualifiedOperator
             || (method.Attributes & MethodAttributes.SpecialName) != 0;
         return constructorFlagsAreRepresentable
             && operatorFlagsAreRepresentable

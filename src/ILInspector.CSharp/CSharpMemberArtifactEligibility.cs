@@ -56,8 +56,15 @@ public static class CSharpMemberArtifactEligibility
         }
 
         if (member.Kind == "operator")
-            return OperatorNames.GetStandaloneDeclarationParameterCount(
-                member.Name) is not null;
+        {
+            return TryGetOperatorDeclarationName(
+                member.Name,
+                out string? qualifier,
+                out string operatorName)
+                && (qualifier is null || IsQualifiedName(qualifier))
+                && OperatorNames.GetStandaloneDeclarationParameterCount(
+                    operatorName) is not null;
+        }
 
         string name = member.Kind is "method" or "extension-method"
             ? member.Name
@@ -258,7 +265,11 @@ public static class CSharpMemberArtifactEligibility
         if (member.Kind != "operator")
             return true;
 
-        if (type.DefinitionName is not { } declaringType
+        if (!TryGetOperatorDeclarationName(
+                member.Name,
+                out string? qualifier,
+                out string operatorName)
+            || type.DefinitionName is not { } declaringType
             || type.Kind is not ("class" or "struct")
             || type.IsStatic
             || member.Accessibility is not null
@@ -272,7 +283,7 @@ public static class CSharpMemberArtifactEligibility
             || signature.ReturnTypeShape is null
             || IsVoid(signature.ReturnTypeShape)
             || OperatorNames.GetStandaloneDeclarationParameterCount(
-                member.Name) is not int parameterCount
+                operatorName) is not int parameterCount
             || signature.Parameters.Count != parameterCount
             || signature.Parameters.Any(
                 parameter => !string.IsNullOrEmpty(parameter.Modifier)))
@@ -280,17 +291,20 @@ public static class CSharpMemberArtifactEligibility
             return false;
         }
 
+        if (qualifier is not null)
+            return true;
+
         bool hasDeclaringOperand = signature.Parameters.Any(
             parameter => parameter.MatchesDeclaringType == true);
         if (!hasDeclaringOperand)
             return false;
 
-        if (member.Name is "op_Increment" or "op_Decrement")
+        if (operatorName is "op_Increment" or "op_Decrement")
         {
             return signature.ReturnTypeMatchesDeclaringType == true;
         }
 
-        if (member.Name is
+        if (operatorName is
             "op_LeftShift"
                 or "op_RightShift"
                 or "op_UnsignedRightShift")
@@ -299,6 +313,17 @@ public static class CSharpMemberArtifactEligibility
         }
 
         return true;
+    }
+
+    static bool TryGetOperatorDeclarationName(
+        string memberName,
+        out string? qualifier,
+        out string operatorName)
+    {
+        int separator = memberName.LastIndexOf('.');
+        qualifier = separator > 0 ? memberName[..separator] : null;
+        operatorName = memberName[(separator + 1)..];
+        return operatorName.StartsWith("op_", StringComparison.Ordinal);
     }
 
     static bool IsVoid(ApiTypeShape? shape) =>

@@ -1354,15 +1354,8 @@ public partial class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public async Task CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
+    public async Task CompileBackTargets_SelectsExplicitInterfaceOperatorBeforeLegacyFallback()
     {
-        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
-        // static-abstract operator cannot be reconstructed by the explicit-method path — the
-        // explicit target spelling would carry the raw `op_Addition` metadata name (via
-        // CSharpIdentifier.Sanitize) instead of C# `operator +` syntax, so it would not match
-        // the interface's `operator` member (CS0539). RTS must fall back to the plain sanitized
-        // shape (main's behavior) rather than regress the method-not-found ContextFail into a
-        // RecompileFail.
         var assemblyPath = CompileFixture("""
             public sealed class ExplicitOperatorFixture : INonGenericAdd
             {
@@ -1379,18 +1372,60 @@ public partial class ReturnToSenderPrototypeTests
             """);
         try
         {
+            using (var stream = File.OpenRead(assemblyPath))
+            using (var pe = new PEReader(stream))
+            {
+                ApiType type = Assert.Single(
+                    ApiSurfaceExtractor.Extract(pe).Types,
+                    candidate => candidate.Name == "ExplicitOperatorFixture");
+                ApiMember member = Assert.Single(
+                    type.Members,
+                    candidate =>
+                        candidate.Name == "INonGenericAdd.op_Addition");
+                Assert.True(member.MethodModifiersAreRepresentable);
+                Assert.True(member.MethodImplementationIsRepresentable);
+                Assert.True(member.AccessibilityIsRepresentable);
+                Assert.True(
+                    CSharpMemberArtifactEligibility.IsRepresentable(
+                        type,
+                        member),
+                    $"kind={member.Kind}; access={member.Accessibility}; "
+                    + $"static={member.IsStatic}; abstract={member.IsAbstract}; "
+                    + $"virtual={member.IsVirtual}; override={member.IsOverride}; "
+                    + $"sealed={member.IsSealed}; arity={member.GenericArity}; "
+                    + $"semantics={member.MethodSemantics}; "
+                    + $"header={member.SignatureModel?.MethodDeclarationHeaderIsRepresentable}; "
+                    + $"return={member.SignatureModel?.ReturnType}; "
+                    + $"return-shape={member.SignatureModel?.ReturnTypeShape}; "
+                    + $"parameters={member.SignatureModel?.Parameters.Count}; "
+                    + $"parameter-modifiers={string.Join(",", member.SignatureModel?.Parameters.Select(parameter => parameter.Modifier) ?? [])}");
+            }
+
+            Assert.Contains(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue),
+                target =>
+                    target.Type == "ExplicitOperatorFixture"
+                    && target.Method == "INonGenericAdd.op_Addition");
+
             var result = Assert.Single(await ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget(
                     "ExplicitOperatorFixture",
                     "INonGenericAdd.op_Addition",
                     0)]));
-
             Assert.True(
                 result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains("INonGenericAdd_op_Addition", result.Source, StringComparison.Ordinal);
-            Assert.DoesNotContain("INonGenericAdd.op_Addition(", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                "INonGenericAdd_op_Addition",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "INonGenericAdd.op_Addition(",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {
