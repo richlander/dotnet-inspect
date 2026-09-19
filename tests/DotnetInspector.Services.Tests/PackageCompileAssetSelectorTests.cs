@@ -85,6 +85,8 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(
             ["lib/net8.0/Example.dll"],
             selection.ImplementationAssets.Select(asset => asset.Path));
+        Assert.Equal("net8.0", selection.ImplementationTargetFramework);
+        Assert.False(selection.UsesCompatibleImplementationSelection);
         Assert.Equal(
             "lib/net8.0/Example.dll",
             selection.FindImplementationAsset(selection.DefaultAsset!)!.Path);
@@ -179,9 +181,33 @@ public class PackageCompileAssetSelectorTests : IDisposable
             Assert.Single(selection.ImplementationAssets);
         Assert.Equal("lib/net6.0/Example.dll", implementation.Path);
         Assert.Equal("net6.0", implementation.TargetFramework);
+        Assert.Equal("net6.0", selection.ImplementationTargetFramework);
+        Assert.True(selection.UsesCompatibleImplementationSelection);
         Assert.Same(
             implementation,
             selection.FindImplementationAsset(selection.DefaultAsset!));
+    }
+
+    [Fact]
+    public void
+        ReferenceSelection_RetainsCompatibleAmbiguousImplementationOutcome()
+    {
+        IPackageContent content = InMemory(
+            "ref/net9.0/Example.dll",
+            "lib/netcoreapp5.0/Legacy.dll",
+            "lib/net5.0/Modern.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net9.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+            selection.Status);
+        Assert.Null(selection.ImplementationTargetFramework);
+        Assert.True(selection.UsesCompatibleImplementationSelection);
     }
 
     [Fact]
@@ -347,6 +373,12 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal(expected.Status, actual.Status);
         Assert.Equal(expected.TargetFramework, actual.TargetFramework);
         Assert.Equal(
+            expected.ImplementationTargetFramework,
+            actual.ImplementationTargetFramework);
+        Assert.Equal(
+            expected.UsesCompatibleImplementationSelection,
+            actual.UsesCompatibleImplementationSelection);
+        Assert.Equal(
             expected.AvailableTargetFrameworks,
             actual.AvailableTargetFrameworks);
         Assert.Equal(expected.Assets, actual.Assets);
@@ -488,6 +520,8 @@ public class PackageCompileAssetSelectorTests : IDisposable
             selection.Status);
         Assert.Equal("net8.0", selection.TargetFramework);
         Assert.Empty(selection.Assets);
+        Assert.Equal("net6.0", selection.ImplementationTargetFramework);
+        Assert.True(selection.UsesCompatibleImplementationSelection);
         Assert.Equal(
             ["lib/net6.0/Example.dll"],
             selection.ImplementationAssets.Select(asset => asset.Path));

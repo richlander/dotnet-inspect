@@ -4315,6 +4315,11 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
 .annotated-relationships h3 { margin-top: 2px; }
+.annotated-relationship-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.annotated-relationship-presentations { display: flex; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; }
+.annotated-relationship-presentations button { padding: 4px 7px; border: 0; border-right: 1px solid var(--line); border-radius: 0; color: var(--dim); font: 10px var(--mono); }
+.annotated-relationship-presentations button:last-child { border-right: 0; }
+.annotated-relationship-presentations button[aria-pressed="true"] { background: var(--panel-active); color: var(--text); }
 .annotated-relationship-table-wrap { margin-top: 10px; overflow-x: auto; }
 .annotated-relationship-table { width: 100%; min-width: 330px; border-collapse: collapse; font: 10px/1.4 var(--mono); }
 .annotated-relationship-table th { padding: 0 6px 6px; color: var(--dim); font-weight: 500; text-align: left; text-transform: uppercase; }
@@ -4334,6 +4339,20 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 .annotated-relationship-actions { display: grid; gap: 5px; }
 .annotated-relationship-actions button { padding: 4px 6px; border-radius: 3px; color: var(--text); font: 10px var(--mono); }
 .annotated-relationship-actions button:first-child { border-color: var(--accent); }
+.annotated-relationship-diagram { position: relative; min-height: 250px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); }
+.annotated-relationship-diagram .graph-viewport { height: 250px; }
+.annotated-relationship-diagram .graph-controls { right: 8px; bottom: 8px; }
+.annotated-relationship-rendering { margin: 0; padding: 12px; color: var(--dim); font: 10px var(--mono); }
+.annotated-relationship-diagram-targets { display: grid; gap: 7px; margin-top: 10px; }
+.annotated-relationship-diagram-target { display: grid; gap: 7px; padding: 8px; border: 1px solid var(--line); background: var(--panel-raised); }
+.annotated-relationship-diagram-target > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.annotated-relationship-diagram-target strong,
+.annotated-relationship-diagram-target small { overflow-wrap: anywhere; }
+.annotated-relationship-diagram-target small { color: var(--dim); font: 10px/1.4 var(--mono); }
+.annotated-relationship-diagram-edge-actions button { width: 100%; padding: 5px 7px; border-color: var(--accent); color: var(--text); font: 10px var(--mono); }
+.annotated-relationship-diagram-destinations { display: grid; gap: 6px; }
+.annotated-relationship-diagram-destination { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; padding-top: 7px; border-top: 1px solid var(--line); }
+.annotated-relationship-diagram-destination > div:first-child { display: grid; gap: 3px; min-width: 0; }
 
 .annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px var(--shadow-drawer-color); }
 .annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px var(--shadow-drawer-color); }

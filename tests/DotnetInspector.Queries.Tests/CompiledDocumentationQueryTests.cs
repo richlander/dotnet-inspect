@@ -358,6 +358,51 @@ public sealed class CompiledDocumentationQueryTests
 
     [Fact]
     public async Task
+        SubjectResolver_AvailableModeOmitsMissingReferenceSubjects()
+    {
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync();
+        string missingIdentity =
+            "M:System.Text.Json.JsonSerializer.ImplementationOnly";
+        string[] documentationIds =
+        [
+            DeserializeIdentity,
+            missingIdentity,
+        ];
+
+        InvalidOperationException strictFailure = Assert.Throws<
+            InvalidOperationException>(
+                () => CompiledDocumentationSubjectResolver.Resolve(
+                    library.Reference,
+                    library.Owner,
+                    documentationIds,
+                    ApiSurfaceExtractionScope.Public,
+                    s_apiSurfaceBounds,
+                    TestContext.Current.CancellationToken));
+        Assert.Contains(
+            missingIdentity,
+            strictFailure.Message,
+            StringComparison.Ordinal);
+
+        IReadOnlyDictionary<string, DocumentationSubjectReference>
+            available = CompiledDocumentationSubjectResolver.ResolveAvailable(
+                library.Reference,
+                library.Owner,
+                documentationIds,
+                ApiSurfaceExtractionScope.Public,
+                s_apiSurfaceBounds,
+                TestContext.Current.CancellationToken);
+
+        KeyValuePair<string, DocumentationSubjectReference> resolved =
+            Assert.Single(available);
+        Assert.Equal(DeserializeIdentity, resolved.Key);
+        Assert.Equal(
+            DeserializeIdentity,
+            resolved.Value.CompiledXmlIdentity.Value);
+    }
+
+    [Fact]
+    public async Task
         ExecuteMany_SamePolicyRetainedTextBudgetsMatchStandaloneOutcomes()
     {
         const string typeIdentity =
@@ -1279,6 +1324,8 @@ public sealed class CompiledDocumentationQueryTests
         }
 
         public LibraryReference Reference { get; }
+
+        public LibraryContentOwner Owner => _owner;
 
         public LibraryApiSurfaceCorrespondence ApiSurfaceCorrespondence =>
             _apiSurfaceCorrespondence ??= InspectApiSurface();
