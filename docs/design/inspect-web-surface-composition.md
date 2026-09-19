@@ -819,6 +819,10 @@ sections return to one ordered stack: Libraries, Documentation, then Comparison
 targets. Package documents precede comparison setup because they describe the
 current package, while comparison choices prepare a later operation. The
 platform library picker remains with the Libraries section.
+The admitted-library placement is a staged migration exception: retaining it
+in this Package slice keeps every exact Library reachable. The Library-subject
+slice moves that inventory to Library and removes the duplicate from Package
+Overview.
 Library rows enter the existing Library subject, whose Overview retains kind
 and namespace navigation. At wide inspector widths, Library Overview makes
 Namespaces the primary region and Type kinds a compact secondary region. This
@@ -836,10 +840,12 @@ the primary navigation while five type-kind counts remain a compact secondary
 summary.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Libraries (Package) or Types (Library) return
+framework. At narrow widths the Frameworks (Package) or Types (Library) return
 control shares the quiet header; the local name and icon remain visible in the
-content below it. Controls wrap within their row, and header/footer values may
-elide as complete strings. Local subject names wrap rather than disappearing.
+content below it. The legacy Library inventory remains in Overview content only
+during the staged migration above. Controls wrap within their row, and
+header/footer values may elide as complete strings. Local subject names wrap
+rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
@@ -851,10 +857,10 @@ target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
 or expose the previous coordinate's results as the requested coordinate.
-Completion refreshes the content and library navigation from the returned
-package; keyboard focus returns to the initiating coordinate selector. Failure
-restores the previous content and coordinate with the existing visible retry
-notice. Opening a new package retains the acquisition interstitial.
+Completion refreshes the content and TFM navigation from the returned package;
+keyboard focus returns to the initiating coordinate control. Failure restores
+the previous content and coordinate with the existing visible retry notice.
+Opening a new package retains the acquisition interstitial.
 `System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
 `10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
 The production-composition browser gate in
