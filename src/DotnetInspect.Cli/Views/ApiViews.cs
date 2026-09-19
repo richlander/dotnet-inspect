@@ -1285,8 +1285,8 @@ public class MemberCodeView
 
     /// <summary>
     /// Hides the Callers "Source" column when every caller comes from a single assembly
-    /// (the default single-assembly scan), keeping that output unchanged. A semantic selection
-    /// preserves the completed scan's decision when it narrows a multi-assembly scan to one source.
+    /// (the default single-source result), keeping that output unchanged. A semantic selection
+    /// preserves the completed vector's decision when it narrows multi-source rows to one source.
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
         => rows is null
