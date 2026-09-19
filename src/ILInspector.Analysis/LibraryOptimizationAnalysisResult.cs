@@ -12,10 +12,11 @@ public sealed class LibraryOptimizationAnalysisResult
     private const int AllocationHotspotThreshold = 16;
 
     private readonly string? _moduleName;
+    private readonly LibraryCallGraphAnalysisResult _callGraph;
+    private readonly GeneratedFrameworkTypeSet _generatedFrameworkTypes;
     private readonly ImmutableArray<MethodIdentity> _declaredMethods;
     private readonly ImmutableArray<MethodIdentity> _methods;
     private readonly ImmutableArray<DirectCall> _directCalls;
-    private ImmutableArray<DirectCall> _physicalDirectCalls;
     private readonly IReadOnlyDictionary<int,
         ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     private readonly ImmutableArray<OptimizationOpportunity>
@@ -32,15 +33,18 @@ public sealed class LibraryOptimizationAnalysisResult
         _directCallerLoops;
     private Dictionary<int, int>? _rootReachByToken;
     private MethodDefinitionMap? _declaredMethodMap;
-    private ImmutableHashSet<TypeRef>? _generatedFrameworkTypes;
 
     internal LibraryOptimizationAnalysisResult(
         LibraryBodyAnalysisReceipt receipt,
         string? moduleName,
-        LibraryBodyAnalysisResult analysis)
+        LibraryBodyAnalysisResult analysis,
+        LibraryCallGraphAnalysisResult callGraph,
+        GeneratedFrameworkTypeSet generatedFrameworkTypes)
     {
         Receipt = receipt;
         _moduleName = moduleName;
+        _callGraph = callGraph;
+        _generatedFrameworkTypes = generatedFrameworkTypes;
         _declaredMethods = analysis.Methods.DeclaredMethods;
         _methods = analysis.Methods.Methods;
         _directCalls = analysis.Methods.DirectCalls;
@@ -77,7 +81,7 @@ public sealed class LibraryOptimizationAnalysisResult
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
 
     internal bool HasProjectedPhysicalDirectCalls =>
-        !_physicalDirectCalls.IsDefault;
+        _callGraph.HasProjectedPhysicalDirectCalls;
 
     /// <summary>
     /// Completed source and IL optimization opportunities, enriched with
@@ -254,25 +258,10 @@ public sealed class LibraryOptimizationAnalysisResult
     /// framework types.
     /// </summary>
     public ImmutableHashSet<TypeRef> GeneratedFrameworkTypes
-        => _generatedFrameworkTypes ??=
-            GeneratedFrameworkTypeAnalysis.Collect(
-                    PhysicalDirectCalls,
-                    _methods)
-                .ToImmutableHashSet();
+        => _generatedFrameworkTypes.Types;
 
     private ImmutableArray<DirectCall> PhysicalDirectCalls
-        => _physicalDirectCalls.IsDefault
-            ? _physicalDirectCalls =
-            [
-                .. _directCalls.Select(static call =>
-                    call.Caller == call.EvidenceMethod
-                        ? call
-                        : call with
-                        {
-                            Caller = call.EvidenceMethod,
-                        }),
-            ]
-            : _physicalDirectCalls;
+        => _callGraph.PhysicalDirectCalls;
 
     private MethodDefinitionMap DeclaredMethodMap =>
         _declaredMethodMap ??=

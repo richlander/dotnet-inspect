@@ -1705,7 +1705,8 @@ public static class ApiOutputFormatter
                             analysisInspection.IncludesCallGraphOpportunities
                                 ? BuildCallGraphOpportunityAnnotations(
                                     projection,
-                                    analysisInspection.CallGraphBodyIndexes)
+                                    analysisInspection
+                                        .CallGraphOptimizationResults)
                                 : null);
                 memberCode.CallGraph = graphOutput.Graph;
                 memberCode.CallGraphRenderedFieldEvidence =
@@ -2335,16 +2336,18 @@ public static class ApiOutputFormatter
     static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
         BuildCallGraphOpportunityAnnotations(
             ILInspector.CallGraph.CallGraphProjection projection,
-            IReadOnlyList<Analysis.LibraryBodyIndex> indexes)
+            IReadOnlyList<
+                Analysis.LibraryOptimizationAnalysisResult> results)
     {
         var candidatesByNode =
             new Dictionary<int, HashSet<string>>();
-        foreach (Analysis.LibraryBodyIndex index in indexes)
+        foreach (Analysis.LibraryOptimizationAnalysisResult result
+            in results)
         {
             IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
-                index.GeneratedFrameworkTypes;
+                result.GeneratedFrameworkTypes;
             foreach (Analysis.OptimizationOpportunity opportunity in
-                index.OptimizationOpportunities.Where(opportunity =>
+                result.Opportunities.Where(opportunity =>
                     opportunity.Shape == "sync-call-in-async"
                     && LibraryMetadataService.IncludePerformanceOpportunity(
                         opportunity,

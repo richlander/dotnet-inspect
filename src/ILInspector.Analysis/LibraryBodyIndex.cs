@@ -89,11 +89,12 @@ public sealed class LibraryBodyIndex
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features,
         bool hasFullMethodEvidenceScope,
-        LibraryOptimizationAnalysisResult? optimization = null)
+        LibraryOptimizationAnalysisResult? optimization = null,
+        LibraryCallGraphAnalysisResult? callGraph = null,
+        LibraryLeverageAnalysisResult? leverage = null)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
-        _moduleName = moduleName;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
@@ -102,49 +103,49 @@ public sealed class LibraryBodyIndex
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
         _localThrows = analysis.Methods.LocalThrows;
-        _physicalDirectCalls =
-        [
-            .. DirectCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
         UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
         bool hasFullScope =
             (features
                 & LibraryBodyAnalysisFeatures.MethodEvidence) != 0
             && hasFullMethodEvidenceScope;
-        _optimization = optimization
+        var receipt = new LibraryBodyAnalysisReceipt(
+            path,
+            moduleIdentity,
+            features,
+            hasFullScope,
+            analysis.Diagnostics);
+        _callGraph = callGraph
             ?? new(
-                new(
-                    path,
-                    moduleIdentity,
-                    features,
-                    hasFullScope,
-                    analysis.Diagnostics),
+                receipt,
                 moduleName,
                 analysis);
+        GeneratedFrameworkTypeSet? generatedFrameworkTypes = null;
+        _leverage = leverage
+            ?? new(
+                receipt,
+                _callGraph,
+                generatedFrameworkTypes ??=
+                    new GeneratedFrameworkTypeSet(_callGraph));
+        _optimization = optimization
+            ?? new(
+                receipt,
+                moduleName,
+                analysis,
+                _callGraph,
+                generatedFrameworkTypes ??=
+                    new GeneratedFrameworkTypeSet(_callGraph));
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
         MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
-        _bodySignals = analysis.Methods.BodySignals;
         _implementationProfiles =
             analysis.Methods.ImplementationProfiles;
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _unsafetyOccurrences = analysis.Safety.Occurrences;
-        _inAssemblyTypeIsException =
-            analysis.Methods.InAssemblyTypeIsException;
-        _nonHeapNewObjOperandTokens =
-            analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
         HasFullMethodEvidenceScope = hasFullScope;
         _leakTriage = analysis.Resources.LeakTriage;
         ArrayPoolOwnership = analysis.OwnershipFlow.Methods;
-        _declaredSources = analysis.Methods.DeclaredSources;
     }
 
     public string Path { get; }
@@ -223,7 +224,6 @@ public sealed class LibraryBodyIndex
             : throw new InvalidOperationException(
                 "Local throws were not requested for this body index.");
 
-    readonly ImmutableArray<DirectCall> _physicalDirectCalls;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence { get; }
     public ImmutableArray<AnalysisDiagnostic> Diagnostics { get; }
     /// <summary>The normalized producers included in this index.</summary>
@@ -257,16 +257,25 @@ public sealed class LibraryBodyIndex
                 "Leak Triage was not requested for this body index.");
 
     readonly LibraryOptimizationAnalysisResult _optimization;
+    readonly LibraryCallGraphAnalysisResult _callGraph;
+    readonly LibraryLeverageAnalysisResult _leverage;
+
+    /// <summary>
+    /// Focused call-graph result backing the compatibility members.
+    /// </summary>
+    public LibraryCallGraphAnalysisResult CallGraphAnalysis =>
+        _callGraph;
+
+    /// <summary>
+    /// Focused leverage result backing the compatibility member.
+    /// </summary>
+    public LibraryLeverageAnalysisResult LeverageAnalysis =>
+        _leverage;
+
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
-    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
         _directCallsByEvidenceMethod;
     IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>>? _unsafeEvidenceByMember;
-    MethodDefinitionMap? _methodMap;
-    MethodDefinitionMap? _declaredMethodMap;
-    IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
-    IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
-    LibraryBodyLocalCallGraph? _rootPathGraph;
     /// <summary>
     /// Drops the maps that back the single-assembly call-tree builders: the
     /// definition map, distinct-caller counts and edges, and direct-call
@@ -288,12 +297,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public void ReleaseCallGraphCaches()
     {
-        _methodMap = null;
-        _declaredMethodMap = null;
-        _distinctCallersByCallee = null;
-        _distinctCallerEdgesByCallee = null;
-        _rootPathGraph = null;
-        _directCallsByCaller = null;
+        _callGraph.ReleaseCaches();
         _directCallsByEvidenceMethod = null;
         _overloadRelationships = default;
         _projectedImplementationProfiles = default;
@@ -407,9 +411,6 @@ public sealed class LibraryBodyIndex
     /// <summary>Per-<see cref="CallerUnsafeMode"/> method counts across the whole assembly.</summary>
     public UnsafeModeBreakdown UnsafeModes { get; }
 
-    Dictionary<int, MethodSignals>? _signals;
-    readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
-    readonly IReadOnlyDictionary<int, BodySignals> _bodySignals;
     readonly ImmutableArray<MethodBodyImplementationMetrics>
         _implementationProfiles;
     ImmutableArray<MethodImplementationProfile>
@@ -418,24 +419,14 @@ public sealed class LibraryBodyIndex
         _overloadRelationships;
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
-    readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
-    readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
     /// <summary>
     /// Per-method analysis signals (allocations, copies, unsafe, reflection,
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals =>
-        _signals ??= MethodSignalAnalysis.Collect(
-            _physicalDirectCalls,
-            UnsafeEvidence,
-            _bodySignals,
-            Features.HasFlag(LibraryBodyAnalysisFeatures.Allocations)
-                ? _allocationOccurrences
-                : null,
-            _inAssemblyTypeIsException,
-            _nonHeapNewObjOperandTokens);
+    IReadOnlyDictionary<int, MethodSignals> Signals =>
+        _callGraph.MethodSignals;
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -501,9 +492,7 @@ public sealed class LibraryBodyIndex
     public IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> GetUnsafetyOccurrences() => _unsafetyOccurrences;
 
     public IReadOnlyDictionary<int, ImmutableArray<DirectCall>> GetDirectCallsByCaller()
-        => _directCallsByCaller ??= DirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
-            .ToDictionary(group => group.Key, group => group.ToImmutableArray());
+        => _callGraph.DirectCallsByCaller;
 
     /// <summary>
     /// Direct call sites grouped by the physical method body that owns their
@@ -534,110 +523,17 @@ public sealed class LibraryBodyIndex
     /// to resolve the physical body explicitly.
     /// </remarks>
     public MethodIdentity? ResolveDeclaredMethod(MethodIdentity caller)
-    {
-        if (_declaredSources.TryGetValue(
-                caller.MetadataToken,
-                out MethodIdentity? source)
-            && source.MetadataToken != caller.MetadataToken)
-        {
-            return source;
-        }
-
-        return null;
-    }
+        => _callGraph.ResolveDeclaredMethod(caller);
 
     /// <summary>
     /// Membership map for definitions with analyzable bodies. Correspondence
     /// always resolves through <see cref="DeclaredMethodMap"/> first.
     /// </summary>
-    readonly string? _moduleName;
-
-    MethodDefinitionMap MethodMap =>
-        _methodMap ??=
-            MethodDefinitionMap.Create(
-                Methods,
-                _moduleName);
-
     internal MethodDefinitionMap DeclaredMethodMap =>
-        _declaredMethodMap ??=
-            MethodDefinitionMap.Create(
-                DeclaredMethods,
-                _moduleName);
+        _callGraph.DeclaredMethodMap;
 
     internal LibraryBodyLocalCallGraph RootPathGraph()
-        => _rootPathGraph ??=
-            LibraryBodyRootPathAnalysis.BuildLocalGraph(this);
-
-    readonly record struct LocalCalleeKey(
-        int DefinitionToken,
-        GraphNodeIdentity? StructuralIdentity);
-
-    MethodIdentity? DeclaredMethod(int metadataToken)
-    {
-        // The builder merges declarations in metadata order, so token lookup
-        // needs no retained per-index cache.
-        int low = 0;
-        int high = DeclaredMethods.Length - 1;
-        while (low <= high)
-        {
-            int middle = low + ((high - low) / 2);
-            MethodIdentity candidate = DeclaredMethods[middle];
-            if (candidate.MetadataToken == metadataToken)
-                return candidate;
-            if (candidate.MetadataToken < metadataToken)
-                low = middle + 1;
-            else
-                high = middle - 1;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Distinct callers per callee definition token, over the whole assembly.
-    ///
-    /// Fan-in is the <em>true</em> inbound degree, not the degree of the drawn subgraph: a bounded
-    /// tree visits at most <c>maxNodes</c> nodes, but the annotation means "how many members depend
-    /// on this one", so it must count callers the tree never expanded. That is why this is a
-    /// whole-graph quantity and cannot be narrowed to the visited set — it is cached per index
-    /// instead, so the cost is paid once rather than on every request.
-    /// </summary>
-    IReadOnlyDictionary<int, int> DistinctCallersByCallee()
-        => _distinctCallersByCallee ??= DirectCalls
-            .GroupBy(call => DeclaredMethodMap.Resolve(call))
-            .Where(group => group.Key != 0)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Select(call => call.Caller.MetadataToken).Distinct().Count(),
-                EqualityComparer<int>.Default);
-
-    /// <summary>
-    /// Inbound call edges per callee definition token, collapsed to one edge per distinct caller
-    /// method and preserving an in-loop call site when the same caller has one.
-    ///
-    /// Keyed by <see cref="MethodDefinitionMap.Resolve"/> over all declarations,
-    /// so abstract, interface, extern, and runtime declarations retain inbound
-    /// identity even though they have no analyzable body.
-    /// </summary>
-    IReadOnlyDictionary<int, ImmutableArray<DirectCall>> DistinctCallerEdgesByCallee()
-        => _distinctCallerEdgesByCallee ??= DirectCalls
-            .GroupBy(call => DeclaredMethodMap.Resolve(call))
-            .Where(group => group.Key != 0)
-            .ToDictionary(
-                group => group.Key,
-                group => CallTreeOrdering.OrderCallers(
-                        group,
-                        call => call.Caller.AssemblyName,
-                        call => CallTreeMember.ToQualifiedDisplayString(
-                            call.Caller),
-                        call => call.Caller.ParameterTypes.Length,
-                        call => call.Caller.ModuleVersionId,
-                        call => call.Caller.MetadataToken,
-                        call => call.ILOffset)
-                    .GroupBy(call => call.Caller.MetadataToken)
-                    .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
-                    .ToImmutableArray(),
-                EqualityComparer<int>.Default);
+        => _callGraph.RootPathGraph();
 
     public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
         => _unsafeEvidenceByMember ??= UnsafeEvidence
@@ -943,7 +839,7 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public ImmutableArray<UnsafeMethodLeverage> TopUnsafeLeverage(int count = 6)
         => UnsafeLeverage.Top(
-            _physicalDirectCalls,
+            _callGraph.PhysicalDirectCalls,
             _unsafeLeverageMethods,
             count,
             DeclaredMethodMap);
@@ -955,13 +851,7 @@ public sealed class LibraryBodyIndex
     /// is still measured across every caller in the assembly.
     /// </summary>
     public ImmutableArray<MethodLeverage> TopLeverage(int count = 25, Func<MethodIdentity, bool>? scope = null)
-        => MethodLeverageRanking.Top(
-            DirectCalls,
-            Methods,
-            count,
-            scope,
-            maxDepth: 64,
-            DeclaredMethodMap);
+        => _leverage.Top(count, scope);
 
     /// <summary>
     /// Distinct callee types touched by calls from methods in <paramref name="callerScope"/>.
@@ -1022,301 +912,28 @@ public sealed class LibraryBodyIndex
         => HollowUnsafe.Collect(Methods, UnsafeEvidence);
 
     /// <summary>
-    /// Builds a bounded outbound (callee) call tree rooted at the method identified by
-    /// <paramref name="rootMethodToken"/>. Expansion stays within this assembly: callees that
-    /// resolve to another assembly are recorded as <see cref="CallTreeStatus.External"/> leaves.
-    /// A method is expanded at most once across the whole tree; later references (shared callees
-    /// or cycles) are recorded as <see cref="CallTreeStatus.AlreadyShown"/> leaves. Expansion stops
-    /// at <paramref name="maxDepth"/> levels and once <paramref name="maxNodes"/> total nodes exist.
+    /// Builds a bounded outbound call tree from the focused call-graph result.
     /// </summary>
-    public CallTreeNode BuildCallTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
-    {
-        var root = DeclaredMethods.FirstOrDefault(
-            method => method.MetadataToken == rootMethodToken);
-        var rootMember = root is { } identity
-            ? CallTreeMember.FromDefinition(identity)
-            : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
-
-        var callsByCaller = GetDirectCallsByCaller();
-
-        MethodDefinitionMap bodyMap = MethodMap;
-        MethodDefinitionMap declarationMap =
-            DeclaredMethodMap;
-        var diagnosticsByToken = Diagnostics
-            .GroupBy(diagnostic => diagnostic.MethodToken)
-            .ToDictionary(group => group.Key, group => group.First());
-
-        int budget = Math.Max(1, maxNodes);
-        int created = 1;
-        var expanded = new HashSet<int>();
-
-        int ResolveCallee(DirectCall call)
-            => declarationMap.Resolve(call);
-
-        // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
-        // members depend on this one"), and the reverse graph draws one edge per distinct
-        // caller, so the annotation has to agree with the picture it annotates. Cached on the
-        // index because it is a whole-graph quantity that every request would otherwise rebuild.
-        var incomingCounts = DistinctCallersByCallee();
-
-        CallTreeNode Build(
-            MemberRef member,
-            CallKind? kind,
-            int token,
-            int depth,
-            bool inLoop = false,
-            bool hasVirtualDispatchOccurrence = false,
-            ImmutableArray<DirectCall> parentEdgeCallSites = default)
-        {
-            MethodIdentity? definition =
-                token == 0 ? null : DeclaredMethod(token);
-            var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
-            diagnosticsByToken.TryGetValue(token, out AnalysisDiagnostic? diagnostic);
-            bool hasUnresolvedDispatch =
-                hasVirtualDispatchOccurrence
-                && definition?.IsVirtualDispatchOpen == true;
-
-            CallTreeNode Node(
-                CallTreeStatus status,
-                ImmutableArray<CallTreeNode> children,
-                CallTreePerf perf) =>
-                new(member, kind, status, children, perf)
-                {
-                    Diagnostic = diagnostic,
-                    HasUnresolvedDispatch =
-                        hasUnresolvedDispatch,
-                    ParentEdgeCallSites = parentEdgeCallSites.IsDefault
-                        ? []
-                        : parentEdgeCallSites,
-                };
-
-            if (token == 0 || !callsByCaller.TryGetValue(token, out var edges))
-            {
-                var leafStatus = token == 0 && depth > 0
-                    ? CallTreeStatus.External
-                    : diagnostic is not null
-                        ? CallTreeStatus.AnalysisIncomplete
-                        : definition is not null
-                            && !bodyMap.ContainsToken(token)
-                            ? CallTreeStatus.Bodiless
-                            : CallTreeStatus.Leaf;
-                return Node(
-                    leafStatus,
-                    [],
-                    new CallTreePerf(0, incomingCounts.TryGetValue(token, out var incoming) ? incoming : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
-            }
-
-            // True outbound degree (call sites), independent of how far the bounded
-            // tree expanded. CallTreeStatus separately conveys why expansion stopped,
-            // so depth-limited/already-shown/truncated nodes still report their real
-            // fan-out instead of reading like leaves.
-            var fanout = edges.Length;
-            if (depth >= maxDepth)
-            {
-                return Node(
-                    CallTreeStatus.DepthLimited,
-                    [],
-                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingDepth) ? incomingDepth : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
-            }
-
-            if (!expanded.Add(token))
-            {
-                return Node(
-                    CallTreeStatus.AlreadyShown,
-                    [],
-                    new CallTreePerf(fanout, incomingCounts.TryGetValue(token, out var incomingShown) ? incomingShown : 0, 1, inLoop, inLoop ? "loop" : null, null, sig));
-            }
-
-            var collapsedEdges = edges
-                .Select(edge =>
-                    (
-                        Edge: edge,
-                        Token: ResolveCallee(edge)))
-                .GroupBy(item =>
-                    item.Token != 0
-                        ? new LocalCalleeKey(
-                            item.Token,
-                            null)
-                        : new LocalCalleeKey(
-                            0,
-                            GraphNodeIdentity.FromMember(
-                                item.Edge.Callee)))
-                .Select(group =>
-                    (
-                        Item: group.FirstOrDefault(
-                            item => item.Edge.InLoop,
-                            group.First()),
-                        Calls: group
-                            .Select(item => item.Edge)
-                            .ToImmutableArray(),
-                        HasVirtualDispatch:
-                            group.Any(item =>
-                                item.Edge.Kind
-                                    is CallKind.CallVirtual
-                                        or CallKind.LoadVirtualFunction)))
-                .ToImmutableArray();
-            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
-            bool truncated = false;
-            foreach (var edgeGroup in collapsedEdges)
-            {
-                if (created >= budget)
-                {
-                    truncated = true;
-                    break;
-                }
-                created++;
-                DirectCall edge = edgeGroup.Item.Edge;
-                children.Add(
-                    Build(
-                        edge.Callee,
-                        edge.Kind,
-                        edgeGroup.Item.Token,
-                        depth + 1,
-                        edge.InLoop,
-                        edgeGroup.HasVirtualDispatch,
-                        edgeGroup.Calls));
-            }
-
-            var status = truncated
-                ? CallTreeStatus.Truncated
-                : diagnostic is not null
-                    ? CallTreeStatus.AnalysisIncomplete
-                    : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
-            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            var fanin = incomingCounts.TryGetValue(token, out var count) ? count : 0;
-            return Node(
-                status,
-                children.ToImmutable(),
-                new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, inLoop ? "loop" : null, null, sig));
-        }
-
-        return Build(rootMember, null, rootMethodToken, 0);
-    }
+    public CallTreeNode BuildCallTree(
+        int rootMethodToken,
+        int maxDepth = 3,
+        int maxNodes = 25) =>
+        _callGraph.BuildCallTree(
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
 
     /// <summary>
-    /// Builds a bounded reverse (caller) tree rooted at the method identified by
-    /// <paramref name="rootMethodToken"/>. Nodes are the immediate callers of the
-    /// selected method and their callers transitively, capped by depth and node budget.
+    /// Builds a bounded reverse call tree from the focused call-graph result.
     /// </summary>
-    public CallTreeNode BuildCallerTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
-    {
-        var root = DeclaredMethods.FirstOrDefault(
-            method => method.MetadataToken == rootMethodToken);
-        // DeclaredMethods supplies the label even when the selected method has no body of its
-        // own. For a token with no local declaration, recover the label from an inbound edge so
-        // the graph can still name the member instead of printing a bare token.
-        var rootMember = root is { } identity
-            ? CallTreeMember.FromDefinition(identity)
-            : DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
-                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolvedCallee }
-                ? resolvedCallee
-                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
-
-        int ResolveCalleeToken(DirectCall call)
-            => DeclaredMethodMap.Resolve(call);
-
-        // Group inbound call edges by callee, then collapse to one edge per distinct caller
-        // method (the section reports callers, not call sites). Preserve the in-loop signal:
-        // if any call site from a caller hits the target inside a loop, keep that edge so the
-        // loop annotation survives deduplication.
-        IReadOnlyDictionary<int, ImmutableArray<DirectCall>> reverseEdges =
-            DistinctCallerEdgesByCallee();
-
-        int budget = Math.Max(1, maxNodes);
-        int created = 1;
-        var expanded = new HashSet<int>();
-
-        CallTreeNode Build(
-            MemberRef member,
-            int token,
-            int depth,
-            bool inLoop,
-            ImmutableArray<DirectCall> parentEdgeCallSites = default)
-        {
-            // Reverse-graph semantics: the selected member is the target/sink, and the
-            // entry points are the far callers — not the tree root. Label accordingly so
-            // the target is not mistaken for the source of leverage.
-            var classification = depth == 0
-                ? "target"
-                : member.Name is "Main" or "<Main>$" ? "entrypoint" : null;
-            // A caller node's loop flag is an edge property: this caller invokes the node
-            // toward the target inside a loop (not "this method is loop-heavy").
-            var loopHint = inLoop ? "loop call" : null;
-            var sig = token != 0 ? Signals.GetValueOrDefault(token, MethodSignals.None) : MethodSignals.None;
-
-            CallTreeNode Node(
-                CallTreeStatus status,
-                ImmutableArray<CallTreeNode> children,
-                CallTreePerf perf) =>
-                new(member, null, status, children, perf)
-                {
-                    ParentEdgeCallSites = parentEdgeCallSites.IsDefault
-                        ? []
-                        : parentEdgeCallSites,
-                };
-
-            if (token == 0 || !reverseEdges.TryGetValue(token, out var edges))
-            {
-                var leafStatus = token == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return Node(
-                    leafStatus,
-                    [],
-                    new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig));
-            }
-
-            var fanin = edges.Length;
-            if (depth >= maxDepth)
-                return Node(
-                    CallTreeStatus.DepthLimited,
-                    [],
-                    new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
-
-            if (!expanded.Add(token))
-                return Node(
-                    CallTreeStatus.AlreadyShown,
-                    [],
-                    new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig));
-
-            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
-            bool truncated = false;
-            foreach (var edge in edges)
-            {
-                if (created >= budget)
-                {
-                    truncated = true;
-                    break;
-                }
-                created++;
-                var caller = edge.Caller;
-                ImmutableArray<DirectCall> callSites =
-                [
-                    .. GetDirectCallsByCaller()[
-                            caller.MetadataToken]
-                        .Where(call =>
-                            ResolveCalleeToken(call) == token)
-                        .OrderBy(call => call.ILOffset)
-                        .ThenBy(call => call.OperandToken),
-                ];
-                children.Add(Build(
-                    CallTreeMember.FromDefinition(caller),
-                    caller.MetadataToken,
-                    depth + 1,
-                    edge.InLoop,
-                    callSites));
-            }
-
-            var nodeStatus = truncated
-                ? CallTreeStatus.Truncated
-                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
-            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return Node(
-                nodeStatus,
-                children.ToImmutable(),
-                new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig));
-        }
-
-        return Build(rootMember, rootMethodToken, 0, false);
-    }
+    public CallTreeNode BuildCallerTree(
+        int rootMethodToken,
+        int maxDepth = 3,
+        int maxNodes = 25) =>
+        _callGraph.BuildCallerTree(
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
 
     /// <summary>
     /// Builds a bounded reverse tree through one catalog-owned assembly-group
@@ -1331,7 +948,7 @@ public sealed class LibraryBodyIndex
     {
         ArgumentNullException.ThrowIfNull(scope);
         return scope.BuildCallerTree(
-            this,
+            _callGraph,
             rootMethodToken,
             maxDepth,
             maxNodes);
@@ -1350,7 +967,7 @@ public sealed class LibraryBodyIndex
     {
         ArgumentNullException.ThrowIfNull(scope);
         return scope.BuildCallTree(
-            this,
+            _callGraph,
             rootMethodToken,
             maxDepth,
             maxNodes);

@@ -163,6 +163,7 @@ public sealed class MethodBodyInspectionSession
 {
     public string SourceName { get; }
     public LibraryBodyAnalysisExecution AnalysisExecution { get; }
+    public LibraryCallGraphAnalysisResult CallGraphAnalysis { get; }
     public LibraryBodyIndex BodyIndex { get; } // compatibility only
 }
 ```
@@ -175,7 +176,10 @@ migrated queries. The boundary:
   execution to `LibraryBodyAnalysisService`
 - one session builds and reuses one Analysis service execution per command
 - migrated neutral Analysis queries consume focused Analysis-owned safety,
-  implementation-profile, and optimization results
+  implementation-profile, optimization, leverage, and call-graph results
+- local and catalog member graphs compose
+  `LibraryCallGraphAnalysisResult` values, while optional graph annotations
+  consume `LibraryOptimizationAnalysisResult`
 - `LibraryBodyIndex` remains only for explicitly unmigrated compatibility paths
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
@@ -225,9 +229,10 @@ body acquisition. The
 [library body Analysis service](library-body-analysis-service.md) owns
 stateless path and immutable-image execution plus publication of focused
 detached results. `LibraryBodyAnalysisPlan` owns producer dependencies and
-scope; execution returns cohesive method, safety, allocation, optimization,
-resource-occurrence, and resource-lifecycle results. Section queries and
-topic-specific Analysis services consume those typed results rather than
+scope; execution publishes separately typed safety, implementation-profile,
+optimization, leverage, and call-graph results, with resource-occurrence and
+resource-lifecycle results following in their owning slices. Section queries
+and topic-specific Analysis services consume those typed results rather than
 adding more properties or algorithms to the facade.
 For each decoded method, `MethodBodyAnalysisContext` packages the method
 identity, exception regions, the shared Layer-0 `MethodInstructions`, and

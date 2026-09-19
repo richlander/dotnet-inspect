@@ -68,6 +68,16 @@ public sealed class LibraryBodyAnalysisExecution
             plan.Features,
             HasFullMethodEvidenceScope(plan),
             analysis.Diagnostics);
+        CallGraph = new(
+            Receipt,
+            _moduleName,
+            analysis);
+        var generatedFrameworkTypes =
+            new GeneratedFrameworkTypeSet(CallGraph);
+        Leverage = new(
+            Receipt,
+            CallGraph,
+            generatedFrameworkTypes);
         Safety = new(
             Receipt,
             analysis.Safety.Evidence);
@@ -79,7 +89,9 @@ public sealed class LibraryBodyAnalysisExecution
         Optimization = new(
             Receipt,
             _moduleName,
-            analysis);
+            analysis,
+            CallGraph,
+            generatedFrameworkTypes);
     }
 
     /// <summary>
@@ -98,6 +110,12 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
 
+    /// <summary>Focused local call-graph result.</summary>
+    public LibraryCallGraphAnalysisResult CallGraph { get; }
+
+    /// <summary>Focused whole-library leverage result.</summary>
+    public LibraryLeverageAnalysisResult Leverage { get; }
+
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
     /// consumers that have not yet migrated to focused results.
@@ -110,7 +128,9 @@ public sealed class LibraryBodyAnalysisExecution
             _analysis,
             Receipt.Features,
             Receipt.HasFullMethodEvidenceScope,
-            Optimization);
+            Optimization,
+            CallGraph,
+            Leverage);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>

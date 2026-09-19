@@ -23,6 +23,12 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.Same(
             execution.Receipt,
             execution.Optimization.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.CallGraph.Receipt);
+        Assert.Same(
+            execution.Receipt,
+            execution.Leverage.Receipt);
         Assert.False(
             execution.Safety.Evidence.IsDefault);
         Assert.True(
@@ -44,6 +50,12 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.False(
             execution.Optimization
                 .HasProjectedPhysicalDirectCalls);
+        Assert.False(
+            execution.CallGraph
+                .HasProjectedPhysicalDirectCalls);
+        Assert.False(
+            execution.CallGraph
+                .HasProjectedMethodSignals);
         Assert.Empty(
             execution.Optimization.Opportunities);
         Assert.False(
@@ -122,6 +134,36 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
+    }
+
+    [Fact]
+    public void CompatibilityIndex_DelegatesCallGraphAndLeverageResults()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+        LibraryBodyIndex index =
+            execution.CompatibilityIndex();
+        int rootToken =
+            execution.CallGraph.Methods[0].MetadataToken;
+
+        Assert.Same(
+            execution.CallGraph,
+            index.CallGraphAnalysis);
+        Assert.Same(
+            execution.Leverage,
+            index.LeverageAnalysis);
+        Assert.Equal(
+            execution.CallGraph.BuildCallTree(rootToken),
+            index.BuildCallTree(rootToken));
+        Assert.Equal(
+            execution.CallGraph.BuildCallerTree(rootToken),
+            index.BuildCallerTree(rootToken));
+        Assert.Equal(
+            execution.Leverage.Top(int.MaxValue),
+            index.TopLeverage(int.MaxValue));
     }
 
     [Fact]
