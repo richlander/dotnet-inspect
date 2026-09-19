@@ -508,6 +508,25 @@ for (const [lens, label] of [
   });
 }
 
+test("exact Library selection resolves an aggregate References refusal", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "references", "References");
+  await expect(page.getByRole("heading", {
+    name: "References requires one Library",
+  })).toBeVisible();
+
+  await selectLibrary(page, other.id);
+
+  await expect(inspectorTab(page, "data-library-lens", "references"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Example.Other.Dependency");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-reference-request", other.id);
+});
+
 test("returning to Library retains its inspector and selected Type context", async ({ page }) => {
   await installFacades(page, {
     ...surface,

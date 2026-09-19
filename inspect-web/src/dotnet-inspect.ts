@@ -3451,7 +3451,10 @@ function selectDefaultPackageSubject(pkg: AppPackage) {
   state.libraryLens = "overview";
 }
 
-function selectLibrarySubject(key: string, options: { preserveView?: boolean } = {}) {
+function selectLibrarySubject(
+  key: string,
+  options: { preserveView?: boolean; preserveLens?: boolean } = {},
+) {
   const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
   const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
   if (!library) {
@@ -3468,7 +3471,7 @@ function selectLibrarySubject(key: string, options: { preserveView?: boolean } =
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
   } else {
-    state.libraryLens = "overview";
+    if (!options.preserveLens) state.libraryLens = "overview";
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.typeFilter = "";
@@ -3483,7 +3486,7 @@ function selectLibrarySubject(key: string, options: { preserveView?: boolean } =
 }
 
 function selectAggregateLibrarySubject(
-  options: { preserveView?: boolean } = {},
+  options: { preserveView?: boolean; preserveLens?: boolean } = {},
 ) {
   if (state.rootKind === "platform") return false;
   state.workspaceSubjectOpen = false;
@@ -3495,7 +3498,7 @@ function selectAggregateLibrarySubject(
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
   } else {
-    state.libraryLens = "overview";
+    if (!options.preserveLens) state.libraryLens = "overview";
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.typeFilter = "";
@@ -8026,8 +8029,8 @@ function bindLibrarySubjectNavEvents() {
   bindLibrarySubjectNav(document, {
     onSelect: (id: string | null) => {
       const selected = id === null
-        ? selectAggregateLibrarySubject()
-        : selectLibrarySubject(id);
+        ? selectAggregateLibrarySubject({ preserveLens: true })
+        : selectLibrarySubject(id, { preserveLens: true });
       if (!selected) return;
       showContentDetailAfterRender();
       render();
