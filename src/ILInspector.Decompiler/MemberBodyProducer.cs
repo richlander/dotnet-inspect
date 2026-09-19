@@ -1506,7 +1506,7 @@ public static class MemberBodyProducer
                         };
                     if (bodyShape is not null
                         && memberHandle is { } accessorHandle
-                        && SelectedPropertyAccessorSource.Create(reader, accessorHandle, member) is { } propertySource)
+                        && SelectedPropertyAccessorSource.Create(pipelineSource, accessorHandle, member) is { } propertySource)
                     {
                         sb.AppendLf(propertySource.Format(
                             type,
@@ -1828,14 +1828,16 @@ public static class MemberBodyProducer
             : body?.Trim() == $"{target} = value;";
     }
 
-    static bool IsCompilerGeneratedAutoProperty(
+    internal static bool IsCompilerGeneratedAutoProperty(
         Pipeline.MetadataSource source,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
         ApiMember member,
         MethodDefinitionHandle? getterHandle,
-        MethodDefinitionHandle? setterHandle)
+        MethodDefinitionHandle? setterHandle,
+        out FieldDefinitionHandle backingFieldHandle)
     {
+        backingFieldHandle = default;
         if (getterHandle is null && setterHandle is null)
             return false;
 
@@ -1888,7 +1890,6 @@ public static class MemberBodyProducer
             return false;
         }
 
-        FieldDefinitionHandle backingFieldHandle = default;
         string backingFieldName = $"<{member.Name}>k__BackingField";
         foreach (var fieldHandle in type.GetFields())
         {
@@ -2027,7 +2028,8 @@ public static class MemberBodyProducer
                     typeHandle,
                     member,
                     getterHandle,
-                    setterHandle))
+                    setterHandle,
+                    out _))
             {
                 return false;
             }
@@ -2198,7 +2200,8 @@ public static class MemberBodyProducer
                 typeHandle,
                 member,
                 getterHandle,
-                setterHandle)
+                setterHandle,
+                out _)
             && accessors.All(a => IsTrivialAutoAccessor(
                 a.Keyword,
                 a.Body,
