@@ -12,7 +12,7 @@ internal sealed record MemberFactsDocument(
 {
     internal static MemberFactsDocument Create(
         string member,
-        IReadOnlyList<ResearchViews.FactRow> facts)
+        IReadOnlyList<FactRow> facts)
         => new(
             member,
             [.. facts.Select(MemberFactDocument.Create)]);
@@ -31,7 +31,7 @@ internal sealed record MemberFactDocument(
     MemberFactCalleeEvidenceDocument? CalleeEvidence)
 {
     internal static MemberFactDocument Create(
-        ResearchViews.FactRow fact)
+        FactRow fact)
         => new(
             fact.ILOffset,
             fact.CSharpLine,

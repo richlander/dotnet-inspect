@@ -5,6 +5,7 @@ import {
   type SourceWorkbenchState,
 } from "./data.ts";
 import type {
+  BrowserMemberSource,
   BrowserSource,
   BrowserTypeSourceResult,
 } from "./facades/inspect-web-source.d.ts";
@@ -130,8 +131,8 @@ export type SourceResultState<TSource = BrowserSource> =
       readonly error: string;
     };
 
-export function sourceResultNeedsLoad(
-  state: SourceResultState,
+export function sourceResultNeedsLoad<TSource>(
+  state: SourceResultState<TSource>,
   signature: string,
 ): boolean {
   return state.status === "idle" || state.signature !== signature;
@@ -154,7 +155,7 @@ export function normalizeSourceResultSnapshot<TSource>(
 
 export interface SourceInspectionState
   extends SourceWorkbenchState {
-  memberSource: SourceResultState;
+  memberSource: SourceResultState<BrowserMemberSource>;
   typeSource: SourceResultState;
   graphSource: GraphSourceState;
   taste: string[];
@@ -163,7 +164,7 @@ export interface SourceInspectionState
 export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
-  queryMemberSource(request: MemberSourceQuery): Promise<BrowserSource>;
+  queryMemberSource(request: MemberSourceQuery): Promise<BrowserMemberSource>;
   queryTypeSource(
     operationId: OperationId,
     request: TypeSourceQuery,
