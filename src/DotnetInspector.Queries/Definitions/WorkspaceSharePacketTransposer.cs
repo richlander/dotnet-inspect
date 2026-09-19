@@ -321,6 +321,161 @@ public static class WorkspaceSharePacketTransposer
             schemaVersion);
     }
 
+    /// <summary>
+    /// Projects one exact, resolved schema-version-1 Workspace-root state into
+    /// a complete schema-version-3 packet.
+    /// </summary>
+    /// <remarks>
+    /// This is not packet canonicalization. The caller supplies resolved
+    /// definitions whose package and group coordinates are already pinned;
+    /// the result authors a new committed definition set.
+    /// </remarks>
+    public static WorkspaceSharePacketProjectionResult
+        ToCompleteWorkspacePacket(
+            WorkspaceSharePacketDefinitionSet resolvedDefinitions,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(resolvedDefinitions);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        WorkspaceSharePacketProjectionResult? failure =
+            ValidateDefinitionSet(
+                resolvedDefinitions,
+                cancellationToken);
+        if (failure is not null)
+            return failure;
+
+        ViewDefinition legacyView = resolvedDefinitions.View;
+        if (legacyView.Lens is not null
+            || legacyView.Type is not null
+            || legacyView.MemberAnchor is not null
+            || legacyView.MemberSignature is not null
+            || legacyView.MemberKey is not null
+            || legacyView.Section is not null
+            || legacyView.Libraries.Count != 0)
+        {
+            return NonProjectable(
+                "view",
+                "Complete Workspace capture requires the Workspace root view.");
+        }
+
+        foreach ((NavigationTabDefinition tab, int index) in
+            resolvedDefinitions.Navigation.Tabs.Select(
+                static (tab, index) => (tab, index)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string path = $"navigation.tabs[{index}]";
+            if (tab.Coordinate
+                is DefinitionMemberCoordinate.PackageCoordinate package)
+            {
+                if (package.Version is null || package.Framework is null)
+                {
+                    return NonProjectable(
+                        path + ".coordinate",
+                        "Complete Workspace capture requires an exact package version and framework.");
+                }
+                continue;
+            }
+
+            if (tab.Subscribe is null
+                || tab.Framework is null
+                || !TryParseSubscription(
+                    tab.Subscribe,
+                    path + ".subscribe",
+                    out ParsedGroupSubscription parsed,
+                    out failure))
+            {
+                return failure
+                    ?? NonProjectable(
+                        path,
+                        "Complete Workspace capture requires an exact group pin and framework.");
+            }
+            if (parsed.Pins.Count == 0)
+            {
+                return NonProjectable(
+                    path + ".subscribe",
+                    "Complete Workspace capture requires an exact group pin.");
+            }
+        }
+
+        WorkspaceDefinition legacyWorkspace = resolvedDefinitions.Workspace;
+        NavigationDefinition legacyNavigation =
+            resolvedDefinitions.Navigation;
+        ScenarioDefinition legacyScenario = resolvedDefinitions.Scenario;
+        NavigationTabDefinition focusedTab = legacyNavigation.Tabs.Single(
+            tab => string.Equals(
+                tab.Id,
+                legacyNavigation.Focus,
+                StringComparison.Ordinal));
+        if (focusedTab.Coordinate
+            is not DefinitionMemberCoordinate.PackageCoordinate)
+        {
+            return NonProjectable(
+                "navigation.focus",
+                "Complete Workspace capture can preserve focus only on a direct Package coordinate.");
+        }
+
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceId,
+            legacyWorkspace.Contexts,
+            registrations: []);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version3,
+            NavigationId,
+            legacyNavigation.Tabs,
+            legacyNavigation.Focus);
+        var states =
+            new List<CommittedViewStateDefinition>(
+                legacyNavigation.Tabs.Count + 1)
+            {
+                new(
+                    navigation: null,
+                    subject: new PortableSubjectRequest.Workspace()),
+            };
+        foreach (NavigationTabDefinition tab in legacyNavigation.Tabs)
+        {
+            states.Add(
+                tab.Coordinate
+                    is not DefinitionMemberCoordinate.PackageCoordinate
+                        ? new CommittedViewStateDefinition(tab.Id)
+                        : string.Equals(
+                            tab.Id,
+                            legacyNavigation.Focus,
+                            StringComparison.Ordinal)
+                            ? new CommittedViewStateDefinition(
+                                tab.Id,
+                                new PortableSubjectRequest.Workspace())
+                            : new CommittedViewStateDefinition(
+                                tab.Id,
+                                new PortableSubjectRequest.Package(),
+                                new PortableRetainedSubjectContext.Package()));
+        }
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version3,
+            ViewId,
+            states);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version3,
+            ScenarioId,
+            workspace: workspace.Id,
+            context: legacyScenario.Context,
+            view: view.Id,
+            navigation: navigation.Id);
+
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        CommittedScenarioDefinitionSet committed = AssertCommitted(
+            registry.PreparePacketScenarioWithCancellation(
+                ScenarioId,
+                cancellationToken),
+            InspectionDefinitionSchema.Version3);
+        return ToPacket(committed, cancellationToken);
+    }
+
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(
         WorkspaceSharePacket packet)
     {

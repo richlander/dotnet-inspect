@@ -3432,7 +3432,26 @@ Definition records and product demos (this slice):
   ambiguous, duplicate, or target-conflicting tab sources are invalid. The
   transposer validates forward input and reverse output through
   `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
-  bind a query, or execute the scenario; and
+  bind a query, or execute the scenario.
+  `WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket` is a separate,
+  explicit producer conversion from one exact resolved schema-version-1
+  Workspace-root definition set to a newly authored complete format-3 packet,
+  implemented under
+  [#7707](https://github.com/richlander/dotnet-inspect/issues/7707).
+  It preserves navigation order and direct-Package focus independently from
+  the selected context, preserves effective targets including RID, and emits
+  the required leading Workspace state. A focused direct-Package row requests
+  the Workspace subject with canonical omitted Package-only context; inactive
+  Package rows retain their ordinary Package state. Floating Package
+  coordinates, unpinned groups, a non-root view, and non-Package focus return
+  the existing typed projection refusal. It does not canonicalize or
+  automatically upgrade an existing packet, and its pure Definitions
+  transposition is not a completed host-orchestration API.
+  `CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState`,
+  `CompleteWorkspaceCapture_RejectsFloatingCoordinates`,
+  `CompleteWorkspaceCapture_RejectsFloatingGroup`,
+  `CompleteWorkspaceCapture_RejectsNonRootView`, and
+  `CompleteWorkspaceCapture_RejectsNonPackageFocus` gate this claim; and
 - `PackageAssemblyContextSelection` and
   `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
   already-acquired package content and realize it as coordinated surface and
@@ -3519,9 +3538,14 @@ Definition records and product demos (this slice):
   gates cover canonical query-table ordering, payload identity, references,
   malformed and orphan state, query-only mixtures, typed Package Query
   binding, and cancellation between query binds; and
-- **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, Inspect Web adoption of complete restoration and query-bearing
-  sharing, CLI use of the codec/transposer for executable `-W`
+- **not yet:** Browser production consumption of complete Workspace-root
+  capture under
+  [#7709](https://github.com/richlander/dotnet-inspect/issues/7709), the final
+  adoption successor of [#7031](https://github.com/richlander/dotnet-inspect/issues/7031)
+  and failed [#7516](https://github.com/richlander/dotnet-inspect/pull/7516);
+  Definitions and Browser binding to the landed View Facet Registry, Inspect
+  Web adoption of complete restoration and query-bearing sharing, CLI use of
+  the codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

@@ -15,6 +15,147 @@ public sealed class WorkspaceSharePacketV3TransposerTests
     private const string QueryOnlyJson =
         """{"f":3,"t":[],"g":[],"r":[],"a":null,"x":null,"q":[["package-query/v1",{"t":[["depends","eq","Microsoft.Extensions.DependencyInjection"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","stable"]],"b":[["candidates",200]]}]],"v":[{"t":null,"u":{"k":"workspace"},"q":[0]}]}""";
 
+    [Fact]
+    public void CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState()
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    runtimeIdentifier: "linux-x64",
+                    platformSubscription: ":Platform@10.0.10",
+                    includeInactivePackage: true,
+                    focusId: "t1",
+                    selectedContextName: "g2"),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.CurrentFormatVersion,
+            packet.FormatVersion);
+        Assert.Equal(4, packet.ViewStates.Count);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[0].Subject);
+        Assert.Null(packet.ViewStates[1].Subject);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[2].Subject);
+        Assert.Null(packet.ViewStates[2].Context);
+        Assert.IsType<PortableSubjectRequest.Package>(
+            packet.ViewStates[3].Subject);
+        Assert.IsType<PortableRetainedSubjectContext.Package>(
+            packet.ViewStates[3].Context);
+        Assert.Equal(1, packet.FocusedTabIndex);
+        Assert.Equal(2, packet.SelectedContextIndex);
+
+        WorkspaceShareTab platform = packet.Tabs[0];
+        Assert.Equal(WorkspaceShareSourceKind.Group, platform.SourceKind);
+        Assert.Equal(":Platform", platform.Source);
+        Assert.Equal("10.0.10", platform.Version);
+        Assert.Equal("net10.0", platform.Framework);
+        Assert.Equal("linux-x64", platform.RuntimeIdentifier);
+
+        WorkspaceShareTab package = packet.Tabs[1];
+        Assert.Equal(WorkspaceShareSourceKind.Package, package.SourceKind);
+        Assert.Equal("System.Text.Json", package.Source);
+        Assert.Equal("10.0.0", package.Version);
+        Assert.Equal("net10.0", package.Framework);
+        Assert.Equal("linux-x64", package.RuntimeIdentifier);
+        Assert.Equal([1], packet.Contexts[1].TabIndexes);
+
+        WorkspaceShareTab inactivePackage = packet.Tabs[2];
+        Assert.Equal(
+            "Microsoft.Extensions.Logging.Abstractions",
+            inactivePackage.Source);
+        Assert.Equal("10.0.0", inactivePackage.Version);
+        Assert.Equal("net10.0", inactivePackage.Framework);
+        Assert.Equal("linux-x64", inactivePackage.RuntimeIdentifier);
+        Assert.Equal([2], packet.Contexts[2].TabIndexes);
+    }
+
+    [Theory]
+    [InlineData(null, "net10.0")]
+    [InlineData("10.0.0", null)]
+    public void CompleteWorkspaceCapture_RejectsFloatingCoordinates(
+        string? version,
+        string? framework)
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(version, framework),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal(
+            "navigation.tabs[0].coordinate",
+            projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_RejectsFloatingGroup()
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    platformSubscription: ":Platform"),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal(
+            "navigation.tabs[0].subscribe",
+            projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_RejectsNonRootView()
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    view: new ViewDefinition(
+                        InspectionDefinitionSchema.Version1,
+                        WorkspaceSharePacketTransposer.ViewId,
+                        type: "System.Text.Json.JsonSerializer")),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("view", projection.Failure?.Path);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_RejectsNonPackageFocus()
+    {
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                ResolvedWorkspace(
+                    version: "10.0.0",
+                    framework: "net10.0",
+                    platformSubscription: ":Platform@10.0.10",
+                    focusId: "t0"),
+                TestContext.Current.CancellationToken);
+
+        Assert.False(projection.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketProjectionFailureKind.NonProjectable,
+            projection.Failure?.Kind);
+        Assert.Equal("navigation.focus", projection.Failure?.Path);
+    }
+
     [Theory]
     [InlineData(RegistrationOnlyJson)]
     [InlineData(CompositeJson)]
@@ -258,6 +399,99 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         return Assert.IsType<
             InspectionDefinitionScenarioPreparationResult.Version3>(
                 registry.PreparePacketScenario(scenario.Id)).Definitions;
+    }
+
+    private static WorkspaceSharePacketDefinitionSet ResolvedWorkspace(
+        string? version,
+        string? framework,
+        string? runtimeIdentifier = null,
+        string? platformSubscription = null,
+        ViewDefinition? view = null,
+        bool includeInactivePackage = false,
+        string? focusId = null,
+        string? selectedContextName = null)
+    {
+        var package =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                version,
+                framework,
+                runtimeIdentifier);
+        var contexts = new List<WorkspaceContextDefinition>();
+        var tabs = new List<NavigationTabDefinition>();
+        if (platformSubscription is not null)
+        {
+            contexts.Add(
+                new WorkspaceContextDefinition(
+                    $"g{contexts.Count}",
+                    framework,
+                    runtimeIdentifier,
+                    subscribe: platformSubscription));
+            tabs.Add(
+                new NavigationTabDefinition(
+                    $"t{tabs.Count}",
+                    subscribe: platformSubscription,
+                    framework: framework,
+                    runtimeIdentifier: runtimeIdentifier));
+        }
+
+        string packageContext = $"g{contexts.Count}";
+        string packageTab = $"t{tabs.Count}";
+        contexts.Add(
+            new WorkspaceContextDefinition(
+                packageContext,
+                framework,
+                runtimeIdentifier,
+                members: [package]));
+        tabs.Add(
+            new NavigationTabDefinition(
+                packageTab,
+                coordinate: package));
+
+        if (includeInactivePackage)
+        {
+            var inactivePackage =
+                new DefinitionMemberCoordinate.PackageCoordinate(
+                    "Microsoft.Extensions.Logging.Abstractions",
+                    "10.0.0",
+                    framework,
+                    runtimeIdentifier);
+            contexts.Add(
+                new WorkspaceContextDefinition(
+                    $"g{contexts.Count}",
+                    framework,
+                    runtimeIdentifier,
+                    members: [inactivePackage]));
+            tabs.Add(
+                new NavigationTabDefinition(
+                    $"t{tabs.Count}",
+                    coordinate: inactivePackage));
+        }
+
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            contexts);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.NavigationId,
+            tabs,
+            focusId ?? packageTab);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: selectedContextName ?? packageContext,
+            view: WorkspaceSharePacketTransposer.ViewId,
+            navigation: navigation.Id);
+        return new(
+            workspace,
+            navigation,
+            view
+                ?? new ViewDefinition(
+                    InspectionDefinitionSchema.Version1,
+                    WorkspaceSharePacketTransposer.ViewId),
+            scenario);
     }
 
     private static ManagedMetadataIdentity.Assembly Library(string name) =>
