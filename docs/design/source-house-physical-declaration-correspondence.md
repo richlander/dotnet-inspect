@@ -10,21 +10,24 @@ DocumentationHouse production-adoption slice 13 under
 
 The one claim is:
 
-> Given one exact SourceHouse authored-source result for a supported TypeDef or
-> MethodDef, its exact Library and selected assembly content, one
-> host-authorized build attestation bound to that direct-emitted module and exact source
-> bytes, and finite work, SourceHouse issues resource-free correspondence to
-> one raw physical C# declaration or typed non-success. The result preserves
-> request, policy, Library, artifact, module, source, attestation, and
-> declaration association without deriving authority from Portable PDB mapped
-> locations, paths, names, display text, or declaration proximity.
+> Given one exact attestation-backed SourceHouse authored-source result for a
+> supported TypeDef or MethodDef, its exact Library and selected assembly
+> content, one host-authorized build attestation bound to that direct-emitted
+> module and the same attestor-issued physical source-input identity, exact
+> source bytes, and finite work, SourceHouse issues resource-free
+> correspondence to one raw physical C# declaration or typed non-success. The
+> result preserves request, policy, Library, artifact, module, source input,
+> attestation, and declaration association without deriving authority from
+> Portable PDB mapped locations, paths, names, content equality, display text,
+> or declaration proximity.
 
 SourceHouse owns:
 
 - the accepted physical-declaration attestation contract;
 - association of an attestation with one exact SourceHouse request, result,
-  target, Library content reference, module, and source document;
-- validation of the direct-emitted module target and exact source bytes;
+  target, Library content reference, module, and physical source input;
+- validation of the direct-emitted module target, attestor-issued physical
+  source-input identity, and exact source bytes;
 - the closed correspondence outcome;
 - finite-work policy and evidence; and
 - the detached correspondence identity and generation consumed by later
@@ -51,6 +54,7 @@ Correspond(
     SourceHouse request and authored result,
     exact Library implementation assembly,
     authorized build attestation,
+    attestor-issued physical source-input identity,
     exact source bytes)
   -> Exact
    | Unavailable
@@ -63,7 +67,7 @@ Correspond(
 This is stronger than asking which document and lines a debugger reports for a
 MethodDef. It is also narrower than proving that a repository, source archive,
 or build is generally trustworthy. One exact result authorizes only one target,
-module, source content, and raw declaration span.
+module, physical source input, source content, and raw declaration span.
 
 ## Why Portable PDB evidence is insufficient
 
@@ -100,14 +104,16 @@ The proposed build evidence binds:
 final CSharpText.MemberSlicing module digest and MVID
   + exact ExtractMemberText MethodDef address
   + compiler XML ID for that MethodDef
+  + attestor-issued MemberTextSlicer.cs physical source-input identity
   + exact MemberTextSlicer.cs source digest and encoding
   + raw UTF-16 declaration span and syntax kind
   + authorized attestor identity and generation
 ```
 
-Given that row and the exact source bytes selected by SourceHouse, the expected
-result is one `Exact` correspondence. CSharpText can later inspect the vouched
-span without searching the file by method name.
+Given that row and an attestation-backed SourceHouse result carrying the same
+physical source-input identity and exact bytes, the expected result is one
+`Exact` correspondence. CSharpText can later inspect the vouched span without
+searching the file by method name.
 
 The pathological neighbor maps another compilation input into
 `MemberTextSlicer.cs` with `#line` and reuses that document's valid checksum.
@@ -134,7 +140,10 @@ An accepted initial-profile attestation relates:
   non-empty MVID;
 - one TypeDef or MethodDef address in that module;
 - the compiler XML-documentation identity projected for that exact target;
-- one physical source document, bound by exact content digest and encoding;
+- one opaque physical source-input identity minted for one syntax tree in that
+  exact compilation, scoped by issuer and attestation generation;
+- one attestation-backed physical source contribution carrying that same
+  identity, exact content digest, encoding, and bytes;
 - one zero-based raw UTF-16 declaration span and declaration syntax kind;
 - the attestor identity, format version, and generation; and
 - the compiler/build identity needed to interpret the attestation profile.
@@ -153,19 +162,34 @@ remain sufficient for ordinary SourceHouse authored-source acquisition, but it
 cannot satisfy this stronger correspondence because raw character spans would
 address different text.
 
+The physical source-input identity distinguishes compilation inputs, not text.
+Two inputs with equal paths, URLs, PDB document rows, digests, encodings,
+bytes, and spans remain different identities. The identity is issuer-scoped
+and build-scoped and has no caller-constructed equality outside its attestation
+generation. It is not a hash or a normalized path.
+
+An authorized attestation-backed source capability supplies the source bytes
+for that identity and causes SourceHouse to retain the identity in the
+authored-source result. The capability may use an issuer-owned embedded source
+record or retrieval descriptor, but the resulting provenance must name the
+same attested input. Ordinary PDB, Source Link, local-file, or repository source
+results do not gain this identity from equal bytes.
+
 ### Build-time declaration bridge
 
 The initial implementable producer profile uses Roslyn at build time:
 
 1. the build attestor obtains a source symbol's compiler documentation ID and
-   raw declaring syntax reference from the exact compilation;
+   raw declaring syntax reference from the exact compilation and mints one
+   opaque identity for its physical syntax-tree input;
 2. it rejects implicit, generated, partial, or multiply declared shapes outside
    the supported profile;
 3. it observes the exact module bytes produced by that same compiler emission,
    before any linker or rewriter, and accepts the row only when the same
    compiler documentation ID identifies exactly one supported target; and
 4. it binds that exact metadata address and direct-emit module identity to the
-   raw source digest, encoding, span, and syntax kind.
+   physical source-input identity, attestation-backed source material, raw
+   source digest, encoding, span, and syntax kind.
 
 Roslyn's `ISymbol.DeclaringSyntaxReferences` exposes physical declaring syntax
 and explicitly distinguishes implicit and multi-location symbols.
@@ -207,14 +231,16 @@ No external code is transferred.
 
 One correspondence request consumes:
 
-- the exact SourceHouse request and completed authored-source result;
+- the exact SourceHouse request and completed attestation-backed authored-source
+  result;
 - the exact `LibraryReference` and selected implementation-assembly
   `LibraryContentReference`;
 - the exact TypeDef or MethodDef target selected by that SourceHouse request;
 - the source-result policy, PDB policy, request identity, operation-plan
   identity, and policy generation;
-- the exact selected source document, its checksum evidence, decoded bytes,
-  encoding, and source-result identity;
+- the exact selected physical source input, its attestor-issued identity,
+  source-material evidence, decoded bytes, encoding, and source-result
+  identity;
 - one finite correspondence plan; and
 - zero or more contributions from host-authorized attestation capabilities.
 
@@ -226,14 +252,14 @@ Contribution admission and aggregation are ordered:
    failure is `Failed`; a completed authentication denial is `Rejected`.
 2. Every decoded authorized contribution must match the request, plan, policy,
    Library, content reference, Artifact generation, module digest and MVID,
-   Metadata target, source-result identity, exact source bytes and encoding,
-   attestation generation, and validation-profile version authorized by the
-   plan. Its declaration span must be non-negative and within the exact decoded
-   source under overflow-safe arithmetic, and its syntax kind must be permitted
-   for the attested target profile. Any association mismatch or invalid claimed
-   row makes the operation `Rejected`. A valid contribution cannot mask a
-   stale, incorrectly indexed, malformed, out-of-bounds, or target-incompatible
-   one.
+   Metadata target, source-result identity, attestor-issued physical
+   source-input identity, exact source bytes and encoding, attestation
+   generation, and validation-profile version authorized by the plan. Its
+   declaration span must be non-negative and within the exact decoded source
+   under overflow-safe arithmetic, and its syntax kind must be permitted for
+   the attested target profile. Any association mismatch or invalid claimed row
+   makes the operation `Rejected`. A valid contribution cannot mask a stale,
+   incorrectly indexed, malformed, out-of-bounds, or target-incompatible one.
 3. A contribution becomes **accepted** only after all those associations and
    row-validity checks pass. Source-bounds validation does not traverse the
    span or charge its declared-length work limit. An otherwise valid in-bounds
@@ -259,15 +285,18 @@ attested digest, MVID, target address, and compiler documentation identity.
 Equivalent assembly name, version, public-key token, path, or MVID from another
 Library does not substitute.
 
-The source result and attestation must name the same exact source bytes and
-encoding. A path or Source Link URL may be retained as provenance but never
-joins them. The attested span must be in bounds for the exact decoded text and
+The source result and attestation must carry the same attestor-issued physical
+source-input identity and exact source bytes and encoding. A path, Source Link
+URL, PDB document identity, content digest, or byte equality may be retained as
+provenance but never constructs or substitutes for that join. A source result
+without the identity is ineligible and produces `Unavailable`, even if its
+bytes match. The attested span must be in bounds for the exact decoded text and
 must name the attested declaration syntax kind.
 
 The correspondence is issued for the current SourceHouse request and result.
 It cannot be replayed under another request, Library content reference,
 Artifact generation, operation plan, policy generation, source-result identity,
-attestation generation, or parser profile.
+physical source-input identity, attestation generation, or parser profile.
 
 ## Initial supported profile
 
@@ -307,19 +336,21 @@ not make that lexical decision here.
 The closed outcome family is:
 
 - **Exact** — every required association validates and every accepted
-  contribution names the same one target, source content, and raw declaration;
+  contribution names the same one target, physical source input, source
+  content, and raw declaration;
 - **Unavailable** — no authorized applicable evidence exists, the target is
   outside the supported profile, its compiler documentation identity is not
-  unique, or no accepted attestation row names it;
+  unique, no accepted attestation row names it, or the SourceHouse result lacks
+  the attestor-issued physical source-input identity;
 - **Conflict** — fully associated, independently accepted contributions name
   different raw declaration spans or syntax kinds for the same exact request,
-  target, module, and source content; the result retains bounded descriptors
-  for every conflicting contribution;
+  target, module, physical source-input identity, and source content; the
+  result retains bounded descriptors for every conflicting contribution;
 - **Rejected** — an owner-issued input or claimed association names the wrong
   request, Library, content, Artifact generation, module, target, source result,
-  source content, policy, attestation generation, or authorized
-  validation-profile version, or carries a malformed, out-of-bounds, or
-  target-incompatible declaration span or syntax kind;
+  physical source-input identity, source content, policy, attestation
+  generation, or authorized validation-profile version, or carries a malformed,
+  out-of-bounds, or target-incompatible declaration span or syntax kind;
 - **Failed** — authorized attestation decoding, module inspection, source
   decoding, hashing, or target validation fails; and
 - **Incomplete** — a declared byte, record, source, candidate, span, or deadline
@@ -345,8 +376,8 @@ An `Exact` result retains:
 - the exact Library and implementation-assembly content reference;
 - Artifact, content, and module identities and generations;
 - the exact Metadata target address and compiler documentation identity;
-- the source-document identity, exact digest, encoding, and raw declaration
-  span;
+- the attestor-issued physical source-input identity, exact digest, encoding,
+  and raw declaration span;
 - the attestor identity, profile, and generation;
 - accepted corroboration evidence;
 - charged work and finite limits; and
@@ -367,15 +398,16 @@ claim that a path, repository branch, cache key, or display coordinate remains
 current.
 
 A changed Library content reference, Artifact generation, module digest or
-MVID, source digest or encoding, SourceHouse result identity, policy generation,
-attestation generation, or validation-profile version requires a new
-correspondence operation. Equal paths, assembly identities, XML IDs, source
-text, or declaration spans do not transfer evidence between generations.
+MVID, physical source-input identity, source digest or encoding, SourceHouse
+result identity, policy generation, attestation generation, or
+validation-profile version requires a new correspondence operation. Equal
+paths, assembly identities, XML IDs, source text, or declaration spans do not
+transfer evidence between generations.
 
 The join currency consumed by DocumentationHouse is the owner-issued
 correspondence identity and generation together with the exact SourceHouse
-result, target, Library content, source document, and declaration span. A
-consumer does not reconstruct that tuple from its fields.
+result, target, Library content, physical source input, and declaration span.
+A consumer does not reconstruct that tuple from its fields.
 
 ## Finite work
 
@@ -385,6 +417,7 @@ The host-authorized correspondence plan bounds:
 - accepted issuers and contributions;
 - module bytes inspected;
 - source bytes and decoded characters;
+- attested physical source-input records;
 - target candidates and corroborating rows;
 - retained conflict descriptors;
 - declaration span length; and
@@ -424,12 +457,15 @@ govern local replacement.
 
 One compilation input uses `#line` to map a MethodDef into another real source
 document. The destination bytes satisfy their PDB checksum and Source Link
-mapping and contain a plausible declaration.
+mapping and contain a plausible declaration. The stronger neighbor makes the
+destination byte-for-byte identical to the originating input.
 
-The attestation names the originating syntax tree's exact bytes and raw span.
-The destination therefore cannot satisfy the source association. SourceHouse
-retains ordinary mapped-source evidence but physical correspondence is
-`Unavailable` or `Rejected`, depending on which claimed association failed.
+The attestation names the originating syntax tree's physical source-input
+identity, exact bytes, and raw span. The PDB-selected destination has no such
+identity and therefore cannot satisfy the source association, regardless of
+content equality. SourceHouse retains ordinary mapped-source evidence but
+physical correspondence is `Unavailable`. A contribution falsely claiming the
+origin identity for destination provenance is `Rejected`.
 
 ### Prescribed checksum is not provenance
 
@@ -491,8 +527,9 @@ The implementation must provide Release gates for:
 - one real TypeDef and ordinary MethodDef issuing exact detached
   correspondence from an authorized attestation;
 - exact request, policy, Library, implementation content, Artifact generation,
-  module digest, MVID, Metadata target, source result, source digest, encoding,
-  span, attestor, and profile association;
+  module digest, MVID, Metadata target, source result, attestor-issued physical
+  source-input identity, source digest, encoding, span, attestor, and profile
+  association;
 - one valid contribution beside one stale or incorrectly indexed target,
   module, source, policy, or generation contribution producing `Rejected`
   rather than `Exact` or `Conflict`;
@@ -502,8 +539,12 @@ The implementation must provide Release gates for:
   same invalid evidence, both producing `Rejected`;
 - an otherwise valid in-bounds span exceeding its declared work limit producing
   `Incomplete` rather than `Rejected`;
-- a `#line` mapping into another real checksum-valid source document failing to
-  authorize that destination declaration;
+- a `#line` mapping into another real checksum-valid source document, including
+  a byte-identical copy of the physical input, failing to authorize that
+  destination declaration;
+- two byte-identical physical compilation inputs retaining distinct
+  attestor-issued identities that cannot be reconstructed from their bytes,
+  paths, PDB rows, encodings, or spans;
 - `#pragma checksum` evidence remaining insufficient without an attestation;
 - reordered overloads, nested declarations, aliases, and active conditional
   compilation retaining the exact attested target and span;
