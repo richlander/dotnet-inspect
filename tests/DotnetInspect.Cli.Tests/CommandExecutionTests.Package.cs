@@ -1137,9 +1137,42 @@ public partial class CommandExecutionTests
                 dependsJson.RootElement
                     .GetProperty("dependency_hierarchy")
                     .GetProperty("occurrences")));
+            JsonElement[] sharedOccurrences =
+            [
+                .. packageHierarchy.GetProperty("occurrences")
+                    .EnumerateArray()
+                    .Where(occurrence =>
+                        occurrence.GetProperty("target_identity")
+                            .GetProperty("package")
+                            .GetProperty("id")
+                            .GetString()
+                        == "test.dependency.shared"),
+            ];
+            Assert.Equal(2, sharedOccurrences.Length);
+            Assert.Equal(
+                2,
+                sharedOccurrences
+                    .Select(occurrence =>
+                        occurrence.GetProperty("parent_occurrence_id")
+                            .GetInt32())
+                    .Distinct()
+                    .Count());
+            Assert.Contains(
+                sharedOccurrences,
+                occurrence =>
+                    occurrence.GetProperty("disposition").GetString()
+                    == "Expanded");
+            Assert.Contains(
+                sharedOccurrences,
+                occurrence =>
+                    occurrence.GetProperty("disposition").GetString()
+                    == "Revisit");
             Assert.Contains("test.dependency.one", tree.Output);
             Assert.Contains("test.dependency.two", tree.Output);
             Assert.Contains("test.dependency.shared", tree.Output);
+            Assert.Contains(
+                "(revisit) test.dependency.shared",
+                tree.Output);
             Assert.DoesNotContain("## Dependencies", tree.Output);
         }
         finally
@@ -1238,7 +1271,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, counted.Exit);
             Assert.Empty(counted.Error);
             Assert.Contains("| Dependencies | 2 |", counted.Output);
-            Assert.Contains("| Dependency Hierarchy | 3 |", counted.Output);
+            Assert.Contains("| Dependency Hierarchy | 4 |", counted.Output);
         }
         finally
         {
@@ -1412,6 +1445,52 @@ public partial class CommandExecutionTests
                 "| Output | 0 B |",
                 infoRedirected.Error,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table", null)]
+    [InlineData("--tsv", null)]
+    [InlineData("--jsonl", null)]
+    [InlineData("--columns", "Target,Disposition")]
+    public async Task Package_DependencyHierarchy_ProjectionHonorsOutputFile(
+        string projection,
+        string? value)
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        var outputPath = Path.Combine(tempDir, "dependencies.out");
+        try
+        {
+            List<string> arguments =
+            [
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                projection,
+            ];
+            if (value is not null)
+                arguments.Add(value);
+            arguments.AddRange(["--tips", "q"]);
+
+            var baseline = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments]);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                [.. arguments, "--out", outputPath]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.NotEmpty(baseline.Output);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Equal(baseline.Error, redirected.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(
+                baseline.Output.ReplaceLineEndings("\n"),
+                File.ReadAllText(outputPath));
         }
         finally
         {

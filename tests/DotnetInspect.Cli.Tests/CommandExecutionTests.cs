@@ -1515,7 +1515,14 @@ public partial class CommandExecutionTests
             """);
         CreateLocalFeedPackage(
             package.TempDir,
-            "Test.Dependency.Two");
+            "Test.Dependency.Two",
+            """
+            <dependencies>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.Shared" version="[1.0.0]" />
+              </group>
+            </dependencies>
+            """);
         CreateLocalFeedPackage(
             package.TempDir,
             "Test.Dependency.Shared");

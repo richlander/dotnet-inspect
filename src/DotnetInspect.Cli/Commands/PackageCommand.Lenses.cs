@@ -310,11 +310,20 @@ public partial class PackageCommand
             Columns = options.Columns,
             Fields = options.Fields,
         };
-        return DependsCommand.WriteAssetProjection(
-            projection,
-            projectionOptions,
-            new HashSet<string>(
-                [DependsAssetSections.DependencyHierarchy],
-                StringComparer.OrdinalIgnoreCase));
+        bool success = false;
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                success = DependsCommand.WriteAssetProjection(
+                    projection,
+                    projectionOptions,
+                    new HashSet<string>(
+                        [DependsAssetSections.DependencyHierarchy],
+                        StringComparer.OrdinalIgnoreCase),
+                    output);
+            });
+        return success;
     }
 }
