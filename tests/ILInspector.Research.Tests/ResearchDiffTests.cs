@@ -2296,10 +2296,9 @@ public class ResearchDiffTests
     [Fact]
     public void ImplementationComplexityService_RanksDeltaAgainstLocalPopulation()
     {
-        // Four independent methods with complexity deltas of increasing
-        // magnitude (1, 2, 3, 5); the population is exactly these four
-        // deltas, so each change's percentile rank is fully determined by
-        // how many of the four deltas (including itself) are <= its own.
+        // Five independent methods with complexity deltas 1, 2, 2, 3, and 5.
+        // Equal deltas share the inclusive percentile rank determined by how
+        // many population values are <= their common value.
         var receipt = new LibraryBodyAnalysisReceipt(
             "fake.dll",
             new LibraryBodyModuleIdentity(
@@ -2313,16 +2312,19 @@ public class ResearchDiffTests
         var methodB = FakeMethod("Widget", "SmallDelta", token: 0x06000002);
         var methodC = FakeMethod("Widget", "MediumDelta", token: 0x06000003);
         var methodD = FakeMethod("Widget", "LargestDelta", token: 0x06000004);
+        var methodE = FakeMethod("Widget", "TiedSmallDelta", token: 0x06000005);
         var oldProfiles = ImmutableArray.Create(
             FakeProfile(methodA, methodA, conditionalBranchCount: 0),
             FakeProfile(methodB, methodB, conditionalBranchCount: 0),
             FakeProfile(methodC, methodC, conditionalBranchCount: 0),
-            FakeProfile(methodD, methodD, conditionalBranchCount: 0));
+            FakeProfile(methodD, methodD, conditionalBranchCount: 0),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 0));
         var newProfiles = ImmutableArray.Create(
             FakeProfile(methodA, methodA, conditionalBranchCount: 1),
             FakeProfile(methodB, methodB, conditionalBranchCount: 2),
             FakeProfile(methodC, methodC, conditionalBranchCount: 3),
-            FakeProfile(methodD, methodD, conditionalBranchCount: 5));
+            FakeProfile(methodD, methodD, conditionalBranchCount: 5),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 2));
         var oldResult = new LibraryImplementationProfileAnalysisResult(
             receipt,
             oldProfiles,
@@ -2338,13 +2340,14 @@ public class ResearchDiffTests
             new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
 
         Assert.True(result.IsAvailable);
-        Assert.Equal(4, result.Changes.Count);
+        Assert.Equal(5, result.Changes.Count);
         Assert.All(
             result.Changes,
-            change => Assert.Equal(4, change.PopulationContext?.PopulationSize));
-        AssertPercentile(result, "SmallestDelta", 25.0);
-        AssertPercentile(result, "SmallDelta", 50.0);
-        AssertPercentile(result, "MediumDelta", 75.0);
+            change => Assert.Equal(5, change.PopulationContext?.PopulationSize));
+        AssertPercentile(result, "SmallestDelta", 20.0);
+        AssertPercentile(result, "SmallDelta", 60.0);
+        AssertPercentile(result, "TiedSmallDelta", 60.0);
+        AssertPercentile(result, "MediumDelta", 80.0);
         AssertPercentile(result, "LargestDelta", 100.0);
 
         static void AssertPercentile(

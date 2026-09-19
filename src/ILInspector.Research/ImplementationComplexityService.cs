@@ -164,24 +164,22 @@ public static class ImplementationComplexityService
     /// </summary>
     static int UpperBound(int[] sortedValues, int value)
     {
-        int index = Array.BinarySearch(sortedValues, value);
-        if (index < 0)
+        int low = 0;
+        int high = sortedValues.Length;
+        while (low < high)
         {
-            // BinarySearch returns the bitwise complement of the first
-            // element greater than the value when there is no exact match;
-            // that count already excludes anything equal to value (since
-            // none exists), so it is the count strictly below.
-            return ~index;
+            int middle = low + ((high - low) / 2);
+            if (sortedValues[middle] <= value)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
         }
 
-        // One or more exact matches exist; advance past the last one so
-        // ties are all counted as "at or below".
-        while (index + 1 < sortedValues.Length && sortedValues[index + 1] == value)
-        {
-            index++;
-        }
-
-        return index + 1;
+        return low;
     }
 
     static string AssemblyKey(
