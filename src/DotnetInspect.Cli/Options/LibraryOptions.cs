@@ -228,6 +228,11 @@ public record LibraryOptions : IProjectionOptions
     public string[]? Discover { get; init; }
 
     /// <summary>
+    /// Include additional structural discovery metadata.
+    /// </summary>
+    public bool DiscoverDetails { get; init; }
+
+    /// <summary>
     /// Run the producers needed to establish actual section effectiveness during discovery.
     /// </summary>
     public bool Effective { get; init; }

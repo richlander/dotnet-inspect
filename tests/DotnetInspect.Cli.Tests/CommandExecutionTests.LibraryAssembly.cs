@@ -952,6 +952,220 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverDetails_BareCatalogAddsFormats()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| @Dependencies | category | --markdown, --plaintext |",
+            output);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            output);
+        Assert.DoesNotContain("File not found", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_CategoryIsStructuralAndComplete()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "@Dependencies",
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| @Dependencies | category | --markdown, --plaintext |",
+            output);
+        Assert.Contains(
+            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            output);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            output);
+        Assert.DoesNotContain("File not found", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_JsonPreservesFormatArray()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "reference hierarchy",
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document =
+            JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            SectionNames.ReferenceHierarchy,
+            row.GetProperty("name").GetString());
+        Assert.Equal(
+            "section",
+            row.GetProperty("kind").GetString());
+        Assert.Equal(
+            [
+                "--markdown",
+                "--plaintext",
+                "--json",
+                "--table",
+                "--tsv",
+                "--jsonl",
+                "--tree",
+                "--mermaid",
+            ],
+            row.GetProperty("formats")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_ExactSectionKeepsOrdinaryDrillIn()
+    {
+        var ordinary = await RunAppAsync(
+            "library",
+            "-D",
+            SectionNames.ReferenceHierarchy,
+            "--tips",
+            "q");
+        var detailed = await RunAppAsync(
+            "library",
+            "-D",
+            SectionNames.ReferenceHierarchy,
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Contains("| Root | column |", ordinary.Output);
+        Assert.DoesNotContain("| Formats |", ordinary.Output);
+
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(detailed.Error);
+        Assert.Contains(
+            "| Reference Hierarchy | section |",
+            detailed.Output);
+        Assert.DoesNotContain("| Root | column |", detailed.Output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_CountAppliesRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "-D",
+            "@Dependencies",
+            "--details",
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("2", output.Trim());
+    }
+
+    [Theory]
+    [InlineData(new string[] { "--details" }, "--details requires -D/--discover")]
+    [InlineData(new string[] { "-D", "References", "-D", "Signals", "--details" }, "expects a single argument")]
+    [InlineData(new string[] { "-D", "Reference*", "--details" }, "--details requires an exact category or section selector")]
+    [InlineData(new string[] { "-D", "References", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "References", "--details", "-S", "References" }, "--details cannot be combined with -S/--select")]
+    [InlineData(new string[] { "-D", "References", "--details", "--effective" }, "--effective cannot be combined with --schema")]
+    [InlineData(new string[] { "-D", "References", "--formats" }, "Unrecognized command or argument '--formats'")]
+    public async Task LibraryCommand_DiscoverDetails_RejectsAmbiguousRequests(
+        string[] arguments,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["library", "System.Text.Json", .. arguments, "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_MermaidRequiresReferenceHierarchy()
+    {
+        var direct = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--mermaid",
+            "--tips",
+            "q");
+        var hierarchy = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.ReferenceHierarchy,
+            "--mermaid",
+            "--depth",
+            "1",
+            "--tips",
+            "q");
+        var count = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--count",
+            "--mermaid",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Empty(direct.Output);
+        Assert.Contains(
+            "References is direct evidence and has no Mermaid topology.",
+            direct.Error);
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(hierarchy.Error);
+        Assert.Contains("graph TD", hierarchy.Output);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.True(int.Parse(count.Output.Trim()) > 0);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectedReferenceHierarchy_TreeResolvesBareRelativePath()
     {
         var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
