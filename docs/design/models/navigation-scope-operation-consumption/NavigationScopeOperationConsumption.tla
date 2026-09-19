@@ -23,7 +23,7 @@ VARIABLES
     protectedOperation,
     protectedSlot,
     currentIntent,
-    installedSemantic,
+    currentSemantic,
     revision,
     generation,
     acknowledgedRevision,
@@ -37,7 +37,7 @@ VARIABLES
     consumerEpoch,
     staleWork,
     maintenanceQueue,
-    maintenanceInstalled,
+    maintenanceApplied,
     preparation,
     resultPublished,
     publishedAssociation,
@@ -338,14 +338,14 @@ PreparationForProfile ==
 
 ResultScope(operation) ==
     IF Fault = "OldInventory" /\ operation = 1
-    THEN installedSemantic.scope
+    THEN currentSemantic.scope
     ELSE results[operation].snapshot
 
 CurrentMembership(operation) ==
     results[operation].outcome # "Unavailable"
 
 RetainedActive(scope) ==
-    installedSemantic.activeOccurrence \in scope.members
+    currentSemantic.activeOccurrence \in scope.members
 
 SelectedOccurrence(operation) ==
     LET scope == ResultScope(operation)
@@ -360,13 +360,13 @@ SelectedOccurrence(operation) ==
     THEN "workspace"
     ELSE IF preparation.state # "ready"
     THEN IF RetainedActive(scope)
-         THEN installedSemantic.activeOccurrence
+         THEN currentSemantic.activeOccurrence
          ELSE "workspace"
     ELSE IF results[operation].outcome \in SuccessfulOutcomes
             /\ explicitTarget
     THEN requested
     ELSE IF RetainedActive(scope)
-    THEN installedSemantic.activeOccurrence
+    THEN currentSemantic.activeOccurrence
     ELSE IF preparation.successor \in scope.members
     THEN preparation.successor
     ELSE "workspace"
@@ -380,7 +380,7 @@ SemanticFor(operation) ==
             THEN "workspaceSubject"
             ELSE IF preparation.state = "ready"
                  THEN preparation.subject
-                 ELSE installedSemantic.activeSubject
+                 ELSE currentSemantic.activeSubject
         libraryContext ==
             IF active = "workspace"
             THEN "none"
@@ -388,13 +388,13 @@ SemanticFor(operation) ==
                  THEN IF Fault = "WrongForwardedContext"
                       THEN "markupLibrary"
                       ELSE preparation.libraryContext
-                 ELSE installedSemantic.libraryContext
+                 ELSE currentSemantic.libraryContext
         effectiveLens ==
             IF active = "workspace"
             THEN "workspaceOverview"
             ELSE IF preparation.state = "ready"
                  THEN preparation.effectiveLens
-                 ELSE installedSemantic.effectiveLens
+                 ELSE currentSemantic.effectiveLens
         outcome ==
             IF ~current
             THEN "scopeUnavailable"
@@ -421,20 +421,20 @@ scopeVars ==
 
 navigationVars ==
     <<slot, acceptanceCandidate, accepted, protectedOperation, protectedSlot,
-      currentIntent, installedSemantic, revision, generation,
+      currentIntent, currentSemantic, revision, generation,
       acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
       hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-      consumerEpoch, staleWork, maintenanceQueue, maintenanceInstalled,
+      consumerEpoch, staleWork, maintenanceQueue, maintenanceApplied,
       preparation, resultPublished, publishedAssociation,
       publicationBaseSlot, localCancellation, focus, historyCount,
       actionConsumptions, visibleEffect, refusalSafe>>
 
 RefusalStableState ==
     <<scopeVars, slot, acceptanceCandidate, accepted, protectedOperation,
-      protectedSlot, currentIntent, installedSemantic, revision, generation,
+      protectedSlot, currentIntent, currentSemantic, revision, generation,
       acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
       hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-      consumerEpoch, staleWork, maintenanceQueue, maintenanceInstalled,
+      consumerEpoch, staleWork, maintenanceQueue, maintenanceApplied,
       preparation, resultPublished, publishedAssociation, publicationBaseSlot,
       localCancellation, focus, historyCount, actionConsumptions, visibleEffect>>
 
@@ -449,7 +449,7 @@ Init ==
     /\ protectedOperation = 0
     /\ protectedSlot = 0
     /\ currentIntent = 0
-    /\ installedSemantic = InitialSemantic
+    /\ currentSemantic = InitialSemantic
     /\ revision = 1
     /\ generation = 1
     /\ acknowledgedRevision = 1
@@ -463,7 +463,7 @@ Init ==
     /\ consumerEpoch = 0
     /\ staleWork = "working"
     /\ maintenanceQueue = <<1>>
-    /\ maintenanceInstalled = FALSE
+    /\ maintenanceApplied = FALSE
     /\ preparation = NoPreparation
     /\ resultPublished = FALSE
     /\ publishedAssociation = NoAssociation
@@ -500,11 +500,11 @@ IssuePrimary ==
     /\ Scope!Issue(1, PrimaryRequest)
     /\ seen' = seen \union {"PrimaryIssued"}
     /\ UNCHANGED <<profile, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -515,10 +515,10 @@ PrepareAcceptance ==
     /\ acceptanceCandidate' = slot
     /\ seen' = seen \union {"AcceptancePrepared"}
     /\ UNCHANGED <<profile, scopeVars, slot, accepted, protectedOperation,
-        protectedSlot, currentIntent, installedSemantic, revision, generation,
+        protectedSlot, currentIntent, currentSemantic, revision, generation,
         acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
         hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-        consumerEpoch, staleWork, maintenanceQueue, maintenanceInstalled,
+        consumerEpoch, staleWork, maintenanceQueue, maintenanceApplied,
         preparation, resultPublished, publishedAssociation,
         publicationBaseSlot, localCancellation, focus, historyCount,
         actionConsumptions, visibleEffect, refusalSafe>>
@@ -534,11 +534,11 @@ OrdinaryAdvanceBeforeAcceptance ==
     /\ hostAuthority' = NoAuthority
     /\ seen' = seen \union {"SlotAdvancedBeforeAcceptance"}
     /\ UNCHANGED <<profile, scopeVars, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, installedSemantic, revision,
+        protectedOperation, protectedSlot, currentSemantic, revision,
         generation, acknowledgedRevision, acknowledgedGeneration, effectEpoch,
         consumerSemantic, consumerRevision,
         consumerGeneration, consumerEpoch, staleWork, maintenanceQueue,
-        maintenanceInstalled, preparation, resultPublished,
+        maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -548,10 +548,10 @@ RejectStaleAcceptance ==
     /\ acceptanceCandidate' = 0
     /\ seen' = seen \union {"StaleAcceptanceRejected"}
     /\ UNCHANGED <<profile, scopeVars, slot, accepted, protectedOperation,
-        protectedSlot, currentIntent, installedSemantic, revision, generation,
+        protectedSlot, currentIntent, currentSemantic, revision, generation,
         acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
         hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-        consumerEpoch, staleWork, maintenanceQueue, maintenanceInstalled,
+        consumerEpoch, staleWork, maintenanceQueue, maintenanceApplied,
         preparation, resultPublished, publishedAssociation,
         publicationBaseSlot, localCancellation, focus, historyCount,
         actionConsumptions, visibleEffect, refusalSafe>>
@@ -570,10 +570,10 @@ CommitAcceptance ==
     /\ hostAuthority' = NoAuthority
     /\ staleWork' = "stale"
     /\ seen' = seen \union {"ProtectedAccepted"}
-    /\ UNCHANGED <<profile, scopeVars, installedSemantic, revision, generation,
+    /\ UNCHANGED <<profile, scopeVars, currentSemantic, revision, generation,
         acknowledgedRevision, acknowledgedGeneration, effectEpoch,
         consumerSemantic, consumerRevision, consumerGeneration, consumerEpoch,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -612,11 +612,11 @@ RefuseLaterCommand(commandKind) ==
                 <<currentIntent, focus, historyCount, actionConsumptions>>
     /\ seen' = seen \union {"LaterCommandRefused"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, installedSemantic, revision,
+        protectedOperation, protectedSlot, currentSemantic, revision,
         generation, acknowledgedRevision, acknowledgedGeneration, effectEpoch,
         effect, hostAuthority, consumerSemantic, consumerRevision,
         consumerGeneration, consumerEpoch, staleWork, maintenanceQueue,
-        maintenanceInstalled, preparation, resultPublished,
+        maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation,
         visibleEffect>>
     /\ refusalSafe' = (refusalSafe /\ UNCHANGED RefusalStableState)
@@ -626,11 +626,11 @@ RefuseLaterScopeCommand ==
     /\ requestStates[2] = "Issued"
     /\ seen' = seen \union {"LaterScopeRefused"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect>>
     /\ refusalSafe' = (refusalSafe /\ UNCHANGED RefusalStableState)
@@ -670,10 +670,10 @@ ObserveCancellationNoEffect ==
        ELSE UNCHANGED protectedOperation
     /\ seen' = seen \union {"CancellationObservedNoEffect"}
     /\ UNCHANGED <<profile, slot, acceptanceCandidate, accepted,
-        protectedSlot, currentIntent, installedSemantic, revision, generation,
+        protectedSlot, currentIntent, currentSemantic, revision, generation,
         acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
         hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-        consumerEpoch, staleWork, maintenanceQueue, maintenanceInstalled,
+        consumerEpoch, staleWork, maintenanceQueue, maintenanceApplied,
         preparation, resultPublished, publishedAssociation,
         publicationBaseSlot, localCancellation, focus, historyCount,
         actionConsumptions, visibleEffect, refusalSafe>>
@@ -691,11 +691,11 @@ LocalCancel ==
     /\ localCancellation' = TRUE
     /\ seen' = seen \union {"LocalCancellationObserved"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, focus, historyCount,
         actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -706,18 +706,18 @@ PrepareNavigationResult ==
     /\ preparation' = PreparationForProfile
     /\ seen' = seen \union {"NavigationPrepared", PreparationForProfile.state}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, resultPublished,
+        maintenanceQueue, maintenanceApplied, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
 PublishResult(operation) ==
     LET semantic == SemanticFor(operation)
         nextRevision ==
-            IF semantic = installedSemantic THEN revision ELSE revision + 1
+            IF semantic = currentSemantic THEN revision ELSE revision + 1
         nextGeneration == generation + 1
         nextEpoch == effectEpoch + 1
     IN
@@ -726,7 +726,7 @@ PublishResult(operation) ==
     /\ requestStates[operation] = "Settled"
     /\ preparation.state # "none"
     /\ ~resultPublished
-    /\ installedSemantic' = semantic
+    /\ currentSemantic' = semantic
     /\ revision' = nextRevision
     /\ generation' = nextGeneration
     /\ effectEpoch' = nextEpoch
@@ -743,7 +743,7 @@ PublishResult(operation) ==
         protectedSlot, currentIntent, acknowledgedRevision,
         acknowledgedGeneration, consumerSemantic, consumerRevision,
         consumerGeneration, consumerEpoch, staleWork, maintenanceQueue,
-        maintenanceInstalled, preparation, localCancellation, focus,
+        maintenanceApplied, preparation, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
 PublishPrimaryResult ==
@@ -758,21 +758,21 @@ PublishForeignResult ==
 CompleteStaleWork ==
     /\ staleWork = "stale"
     /\ protectedOperation = 1
-    /\ IF Fault = "StaleWorkInstalls"
-       THEN /\ installedSemantic' =
-                [installedSemantic EXCEPT
+    /\ IF Fault = "StaleWorkReplaces"
+       THEN /\ currentSemantic' =
+                [currentSemantic EXCEPT
                     !.activeOccurrence = "old",
                     !.activeSubject = "oldType"]
             /\ slot' = slot + 1
             /\ staleWork' = staleWork
        ELSE /\ staleWork' = "discarded"
-            /\ UNCHANGED <<installedSemantic, slot>>
+            /\ UNCHANGED <<currentSemantic, slot>>
     /\ seen' = seen \union {"StaleWorkCompleted"}
     /\ UNCHANGED <<profile, scopeVars, acceptanceCandidate, accepted,
         protectedOperation, protectedSlot, currentIntent, revision, generation,
         acknowledgedRevision, acknowledgedGeneration, effectEpoch, effect,
         hostAuthority, consumerSemantic, consumerRevision, consumerGeneration,
-        consumerEpoch, maintenanceQueue, maintenanceInstalled, preparation,
+        consumerEpoch, maintenanceQueue, maintenanceApplied, preparation,
         resultPublished, publishedAssociation, publicationBaseSlot,
         localCancellation, focus, historyCount, actionConsumptions,
         visibleEffect, refusalSafe>>
@@ -783,11 +783,11 @@ DiscardStaleAfterSettlement ==
     /\ staleWork' = "discarded"
     /\ seen' = seen \union {"StaleWorkDiscarded"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, maintenanceQueue,
-        maintenanceInstalled, preparation, resultPublished,
+        maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -803,30 +803,30 @@ AttemptOldEffect ==
        ELSE UNCHANGED <<focus, historyCount, visibleEffect>>
     /\ seen' = seen \union {"OldEffectAttempted"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation,
         actionConsumptions, refusalSafe>>
 
-InstallConsumer ==
+PostConsumer ==
     /\ resultPublished
     /\ effect # NoAuthority
     /\ hostAuthority = NoAuthority
     /\ AuthorityIsCurrent(effect)
     /\ hostAuthority' = effect
-    /\ consumerSemantic' = installedSemantic
+    /\ consumerSemantic' = currentSemantic
     /\ consumerRevision' = revision
     /\ consumerGeneration' = generation
     /\ consumerEpoch' = effectEpoch
-    /\ seen' = seen \union {"ConsumerInstalled"}
+    /\ seen' = seen \union {"ConsumerPosted"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, staleWork, maintenanceQueue,
-        maintenanceInstalled, preparation, resultPublished,
+        maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
@@ -834,18 +834,18 @@ ExecuteVisibleEffect ==
     /\ hostAuthority = effect
     /\ effect # NoAuthority
     /\ consumerEpoch = effect.epoch
-    /\ consumerSemantic = installedSemantic
+    /\ consumerSemantic = currentSemantic
     /\ ~visibleEffect
-    /\ focus' = installedSemantic.activeOccurrence
+    /\ focus' = currentSemantic.activeOccurrence
     /\ historyCount' = historyCount + 1
     /\ visibleEffect' = TRUE
     /\ seen' = seen \union {"VisibleEffectExecuted"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
-        maintenanceQueue, maintenanceInstalled, preparation, resultPublished,
+        maintenanceQueue, maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation,
         actionConsumptions, refusalSafe>>
 
@@ -859,24 +859,24 @@ Acknowledge ==
     /\ hostAuthority' = NoAuthority
     /\ seen' = seen \union {"Acknowledged"}
     /\ UNCHANGED <<profile, scopeVars, slot, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, effectEpoch, consumerSemantic, consumerRevision,
         consumerGeneration, consumerEpoch, staleWork, maintenanceQueue,
-        maintenanceInstalled, preparation, resultPublished,
+        maintenanceApplied, preparation, resultPublished,
         publishedAssociation, publicationBaseSlot, localCancellation, focus,
         historyCount, actionConsumptions, visibleEffect, refusalSafe>>
 
-InstallMaintenance ==
+ApplyMaintenance ==
     /\ accepted
     /\ protectedOperation = 0
     /\ resultPublished
     /\ maintenanceQueue = <<1>>
     /\ maintenanceQueue' = <<>>
-    /\ maintenanceInstalled' = TRUE
+    /\ maintenanceApplied' = TRUE
     /\ slot' = slot + 1
-    /\ seen' = seen \union {"MaintenanceInstalled"}
+    /\ seen' = seen \union {"MaintenanceApplied"}
     /\ UNCHANGED <<profile, scopeVars, acceptanceCandidate, accepted,
-        protectedOperation, protectedSlot, currentIntent, installedSemantic,
+        protectedOperation, protectedSlot, currentIntent, currentSemantic,
         revision, generation, acknowledgedRevision, acknowledgedGeneration,
         effectEpoch, effect, hostAuthority, consumerSemantic,
         consumerRevision, consumerGeneration, consumerEpoch, staleWork,
@@ -911,10 +911,10 @@ Next ==
     \/ CompleteStaleWork
     \/ DiscardStaleAfterSettlement
     \/ AttemptOldEffect
-    \/ InstallConsumer
+    \/ PostConsumer
     \/ ExecuteVisibleEffect
     \/ Acknowledge
-    \/ InstallMaintenance
+    \/ ApplyMaintenance
     /\ UNCHANGED profile
 
 SafetySpec == Init /\ [][Next]_vars
@@ -937,7 +937,7 @@ TypeOK ==
     /\ protectedOperation \in {0, 1}
     /\ protectedSlot \in Nat
     /\ currentIntent \in Nat
-    /\ installedSemantic.membershipCurrent \in BOOLEAN
+    /\ currentSemantic.membershipCurrent \in BOOLEAN
     /\ revision \in Nat /\ revision > 0
     /\ generation \in Nat /\ generation > 0
     /\ acknowledgedRevision \in Nat
@@ -945,7 +945,7 @@ TypeOK ==
     /\ effectEpoch \in Nat
     /\ staleWork \in {"working", "stale", "discarded"}
     /\ maintenanceQueue \in {<<1>>, <<>>}
-    /\ maintenanceInstalled \in BOOLEAN
+    /\ maintenanceApplied \in BOOLEAN
     /\ preparation.state \in
         {"none", "ready", "unavailable", "failed", "historical"}
     /\ resultPublished \in BOOLEAN
@@ -985,12 +985,12 @@ LaterRefusalPreservesNavigationState == refusalSafe
 QueuedMaintenanceSurvivesProtection ==
     protectedOperation = 1 =>
         /\ maintenanceQueue = <<1>>
-        /\ ~maintenanceInstalled
+        /\ ~maintenanceApplied
 
-StaleWorkCannotInstallDuringProtection ==
+StaleWorkCannotReplaceDuringProtection ==
     protectedOperation = 1 =>
         /\ slot = protectedSlot
-        /\ installedSemantic = InitialSemantic
+        /\ currentSemantic = InitialSemantic
 
 StaleAuthorityCannotExecuteDuringProtection ==
     protectedOperation = 1 => ~visibleEffect
@@ -998,51 +998,51 @@ StaleAuthorityCannotExecuteDuringProtection ==
 CompleteScopeResultIsConsumed ==
     resultPublished =>
         IF results[1].outcome = "Unavailable"
-        THEN /\ ~installedSemantic.membershipCurrent
-             /\ installedSemantic.historicalScope =
+        THEN /\ ~currentSemantic.membershipCurrent
+             /\ currentSemantic.historicalScope =
                 results[1].snapshot
-        ELSE /\ installedSemantic.membershipCurrent
-             /\ installedSemantic.scope =
+        ELSE /\ currentSemantic.membershipCurrent
+             /\ currentSemantic.scope =
                 results[1].snapshot
 
 MembershipPreparationFailureIsCurrentFailure ==
     resultPublished
         /\ results[1].outcome = "Committed"
         /\ preparation.state \in {"failed", "unavailable"} =>
-            /\ installedSemantic.scope = results[1].snapshot
-            /\ installedSemantic.outcome \in
+            /\ currentSemantic.scope = results[1].snapshot
+            /\ currentSemantic.outcome \in
                 {"preparationFailed", "preparationUnavailable"}
 
 ForwardedPreparedContextIsPublished ==
     resultPublished /\ profile = "Forwarded" =>
-        /\ installedSemantic.activeSubject = "forwardedType"
-        /\ installedSemantic.libraryContext = "baseLibrary"
+        /\ currentSemantic.activeSubject = "forwardedType"
+        /\ currentSemantic.libraryContext = "baseLibrary"
 
 ExactRequestedOccurrenceActivates ==
     resultPublished
         /\ results[1].outcome \in SuccessfulOutcomes
         /\ requests[1].association.hasExplicitTarget
         /\ preparation.state = "ready" =>
-            installedSemantic.activeOccurrence = results[1].requested
+            currentSemantic.activeOccurrence = results[1].requested
 
 OwnerPolicyDoesNotInventActivation ==
     resultPublished
         /\ ~requests[1].association.hasExplicitTarget
         /\ ~RetainedActive(results[1].snapshot)
         /\ preparation.successor = "none" =>
-            installedSemantic.activeOccurrence = "workspace"
+            currentSemantic.activeOccurrence = "workspace"
 
 AuthorizedSuccessorIsExact ==
     resultPublished
         /\ preparation.successor # "none"
         /\ ~requests[1].association.hasExplicitTarget =>
-            installedSemantic.activeOccurrence = preparation.successor
+            currentSemantic.activeOccurrence = preparation.successor
 
 RevisionAndGenerationRemainDistinct ==
     resultPublished =>
         /\ generation = 2
         /\ revision =
-            IF installedSemantic = InitialSemantic THEN 1 ELSE 2
+            IF currentSemantic = InitialSemantic THEN 1 ELSE 2
 
 CurrentEffectAuthorityIsExact ==
     effect # NoAuthority =>
@@ -1051,10 +1051,10 @@ CurrentEffectAuthorityIsExact ==
         /\ effect.intent = currentIntent
         /\ effect.epoch = effectEpoch
 
-ConsumerInstallationUsesCurrentAuthority ==
+ConsumerPostingUsesCurrentAuthority ==
     hostAuthority # NoAuthority =>
         /\ hostAuthority = effect
-        /\ consumerSemantic = installedSemantic
+        /\ consumerSemantic = currentSemantic
         /\ consumerRevision = revision
         /\ consumerGeneration = generation
         /\ consumerEpoch = effectEpoch
@@ -1082,10 +1082,10 @@ Fairness ==
     /\ WF_vars(Framed(SettlePrimary))
     /\ WF_vars(Framed(PrepareNavigationResult))
     /\ WF_vars(Framed(PublishPrimaryResult))
-    /\ WF_vars(Framed(InstallConsumer))
+    /\ WF_vars(Framed(PostConsumer))
     /\ WF_vars(Framed(ExecuteVisibleEffect))
     /\ WF_vars(Framed(Acknowledge))
-    /\ WF_vars(Framed(InstallMaintenance))
+    /\ WF_vars(Framed(ApplyMaintenance))
 
 Spec == SafetySpec /\ Fairness
 

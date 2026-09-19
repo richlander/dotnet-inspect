@@ -26,6 +26,9 @@ resolvable when `SetStateMachine` alone is absent, with that absence carried
 explicitly rather than converted to rejection. The
 [classic async inverse design](classic-async-reconstruction.md#immediate-boundary)
 is a consumer map; #5277 and #5276 own adapter and inverse implementation.
+The focused [#5730](https://github.com/richlander/dotnet-inspect/issues/5730)
+adoption also owns the publication distinction between invalid query
+coordinates, operation-imposed claim-name bounds, and malformed claim names.
 
 ## Contract
 
@@ -59,19 +62,23 @@ resolved kickoff- or state-machine-keyed relationship or relationship
 enumeration.
 
 `Rejected` is not absence. Its failure identifies unresolved, malformed,
-duplicate, cross-kind, budget-exceeded, or ambiguous metadata and retains the
-available kickoff addresses, state-machine addresses, and parsed claimed type
-names. Ambiguous claimed names remain discoverable from every matching
-`TypeDef`, and a rejection shared by multiple claims retains every contributing
-kickoff. Rejection publications form shared components during construction, so
-overlapping failures merge once and every forward or reverse entry freezes to
-the same immutable result without repeatedly scanning the accumulated indexes.
+duplicate, cross-kind, budget-exceeded, ambiguous, or invalid-handle outcomes
+and retains the available kickoff addresses, state-machine addresses, and
+parsed claimed type names. `InvalidHandle` is a query-coordinate outcome and
+carries no artifact evidence. Ambiguous claimed names remain discoverable from
+every matching `TypeDef`, and a rejection shared by multiple claims retains
+every contributing kickoff. Rejection publications form shared components
+during construction, so overlapping failures merge once and every forward or
+reverse entry freezes to the same immutable result without repeatedly scanning
+the accumulated indexes.
 `StateMachineRelationshipIndex_RejectsMalformedTrustedConstructor`,
 `StateMachineRelationshipIndex_RejectsCompetingKickoffClaims`,
 `StateMachineRelationshipIndex_RejectsAmbiguousClaimedType`,
 `StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`, and
 `StateMachineRelationshipIndex_MergesEveryOverlappingRejection` gate those
 distinctions and evidence paths;
+`StateMachineRelationshipIndex_InvalidHandlesAreTyped` gates invalid
+coordinates;
 `StateMachineRelationshipIndex_MergesRejectionsWithoutQuadraticRescan` gates
 the bounded propagation cost.
 
@@ -466,6 +473,11 @@ After construction fails, every valid `GetByKickoff`, `GetByStateMachine`, and
 `BudgetExceeded`; malformed SRM data yields `Malformed`. Neither keyed path
 answers `Absent` for rows construction never examined.
 
+An invalid or out-of-range query handle yields `InvalidHandle`, even when the
+module has a global construction failure. Encoded-byte, decoded-character, and
+reflection-name parse-node limits on a state-machine claim yield
+`BudgetExceeded`; syntactically malformed names remain `Malformed`.
+
 `Relationships` reports the same distinction at collection scope:
 `StateMachineRelationshipsResult.Available` carries the complete relationship
 array after successful construction, including a legitimately empty array, and
@@ -478,7 +490,14 @@ Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_Propagat
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_InvalidMvidPreservesGlobalFailureForValidHandles`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PortablePdbReturnsGlobalFailure`.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PortablePdbReturnsGlobalFailure`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_InvalidHandlesAreTyped`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ReportsEncodedTypeNameBudgetBeforeDecode`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RetainsMalformedTruncatedOversizedName`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ReportsTypeNameCharacterBudget`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ReportsTypeNameParseNodeBudget`,
+and
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RetainsMalformedTypeName`.
 
 The first two gates assert that one queried kickoff returns `Rejected` with
 kind `BudgetExceeded`. The collection gates distinguish a successful empty
@@ -526,6 +545,8 @@ not a C3 gate. The malformed whole-module path remains `unverified`.
 failed to index. `Malformed` and `BudgetExceeded` each arise from both paths.
 `Unresolved`, `Ambiguous`, `CrossKind`, and `Duplicate` arise only from the
 per-claim path, so the kinds are informative but not decisive.
+`InvalidHandle` arises only from a keyed query whose caller supplied an invalid
+coordinate and makes no claim about the indexed artifact.
 
 A consumer needing the distinction must inspect the outer `Relationships`
 result, not infer it from `Failure.Kind`, rendered failure text, or the number

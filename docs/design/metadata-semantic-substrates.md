@@ -258,6 +258,18 @@ and associated-attribute budget distinctions are gated by
 `AssociatedAttributeRowBudgetFailureIsTyped`, with member attribute name-work
 exhaustion gated by `DirectAttributeNameWorkBudgetFailureIsTyped`.
 
+State-machine relationship queries publish
+`StateMachineRelationshipFailureKind.InvalidHandle` for nil or out-of-range
+MethodDef and TypeDef coordinates. State-machine claim names that exceed the
+encoded-byte, decoded-character, or reflection-name parse-node bounds publish
+`BudgetExceeded`; syntactically invalid names remain `Malformed`. These
+distinctions are gated by
+`StateMachineRelationshipIndex_InvalidHandlesAreTyped`,
+`StateMachineRelationshipIndex_ReportsEncodedTypeNameBudgetBeforeDecode`,
+`StateMachineRelationshipIndex_ReportsTypeNameCharacterBudget`,
+`StateMachineRelationshipIndex_ReportsTypeNameParseNodeBudget`, and
+`StateMachineRelationshipIndex_RetainsMalformedTypeName`.
+
 Caching belongs to the consumer. A consumer may create a substrate per
 operation or retain one for a reader's lifetime. The substrate introduces no
 shared registry or process-wide state spanning readers.
@@ -299,7 +311,6 @@ registration row, registry service, naming convention, or maintained census.
 
 | Gap | Tracker | Relation to this contract |
 | --- | --- | --- |
-| Reachable outcome distinctions remain collapsed in state-machine relationships | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
 | Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |
 | A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
 | Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |

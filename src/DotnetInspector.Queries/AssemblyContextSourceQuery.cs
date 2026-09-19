@@ -216,6 +216,9 @@ public sealed record AssemblyMemberSourceRequest
             AllowDecompiledFallback = allowDecompiledFallback,
         };
 
+    public AssemblyMemberSourceRequest WithoutDecompiledFallback() =>
+        this with { AllowDecompiledFallback = false };
+
     public static AssemblyMemberSourceRequest From(
         ApiType type,
         ApiMember member,
@@ -273,6 +276,7 @@ public enum AssemblySourceFailureKind
     PdbAndDecompiledUnavailable,
     InspectionFailed,
     AuthoredDocumentUnavailable,
+    AuthoredMemberUnavailable,
     AuthoredMemberPartsUnavailable,
 }
 
@@ -789,11 +793,17 @@ public static partial class AssemblyContextSourceQuery
 
         if (!request.AllowDecompiledFallback)
         {
+            AssemblySourceFailure failure = request.IncludeAuthoredParts
+                ? new(
+                    AssemblySourceFailureKind.AuthoredMemberPartsUnavailable,
+                    "The requested verified authored member parts are unavailable.")
+                : new(
+                    AssemblySourceFailureKind.AuthoredMemberUnavailable,
+                    "The requested verified authored member source is unavailable.");
             return new AssemblyMemberSourceEntry.Unavailable(
                 subject,
                 request,
-                new(AssemblySourceFailureKind.AuthoredMemberPartsUnavailable,
-                    "The requested verified authored member parts are unavailable."),
+                failure,
                 pdb.Inspection)
             {
                 HouseOutcome = pdb.HouseOutcome,

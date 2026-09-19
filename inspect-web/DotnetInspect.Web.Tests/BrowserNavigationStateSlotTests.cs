@@ -21,7 +21,7 @@ public sealed class BrowserNavigationStateSlotTests
         Assert.Equal(initialization.Authority!.Session, slot.Id);
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
-            slot.RecordConsumerInstallation(initialization.Authority));
+            slot.RecordConsumerPosting(initialization.Authority));
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
             slot.Acknowledge(initialization.Authority));
@@ -44,7 +44,7 @@ public sealed class BrowserNavigationStateSlotTests
         Assert.True(slot.ValidateAuthority(selected.Authority!));
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
-            slot.RecordConsumerInstallation(selected.Authority!));
+            slot.RecordConsumerPosting(selected.Authority!));
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
             slot.Acknowledge(selected.Authority!));
@@ -384,7 +384,7 @@ public sealed class BrowserNavigationStateSlotTests
                 Slot.Initialization.Authority!;
             Assert.Equal(
                 NavigationAuthorityResult.Accepted,
-                Slot.RecordConsumerInstallation(authority));
+                Slot.RecordConsumerPosting(authority));
             Assert.Equal(
                 NavigationAuthorityResult.Accepted,
                 Slot.Acknowledge(authority));

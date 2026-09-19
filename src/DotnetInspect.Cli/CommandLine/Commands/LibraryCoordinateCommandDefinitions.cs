@@ -268,13 +268,24 @@ internal static class LibraryCoordinateCommandDefinitions
             }
             OutputFormat format = opts.ResolveFormat(parseResult);
 
+            if (!LibrarySourceAdapter.TryDeclare(
+                    library,
+                    package,
+                    platform,
+                    "--library",
+                    out var sourceIntent,
+                    out string? sourceIntentError))
+            {
+                CommandError.Write(sourceIntentError!);
+                return 1;
+            }
+
             return await LibraryCommand.ExecuteAsync(new LibraryOptions
             {
+                SourceIntent = sourceIntent,
                 AssemblyName = library,
                 IncludeMetadata = true,
-                PackagePath = package,
                 IncludePrerelease = includePrerelease,
-                PlatformAssembly = platform,
                 PlatformFramework = framework,
                 PlatformVersion = version,
                 Tfm = tfm,
