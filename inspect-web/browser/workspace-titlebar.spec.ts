@@ -413,6 +413,12 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toHaveClass(/content-navigation-integrated/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
     .toHaveText("Dependencies");
+  await expect(page.locator(
+    ".package-dependencies-controls #package-version")).toBeVisible();
+  await expect(page.locator(
+    ".package-dependencies-controls #framework")).toHaveCount(0);
+  await expect(page.locator('[data-package-framework="net10.0"]'))
+    .toHaveAttribute("aria-current", "page");
   const packageDependenciesFooter = await box(
     page,
     ".package-dependencies-surface-footer");

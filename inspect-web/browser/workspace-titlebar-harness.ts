@@ -546,10 +546,6 @@ function detailHtml() {
             <span>Version</span>
             <select id="package-version"><option selected>10.0.0</option></select>
           </label>
-          <label class="framework-select">
-            <span>Framework</span>
-            <select id="framework"><option selected>net10.0</option></select>
-          </label>
         </div>
       </section>
       <div class="package-dependencies-scroll">
@@ -809,7 +805,6 @@ function detailHtml() {
       <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
       <div class="package-coordinate-fields">
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
       </div>
     </section>`;
 }
