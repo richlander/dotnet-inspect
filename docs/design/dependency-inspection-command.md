@@ -15,8 +15,10 @@ and retire `depends`; those passages remain historical input for focused
 Dependency adoption rather than target grammar.
 The host-neutral dependency settlement operation and ordinary CLI adoption are
 implemented under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
-sidecar serialization and Browser/Wasm adoption remain proposed.
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug CLI
+sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 
 ## Owner and claim
 
@@ -800,8 +802,9 @@ demonstration that diagnostic registration disappears from retail compilation.
 **Status:** partially implemented under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
 host-neutral ordinary and enriched settlement entry points and ordinary CLI
-cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
-remain proposed.
+cutover are implemented. Debug CLI sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -837,8 +840,8 @@ baseline consumer to understand `TEvidence`.
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption, and closed generated serialization are implemented. Generated
-sidecar serialization and Browser/Wasm adoption remain proposed.
+CLI consumption, closed generated serialization, and Debug CLI sidecar
+delivery are implemented. Browser/Wasm adoption remains proposed.
 
 The dependency service issues one named settled Document:
 
