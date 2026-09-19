@@ -72,7 +72,11 @@ public static partial class SourceExports
             synchronousCompletions:
                 source.SynchronousCompletions,
             synchronousCompletionsUnavailableReason:
-                source.SynchronousCompletionsUnavailableReason);
+                source.SynchronousCompletionsUnavailableReason,
+            awaitCompletionPaths:
+                source.AwaitCompletionPaths,
+            awaitCompletionPathsUnavailableReason:
+                source.AwaitCompletionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -126,7 +130,9 @@ public static partial class SourceExports
             source.CallCycles,
             source.CallCyclesUnavailableReason,
             source.SynchronousCompletions,
-            source.SynchronousCompletionsUnavailableReason);
+            source.SynchronousCompletionsUnavailableReason,
+            source.AwaitCompletionPaths,
+            source.AwaitCompletionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -178,7 +184,8 @@ public static partial class SourceExports
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
                         CallRelationships: factRows,
                         CallCycles: factRows,
-                        SynchronousCompletions: factRows))),
+                        SynchronousCompletions: factRows,
+                        AwaitCompletionPaths: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -322,6 +329,18 @@ public static partial class SourceExports
                         SynchronousCompletionKind(observation.Kind))),
             ];
         }
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null;
+        if (projection.AwaitCompletionPaths
+            is { } projectedAwaitCompletionPaths)
+        {
+            awaitCompletionPaths =
+            [
+                .. projectedAwaitCompletionPaths.Select(observation =>
+                    new BrowserAnnotatedSourceAwaitCompletionPath(
+                        observation.NodeId)),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -358,7 +377,9 @@ public static partial class SourceExports
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
-                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            awaitCompletionPaths,
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
     }
 
     static string FullyQualifiedMemberName(Analysis.MethodIdentity member)
@@ -504,5 +525,9 @@ public static partial class SourceExports
         BrowserAnnotatedSourceSynchronousCompletion[]?
             SynchronousCompletions,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            SynchronousCompletionsUnavailableReason);
+            SynchronousCompletionsUnavailableReason,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            AwaitCompletionPaths,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            AwaitCompletionPathsUnavailableReason);
 }

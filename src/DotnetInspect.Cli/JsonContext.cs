@@ -72,7 +72,8 @@ public partial class JsonContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]
 [JsonSerializable(typeof(PackageInspectionJson[]))]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext

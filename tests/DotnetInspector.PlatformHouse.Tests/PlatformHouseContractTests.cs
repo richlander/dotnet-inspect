@@ -956,6 +956,59 @@ public class PlatformHouseContractTests
             [earlierUnavailable, laterSelected],
             Consumed(),
             fallbackCompletion);
+        var earlierFailed = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Failed(
+                PlatformSourceFacet.Reference,
+                first,
+                fallbackRequest.Snapshot,
+                PlatformSourceGeneration.Create("first-2"),
+                target),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        _ = new PlatformHouseReceipt(
+            fallbackRequest.Snapshot,
+            new PlatformTargetSettlement.Exact(demand),
+            [earlierFailed, laterSelected],
+            Consumed(),
+            fallbackCompletion);
+
+        var precedencePlan = new PlatformSourcePlan(
+            PlatformSourcePlanIdentity.Create("precedence"),
+            PlatformSourcePolicyGeneration.Create("generation"),
+            [
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.Reference,
+                    PlatformSourceSelectionMode.Precedence,
+                    [first, second]),
+            ]);
+        PlatformHouseRequest precedenceRequest = Request(
+            demand,
+            precedencePlan);
+        var precedenceFailed = new PlatformSourceSettlement(
+            new PlatformSourceContribution.Failed(
+                PlatformSourceFacet.Reference,
+                first,
+                precedenceRequest.Snapshot,
+                PlatformSourceGeneration.Create("first-1"),
+                target),
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        PlatformSourceSettlement precedenceSelected =
+            RealizationSettlement(
+                precedenceRequest,
+                second,
+                target,
+                "precedence-second");
+        var precedenceCompletion = new PlatformHouseCompletion.Realization(
+            (PlatformHouseOperationSnapshot.Realize)
+                precedenceRequest.Snapshot.Operation,
+            [precedenceSelected]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                precedenceRequest.Snapshot,
+                new PlatformTargetSettlement.Exact(demand),
+                [precedenceFailed, precedenceSelected],
+                Consumed(),
+                precedenceCompletion));
 
         var aggregationPlan = new PlatformSourcePlan(
             PlatformSourcePlanIdentity.Create("aggregation"),
