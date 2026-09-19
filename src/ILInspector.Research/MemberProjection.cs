@@ -87,7 +87,8 @@ public sealed record MemberProjectionRequest(
     /// compatibility behavior, or a consistent absence for pathless content.
     /// </summary>
     MemberProjectionAnalysisInput? Analysis = null,
-    IReadOnlyList<DirectCall>? CallSites = null);
+    IReadOnlyList<DirectCall>? CallSites = null,
+    SelectedPropertyAccessorSource? PropertySource = null);
 
 public sealed record MemberProjectionResult(
     DecompilerResult? AnnotatedSource,

@@ -176,3 +176,77 @@ public class ExplicitAutoPropertySamples : IAutoPropertySample
 {
     int IAutoPropertySample.Count { get; } = 29;
 }
+
+public class SelectedFieldPropertySamples
+{
+    public int Count => field + 1;
+    public static int SharedCount => field + 2;
+    public int RepeatedCount => field + field;
+    public int CheckedCount => checked(field + 1);
+    public string? Label => field ?? "this.Label / field";
+    public int @event => field + 3;
+    public int BranchedCount => field > 0 ? field : -1;
+    public int ChangingCount => ++field;
+    public string? LazyLabel => field ??= "initialized";
+    public int MutableCount { get => field + 1; set; }
+    public int InitialCount { get => field + 1; init; }
+
+    [field: System.ComponentModel.Description("preserve storage contract")]
+    public int DescribedCount => field + 1;
+
+    public int AttributedCount
+    {
+        [System.Diagnostics.DebuggerStepThrough]
+        get => field + 1;
+    }
+
+    public int NestedCount
+    {
+        get
+        {
+            int Read() => field + 1;
+            return Read();
+        }
+    }
+
+    public int ProtectedCount
+    {
+        get
+        {
+            try { return field + 1; }
+            finally { System.GC.KeepAlive(0); }
+        }
+    }
+
+#pragma warning disable CS9258 // Intentionally retain a PDB local whose name conflicts with accessor storage.
+    public int ShadowedCount
+    {
+        get
+        {
+            int @field = System.Math.Abs(field);
+            return field + @field;
+        }
+    }
+#pragma warning restore CS9258
+}
+
+public class GenericFieldPropertySamples<T> where T : class
+{
+    public T? Value => field is not null ? field : default;
+    public static int SharedCount => field + 2;
+}
+
+public readonly struct ReadonlyFieldPropertySamples
+{
+    public int Count => field + 1;
+}
+
+public class DerivedFieldPropertySamples : SelectedAutoPropertySamples
+{
+    public override int Limit => field + 1;
+}
+
+public class ExplicitFieldPropertySamples : IAutoPropertySample
+{
+    int IAutoPropertySample.Count => field + 1;
+}
