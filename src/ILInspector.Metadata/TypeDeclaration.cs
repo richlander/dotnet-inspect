@@ -19,6 +19,62 @@ public enum MetadataTypeDefinitionKind
     ValueType,
 }
 
+/// <summary>Why a known TypeDef could not be assigned a definition kind.</summary>
+public abstract class MetadataTypeDefinitionKindFailure
+{
+    private protected MetadataTypeDefinitionKindFailure()
+    {
+    }
+
+    /// <summary>A declared work bound stopped kind classification.</summary>
+    public sealed class BudgetExceeded : MetadataTypeDefinitionKindFailure
+    {
+        internal BudgetExceeded(long budget, string detail)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(budget);
+            ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+            Budget = budget;
+            Detail = detail;
+        }
+
+        public long Budget { get; }
+        public string Detail { get; }
+    }
+
+    /// <summary>Relevant metadata was present but could not be decoded.</summary>
+    public sealed class Malformed : MetadataTypeDefinitionKindFailure
+    {
+        internal Malformed(
+            int? subjectToken,
+            string detail,
+            MetadataTypeNameFailure? nameFailure = null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+            SubjectToken = subjectToken;
+            Detail = detail;
+            NameFailure = nameFailure;
+        }
+
+        public int? SubjectToken { get; }
+        public string Detail { get; }
+        public MetadataTypeNameFailure? NameFailure { get; }
+    }
+
+    /// <summary>The metadata decodes but its shape is outside the classifier.</summary>
+    public sealed class Unsupported : MetadataTypeDefinitionKindFailure
+    {
+        internal Unsupported(int? subjectToken, string detail)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+            SubjectToken = subjectToken;
+            Detail = detail;
+        }
+
+        public int? SubjectToken { get; }
+        public string Detail { get; }
+    }
+}
+
 /// <summary>A validated TypeDef metadata token in one assembly candidate.</summary>
 public readonly record struct TypeDefinitionToken
 {
@@ -97,16 +153,46 @@ public abstract class TypeDeclarationCandidate
             TypeDefinitionToken token,
             MetadataTypeDefinitionKind kind,
             int genericParameterCount,
-            DefinitionKindDependency? kindDependency = null)
+            DefinitionKindDependency? kindDependency = null,
+            MetadataTypeDefinitionKindFailure? kindFailure = null)
         {
+            if (kindFailure is not null
+                && (kind != MetadataTypeDefinitionKind.Unknown
+                    || kindDependency is not null))
+            {
+                throw new ArgumentException(
+                    "A failed definition-kind classification must carry "
+                        + "Unknown without a dependency.",
+                    nameof(kindFailure));
+            }
+            if (kindFailure is null
+                && kind == MetadataTypeDefinitionKind.Unknown
+                && kindDependency is null)
+            {
+                throw new ArgumentException(
+                    "A successful Unknown definition kind must carry its "
+                        + "external dependency.",
+                    nameof(kindDependency));
+            }
+            if (kind != MetadataTypeDefinitionKind.Unknown
+                && kindDependency is not null)
+            {
+                throw new ArgumentException(
+                    "Only an Unknown definition kind may carry an external "
+                        + "dependency.",
+                    nameof(kindDependency));
+            }
+
             Token = token;
             Kind = kind;
             GenericParameterCount = genericParameterCount;
             KindDependency = kindDependency;
+            KindFailure = kindFailure;
         }
 
         public TypeDefinitionToken Token { get; }
         public MetadataTypeDefinitionKind Kind { get; }
+        public MetadataTypeDefinitionKindFailure? KindFailure { get; }
         internal int GenericParameterCount { get; }
         internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
@@ -160,6 +246,23 @@ public abstract class TypeDeclarationResult
             int genericParameterCount,
             DefinitionKindDependency? kindDependency = null)
         {
+            if (kind == MetadataTypeDefinitionKind.Unknown
+                && kindDependency is null)
+            {
+                throw new ArgumentException(
+                    "A successful Unknown definition kind must carry its "
+                        + "external dependency.",
+                    nameof(kindDependency));
+            }
+            if (kind != MetadataTypeDefinitionKind.Unknown
+                && kindDependency is not null)
+            {
+                throw new ArgumentException(
+                    "Only an Unknown definition kind may carry an external "
+                        + "dependency.",
+                    nameof(kindDependency));
+            }
+
             Definition = definition;
             Kind = kind;
             DeclaringAssemblyDefinesCoreLibraryRoot =
@@ -177,6 +280,32 @@ public abstract class TypeDeclarationResult
         public bool IsValueType =>
             Kind == MetadataTypeDefinitionKind.ValueType;
         public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
+    }
+
+    /// <summary>
+    /// An exact TypeDef was found, but its definition kind could not be
+    /// classified.
+    /// </summary>
+    public sealed class DefinitionKindUnavailable : TypeDeclarationResult
+    {
+        internal DefinitionKindUnavailable(
+            TypeDefinitionToken definition,
+            MetadataTypeDefinitionKindFailure failure,
+            bool declaringAssemblyDefinesCoreLibraryRoot,
+            int genericParameterCount)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            Definition = definition;
+            Failure = failure;
+            DeclaringAssemblyDefinesCoreLibraryRoot =
+                declaringAssemblyDefinesCoreLibraryRoot;
+            GenericParameterCount = genericParameterCount;
+        }
+
+        public TypeDefinitionToken Definition { get; }
+        public MetadataTypeDefinitionKindFailure Failure { get; }
+        public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
+        internal int GenericParameterCount { get; }
     }
 
     public sealed class Forwarded : TypeDeclarationResult
