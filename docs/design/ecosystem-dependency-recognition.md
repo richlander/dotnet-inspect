@@ -19,6 +19,7 @@ The **Ecosystem Dependency Recognition** owner in
 - distinct Package ID and assembly simple-name association domains;
 - exact and family association semantics in each domain;
 - classification of one bounded direct-dependency observation batch;
+- one owner-issued Package or Library subject context for every batch;
 - many-to-many recognition evidence, including every matching association;
 - explicit complete, incomplete, and unavailable outcomes;
 - deterministic product, observation, and recognition ordering;
@@ -30,11 +31,12 @@ The **Ecosystem Dependency Recognition** owner in
 Its exact claim is:
 
 > Given one validated resource-free product recognition profile and one
-> owner-issued direct-dependency observation batch, recognize every shipped
-> ecosystem whose authored association matches each observation, preserve the
-> observation, declaration source, matching basis, overlap, non-match, and
-> input completion in one detached product-relative Document without
-> traversing dependencies or inferring Package-to-assembly provenance.
+> owner-issued subject-bound direct-dependency observation batch, recognize
+> every shipped ecosystem whose authored association matches each observation,
+> preserve the subject and applicable target selection, observation,
+> declaration source, matching basis, overlap, non-match, and input completion
+> in one detached product-relative Document without traversing dependencies or
+> inferring Package-to-assembly provenance.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -97,6 +99,7 @@ The operation starts after dependency facts have been selected and decoded:
 
 ```text
 Package or Library owner
+  -> owner-issued subject and selection context
   -> ordered direct-dependency observation batch
   -> completion and owner-issued diagnostics
 
@@ -219,6 +222,53 @@ cross-domain rule. Overlap across rows is intentional. For example,
 `Microsoft.AspNetCore.Components.WebView.Maui` recognizes ASP.NET Core, Blazor,
 and .NET MAUI.
 
+## Subject and selection context
+
+Every observation batch carries one resource-free subject context. The context
+is part of Content and remains present when the observation population is
+empty, incomplete, or unavailable.
+
+The closed context kinds are:
+
+```text
+Package context
+  - exact realized Package coordinate
+  - manifest identity
+  - dependency-group selection evidence
+  - compile-asset selection receipt
+
+Library context
+  - exact realized source coordinate
+  - portable Library identity
+```
+
+The Package context consumes existing owner-issued values:
+
+- `RealizedMemberCoordinate.Package` identifies the exact Package acquisition;
+- `PackageManifestFacts` identifies the manifest whose declarations were
+  projected;
+- the dependency-group query's requested target, selection status, selected
+  target, and selected group index retain which manifest group supplied
+  Package observations; and
+- `PackageCompileAssetSelectionReceipt` retains the requested and selected
+  compile slice from which selected-Library observations were produced.
+
+The context does not rerun either selection. An available Package batch
+requires correspondence among the Package coordinate, manifest identity,
+dependency-group selection, and compile receipt, including one effective
+target-framework slice for the combined observation population. A mismatch is
+an input issue and cannot produce a complete Document.
+
+The Library context consumes the source owner's exact
+`RealizedMemberCoordinate` and the selected assembly's
+`PortableLibraryIdentity`. It does not infer Package provenance from the
+assembly name.
+
+The subject context is semantic Content, not a display header. Two complete
+empty Documents for different subjects remain distinct and attributable.
+Hosts must not use `InspectionShare`, a rendered command, or a display label to
+repair missing Content identity.
+
 ## Direct-dependency observations
 
 One observation identifies one declaration occurrence, not one distinct
@@ -253,8 +303,10 @@ The caller supplies direct observations only. The recognition owner does not
 walk Package dependencies, resolve assembly references, acquire candidate
 Packages, or decide whether an observation is direct.
 
-The inspected Package or Library is not classified from its own name. It may
-appear in a Document only if an owner-issued dependency observation names it.
+The inspected Package or Library is retained as subject context but is not
+classified from its own name. It may appear in a recognition or unrecognized
+observation population only if an owner-issued dependency observation names
+it.
 
 ## Observation batch and completion
 
@@ -262,13 +314,16 @@ One input batch has one of three states:
 
 ```text
 Available
+  - subject and selection context
   - all required direct observations
 
 Incomplete
+  - subject and selection context
   - every trustworthy observation obtained so far
   - one or more owner-issued input issues
 
 Unavailable
+  - subject and available selection context
   - no trustworthy observation set
   - one or more owner-issued input issues
 ```
@@ -305,7 +360,7 @@ The outcome mirrors the observation batch state:
 EcosystemDependencyRecognitionOutcome
   = Complete(Document)
   | Incomplete(Document)
-  | Unavailable(InputIssues)
+  | Unavailable(SubjectContext, InputIssues)
 ```
 
 `Incomplete` is not a successful complete answer. It may retain classifications
@@ -315,6 +370,7 @@ that partial evidence. `Unavailable` contains no recognition Document.
 
 One `EcosystemDependencyRecognitionDocument` contains:
 
+- the exact Package or Library subject context;
 - a summary with the ordered product ecosystem candidate count, Package and
   assembly association counts, total, recognized, and unrecognized observation
   counts, distinct recognized ecosystem count, and
@@ -330,11 +386,12 @@ recognition rows, non-match disclosure, and coverage/failure disclosure are
 section projections over that Document, not independently constructed host
 models.
 
-The Document validates that every recognition refers to one contained
-observation and one contained ecosystem descriptor, no observation appears in
-both the recognized and unrecognized populations, and every summary count
-equals its source populations. Observation identities are document-local joins,
-not portable subject identities.
+The Document validates that its observations belong to its subject and
+selection context, every recognition refers to one contained observation and
+one contained ecosystem descriptor, no observation appears in both the
+recognized and unrecognized populations, and every summary count equals its
+source populations. Observation identities are document-local joins, not
+portable subject identities.
 
 One recognized observation entry retains:
 
@@ -362,8 +419,8 @@ different semantic order.
 
 ### Empty and unrecognized Documents
 
-An available empty batch produces a complete Document with zero observations
-and zero recognized ecosystems.
+An available empty batch produces a complete, subject-attributable Document
+with zero observations and zero recognized ecosystems.
 
 A nonempty batch in which no association matches produces a complete Document
 whose unrecognized count equals its observation count. It does not produce an
@@ -382,7 +439,8 @@ InspectionEnvelope<EcosystemDependencyRecognitionOutcome>
 ```
 
 The Package or Library composition supplies the `InspectionShare` outcome for
-the exact semantic subject plan. Recognition does not derive Share from a
+the exact semantic subject plan. Recognition validates that this plan
+corresponds to the Document's subject context. It does not derive Share from a
 Package ID, assembly name, rendered command, or dependency evidence.
 
 Input issues remain in the owner-issued content outcome. Supplemental
@@ -479,6 +537,12 @@ The implementation must name Release gates for:
   while retaining every basis;
 - repeated dependency names from different declaring sources remaining
   distinct observations;
+- complete-empty Package and Library Documents remaining distinct and
+  attributable through Content alone;
+- Package requested/selected target and selected-group identity surviving
+  Document and envelope transport;
+- mismatched dependency-group and compile-slice context refusing a complete
+  outcome;
 - Document-local joins, disjoint recognized/unrecognized populations, and
   summary-count validation;
 - product, source, and association ordering;
