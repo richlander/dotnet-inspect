@@ -600,6 +600,24 @@ The completed ecosystem-aware route returns
 mutate the lower Dependency Content, replace it with several recognition
 envelopes, or attach recognition as a second envelope payload.
 
+The application route retains the registered `asset-dependencies`
+`result_kind` and advances its complete wire contract to `schema_version` `2`.
+Version 2 binds `content` to
+`DependencyEcosystemRecognitionDocument`. Its enriched Debug form binds
+`evidence` to the existing `DependencyInspectionEvidenceDocument`; every
+evidence association continues to join to the exact
+`DependencyInspectionContent` nested in the application Document. The
+baseline and enriched forms use the same version-2 framing pair.
+
+Version 1 remains the existing Debug-only contract whose Content is
+`DependencyInspectionContent`. Adoption step 5 transitions the producing
+route, paired `--envelope`, `--evidence-envelope`, and current version-1
+consumers together. It must not serialize the application Document under
+version 1, serialize lower Content under version 2, or emit different baseline
+Content in the paired envelope and evidence attachment. Output Shapes does not
+promise preservation of the obsolete serializer; the adoption must disclose
+the machine-schema transition and update its registered contract.
+
 After dependency-inspection adoption, the asset dependency route's baseline
 semantic plan requests all applicable direct Package declarations and direct
 assembly references needed by classification, independently from output
@@ -616,7 +634,10 @@ serializing a success-shaped partial Document.
 Unprojected `--json` serializes the complete
 `DependencyEcosystemRecognitionDocument`. `--envelope.content` serializes the
 same value under the same owner-issued serializer; envelope output adds only
-Share and diagnostics.
+Share and diagnostics. The ordinary JSON document does not embed transport
+framing, but its step-5 schema transition is the same public Content migration
+identified by `asset-dependencies` version 2. Projected JSON remains a named
+presentation rather than complete envelope Content.
 
 ### Package and Library Info rollup
 
@@ -792,7 +813,10 @@ end-to-end tracker. The current plan has eight steps:
 4. Adopt Library direct-reference observations and CLI Library Info/detail
    presentation.
 5. Adopt baseline pair-grain recognition, typed ecosystem selection, and
-   complete JSON/envelope composition in CLI dependency inspection.
+   complete JSON/envelope composition in CLI dependency inspection. Atomically
+   register `asset-dependencies` version 2, transition the existing Debug
+   evidence form and its current consumers, and disclose the ordinary
+   unprojected-JSON schema migration.
 6. Expose the Package/Library recognition envelope through the managed
    inspect-web facade.
 7. Adopt the result in the Browser Package surface.
@@ -846,6 +870,13 @@ The implementation must name Release gates for:
   auxiliary payload;
 - dependency baseline Content requesting complete direct evidence independently
   from output format without authorizing transitive traversal;
+- `asset-dependencies` version 2 binding baseline and enriched Content to the
+  application Document while version 1 remains bound only to lower
+  `DependencyInspectionContent`;
+- paired envelope and evidence-attachment output using equal version-2
+  baseline Content, with evidence joining to the nested exact lower Content;
+- version-1 producers and consumers refusing version-2 Content rather than
+  silently reusing an incompatible registration;
 - unprojected dependency JSON equaling `--envelope.content`, with the envelope
   adding only Share and diagnostics;
 - dependency inspection filtering pair rows through typed
