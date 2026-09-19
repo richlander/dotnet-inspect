@@ -42,11 +42,13 @@ public static class MatchCommand
         bool assemblyWide,
         int? top,
         int? maximumResults,
-        int? maximumMethods)
+        int? maximumMethods,
+        bool count)
         => assemblyWide ? "--assembly-wide"
             : top is not null ? "--top"
             : maximumResults is not null ? "--max-results"
             : maximumMethods is not null ? "--max-methods"
+            : count ? "--count"
             : null;
 
     internal static void WriteDiscoveryOnlyError(string flag)
@@ -62,7 +64,11 @@ public static class MatchCommand
         // The discovery options share this options object. Pairwise comparison honors none of
         // them, so accepting them would silently ignore a scope or limit the caller asked for.
         string? discoveryOnly = DiscoveryOnlyFlag(
-            options.AssemblyWide, options.Top, options.MaximumResults, options.MaximumMethods);
+            options.AssemblyWide,
+            options.Top,
+            options.MaximumResults,
+            options.MaximumMethods,
+            options.Count);
 
         if (discoveryOnly is not null)
         {

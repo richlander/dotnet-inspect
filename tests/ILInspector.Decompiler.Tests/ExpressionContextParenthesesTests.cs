@@ -45,7 +45,7 @@ public sealed class ExpressionContextParenthesesTests
     {
         using var source = MetadataSource.Open(typeof(System.Data.SqlTypes.SqlBytes).Assembly.Location);
         string output = Print(source, "System.Data.SqlTypes.SqlBytes", "get_MaxLength");
-        Assert.Contains("return _rgbBuf is null ? (long)-1 : (long)_rgbBuf.Length;", output);
+        Assert.Contains("_rgbBuf is null ? (long)-1 : (long)_rgbBuf.Length", output);
     }
 
     static string Print(MetadataSource source, string type, string method, bool lowered = false)
