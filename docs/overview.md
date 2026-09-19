@@ -47,6 +47,13 @@ substrates, and inspection producers that will extend that space.
   sequences that split with House settlement, Workspace admission, L1 query
   plans, L2 section and row plans, work bounds, and host-specific projection
   without introducing one universal operation plan.
+  [Query Operation Infrastructure](design/query-operation-infrastructure.md)
+  owns the executable registration of an operation vocabulary, applicable
+  subject roles, result grains, query-term and order bindings, plan resolver,
+  and declared row sets. Commands and operation-backed sections explicitly
+  bind one operation role and query profile; shared infrastructure then
+  derives query discovery and host lowering without inferring facets from
+  schemas or rendered fields.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,
@@ -162,8 +169,8 @@ substrates, and inspection producers that will extend that space.
   Outcome/Document and scalar population-count Result semantics for CLI and
   Browser/Wasm. History preserves native temporal evidence; Count alone counts
   package versions without payload inspection.
-  [Command Transition Model](design/command-transition-model.md#historical-subject-owned-diff-placement)
-  retains Package count binding, comparison-adoption evidence, and the
+  [Command Transition Model](design/command-transition-model.md#diff-operation-and-subject-section-adoption)
+  retains Package count binding, focused Diff adoption, and the
   envelope-complete boundary, including public CLI envelope output.
   Top-level Diff placement and equivalent subject sections are owned by
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md);

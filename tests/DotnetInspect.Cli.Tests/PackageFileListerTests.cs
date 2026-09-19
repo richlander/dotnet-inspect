@@ -233,6 +233,112 @@ public class PackageFileListerTests
         Assert.True(result[0].IsAgents);
     }
 
+    [Fact]
+    public void ListAll_MarksDeclaredAndCorpusBackedLicenseDocuments()
+    {
+        var root = CreateExtractDir(
+            "OSMFEULA.txt",
+            "LICENSE.md",
+            "licenses/Dependency.txt",
+            "licenses/NOTICE.txt",
+            "license/THIRD-PARTY-NOTICES.md",
+            "THIRD-PARTY-NOTICES.TXT",
+            "content/driving-license.png",
+            "lib/License.dll");
+        try
+        {
+            var files = PackageFileLister.ListAll(
+                root,
+                declaredLicense: "OSMFEULA.txt");
+
+            Assert.Equal(
+                [
+                    "LICENSE.md",
+                    "OSMFEULA.txt",
+                    "licenses/Dependency.txt",
+                ],
+                files.Where(file => file.IsLicense)
+                    .Select(file => file.Path)
+                    .ToArray());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListAll_DeclaredLicenseWinsForNoticeName()
+    {
+        var root = CreateExtractDir("licenses/NOTICE.txt");
+        try
+        {
+            PackageFile file = Assert.Single(
+                PackageFileLister.ListAll(
+                    root,
+                    declaredLicense: "licenses/NOTICE.txt"));
+
+            Assert.True(file.IsLicense);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ListAll_DeclaredLicenseWinsRegardlessOfNameOrExtension()
+    {
+        var root = CreateExtractDir("legal/软件用户许可安装协议.bin");
+        try
+        {
+            PackageFile file = Assert.Single(
+                PackageFileLister.ListAll(
+                    root,
+                    declaredLicense: @"legal\软件用户许可安装协议.bin"));
+
+            Assert.True(file.IsLicense);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("./legal/TERMS.bin")]
+    [InlineData(@".\legal\TERMS.bin")]
+    public void ListAll_DeclaredLicenseNormalizesLeadingCurrentDirectorySegment(
+        string declaredLicense)
+    {
+        var root = CreateExtractDir("legal/TERMS.bin");
+        try
+        {
+            PackageFile file = Assert.Single(
+                PackageFileLister.ListAll(root, declaredLicense: declaredLicense));
+
+            Assert.True(file.IsLicense);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Filter_AtLicense_ReturnsLicenseDocuments()
+    {
+        List<PackageFile> files =
+        [
+            new("LICENSE.md", 10, IsLicense: true),
+            new("README.md", 20),
+        ];
+
+        PackageFile file = Assert.Single(
+            PackageFileLister.Filter(files, "@license"));
+        Assert.Equal("LICENSE.md", file.Path);
+    }
+
     /// <summary>
     /// README.md then PACKAGE.md. AGENTS.md is deliberately not in the chain: agent-facing
     /// package documentation is carried by skills/**/SKILL.md ("Package skill files"), so an

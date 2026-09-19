@@ -20,11 +20,12 @@ catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's `Package files` or `SourceLink: Files` section,
-one selected Project document section, and explicit-source Type catalog
-listings have semantic `-n` adoption. Their supported Window and direction
-capabilities remain command-specific. These adopters also accept explicit
-rendered-line selection where their output format permits it. Unselected modes
-of a partially adopted command use the rendered-line fallback.
+one selected Project document section, explicit-source Type catalog listings,
+and `match --similar` ranked candidates have semantic `-n` adoption. Their
+supported Window and direction capabilities remain command-specific. These
+adopters also accept explicit rendered-line selection where their output
+format permits it. Unselected modes of a partially adopted command use the
+rendered-line fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -65,7 +66,9 @@ README rows after inventory construction and validation when exactly one
 section is selected. Multi-section Project output remains outside that
 declaration. The Type catalog adoption selects complete `ApiType` entries after
 type, kind, and unsafe filtering when package, library, platform, or project
-source selection makes the catalog interpretation unambiguous. Semantic
+source selection makes the catalog interpretation unambiguous. The
+`match --similar` adoption selects Analysis-ranked structural candidates after
+retrieval while preserving complete non-row retrieval evidence. Semantic
 adoption for the remaining command row sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
@@ -811,6 +814,104 @@ declaration. Those surfaces retain their existing row contracts and use
 rendered-line fallback for bare `-n`. Direct callers that provide only the
 legacy `RowWindow` also retain their existing behavior.
 
+## Package TFM adoption
+
+The ordinary single-package `package --tfms` lens declares one semantic row
+per target-framework string. Package resolution, extraction, complete assembly
+enumeration, TFM de-duplication, and TFM-priority ordering finish before
+Head/Tail or strict Window stages select from that completed vector.
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
+    --tfms -n 1 --tail --json
+[
+  {
+    "tfm": "net20"
+  }
+]
+```
+
+What to notice: `-n 1 --tail` selects the final complete TFM row. Markdown,
+table, TSV, JSONL, JSON, and Count consume the same selected TFM identity.
+Selection does not reduce package acquisition, archive extraction, or assembly
+enumeration.
+
+The adoption supports Head/Tail, Window, and explicit Lines. JSON rejects
+explicit line selection before package resolution. One strict Window failure
+withholds every output shape:
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
+    --tfms --rows 8..9 --json
+Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are available.
+```
+
+The declaration activates only for the ordinary one-package TFM lens.
+Version listing and its population-only modifiers, valid or malformed
+package-range coordinates, dependencies, bare `--tree`, layout, file, content,
+and SourceLink selectors or modifiers, embedded
+`--library`/`--all-libraries` inspection, multiple-package inspection, explicit
+section selection, discovery/schema, envelope output, and unsupported print or
+shape projections remain outside it. Fields and columns remain inside only
+with Count, where they project the TFM lens's count result. These competing
+intents retain their existing diagnostics or legacy row contracts and use
+rendered-line fallback for bare `-n`. Numeric `--rows N` is rejected on the
+ordinary adopted lens because Window requires range syntax.
+
+## Match candidate adoption
+
+`match --similar` declares one semantic row per
+`StructuralCloneRetrievalCandidate` in the Analysis-issued structural-
+similarity ranking. Seed and population resolution, candidate-method scanning,
+feature extraction, ranking, and `--max-results` truncation finish before
+Head/Tail, strict Window, or Top stages select from the completed returned
+candidate vector. Top uses that intrinsic ranking as its default ranking; it
+does not introduce another score or retrieval limit.
+
+```console
+$ dotnet-inspect match Sample.Encode --similar \
+    --library ./app.dll --top 2 --json
+{
+  ...
+  "row_selection": {
+    "available_candidates": 14,
+    "selected_candidates": 2
+  },
+  "candidates": [
+    ...
+  ],
+  "method_outcomes": [
+    ...
+  ]
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, JSON, and Count consume the same
+selected candidate identities. JSON selection changes only `candidates`;
+`method_outcomes`, blockers, and the query-issued receipt remain complete
+retrieval evidence. `row_selection` makes that boundary explicit, so
+`receipt.returned_candidates` may exceed the selected candidate count without
+claiming that retrieval returned less evidence than it did. Count observes the
+selected candidate vector.
+
+The adoption supports Head/Tail, strict Window, Top, and explicit Lines. JSON
+rejects rendered-line selection before source resolution. One unavailable
+Window after completed retrieval withholds every output shape:
+
+```console
+$ dotnet-inspect match Sample.Encode --similar \
+    --library ./app.dll --rows 999..999 --json
+Error: Match candidate row selection stage 1 requires row 999, but only 14 ranked candidates are available.
+```
+
+`--max-results` and `--max-methods` remain product retrieval limits and execute
+before semantic candidate selection. Pairwise `match` has no ranked candidate
+row vector and remains outside this declaration; bare `-n` there uses the
+rendered-line fallback. The seed outcome, per-method outcomes, blockers,
+receipt, and disclosure are companion evidence, not additional selectable row
+sets. A rejected, unsupported, limit-reached, or failed retrieval remains
+visible and nonzero rather than being replaced by a row-selection failure.
+
 ## Package SourceLink file adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -1087,6 +1188,22 @@ The Package Files adoption is enforced by:
 | `CommandExecutionTests.Package_FileRows_SemanticTailSelectsTheSameRowAcrossFormats` and `Package_FileRows_AliasAndPathAcceptSemanticWindows` | One selected whole-package Files section applies semantic Head/Tail and strict Window after complete ordered file enumeration and optional path filtering; Markdown, table, TSV, JSONL, complete JSON, Count, value projection, and paths consume the same selected rows. |
 | `CommandExecutionTests.Package_FileRows_UnavailableWindowWithholdsOutput`, `Package_FileRows_RejectInvalidRequestsBeforePackageResolution`, and `Package_FileRows_ExplicitLinesClipsRenderedText` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and complete-JSON line clipping fail before package resolution, document-family bare `-n` remains rendered-line selection, and explicit Lines clips rendered table text. |
 | `CommandExecutionTests.Package_FileRows_MultiSectionRetainsLegacyWindowValidation`, `Package_MultiplePackages_FilesJsonlWindowsCombinedRows`, and `PackageContentOutput_RowWindowHydratesTheUnarySelection` | Document-family sections, `@Files`, mixed sections, multiple-package file rows, and package-content payloads remain outside the semantic declaration and retain their existing row-window behavior. |
+
+The Package TFM adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats` and `Tfms_Count_CountsTheListedFrameworks` | One ordinary `--tfms` lens selects complete TFM rows after package extraction and TFM ordering; Markdown, table, TSV, JSONL, JSON, and Count consume the same selected identity. |
+| `CommandExecutionTests.Tfms_UnavailableWindowWithholdsOutput`, `Tfms_RejectInvalidSelectionBeforePackageResolution`, and `Tfms_LinesMakesRenderedClippingExplicit` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and JSON line clipping fail before package resolution, and explicit Lines clips rendered text. |
+| `CommandExecutionTests.Tfms_CompetingLayoutRetainsRenderedLineFallback`, `Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics`, `Tfms_CompetingProjectionsRetainOwnedDiagnostics`, `Tfms_CompetingModifiersRetainLegacyWindow`, and `LensCounts_ApplyRowsAndValidateProjectedColumns` | Competing Package modes, selectors, modifiers, unsupported projections, and valid or malformed range coordinates remain outside the declaration and retain their owned diagnostics or legacy Window validation, while the ordinary TFM lens applies semantic Window before Count, declared-column validation, and JSONL lowering. |
+
+The Match candidate adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `MatchDiscoveryTests.Similar_TopSelectsCandidateRowsAcrossJsonAndMarkdown`, `Similar_SemanticTailSelectsTheSameCandidateAcrossFormats`, and `Similar_CliTopUsesSharedSemanticSelection` | The completed Analysis-ranked candidate vector receives semantic Top or Tail once before Markdown, table, TSV, JSONL, or JSON lowering, and the real CLI routes `--top` through the shared row-selection grammar. |
+| `MatchDiscoveryTests.Similar_CountObservesTheSelectedCandidateSequence`, `Similar_CliCountObservesSemanticTail`, `Similar_UnavailableSemanticWindowWithholdsOutput`, `Similar_CliUnavailableSemanticWindowWithholdsOutput`, `Similar_SemanticSelectionDoesNotHideRetrievalFailure`, and `Similar_JsonLineSelectionRejectsBeforeSourceResolution` | Count observes selected candidates through both the typed handoff and real CLI; one strict unavailable Window after completed retrieval emits no partial payload; a retrieval failure remains visible instead of becoming a selection failure; complete-JSON line clipping fails before source resolution. |
+| `MatchDiscoveryTests.Similar_MaximumResultsBoundsTheProductRetrievalAndIsReported`, `Similar_MethodOutcomes_AreNotBoundedByTop`, `Similar_Json_IdentifiesEveryMethodOutcomeBehindTheReceiptCounts`, `PairwiseMatch_IsUnchangedWhenSimilarIsNotRequested`, and `Pairwise_InferredLimitRetainsRenderedLineFallback` | Product retrieval limits remain distinct from candidate selection; complete method outcomes and the query receipt remain truthful companion evidence; pairwise Match stays outside the semantic candidate declaration and retains inferred rendered-line selection. |
 
 The Project document row adoption is enforced by:
 

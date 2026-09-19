@@ -342,7 +342,7 @@ public static class LibrarySections
             .Add(UnsafeEvidenceQuery.Definition, ctx =>
                 ExecuteUnsafeEvidenceQuery(
                     ctx.MetadataContext?.HasMetadata != false,
-                    ctx.BodyIndex))
+                    () => ctx.BodyAnalysis().Safety))
             .Add(
                 ResourceTriageQuery.Definition,
                 ExecuteResourceTriageQuery)
@@ -365,16 +365,17 @@ public static class LibrarySections
 
     internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
         bool hasMetadata,
-        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+        Func<ILInspector.Analysis.LibrarySafetyAnalysisResult>
+            acquireAnalysis)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new UnsafeEvidenceResult.NoMetadata();
 
         try
         {
-            return UnsafeEvidenceQuery.Execute(acquireIndex());
+            return UnsafeEvidenceQuery.Execute(acquireAnalysis());
         }
         catch (CostDeclarationException)
         {
@@ -450,7 +451,7 @@ public static class LibrarySections
         ImplementationProfilesResult result =
             ExecuteImplementationProfilesQuery(
                 context.MetadataContext?.HasMetadata != false,
-                context.BodyIndex);
+                () => context.BodyAnalysis().ImplementationProfiles);
         if (result is ImplementationProfilesResult.Available)
             _ = context.DrillMap();
         return result;
@@ -460,16 +461,17 @@ public static class LibrarySections
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex,
+            () => context.BodyAnalysis().Optimization,
             context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
-            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+            Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
+                acquireAnalysis,
             bool includeAllocationFanout)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new OptimizationOpportunitiesResult.NoMetadata();
@@ -477,7 +479,7 @@ public static class LibrarySections
         try
         {
             return OptimizationOpportunitiesQuery.Execute(
-                acquireIndex(),
+                acquireAnalysis(),
                 includeAllocationFanout);
         }
         catch (CostDeclarationException)
@@ -582,16 +584,18 @@ public static class LibrarySections
     internal static ImplementationProfilesResult
         ExecuteImplementationProfilesQuery(
             bool hasMetadata,
-            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+            Func<ILInspector.Analysis.LibraryImplementationProfileAnalysisResult>
+                acquireAnalysis)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new ImplementationProfilesResult.NoMetadata();
 
         try
         {
-            return ImplementationProfilesQuery.Execute(acquireIndex());
+            return ImplementationProfilesQuery.Execute(
+                acquireAnalysis());
         }
         catch (CostDeclarationException)
         {

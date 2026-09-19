@@ -4,11 +4,38 @@ using ILInspector.Metadata;
 namespace DotnetInspector.PlatformHouse.Installed;
 
 /// <summary>
-/// Adapts one successful installed reference snapshot to the source-neutral
-/// Platform assembly-reference executor.
+/// Adapts one installed reference result to the source-neutral Platform
+/// assembly-reference executor.
 /// </summary>
 public static class InstalledPlatformAssemblyReferenceResolver
 {
+    public static ValueTask<
+        PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
+            PlatformHouseRequest request,
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization> reference,
+            PlatformHouseConsumedWork consumedWork)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return reference switch
+        {
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.Succeeded success =>
+                    ResolveAsync(request, success, consumedWork),
+            InstalledPlatformHouseResult<
+                InstalledReferenceRealization>.NotSucceeded terminal =>
+                    ValueTask.FromResult(
+                        PlatformHouseAssemblyReferenceResolver
+                            .ProjectSourceTerminal(
+                                request,
+                                terminal.Contribution,
+                                consumedWork,
+                                RejectionKind(terminal))),
+            _ => throw new InvalidOperationException(
+                "Unknown installed Platform result."),
+        };
+    }
+
     public static ValueTask<
         PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
             PlatformHouseRequest request,
@@ -55,4 +82,19 @@ public static class InstalledPlatformAssemblyReferenceResolver
             item,
             consumedWork);
     }
+
+    static PlatformHouseRejectionKind? RejectionKind(
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.NotSucceeded terminal) =>
+        terminal.Contribution is not PlatformSourceContribution.Rejected
+            ? null
+            : terminal.Diagnostic.Kind switch
+            {
+                InstalledPlatformSourceDiagnosticKind.InvalidRequest =>
+                    PlatformHouseRejectionKind.InvalidRequest,
+                InstalledPlatformSourceDiagnosticKind.InvalidCoordinate =>
+                    PlatformHouseRejectionKind
+                        .InvalidTargetCorrespondence,
+                _ => PlatformHouseRejectionKind.InvalidOwnerResult,
+            };
 }

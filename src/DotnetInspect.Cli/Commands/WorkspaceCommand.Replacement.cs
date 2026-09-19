@@ -18,7 +18,10 @@ public static partial class WorkspaceCommand
         try
         {
             WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
-                GetPacketInput(options.Packet!), cancellationToken);
+                WorkspacePacketRestoration.GetPacketInput(
+                    options.Packet!,
+                    "--packet"),
+                cancellationToken);
             definitions = WorkspaceSharePacketTransposer.ToCommittedDefinitions(
                 packet, cancellationToken);
             int index = options.ReplacePackage!.Value - 1;

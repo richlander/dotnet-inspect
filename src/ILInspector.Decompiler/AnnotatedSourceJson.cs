@@ -137,7 +137,8 @@ public static class AnnotatedSourceJson
             "correspondence",
             "before",
             "after",
-            "rows");
+            "rows",
+            "multiplicity_deltas");
 
         if (root.ValueKind != JsonValueKind.Object)
             return;
@@ -150,6 +151,8 @@ public static class AnnotatedSourceJson
             ValidateDocument(after, "after");
         if (root.TryGetProperty("rows", out var rows))
             ValidateStructuralRows(rows);
+        if (root.TryGetProperty("multiplicity_deltas", out var multiplicityDeltas))
+            ValidateMultiplicityDeltas(multiplicityDeltas);
         if (root.TryGetProperty("fidelity", out var fidelity)
             && fidelity.ValueKind != JsonValueKind.Null)
         {
@@ -170,6 +173,31 @@ public static class AnnotatedSourceJson
                     ValidateObjectArray(beforeSpans, "rows.before_spans", "start", "length");
                 if (row.TryGetProperty("after_spans", out var afterSpans))
                     ValidateObjectArray(afterSpans, "rows.after_spans", "start", "length");
+            }
+        }
+
+        static void ValidateMultiplicityDeltas(JsonElement deltas)
+        {
+            ValidateObjectArray(
+                deltas,
+                "multiplicity_deltas",
+                "node_kind",
+                "evidence",
+                "before_count",
+                "after_count");
+            if (deltas.ValueKind != JsonValueKind.Array)
+                return;
+
+            foreach (var delta in deltas.EnumerateArray())
+            {
+                if (delta.ValueKind == JsonValueKind.Object
+                    && delta.TryGetProperty("evidence", out var evidence))
+                {
+                    RequireProperties(
+                        evidence,
+                        ["il_offsets"],
+                        "multiplicity_deltas.evidence");
+                }
             }
         }
     }

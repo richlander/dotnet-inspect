@@ -27,23 +27,23 @@ bound the non-interruptible scan itself. Its current `XmlException` contract
 maps malformed and parser-limit-exhausted input to a visible **Failed**
 compiled attempt, while House contribution, byte, and deadline exhaustion
 remain typed **Incomplete** evidence.
-The PackageHouse and direct-Library adapters plus the shared Queries
-compiled-documentation result are implemented. Queries preserves the exact
-detached House outcome for in-process composition and publishes a separately
-owned portable terminal outcome as the source-generated JSON contract. Inspect
-Web package-member documentation now consumes that PackageHouse-to-Queries
-path and its generated TypeScript declaration. CLI adoption, platform and
-source adapters, platform host adoption, the authored channel, field
-settlement, and legacy retirement remain staged.
+The PackageHouse, direct-Library, and PlatformHouse adapters plus the shared
+Queries compiled-documentation result are implemented. Queries preserves the
+exact detached House outcome for in-process composition and publishes a
+separately owned portable terminal outcome as the source-generated JSON
+contract. Inspect Web package-member documentation now consumes that
+PackageHouse-to-Queries path and its generated TypeScript declaration.
+PlatformHouse's superseded subject-level documentation contracts are removed.
+Platform host adoption, the source adapter, the authored channel, field
+settlement, and remaining legacy retirement remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
 documentation settlement moves from
 [PlatformHouse](platform-house-reference-processing.md), whose remaining
 target, realization, view-correspondence, forwarding, and library-handoff
-authority is unchanged. The existing PlatformHouse documentation contracts and
-host-local documentation composition are migration evidence, not the target
-architecture.
+authority is unchanged. Host-local documentation composition remains migration
+evidence, not the target architecture.
 
 The first production consumer is exact package-member documentation in Inspect
 Web. CLI and Browser/Wasm then converge on the same House contract. The tracker
@@ -926,7 +926,7 @@ assembly and XML companion in the .NET 11 reference pack.
 8. **Completed.** Adopt package and direct-library compiled documentation in
    the CLI;
 9. **Completed.** Add the PlatformHouse adapter;
-10. remove PlatformHouse's superseded documentation contracts;
+10. **Completed.** Remove PlatformHouse's superseded documentation contracts;
 11. adopt platform reference-pack compiled documentation in Inspect Web;
 12. adopt platform reference-pack compiled documentation in the CLI;
 13. lock the focused SourceHouse physical-declaration correspondence contract

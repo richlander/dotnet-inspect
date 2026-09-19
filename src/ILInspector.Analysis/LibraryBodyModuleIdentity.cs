@@ -6,7 +6,7 @@ namespace ILInspector.Analysis;
 
 /// <summary>
 /// Metadata identity for the physical module that produced one
-/// <see cref="LibraryBodyIndex"/>.
+/// library-body Analysis execution.
 /// </summary>
 /// <remarks>
 /// This is image-derived evidence, not a path, display label, artifact

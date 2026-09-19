@@ -39,9 +39,7 @@ public partial class PackageCommand
     private static bool ValidatePackagePrintSelection(HashSet<string>? sections)
     {
         if (sections is { Count: 1 }
-            && (sections.Contains(PackageSections.FilesReadme)
-                || sections.Contains(PackageSections.FilesNuspec)
-                || sections.Contains(PackageSections.FilesSkills)))
+            && PackageFileFamily.IsFamilySection(sections.Single()))
             return true;
 
         CommandError.Write("--print requires -S/--select to match exactly one printable section.");
@@ -58,6 +56,7 @@ public partial class PackageCommand
             PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
             PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.FilesReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
+            PackageSections.FilesLicenses => ProjectPackageFiles(new InspectionResultView(result).LicenseFiles, section, kind, options),
             PackageSections.FilesSkills => ProjectPackageFiles(new InspectionResultView(result).SkillFiles, section, kind, options),
             PackageSections.SourceLinkFiles => ProjectPackageSourceFiles(result, section, kind, options),
             _ => []
