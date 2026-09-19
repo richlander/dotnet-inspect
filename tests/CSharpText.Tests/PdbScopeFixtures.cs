@@ -59,6 +59,47 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int SequentialScopeLocalsWithInternalLabels(
+        bool firstPath,
+        bool secondPath,
+        int value)
+    {
+        int total = 0;
+        {
+            int same = value;
+            if (firstPath)
+                goto FirstIncrement;
+        FirstRecord:
+            total += same;
+            if (same < value + 2)
+                goto FirstIncrement;
+            goto FirstDone;
+        FirstIncrement:
+            Increment(ref same);
+            if (same <= value + 2)
+                goto FirstRecord;
+        FirstDone:
+            total += same;
+        }
+        {
+            string same = value.ToString();
+            if (secondPath)
+                goto SecondKeep;
+        SecondRecord:
+            total += same.Length;
+            if (same.Length < value)
+                goto SecondKeep;
+            goto SecondDone;
+        SecondKeep:
+            KeepAlive(ref same);
+            if (same.Length <= value)
+                goto SecondRecord;
+        SecondDone:
+            total += same.Length;
+        }
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;
@@ -113,6 +154,33 @@ public static class PdbScopeFixtures
             0 => TryRead(first, out int value) && value >= 0,
             _ => TryRead(second, out int value) && value >= 0,
         };
+
+    public static int SwitchSectionOutVariables(int selector, string value)
+    {
+        switch (selector)
+        {
+            case 0:
+            {
+                return TryRead(value, out int same) ? same : -1;
+            }
+            case 1:
+            {
+                return TryRead(value, out int same) ? same + 1 : -1;
+            }
+            case 2:
+            {
+                return TryRead(value, out int same) ? same + 2 : -1;
+            }
+            case 3:
+            {
+                return TryRead(value, out int same) ? same + 3 : -1;
+            }
+            default:
+            {
+                return TryRead(value, out int same) ? same + 4 : -1;
+            }
+        }
+    }
 
     public static void SequentialValueTypeScopeLocals()
     {
