@@ -8,6 +8,11 @@ using DotnetInspect.Web.Interop.Analysis;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Browser package workspace",
+    DisableParallelization = true)]
+public sealed class BrowserPackageWorkspaceCollection;
+
 [Collection("Browser package workspace")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserIntegrationsEnvelopeParityTests

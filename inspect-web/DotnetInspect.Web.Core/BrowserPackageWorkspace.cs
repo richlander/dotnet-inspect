@@ -3231,17 +3231,23 @@ internal static class BrowserPackageWorkspace
         string key = Store.PackageKey(
             binding.Coordinate.PackageId,
             binding.Coordinate.Version);
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !ReferenceEquals(
-                binding.ContentGenerationIdentity,
-                cached.Content.GenerationIdentity))
+        CacheEntry cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "The restored Package Root content generation is not retained "
-                    + "by the Browser package cache.");
+            if (!Cache.TryGetValue(key, out CacheEntry? retained)
+                || !ReferenceEquals(
+                    binding.ContentGenerationIdentity,
+                    retained.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "The restored Package Root content generation is not retained "
+                        + "by the Browser package cache.");
+            }
+
+            cached = retained with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageCoordinate(
             new BrowserPackage(
                 binding.Coordinate.PackageId,
