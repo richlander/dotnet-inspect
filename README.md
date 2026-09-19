@@ -893,10 +893,11 @@ shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
 
 With exact `member -S Callers`, `-n`, `--tail`, and strict `--rows A..B`
-select complete deduplicated caller-site rows after all target overloads and
-authorized caller scopes have been scanned. Markdown, table, TSV, JSONL,
-structured JSON, and Count observe the same selected call sites. Add `--lines`
-only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed sections,
+select complete deduplicated caller-site rows after the selected target
+overload and all authorized caller scopes have been scanned. Markdown, table,
+TSV, JSONL, structured JSON, and Count observe the same selected call sites,
+including Source when the completed scan crossed assemblies. Add `--lines` only
+to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed sections,
 discovery, and scope-implied Callers without the exact selector retain their
 existing row contracts or rendered-line fallback.
 

@@ -118,6 +118,8 @@ public class MemberCallersSectionTests
         {
             string testAssembly = typeof(MemberCallersSectionTests)
                 .Assembly.Location;
+            string testAssemblyName =
+                Path.GetFileNameWithoutExtension(testAssembly);
             File.Copy(
                 testAssembly,
                 Path.Combine(
@@ -148,8 +150,11 @@ public class MemberCallersSectionTests
                 document.RootElement
                     .GetProperty("callers")
                     .EnumerateArray());
+            Assert.Equal(
+                testAssemblyName,
+                caller.GetProperty("source").GetString());
             Assert.StartsWith(
-                $"{Path.GetFileNameWithoutExtension(testAssembly)}.",
+                $"{testAssemblyName}.",
                 caller.GetProperty("caller").GetString(),
                 StringComparison.Ordinal);
         }

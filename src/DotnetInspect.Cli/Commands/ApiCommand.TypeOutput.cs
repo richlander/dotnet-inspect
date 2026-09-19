@@ -494,8 +494,10 @@ public partial class ApiCommand
                 CallerRowSelection: { } callerRowSelection,
             })
         {
-            IReadOnlyList<CallerSiteRow> callerRows =
+            List<CallerSiteRow> callerRows =
                 view.MemberCode?.CallerRows ?? [];
+            bool sourceColumnRequired =
+                !MemberCodeView.CallerSourceIsUniform(callerRows);
             if (!CliSemanticRowSelection.TrySelect(
                     callerRowSelection,
                     callerRows,
@@ -512,7 +514,10 @@ public partial class ApiCommand
             }
 
             view.MemberCode ??= new MemberCodeView();
-            view.MemberCode.CallerRows = [.. selectedCallerRows];
+            view.MemberCode.CallerRows = sourceColumnRequired
+                ? [.. selectedCallerRows.Select(
+                    row => row with { SourceColumnRequired = true })]
+                : [.. selectedCallerRows];
         }
 
         if (options is MemberOptions

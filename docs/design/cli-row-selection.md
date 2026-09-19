@@ -978,11 +978,12 @@ contracts or rendered-line fallback.
 ## Member Callers adoption
 
 An exact `member -S Callers` request declares one semantic row per deduplicated
-caller-site occurrence. The caller scan completes across the selected target
-overload or overload set and every explicitly authorized caller scope before
-selection. Occurrences are deduplicated by source assembly, evidence method
-identity, IL offset, and operand token, then retain the existing deterministic
-order by Source, Caller, Evidence Method, and IL Offset.
+caller-site occurrence. The request retains Member's existing requirement for
+one selected target overload. The caller scan completes across that overload
+and every explicitly authorized caller scope before selection. Occurrences are
+deduplicated by source assembly, evidence method identity, IL offset, and
+operand token, then retain the existing deterministic order by Source, Caller,
+Evidence Method, and IL Offset.
 
 ```console
 $ dotnet-inspect member System.ThrowHelper \
@@ -1005,7 +1006,9 @@ the same selected caller-site identities. Exact Callers JSON lowers the section
 row model rather than returning the surrounding Member document. Caller-scan
 diagnostics and the optional Source and Evidence Method fields remain companion
 evidence on the selected rows; semantic selection does not reduce the caller
-scope or analysis work.
+scope or analysis work. When the completed scan crosses source assemblies,
+Source remains visible even if selection narrows the result to rows from one
+assembly.
 
 The adoption supports Head/Tail, strict Window, and explicit Lines. Structured
 JSON rejects rendered-line selection before source resolution. One unavailable
@@ -1328,7 +1331,7 @@ The Member Callers adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `MemberCallersSectionTests.CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats` and `CallersSection_ScansAuthorizedScopesBeforeSemanticSelection` | The completed, deduplicated, deterministically ordered caller-site vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; authorized external caller scopes finish before selection, and structured JSON exposes the selected Callers rows instead of the surrounding Member document. |
+| `MemberCallersSectionTests.CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats` and `CallersSection_ScansAuthorizedScopesBeforeSemanticSelection` | The completed, deduplicated, deterministically ordered caller-site vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; authorized external caller scopes finish before selection, structured JSON exposes the selected Callers rows instead of the surrounding Member document, and a selected subset preserves Source when the completed scan crossed assemblies. |
 | `MemberCallersSectionTests.CallersSection_UnavailableWindowWithholdsOutput` and `CallersSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
 | `MemberCallersSectionTests.CallersSection_MultiSectionSelectionRetainsRenderedLineFallback` | Mixed Callers/Calls and `@Calls` selection remain outside the declaration and infer rendered-line selection for bare `-n`. |
 
