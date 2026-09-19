@@ -1117,20 +1117,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateMemberSourceLocations(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
-        var members = grouped
-            .SelectMany(g => g.Value)
-            // A property/event is located through its accessor's sequence points, so it
-            // carries a source location like a method does (issue #3278).
-            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
-            .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name, StringComparer.Ordinal)
-            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-            .ToList();
-
-        if (options.Limit.HasValue && options.Limit.Value < members.Count)
-            members = members.Take(options.Limit.Value).ToList();
-
+        var members = GetSourceLocationMembers(type, options);
         bool detail = options is MemberOptions { OverloadIndex: not null } && type.Members.Count == 1;
         List<MemberIndexRow> indexRows = detail ? [] : BuildMemberIndexRows(type, members);
         List<MemberSourceLocationRow> rows = [];
@@ -1159,6 +1146,25 @@ public static class ApiOutputFormatter
         }
 
         view.SourceLocationRows = rows;
+    }
+
+    internal static List<ApiMember> GetSourceLocationMembers(ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        var members = grouped
+            .SelectMany(g => g.Value)
+            // A property/event is located through its accessor's sequence points, so it
+            // carries a source location like a method does (issue #3278).
+            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
+            .OrderBy(m => GetMemberSortOrder(m.Kind))
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .ToList();
+
+        if (options.Limit.HasValue && options.Limit.Value < members.Count)
+            members = members.Take(options.Limit.Value).ToList();
+
+        return members;
     }
 
     private static string? SelectSourceUrl(string? url, bool preferRenderedUrls)
