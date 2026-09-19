@@ -4,6 +4,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -342,6 +343,9 @@ public record MemberOptions : ApiOptions
     internal bool UrlPreferenceExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
+    public bool SourceParts { get; init; }
+    public MemberSourcePartKind? SourcePart { get; init; }
+    internal IReadOnlyDictionary<ApiMember, MemberSourceObservation>? SourceLocationMappings { get; init; }
 
     /// <summary>
     /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command

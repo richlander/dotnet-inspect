@@ -42,6 +42,8 @@ public class MemberOptionsParserTests
         var compactOption = new Option<bool>("--compact");
         var unsafeOption = new Option<bool>("--unsafe");
         var indexOption = new Option<int?>("--index");
+        var sourcePartsOption = new Option<bool>("--source-parts");
+        var sourcePartOption = new Option<string?>("--part");
         var shareOption = new Option<string?>("--share");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
@@ -73,6 +75,9 @@ public class MemberOptionsParserTests
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
+        memberCommand.Options.Add(sourcePartsOption);
+        memberCommand.Options.Add(sourcePartOption);
+        opts.AddPrintOptionTo(memberCommand);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(binOption);
@@ -97,7 +102,7 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
 
         return (root, opts, args);
     }
@@ -112,6 +117,37 @@ public class MemberOptionsParserTests
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
         var success = Assert.IsType<MemberOptionsParser.Success>(result);
         return success.Options;
+    }
+
+    [Fact]
+    public async Task SourceParts_SelectsSourceLocationsExplicitly()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "Counter", "Add:1", "--package", "Example", "--source-parts", "--json");
+        Assert.True(options.SourceParts);
+        Assert.Contains("Source Locations", options.Select!);
+        Assert.Null(options.SourcePart);
+    }
+
+    [Fact]
+    public async Task SourcePartPrint_SelectsTheRequestedPartWithoutAnotherFlag()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "Counter", "Add:1", "--package", "Example", "--print", "--part", "xml-docs");
+        Assert.Equal(DotnetInspector.Sections.MemberSourcePartKind.XmlDocs, options.SourcePart);
+        Assert.False(options.SourceParts);
+        Assert.Contains("Source Locations", options.Select!);
+    }
+
+    [Theory]
+    [InlineData("--part", "unknown")]
+    [InlineData("--part", "body")]
+    public async Task InvalidPartRequestFailsBeforeAcquisition(string flag, string value)
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var result = await MemberOptionsParser.ParseAsync(
+            root.Parse(["member", "Counter", "Add:1", "--package", "Example", flag, value]), opts, cmdArgs);
+        Assert.IsType<MemberOptionsParser.VersionError>(result);
     }
 
     // ── Explicit --package with type ─────────────────────────────────────
