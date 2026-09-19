@@ -123,6 +123,52 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("a ? b : c ? d", output);
     }
 
+    [Fact]
+    public void Conditional_ArithmeticArms_RetainOnlyInteriorGrouping()
+    {
+        var multiply = new Binary(BinaryKind.Multiply, false, false,
+            new LoadArgument(1, "a", s_int),
+            new Binary(BinaryKind.Add, false, false,
+                new LoadArgument(2, "b", s_int),
+                new LoadArgument(3, "c", s_int)));
+        var subtract = new Binary(BinaryKind.Subtract, false, false,
+            new LoadArgument(1, "a", s_int),
+            new Binary(BinaryKind.Subtract, false, false,
+                new LoadArgument(2, "b", s_int),
+                new LoadArgument(3, "c", s_int)));
+        var conditional = new Conditional(new LoadArgument(0, "flag", s_bool), multiply, subtract);
+
+        string output = PrintReturn(conditional, s_int,
+            [new("flag", s_bool), new("a", s_int), new("b", s_int), new("c", s_int)]);
+
+        Assert.Contains("return flag ? a * (b + c) : a - (b - c);", output);
+        AssertCompiles("public static int M(bool flag, int a, int b, int c)", output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Conditional_NestedArm_RendersAsFullExpression(bool trueArm)
+    {
+        var nested = new Conditional(
+            new LoadArgument(1, "other", s_bool),
+            new LoadArgument(2, "a", s_int),
+            new LoadArgument(3, "b", s_int));
+        var alternative = new LoadArgument(4, "c", s_int);
+        var conditional = new Conditional(new LoadArgument(0, "flag", s_bool),
+            trueArm ? nested : alternative,
+            trueArm ? alternative : nested);
+
+        string output = PrintReturn(conditional, s_int,
+            [new("flag", s_bool), new("other", s_bool),
+             new("a", s_int), new("b", s_int), new("c", s_int)]);
+
+        Assert.Contains(trueArm
+            ? "return flag ? other ? a : b : c;"
+            : "return flag ? c : other ? a : b;", output);
+        AssertCompiles("public static int M(bool flag, bool other, int a, int b, int c)", output);
+    }
+
     // ---- #3126: right-associative same-kind && / || chains keep their parens ----
     // C# `&&`/`||` are left-associative, so a right-nested same-kind chain
     // `a && (b && c)` must keep its parens: dropping them reparses as the
