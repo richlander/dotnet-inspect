@@ -29,102 +29,13 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
 | Dependencies and relationships | `depends --package Foo@version --tfm net10.0` for a package graph plus declaration evidence; add `-S Dependencies` for evidence only or explicitly select `-S Pruning` to compare direct package candidates with an installed platform inventory. Use `depends Type`, `extensions Type`, or `implements Interface` for type relationships. Positional `depends Type` supports complete Content with `--json` or the complete service value with `--envelope`; asset mode does not support envelopes. Load `skill relationships` for scopes and semantics. |
 
-## Shape item lists before reading them
-
-Every command has one effective item sequence. When the active command or lens
-declares semantic rows, the items are packages, types, dependencies, graph
-edges, or other complete domain rows. Otherwise the items are rendered lines.
-
-- `-n N` and bare `-N` keep the first N items; add `--tail` for the last N.
-- On adopted semantic routes, `--rows A..B`, `--rows A..`, and `--rows ..B`
-  select a strict, one-based, inclusive range.
-- Selection stages compose in argument order. `-n 2 --rows 2..` keeps one item,
-  while `--rows 2.. -n 2` keeps two when the input has at least three.
-- Where supported, `--count` observes the selected semantic rows. On sectioned
-  output, select one concrete table when a scalar count is required.
-- `--lines` switches an adopted semantic route to rendered-line selection.
-  Use it only when clipping presentation text is the actual goal.
-
-Member `Call Graph` retains a legacy command-owned `--rows` window. It clamps
-an unavailable end to the available edges; only a start beyond the available
-rows produces an empty edge table.
-
-Do not confuse selection with work or ranking. `--take` bounds candidate work;
-`--top` requests a ranked prefix; neither is another spelling of `-n`.
-Load `skill query` for adopted routes, strict-window behavior, and projection
-constraints.
-
-## Keep the service result when context matters
-
-Use unprojected `--json` when Content alone answers the question. Use
-`--envelope` when the answer also needs the operation's Share outcome or
-ordered diagnostics. It normally implies JSON and is not a more verbose
-presentation format. Workspace coordinate replacement is the exception and
-requires `--json --envelope` together. Incompatible section, field, row, count,
-and rendering projections fail rather than shaping the service value.
-
-High-value envelope cases:
-
-- `type` or `member ... --match --envelope` retains one API-coordinate
-  correspondence outcome and diagnostics. Its ordered endpoints currently make
-  Share non-projectable.
-- `depends Type --package Foo@version --tfm TFM --envelope` retains complete
-  dependency evidence, the selected relationship rows, diagnostics, and a
-  restorable Dependencies URL when the request is projectable.
-- Online package version populations retain completion and source evidence.
-  `--count --envelope` makes the selected Count the envelope Content.
-- Workspace coordinate replacement with `--json --envelope` retains the
-  derived Share, actual Scope outcome, fallback decision, and diagnostics.
-- API Diff, Package Activity, and Package Query retain complete typed outcomes
-  and diagnostics, but a Share may be `nonProjectable`; inspect `share.kind`
-  before offering a URL.
-
-Member `Call Graph` has not adopted `--envelope`. Use its Markdown table,
-`--tree`, `--mermaid`, `--tsv`, or `--jsonl` edge rows. Do not use document
-`--json` for graph evidence; it currently emits the surrounding Type result,
-not graph edges. A separate member `--share url` opens the public API Overview;
-it does not preserve the selected Call Graph.
-
-## Hand a question to Inspect Web
-
-Inspect Web at `https://dotnet-inspect.net/` uses the same inspection codebase
-and provides an analogous interactive experience. Prefer a product-issued URL
-over describing how the user could reconstruct a view, but only for a packet
-format the current browser restores:
-
-- Use `--share url` for exact public members and package dependencies. These
-  routes issue browser-restorable format-1 packets.
-- `share.kind: "available"` means the service request is projectable; it does
-  not by itself prove that Inspect Web has adopted that packet format.
-- For CLI complete restoration of formats 2–4, pass opaque packet text to
-  `workspace --packet "$packet"`; this option rejects URLs and format 1.
-
-```bash
-dnx dotnet-inspect -y -- member JsonSerializer \
-  --package System.Text.Json@10.0.0 Serialize:1 \
-  --tfm net10.0 --share url
-dnx dotnet-inspect -y -- depends \
-  --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
-```
-
-These URLs carry canonical datapackets rather than rendered output. The member
-URL opens the selected public API Overview. The package-dependency URL lets
-Inspect Web acquire the exact package and compute its dependency graph.
-Format-1 member and dependency packets are browser-restorable, not
-CLI-restorable. The CLI can also produce Workspace format-3 and derived-Type
-format-4 packet or URL Shares, but current Inspect Web rejects those formats.
-Keep them as opaque packet strings for supported CLI workflows rather than
-offering their URLs. Package Query envelopes are currently `nonProjectable`;
-do not hand-author a query-bearing packet or promise that Inspect Web can
-restore it.
-
 ## Member lookup
 
 Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ## Tips
 
-- `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
+- `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for selection, envelopes, Share URLs, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - `workspace` reports committed Packages before inert Exact Library, Package Prefix, and Ecosystem registrations; JSON/JSONL retain typed entry arms. It never selects an occurrence implicitly. Copy a Library asset ID, Type full name, and optional Member stable selector from direct `workspace --active-package N`, then add `--lens type.*` or `--lens member.*` for one exact stateless descendant request. Selector failures remain structured; JSON/JSONL retain Library asset ancestry and Member containing-versus-declaring Type joins. Packet input supports inventory, resource-free `--share` re-emission, or explicit `--replace-package` transformation, not noun-selector refinement.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.

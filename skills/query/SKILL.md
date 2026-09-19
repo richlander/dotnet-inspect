@@ -364,6 +364,9 @@ On adopted semantic routes, `--rows` is a strict one-based inclusive window:
 shortening the result. `-n` and `--rows` are ordered stages, so argument order
 is observable. `--head` and `--tail` modify `-n`, not the range.
 
+Legacy `--rows` composes with an inferred or explicit rendered-line `-n` in
+argument order.
+
 Member `Call Graph` is the current exception: its legacy command-owned
 `--rows` window clamps an unavailable end to the available edges. It produces
 an empty edge table only when the requested start is beyond the available rows.
@@ -414,3 +417,4 @@ Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
 Web does not yet restore query-bearing packets. Keep Package Query answers in
 Content rather than manufacturing a link.
+Offer a URL only for a browser-restorable scenario selection.
