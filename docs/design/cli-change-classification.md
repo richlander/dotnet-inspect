@@ -191,6 +191,11 @@ one manifest:
   outcome is implemented but **unverified**. Adopted presence-only row
   modifiers use [common option-value validation](cli-option-value-validation.md)
   and its zero-arity diagnostic instead;
+- unsupported `diff --count` has a hidden focused guard because Diff's
+  variadic positional input would otherwise absorb the option as a package
+  range or Type filter and continue into unrelated acquisition. Diff Count
+  remains future focused adoption under #7703 and is not published by this
+  guard;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
   diagnostic's current-policy justification is **unverified**;
@@ -213,6 +218,10 @@ Existing gates prove parts of those behaviors:
   reach canonical behavior.
 - `CommandExecutionTests.ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional`
   proves the `--tail N` parser-rebinding guard. It does not gate `--head N`.
+- `CommandExecutionTests.Diff_CountGuardPreventsPositionalRebinding` proves
+  unsupported `diff --count` fails before source acquisition, while
+  `DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag` proves the guard does
+  not publish Count in Diff help.
 - `CommandExecutionTests.Package_RemovedReadmeFlag_PointsAtItsReplacement`
   proves the package diagnostic behavior, not its independent current-product
   rationale.
