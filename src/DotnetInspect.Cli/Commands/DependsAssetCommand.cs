@@ -24,6 +24,13 @@ public partial class DependsCommand
     private const int PackageManifestTraversalBudget = 1_024;
     private const int PackageDeclarationTraversalBudget = 16_384;
     private const string SummarySection = "Summary";
+    private static readonly
+        InspectionEnvelopeJsonContract<DependencyInspectionContent>
+        AssetDependencyJson = new(
+            "asset-dependencies",
+            1,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
@@ -42,12 +49,17 @@ public partial class DependsCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pruneSource);
 
-        if (DependsShareProjection.ValidateOptions(options) is { } shareError)
+        bool evidenceEnvelopeRequested =
+            options.EvidenceEnvelopePath is not null;
+        if (!evidenceEnvelopeRequested
+            && DependsShareProjection.ValidateOptions(options)
+                is { } shareError)
         {
             CommandError.Write(shareError);
             return 1;
         }
-        if (options.ShareFormat is not null)
+        if (!evidenceEnvelopeRequested
+            && options.ShareFormat is not null)
         {
             var shareContext = new CommandContext(options.Verbose);
             return await DependsShareProjection.WriteAsync(
@@ -118,6 +130,13 @@ public partial class DependsCommand
             includeSections.Add(DependsAssetSections.DependencyGraph);
         DependsAssetRequestPlan plan =
             DependsAssetRequestPlan.FromSections(includeSections);
+        if (evidenceEnvelopeRequested)
+        {
+            plan = plan with
+            {
+                SupplementalEvidence = true,
+            };
+        }
         if (!ValidateAssetOptions(
                 options,
                 selection.Sections,
@@ -174,7 +193,37 @@ public partial class DependsCommand
                     discoveryExitCode,
                     AssetExitCode(projection));
             }
-            if (!WriteAssetProjection(
+
+            byte[] evidencePayload = [];
+            Exception? evidenceSerializationError = null;
+            if (evidenceEnvelopeRequested)
+            {
+                if (projection.Evidence is null)
+                {
+                    evidenceSerializationError =
+                        new InvalidOperationException(
+                            "The dependency inspection did not produce its requested evidence.");
+                }
+                else
+                {
+                    var enriched = new EvidenceInspectionEnvelope<
+                        DependencyInspectionContent,
+                        DependencyInspectionEvidenceDocument>(
+                            projection.Inspection,
+                            projection.Evidence);
+                    InspectionEnvelopeOutput.TrySerializeEvidence(
+                        enriched,
+                        AssetDependencyJson,
+                        DependencyInspectionJsonContext.Default
+                            .DependencyInspectionEvidenceDocument,
+                        options.CompactJson,
+                        out evidencePayload,
+                        out evidenceSerializationError);
+                }
+            }
+
+            if (options.ShareFormat is null
+                && !WriteAssetProjection(
                     projection,
                     options,
                     includeSections))
@@ -183,7 +232,42 @@ public partial class DependsCommand
             }
 
             WriteAssetDiagnostics(projection);
-            return AssetExitCode(projection);
+            int exitCode = AssetExitCode(projection);
+            if (evidenceEnvelopeRequested)
+            {
+                string evidencePath = options.EvidenceEnvelopePath!;
+                if (evidenceSerializationError is not null)
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for '{evidencePath}': {evidenceSerializationError.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath,
+                        evidencePayload,
+                        out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for '{evidencePath}': {publicationError!.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else
+                {
+                    CommandError.WriteLine(
+                        $"Evidence envelope: {evidencePath}");
+                }
+            }
+
+            if (options.ShareFormat is { } shareFormat)
+            {
+                exitCode = Math.Max(
+                    exitCode,
+                    WorkspaceShareOutput.Write(
+                        projection.Inspection.Share,
+                        shareFormat));
+            }
+
+            return exitCode;
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -1641,6 +1725,16 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string> includeSections)
     {
+        if (options.EnvelopeOutput)
+        {
+            return InspectionEnvelopeOutput.TryWrite(
+                projection.Inspection,
+                AssetDependencyJson,
+                includeEnvelope: true,
+                options.CompactJson,
+                options.OutputPath);
+        }
+
         DocumentSchema schema = options.Tabular && !options.Count
             ? DependsAssetSections.CreateTableSchema()
             : DependsAssetSections.CreateSchema();
@@ -1655,16 +1749,20 @@ public partial class DependsCommand
             Window(projection.GraphRows, options.Rows);
         if (options.Tree || options.MermaidOutput)
         {
-            DependencyGraphOutputAdapter.Write(
-                projection.Graph,
-                graphRows,
-                options.MermaidOutput
-                    ? OutputFormat.Mermaid
-                    : OutputFormat.PlainText,
-                tree: options.Tree,
-                embeddedMermaid: false,
-                options.NoHeader,
-                options.CompactJson);
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => DependencyGraphOutputAdapter.Write(
+                    projection.Graph,
+                    graphRows,
+                    options.MermaidOutput
+                        ? OutputFormat.Mermaid
+                        : OutputFormat.PlainText,
+                    tree: options.Tree,
+                    embeddedMermaid: false,
+                    options.NoHeader,
+                    options.CompactJson,
+                    output));
             return true;
         }
 
@@ -1675,14 +1773,17 @@ public partial class DependsCommand
                 projection,
                 includeSections,
                 options.Rows);
-            Console.WriteLine(
-                JsonSerializer.Serialize(
-                    document,
-                    options.CompactJson
-                        ? DependsAssetCompactJsonContext.Default
-                            .DependsAssetDocument
-                        : DependsAssetJsonContext.Default
-                            .DependsAssetDocument));
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => output.WriteLine(
+                    JsonSerializer.Serialize(
+                        document,
+                        options.CompactJson
+                            ? DependsAssetCompactJsonContext.Default
+                                .DependsAssetDocument
+                            : DependsAssetJsonContext.Default
+                                .DependsAssetDocument)));
             return true;
         }
 
@@ -1705,7 +1806,7 @@ public partial class DependsCommand
             }
             WriteAssetGraphFailuresJsonLines(
                 projection,
-                options.Rows);
+                options);
             return true;
         }
         if (hasTraversalFailures
@@ -1744,48 +1845,54 @@ public partial class DependsCommand
                     options.Rows,
                     embeddedMermaid: false),
                 DependsAssetViewContext.Default);
-            OutputFormatter.WriteProjectedJson(
-                Console.Out,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    WriteAssetSummarySection(
-                        writer,
-                        formatter,
-                        writerOptions,
-                        summary);
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        tableView,
-                        writer,
-                        formatter,
-                        DependsAssetViewContext.Default,
-                        writerOptions);
-                },
-                !options.CompactJson);
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => OutputFormatter.WriteProjectedJson(
+                    output,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                    {
+                        WriteAssetSummarySection(
+                            writer,
+                            formatter,
+                            writerOptions,
+                            summary);
+                        writerOptions.IncludeSections = includeSections;
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            DependsAssetViewContext.Default,
+                            writerOptions);
+                    },
+                    !options.CompactJson));
             return true;
         }
 
         if (options.Tabular)
         {
-            OutputFormatter.WriteProjectedTable(
-                Console.Out,
-                !options.NoHeader,
-                options.Tsv,
-                options.Jsonl,
-                options.Columns,
-                options.Fields,
-                (writer, formatter, writerOptions) =>
-                {
-                    writerOptions.IncludeSections = includeSections;
-                    MarkoutSerializer.Serialize(
-                        tableView,
-                        writer,
-                        formatter,
-                        DependsAssetViewContext.Default,
-                        writerOptions);
-                });
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => OutputFormatter.WriteProjectedTable(
+                    output,
+                    !options.NoHeader,
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    (writer, formatter, writerOptions) =>
+                    {
+                        writerOptions.IncludeSections = includeSections;
+                        MarkoutSerializer.Serialize(
+                            tableView,
+                            writer,
+                            formatter,
+                            DependsAssetViewContext.Default,
+                            writerOptions);
+                    }));
             return true;
         }
 
@@ -1823,17 +1930,23 @@ public partial class DependsCommand
             options.Columns,
             options.Fields);
         writerOptions.IncludeSections = includeSections;
-        var writer = new MarkoutWriter(
-            Console.Out,
-            options.Format == OutputFormat.PlainText
-                ? new PlainTextFormatter()
-                : new MarkdownFormatter(
-                    options.EmbeddedMermaid
-                        ? MarkdownGraphMode.Mermaid
-                        : MarkdownGraphMode.EdgeTable),
-            writerOptions);
-        DependsAssetViewContext.Default.Serialize(view, writer);
-        writer.Flush();
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                var writer = new MarkoutWriter(
+                    output,
+                    options.Format == OutputFormat.PlainText
+                        ? new PlainTextFormatter()
+                        : new MarkdownFormatter(
+                            options.EmbeddedMermaid
+                                ? MarkdownGraphMode.Mermaid
+                                : MarkdownGraphMode.EdgeTable),
+                    writerOptions);
+                DependsAssetViewContext.Default.Serialize(view, writer);
+                writer.Flush();
+            });
         return true;
     }
 
@@ -1873,37 +1986,44 @@ public partial class DependsCommand
 
     private static void WriteAssetGraphFailuresJsonLines(
         DependsAssetProjection projection,
-        RowWindow? rows)
+        DependsOptions options)
     {
         DependsAssetDocument document = DependsAssetDocument.Create(
             projection,
             GraphFailureSections,
-            rows);
-        foreach (DependencyGraphJsonEdge edge in
-                 document.DependencyGraph?.Edges ?? [])
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(
-                    new DependsAssetJsonLine
-                    {
-                        Kind = "dependency-graph",
-                        DependencyGraph = edge,
-                    },
-                    DependsAssetCompactJsonContext.Default
-                        .DependsAssetJsonLine));
-        }
-        foreach (DependsFailureJson failure in document.Failures ?? [])
-        {
-            Console.WriteLine(
-                JsonSerializer.Serialize(
-                    new DependsAssetJsonLine
-                    {
-                        Kind = "failure",
-                        Failure = failure,
-                    },
-                    DependsAssetCompactJsonContext.Default
-                        .DependsAssetJsonLine));
-        }
+            options.Rows);
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output =>
+            {
+                foreach (DependencyGraphJsonEdge edge in
+                         document.DependencyGraph?.Edges ?? [])
+                {
+                    output.WriteLine(
+                        JsonSerializer.Serialize(
+                            new DependsAssetJsonLine
+                            {
+                                Kind = "dependency-graph",
+                                DependencyGraph = edge,
+                            },
+                            DependsAssetCompactJsonContext.Default
+                                .DependsAssetJsonLine));
+                }
+                foreach (DependsFailureJson failure in
+                         document.Failures ?? [])
+                {
+                    output.WriteLine(
+                        JsonSerializer.Serialize(
+                            new DependsAssetJsonLine
+                            {
+                                Kind = "failure",
+                                Failure = failure,
+                            },
+                            DependsAssetCompactJsonContext.Default
+                                .DependsAssetJsonLine));
+                }
+            });
     }
 
     private static void WriteAssetMarkdown(
@@ -1941,8 +2061,11 @@ public partial class DependsCommand
             evidence = writer.ToString();
         }
 
-        Console.Out.WriteLine(
-            JoinMarkdown(graph, evidence));
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output => output.WriteLine(
+                JoinMarkdown(graph, evidence)));
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -1959,7 +2082,10 @@ public partial class DependsCommand
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, writer);
-        Console.Out.WriteLine(writer.ToString());
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output => output.WriteLine(writer.ToString()));
     }
 
     private static void WriteProjectedAssetPlainText(
@@ -1989,10 +2115,13 @@ public partial class DependsCommand
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, tableWriter);
 
-        Console.Out.WriteLine(
-            JoinMarkdown(
-                summaryWriter.ToString(),
-                tableWriter.ToString()));
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            output => output.WriteLine(
+                JoinMarkdown(
+                    summaryWriter.ToString(),
+                    tableWriter.ToString())));
     }
 
     private static string RenderGraphSection(
@@ -2076,7 +2205,9 @@ public partial class DependsCommand
                 : options.Tsv ? OutputFormat.Tsv
                 : options.Tabular ? OutputFormat.Table
                 : OutputFormat.Markdown,
-            options.NoHeader);
+            options.NoHeader,
+            options.OutputPath,
+            options.Rows);
         return true;
     }
 

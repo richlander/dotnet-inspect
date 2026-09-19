@@ -51,13 +51,13 @@ This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
 the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
-The envelope owner's proposed
+The envelope owner's
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
-adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope <path>` consumer is tracked by
-[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), with the
-dependency value adopted under #7117. It is a Debug-only diagnostic attachment,
-not a new rung in this ladder or an already available output option.
+adds a typed companion without changing that content boundary. Its first
+`--evidence-envelope <path>` consumer is asset-mode dependency inspection,
+implemented under [#7293](https://github.com/richlander/dotnet-inspect/issues/7293)
+with the dependency value adopted under #7117. It is a Debug-only diagnostic
+attachment, not a new rung in this ladder.
 
 ### Implementation status
 
@@ -68,6 +68,12 @@ The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
+
+Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
+`DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
+It preserves the ordinary primary output, supports a distinct ordinary
+`--out` destination and paired baseline `--envelope`, and publishes the
+complete enriched frame atomically.
 
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains

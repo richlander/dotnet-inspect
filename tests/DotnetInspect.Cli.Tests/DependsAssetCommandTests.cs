@@ -36,6 +36,504 @@ public sealed class DependsAssetCommandTests
     private static string ProjectDirectoryFixture =>
         FixtureCatalog.RestoredProjectDependencyFacts.ProjectDirectory();
 
+#if DEBUG
+    [Fact]
+    public async Task EvidenceEnvelopePreservesOrdinaryJsonAndPublishesCompleteFrame()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--json",
+            "--compact",
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var withEvidence = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+
+        using JsonDocument document =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement root = document.RootElement;
+        Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+        Assert.Equal(
+            "asset-dependencies",
+            root.GetProperty("result_kind").GetString());
+        Assert.True(root.TryGetProperty("content", out _));
+        Assert.True(root.TryGetProperty("share", out _));
+        Assert.True(root.TryGetProperty("diagnostics", out _));
+        Assert.True(root.TryGetProperty("evidence", out _));
+        Assert.False(root.TryGetProperty("inspection", out _));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesOrdinaryMarkdown()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-markdown-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var withEvidence = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesOrdinaryTree()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-tree-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "-S",
+            DependsAssetSections.DependencyGraph,
+            "--tree",
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var withEvidence = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+    }
+
+    [Theory]
+    [InlineData(DependsAssetSections.Roots)]
+    [InlineData(DependsAssetSections.DependencyGroups)]
+    [InlineData(DependsAssetSections.RestoredPackages)]
+    [InlineData(DependsAssetSections.RestoredEdges)]
+    public async Task EvidenceEnvelopePreservesSelectedDiagnosticView(
+        string section)
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-view-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "-S",
+            section,
+            "--json",
+            "--compact",
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var withEvidence = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+        using JsonDocument document = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        Assert.True(document.RootElement.TryGetProperty(
+            "evidence",
+            out _));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesOrdinaryJsonAtDistinctOutputPath()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-output-");
+        string primary = Path.Combine(directory.FullName, "ordinary.json");
+        string sidecar = Path.Combine(directory.FullName, "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--json",
+            "--compact",
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var withEvidence = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--out",
+            primary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, withEvidence.ExitCode);
+        Assert.Empty(withEvidence.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+        using JsonDocument expected = JsonDocument.Parse(ordinary.Output);
+        using JsonDocument actual = JsonDocument.Parse(
+            await File.ReadAllTextAsync(
+                primary,
+                TestContext.Current.CancellationToken));
+        Assert.True(JsonElement.DeepEquals(
+            expected.RootElement,
+            actual.RootElement));
+    }
+
+    [Fact]
+    public async Task PairedEnvelopeWritesEqualBaselineToDistinctOutputFile()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-paired-");
+        string primary = Path.Combine(
+            directory.FullName,
+            "baseline.json");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "--envelope",
+            "--compact",
+            "--out",
+            primary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            result.Error);
+
+        using JsonDocument baseline =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                primary,
+                TestContext.Current.CancellationToken));
+        using JsonDocument enriched =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement baselineRoot = baseline.RootElement;
+        JsonElement enrichedRoot = enriched.RootElement;
+
+        Assert.False(baselineRoot.TryGetProperty("evidence", out _));
+        Assert.True(enrichedRoot.TryGetProperty("evidence", out _));
+        Assert.True(JsonElement.DeepEquals(
+            baselineRoot.GetProperty("content"),
+            enrichedRoot.GetProperty("content")));
+        Assert.True(JsonElement.DeepEquals(
+            baselineRoot.GetProperty("share"),
+            enrichedRoot.GetProperty("share")));
+        Assert.True(JsonElement.DeepEquals(
+            baselineRoot.GetProperty("diagnostics"),
+            enrichedRoot.GetProperty("diagnostics")));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRejectsMissingPathBeforeAcquisition()
+    {
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            "missing-project.csproj",
+            "--evidence-envelope",
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Required argument missing for option: '--evidence-envelope'",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missing-project",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRejectsTypeModeBeforeAcquisition()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-type-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "No.Such.Type",
+            "--platform",
+            "System.Private.CoreLib",
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--evidence-envelope is supported only by asset-mode depends",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRejectsPortableDestinationCollision()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-collision-");
+        string primary = Path.Combine(
+            directory.FullName,
+            "Primary.json");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "primary.JSON");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            "missing-project.csproj",
+            "--out",
+            primary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--out and --evidence-envelope must name distinct files",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(primary));
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRejectsDirectoryBeforeAcquisition()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-directory-");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            "missing-project.csproj",
+            "--evidence-envelope",
+            directory.FullName,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires a file destination, not a directory",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missing-project",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRejectsMissingParentBeforeAcquisition()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-parent-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "missing",
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            "missing-project.csproj",
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires an existing parent directory",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missing-project",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
+    public async Task EvidencePublicationFailurePreservesOrdinaryOutput()
+    {
+        using var parent =
+            new TemporaryTestDirectory("depends-evidence-failure-");
+        string destination = Directory.CreateDirectory(
+            Path.Combine(parent.FullName, "destination.json")).FullName;
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Project,
+                    AssetsFixture),
+            ],
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+            EvidenceEnvelopePath = destination,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => DependsCommand.ExecuteAssetDependsAsync(
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, result.ExitCode);
+        using JsonDocument _ = JsonDocument.Parse(result.Output);
+        Assert.Contains(
+            "Evidence envelope publication failed",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.True(Directory.Exists(destination));
+        Assert.Empty(
+            Directory.EnumerateFiles(
+                parent.FullName,
+                $".{Path.GetFileName(destination)}.*.tmp"));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeLocatorPrecedesFinalShareRefusal()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-");
+        const string packageId = "Sidecar.Share";
+        const string version = "1.0.0";
+        WriteLocalSourcePackage(
+            directory.FullName,
+            packageId,
+            version,
+            dependenciesXml: "");
+        string packagePath = Path.Combine(
+            directory.FullName,
+            $"{packageId}.{version}.nupkg");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            packagePath,
+            "--tfm",
+            "net8.0",
+            "--share",
+            "packet",
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.True(File.Exists(sidecar));
+        string[] errorLines = result.Error.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}",
+            errorLines[^2]);
+        Assert.Contains(
+            "--share is not projectable",
+            errorLines[^1],
+            StringComparison.Ordinal);
+    }
+#endif
+
     [Fact]
     public async Task TypeEnvelopeRejectsRenderedLineSelectionBeforeAcquisition()
     {

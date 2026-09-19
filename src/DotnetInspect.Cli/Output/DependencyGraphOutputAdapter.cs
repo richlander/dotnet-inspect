@@ -246,8 +246,10 @@ internal static class DependencyGraphOutputAdapter
         bool tree,
         bool embeddedMermaid,
         bool noHeader,
-        bool compactJson)
+        bool compactJson,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
         if (tree)
         {
             WriteGraph(
@@ -255,21 +257,22 @@ internal static class DependencyGraphOutputAdapter
                 rows,
                 new PlainTextFormatter(),
                 markWindowedFragments: true,
-                occurrenceAwareRoots: true);
+                occurrenceAwareRoots: true,
+                output);
             return;
         }
 
         switch (format)
         {
             case OutputFormat.Json:
-                WriteJson(document, rows, compactJson);
+                WriteJson(document, rows, compactJson, output);
                 break;
             case OutputFormat.Table:
             case OutputFormat.Tsv:
-                WriteTable(rows, format, noHeader);
+                WriteTable(rows, format, noHeader, output);
                 break;
             case OutputFormat.Jsonl:
-                WriteJsonLines(rows);
+                WriteJsonLines(rows, output);
                 break;
             case OutputFormat.Mermaid:
                 WriteGraph(
@@ -277,7 +280,8 @@ internal static class DependencyGraphOutputAdapter
                     rows,
                     new MermaidFormatter(),
                     markWindowedFragments: false,
-                    occurrenceAwareRoots: false);
+                    occurrenceAwareRoots: false,
+                    output);
                 break;
             case OutputFormat.Markdown when embeddedMermaid:
                 WriteGraph(
@@ -285,7 +289,8 @@ internal static class DependencyGraphOutputAdapter
                     rows,
                     new MarkdownFormatter(MarkdownGraphMode.Mermaid),
                     markWindowedFragments: false,
-                    occurrenceAwareRoots: false);
+                    occurrenceAwareRoots: false,
+                    output);
                 break;
             default:
                 WriteGraph(
@@ -293,7 +298,8 @@ internal static class DependencyGraphOutputAdapter
                     rows,
                     new PlainTextFormatter(),
                     markWindowedFragments: true,
-                    occurrenceAwareRoots: true);
+                    occurrenceAwareRoots: true,
+                    output);
                 break;
         }
     }
@@ -303,9 +309,10 @@ internal static class DependencyGraphOutputAdapter
         IReadOnlyList<DependencyGraphEdgeRow> rows,
         IMarkoutFormatter formatter,
         bool markWindowedFragments,
-        bool occurrenceAwareRoots)
+        bool occurrenceAwareRoots,
+        TextWriter output)
     {
-        var writer = new MarkoutWriter(Console.Out, formatter);
+        var writer = new MarkoutWriter(output, formatter);
         writer.WriteGraph(
             ToGraph(
                 document,
@@ -318,10 +325,11 @@ internal static class DependencyGraphOutputAdapter
     private static void WriteTable(
         IReadOnlyList<DependencyGraphEdgeRow> rows,
         OutputFormat format,
-        bool noHeader)
+        bool noHeader,
+        TextWriter output)
     {
         var writer = new MarkoutWriter(
-            Console.Out,
+            output,
             new TableFormatter(!noHeader),
             OutputFormatter.CreateTableWriterOptions(
                 tsv: format == OutputFormat.Tsv,
@@ -376,11 +384,12 @@ internal static class DependencyGraphOutputAdapter
     }
 
     private static void WriteJsonLines(
-        IReadOnlyList<DependencyGraphEdgeRow> rows)
+        IReadOnlyList<DependencyGraphEdgeRow> rows,
+        TextWriter output)
     {
         foreach (DependencyGraphEdgeRow row in rows)
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependencyGraphJsonLine(
                         row.RootOccurrences,
@@ -403,12 +412,13 @@ internal static class DependencyGraphOutputAdapter
     private static void WriteJson(
         DependencyGraphDocument document,
         IReadOnlyList<DependencyGraphEdgeRow> rows,
-        bool compact)
+        bool compact,
+        TextWriter output)
     {
         DependencyGraphJsonDocument json = CreateJsonDocument(
             document,
             rows);
-        Console.WriteLine(
+        output.WriteLine(
             JsonSerializer.Serialize(
                 json,
                 compact
