@@ -324,7 +324,8 @@ public static class SourceResolver
         string? explicitPlatform,
         IReadOnlyList<string> sourceKeys,
         bool verbose,
-        bool tryQualifiedTypeName = false)
+        bool tryQualifiedTypeName = false,
+        string? platformFramework = null)
         => await ResolveAsync(
             args,
             explicitPackage,
@@ -333,7 +334,8 @@ public static class SourceResolver
             _ => sourceKeys,
             sourceOptions: null,
             verbose,
-            tryQualifiedTypeName).ConfigureAwait(false);
+            tryQualifiedTypeName,
+            platformFramework).ConfigureAwait(false);
 
     public static async Task<ResolvedSource> ResolveAsync(
         string[] args,
@@ -342,7 +344,8 @@ public static class SourceResolver
         string? explicitPlatform,
         NuGetSourceOptions? sourceOptions,
         bool verbose,
-        bool tryQualifiedTypeName = false)
+        bool tryQualifiedTypeName = false,
+        string? platformFramework = null)
         => await ResolveAsync(
             args,
             explicitPackage,
@@ -351,7 +354,8 @@ public static class SourceResolver
             candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
             sourceOptions,
             verbose,
-            tryQualifiedTypeName).ConfigureAwait(false);
+            tryQualifiedTypeName,
+            platformFramework).ConfigureAwait(false);
 
     internal static IReadOnlyList<string> ResolveSourceKeysForProbe(
         NuGetSourceOptions? sourceOptions,
@@ -380,7 +384,8 @@ public static class SourceResolver
         Func<string, IReadOnlyList<string>> sourceKeysForPackage,
         NuGetSourceOptions? sourceOptions,
         bool verbose,
-        bool tryQualifiedTypeName)
+        bool tryQualifiedTypeName,
+        string? platformFramework)
     {
         bool isLibrarySelector = IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
@@ -414,6 +419,41 @@ public static class SourceResolver
                     packagePath, assemblyPath, platformAssembly, null, null,
                     VersionError: true,
                     VersionErrorMessage: $"'{typeName}' looks like a version number. Use '{packagePath}@{typeName}' to specify a version.");
+            }
+
+            if (args.Length == 1
+                && packagePath != null
+                && typeName == null
+                && !string.IsNullOrWhiteSpace(platformFramework)
+                && !CommandLineHelpers.TryClassifyAsFilePath(
+                    packagePath,
+                    out _,
+                    out _))
+            {
+                var targetLookup = PlatformResolver.LookupTypeInFramework(
+                    packagePath,
+                    platformFramework);
+                if (targetLookup
+                    is PlatformTypeLookupOutcome.Resolved targetType)
+                {
+                    typeName =
+                        MetadataTypeNameFormatter.FormatGenericTypeName(
+                            targetType.Candidate.Type
+                                .ToMetadataFullName());
+                    packagePath = null;
+                    platformAssembly =
+                        targetType.Candidate.Assembly.Identity.Name;
+                    frameworkOverride = platformFramework;
+                }
+                else
+                {
+                    return new ResolvedSource(
+                        packagePath,
+                        AssemblyPath: null,
+                        PlatformAssembly: null,
+                        FrameworkOverride: platformFramework,
+                        TypeName: null);
+                }
             }
 
             if (args.Length == 1 && packagePath != null && typeName == null)
