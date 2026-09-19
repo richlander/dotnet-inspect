@@ -159,8 +159,11 @@ The existing internal `MethodBodyAnalysisResult`, `SafetyAnalysisResult`,
 the decomposition direction, not final public API approval. A result becomes
 public only when its first production consumer fixes the smallest useful
 shape. New Resource Occurrence Analysis publishes a distinct
-`ResourceOccurrenceAnalysisResult`; it does not add another property or
-projection method to `LibraryBodyIndex`.
+`LibraryResourceOccurrenceAnalysisResult` containing root-bound
+`ResourceOccurrenceAnalysisResult` method evidence. Its explicit admitted
+effect set is carried by the request rather than by an unparameterized feature
+bit. It does not add another property or projection method to
+`LibraryBodyIndex`.
 
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
