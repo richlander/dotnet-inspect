@@ -155,6 +155,33 @@ public static class PdbScopeFixtures
             _ => TryRead(second, out int value) && value >= 0,
         };
 
+    public static int SwitchSectionOutVariables(int selector, string value)
+    {
+        switch (selector)
+        {
+            case 0:
+            {
+                return TryRead(value, out int same) ? same : -1;
+            }
+            case 1:
+            {
+                return TryRead(value, out int same) ? same + 1 : -1;
+            }
+            case 2:
+            {
+                return TryRead(value, out int same) ? same + 2 : -1;
+            }
+            case 3:
+            {
+                return TryRead(value, out int same) ? same + 3 : -1;
+            }
+            default:
+            {
+                return TryRead(value, out int same) ? same + 4 : -1;
+            }
+        }
+    }
+
     public static void SequentialValueTypeScopeLocals()
     {
         {

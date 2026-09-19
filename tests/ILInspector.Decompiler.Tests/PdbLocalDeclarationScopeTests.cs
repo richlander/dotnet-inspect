@@ -608,6 +608,26 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.DoesNotContain("V_", result.Output);
     }
 
+    [Fact]
+    public void CompilerSwitchSectionOutVariables_UseExplicitBlocksForRepeatedExactNames()
+    {
+        using var source = MetadataSource.Open(typeof(PdbScopeFixtures).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(PdbScopeFixtures).FullName!,
+            nameof(PdbScopeFixtures.SwitchSectionOutVariables))!;
+
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            member => IrImporter.Import(source, member));
+        function.CheckInvariant();
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(5, result.Output!.Split(
+            "out int same", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("out int V_", result.Output);
+    }
+
     [Theory]
     [InlineData("branch")]
     [InlineData("conditional")]

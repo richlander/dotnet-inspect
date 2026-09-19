@@ -46,6 +46,22 @@ public sealed class PdbLocalScopeFidelityTests
     }
 
     [Fact]
+    public void SwitchSectionOutVariables_CompileBackSuccessfully()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(PdbScopeFixtures).Assembly.Location,
+            type => type == typeof(PdbScopeFixtures).FullName,
+            method => method.Method
+                == nameof(PdbScopeFixtures.SwitchSectionOutVariables)));
+
+        Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"{result.Method}: {result.Status}: {result.Detail}");
+    }
+
+    [Fact]
     public void DisjointPatternNames_CompileBackExactly()
     {
         var result = Assert.Single(FidelityCheck.Evaluate(
