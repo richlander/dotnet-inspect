@@ -6,6 +6,34 @@ namespace ILInspector.CSharp.Tests;
 public sealed class CSharpDeclarationWriterTests
 {
     [Theory]
+    [InlineData("interface", null, false, false, "public sealed int Count { get; }")]
+    [InlineData("interface", "private", false, false, "private int Count { get; }")]
+    [InlineData("interface", null, true, false, "public virtual int Count { get; }")]
+    [InlineData("interface", null, true, true, "public abstract int Count { get; }")]
+    [InlineData("class", null, false, false, "public int Count { get; }")]
+    public void InstanceProperty_PreservesInterfaceDispatch(
+        string typeKind, string? accessibility, bool isVirtual, bool isAbstract, string expected)
+    {
+        var type = new ApiType { Name = "Counter", Kind = typeKind };
+        var member = new ApiMember
+        {
+            Name = "Count",
+            Kind = "property",
+            Accessibility = accessibility,
+            IsVirtual = isVirtual,
+            IsAbstract = isAbstract,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Count",
+                ReturnType = "int",
+                Accessors = [new ApiAccessor { Kind = "get" }],
+            },
+        };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Theory]
     [InlineData(true, false, false, "public static virtual int Count { get; }")]
     [InlineData(true, true, false, "public static virtual int Count { get; }")]
     [InlineData(false, true, false, "public static virtual int Count { get; }")]

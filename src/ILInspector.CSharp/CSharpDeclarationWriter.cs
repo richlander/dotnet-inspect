@@ -1248,7 +1248,13 @@ internal static class CSharpDeclarationWriter
                 modifiers.Add("readonly");
             if (!omitInterfaceModifiers)
             {
-                if (member.IsSealed)
+                bool isNonVirtualInterfaceMember = type.Kind == "interface"
+                    && member.Kind is "method" or "property" or "event"
+                    && member.Accessibility != "private"
+                    && !member.IsStatic && !member.IsVirtual
+                    && !member.IsAbstract && !member.IsOverride;
+                // Non-private interface instance members are virtual unless sealed.
+                if (member.IsSealed || isNonVirtualInterfaceMember)
                     modifiers.Add("sealed");
                 if (member.IsAbstract)
                     modifiers.Add("abstract");

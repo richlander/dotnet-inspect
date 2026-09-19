@@ -112,4 +112,12 @@ public interface IStaticPropertySamples
 
     static int FixedCount => 23;
     int InstanceCount => 29;
+    sealed int SealedCount => 31;
+    private int PrivateCount => 37;
+
+    sealed int SealedCapacity
+    {
+        get => _capacity;
+        set => _capacity = value;
+    }
 }

@@ -171,6 +171,12 @@ that context-sensitive declaration lowering, not the body printer.
 The .NET 11 RC1 `System.Numerics.IBinaryNumber<TSelf>.AllBitsSet` getter is a
 real declaration witness. Its body is outside this modifier-spelling claim.
 
+Interface declaration spelling preserves dispatch, not a one-to-one copy of
+CLR-derived flags. A non-virtual instance accessor needs `sealed` when C# would
+otherwise make it implicitly virtual. Private interface members already default
+to non-virtual and retain their private spelling. Metadata's final-override
+`IsSealed` flag is not the sole reason CSharp may need the `sealed` keyword.
+
 An overriding accessor with narrower accessibility than its property's
 declaration retains method form. For example, a protected setter cannot become
 a protected override property when the inherited property is public, and a
@@ -205,7 +211,9 @@ attachment, product-composed source compilation, and the decline boundaries.
 Its narrowed-override fixtures cover both getter and setter declines and
 compile the neighboring public overrides and non-overriding narrowed accessors.
 Static-interface fixtures compile the unchanged product artifact and assert its
-static/virtual symbols, with non-virtual static and instance neighbors. The
+static/virtual symbols, with non-virtual static, sealed-instance, private-instance
+and virtual-instance neighbors. Sealed getters and setters must remain
+non-virtual after compilation; compilation success alone is insufficient. The
 runtime `AllBitsSet` case gates declaration spelling, not whole-body validity.
 It is `Speed=Slow` (measured 3.5 seconds), covered by daily Deep Inspect and
 the focused pre-merge gate rather than the PR-fast leg.

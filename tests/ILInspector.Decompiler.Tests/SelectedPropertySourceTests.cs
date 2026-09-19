@@ -124,6 +124,9 @@ public sealed class SelectedPropertySourceTests
     [InlineData("Capacity", "set", "public static virtual int Capacity", true, true)]
     [InlineData("FixedCount", "get", "public static int FixedCount", true, false)]
     [InlineData("InstanceCount", "get", "public virtual int InstanceCount", false, true)]
+    [InlineData("SealedCount", "get", "public sealed int SealedCount", false, false)]
+    [InlineData("SealedCapacity", "set", "public sealed int SealedCapacity", false, false)]
+    [InlineData("PrivateCount", "get", "private int PrivateCount", false, false)]
     public void InterfaceAccessorCompilesWithItsDispatchSemantics(
         string propertyName, string role, string expected, bool isStatic, bool isVirtual)
     {

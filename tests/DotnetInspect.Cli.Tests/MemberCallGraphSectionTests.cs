@@ -1452,14 +1452,17 @@ public class MemberCallGraphSectionTests
         Assert.Contains(expected, result.Output);
     }
 
-    [Fact]
-    public async Task SelectedProperty_StaticVirtualInterfaceKeepsDispatchAcrossCSharpViews()
+    [Theory]
+    [InlineData("Count", "public static virtual int Count")]
+    [InlineData("SealedCount", "public sealed int SealedCount")]
+    public async Task SelectedProperty_InterfaceKeepsDispatchAcrossCSharpViews(
+        string propertyName, string expected)
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = "ILInspector.Decompiler.Fixtures.IStaticPropertySamples",
             AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
-            MemberFilter = ["Count"],
+            MemberFilter = [propertyName],
             IncludeSections =
             [
                 SectionNames.DecompiledSource,
@@ -1472,7 +1475,7 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(4, result.Output.Split("public static virtual int Count", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, result.Output.Split(expected, StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("override", result.Output);
         Assert.DoesNotContain("declaration formatting failed", result.Output);
     }
