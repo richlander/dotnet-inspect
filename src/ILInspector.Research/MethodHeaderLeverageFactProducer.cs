@@ -23,9 +23,12 @@ sealed class MethodHeaderLeverageFactProducer : IResearchFactProducer
 
     public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
     {
-        if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
+        if (context.Analysis is not { } analysis
+            || context.Imported.MetadataToken == 0)
             return [];
-        if (!assembly.LeverageByToken.TryGetValue(context.Imported.MetadataToken, out var leverage))
+        if (!analysis.LeverageByToken.TryGetValue(
+                context.Imported.MetadataToken,
+                out var leverage))
             return [];
         var parts = new List<string>();
         if (leverage.RootReach >= RootReachThreshold)
