@@ -365,6 +365,10 @@ public static class MemberOptionsParser
         if (sourceParts && parseResult.GetValue(opts.Print) && sourcePart is null)
             return new VersionError("Use --print --part to print a member part, or omit --source-parts to print the whole file.");
 
+        bool selectsCallRows =
+            MemberCallRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         bool selectsCallerRows =
             MemberCallerRowSelectionAdoption.IsActive(
                 parseResult,
@@ -375,7 +379,9 @@ public static class MemberOptionsParser
                 opts);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
-                selectsCallerRows
+                selectsCallRows
+                    ? "Member Calls"
+                    : selectsCallerRows
                     ? "Member Callers"
                     : selectsCloneCandidateRows
                     ? "Clone Candidates"
@@ -693,10 +699,14 @@ public static class MemberOptionsParser
             Rows = rowSelection is null
                 ? opts.ParseRows(parseResult)
                 : null,
-            FactsRowSelection = selectsCallerRows
+            FactsRowSelection = selectsCallRows
+                || selectsCallerRows
                 || selectsCloneCandidateRows
                 ? null
                 : rowSelection,
+            CallRowSelection = selectsCallRows
+                ? rowSelection
+                : null,
             CallerRowSelection = selectsCallerRows
                 ? rowSelection
                 : null,
