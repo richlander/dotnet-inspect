@@ -1213,6 +1213,9 @@ public sealed partial class CSharpPrinter
             else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
                 text = fidelityCast;
+            else if (parameter is not null
+                && CachedStaticMethodGroupArgumentText(argument, parameter, refKind) is { } methodGroup)
+                text = WithNodeKind(argument, methodGroup, "ConversionExpression");
             else
                 text = coerceValues && parameter is not null
                     ? CoerceText(argument, parameter)
@@ -1223,6 +1226,34 @@ public sealed partial class CSharpPrinter
             i++;
         }
         return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// Restores the static method-group conversion whose compiler cache was
+    /// collapsed by <see cref="LambdaCachePass"/>. The explicit delegate cast
+    /// pins overload selection at an argument boundary while still causing csc
+    /// to regenerate its lazy <c>&lt;&gt;O</c> cache; <c>new D(M)</c> would
+    /// allocate on every execution.
+    /// </summary>
+    string? CachedStaticMethodGroupArgumentText(
+        IrExpression argument,
+        TypeRef parameter,
+        ArgumentRefKind refKind)
+    {
+        if (refKind != ArgumentRefKind.Value
+            || argument is not DelegateCreation
+            {
+                HasCollapsedCompilerCache: true,
+                Target: Constant { Value: null },
+                Method.TypeArguments.IsEmpty: true,
+            } creation
+            || !parameter.Equals(creation.DelegateType))
+        {
+            return null;
+        }
+
+        return $"({TypeText(creation.DelegateType)})"
+            + MethodGroupText(creation.Method, creation.Target, creation.IsVirtual);
     }
 
     string ConstructorInitializerArgumentText(

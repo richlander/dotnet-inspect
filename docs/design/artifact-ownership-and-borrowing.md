@@ -204,6 +204,13 @@ Only Artifact constructs the view. The callback result is detached or
 independently owned. The view and span cannot be retained, returned, stored in
 a heap object, carried across `await`, or passed across Browser interop.
 
+The view may adapt the retained image to a zero-copy seekable stream only
+inside a nested synchronous `UseReadStream` callback. Artifact disposes that
+stream and drops its image reference before the adapter returns. Returning or
+capturing the stream therefore cannot extend the borrow or retain the image;
+the nested callback result remains subject to the same detached-or-
+independently-owned requirement.
+
 The callback may also receive caller-supplied scoped state. That state may be
 ref-like, remains confined to the synchronous callback, and does not change the
 lease's exact-content authority. A downstream aggregate can therefore place an

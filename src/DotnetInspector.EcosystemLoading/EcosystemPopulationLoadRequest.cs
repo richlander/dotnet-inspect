@@ -109,6 +109,16 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
             EcosystemPopulationChildSettlementKind.Unavailable,
             completionKind: null);
 
+    public EcosystemPopulationChildSettlement ChildAmbiguous(
+        EcosystemPopulationChildRequestIdentity request,
+        EcosystemPopulationChildReceiptIdentity receipt) =>
+        new(
+            _identity,
+            request,
+            receipt,
+            EcosystemPopulationChildSettlementKind.Ambiguous,
+            completionKind: null);
+
     public EcosystemPopulationChildSettlement ChildIncomplete(
         EcosystemPopulationChildRequestIdentity request,
         EcosystemPopulationChildReceiptIdentity receipt) =>
@@ -157,6 +167,10 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
                 _identity);
         EcosystemPopulationOwnedLibraryContribution[] ownerships =
             EcosystemPopulationSnapshots.FlattenOwnerships(children);
+        EcosystemPopulationOwnedArtifactSessionContribution[]
+            artifactSessions =
+                EcosystemPopulationSnapshots.FlattenArtifactSessions(
+                    children);
         if ((completion.Kind
                 == EcosystemPopulationCompletionKind.NoMembers)
             != (ownerships.Length == 0))
@@ -171,6 +185,7 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
             completion,
             children.Select(child => child.Settlement).ToArray(),
             ownerships,
+            artifactSessions,
             EcosystemPopulationSnapshots.Diagnostics(
                 diagnostics ?? [],
                 requireNonEmpty: false));
@@ -180,6 +195,16 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
         IEnumerable<EcosystemPopulationChildSettlement> children,
         IEnumerable<EcosystemPopulationLoadDiagnostic> diagnostics) =>
         new EcosystemPopulationLoaderReply.Unavailable(
+            _identity,
+            EcosystemPopulationSnapshots.Children(children, _identity),
+            EcosystemPopulationSnapshots.Diagnostics(
+                diagnostics,
+                requireNonEmpty: true));
+
+    public EcosystemPopulationLoaderReply Ambiguous(
+        IEnumerable<EcosystemPopulationChildSettlement> children,
+        IEnumerable<EcosystemPopulationLoadDiagnostic> diagnostics) =>
+        new EcosystemPopulationLoaderReply.Ambiguous(
             _identity,
             EcosystemPopulationSnapshots.Children(children, _identity),
             EcosystemPopulationSnapshots.Diagnostics(
@@ -212,6 +237,8 @@ public sealed class EcosystemPopulationLoadRequest<TInputs>
             _identity,
             retainedChildren,
             EcosystemPopulationSnapshots.FlattenOwnerships(
+                retainedCompleted),
+            EcosystemPopulationSnapshots.FlattenArtifactSessions(
                 retainedCompleted),
             EcosystemPopulationSnapshots.Diagnostics(
                 diagnostics,
@@ -256,11 +283,14 @@ public abstract class EcosystemPopulationLoaderReply
         EcosystemPopulationLoadRequestIdentity request,
         IReadOnlyList<EcosystemPopulationChildSettlement> children,
         IReadOnlyList<EcosystemPopulationOwnedLibraryContribution> ownerships,
+        IReadOnlyList<EcosystemPopulationOwnedArtifactSessionContribution>
+            artifactSessions,
         IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
     {
         Request = request;
         Children = Array.AsReadOnly([.. children]);
         Ownerships = Array.AsReadOnly([.. ownerships]);
+        ArtifactSessions = Array.AsReadOnly([.. artifactSessions]);
         Diagnostics = Array.AsReadOnly([.. diagnostics]);
     }
 
@@ -268,6 +298,11 @@ public abstract class EcosystemPopulationLoaderReply
     public IReadOnlyList<EcosystemPopulationChildSettlement> Children { get; }
     internal IReadOnlyList<EcosystemPopulationOwnedLibraryContribution>
         Ownerships
+    {
+        get;
+    }
+    internal IReadOnlyList<
+        EcosystemPopulationOwnedArtifactSessionContribution> ArtifactSessions
     {
         get;
     }
@@ -285,8 +320,16 @@ public abstract class EcosystemPopulationLoaderReply
             IReadOnlyList<EcosystemPopulationChildSettlement> children,
             IReadOnlyList<EcosystemPopulationOwnedLibraryContribution>
                 ownerships,
+            IReadOnlyList<
+                EcosystemPopulationOwnedArtifactSessionContribution>
+                    artifactSessions,
             IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
-            : base(request, children, ownerships, diagnostics) =>
+            : base(
+                request,
+                children,
+                ownerships,
+                artifactSessions,
+                diagnostics) =>
             Completion = completion;
 
         public EcosystemPopulationCompletionWitness Completion { get; }
@@ -298,7 +341,18 @@ public abstract class EcosystemPopulationLoaderReply
             EcosystemPopulationLoadRequestIdentity request,
             IReadOnlyList<EcosystemPopulationChildSettlement> children,
             IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
-            : base(request, children, [], diagnostics)
+            : base(request, children, [], [], diagnostics)
+        {
+        }
+    }
+
+    public sealed class Ambiguous : EcosystemPopulationLoaderReply
+    {
+        internal Ambiguous(
+            EcosystemPopulationLoadRequestIdentity request,
+            IReadOnlyList<EcosystemPopulationChildSettlement> children,
+            IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
+            : base(request, children, [], [], diagnostics)
         {
         }
     }
@@ -311,8 +365,16 @@ public abstract class EcosystemPopulationLoaderReply
             IReadOnlyList<EcosystemPopulationChildSettlement> children,
             IReadOnlyList<EcosystemPopulationOwnedLibraryContribution>
                 ownerships,
+            IReadOnlyList<
+                EcosystemPopulationOwnedArtifactSessionContribution>
+                    artifactSessions,
             IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
-            : base(request, children, ownerships, diagnostics)
+            : base(
+                request,
+                children,
+                ownerships,
+                artifactSessions,
+                diagnostics)
         {
         }
     }
@@ -323,7 +385,7 @@ public abstract class EcosystemPopulationLoaderReply
             EcosystemPopulationLoadRequestIdentity request,
             IReadOnlyList<EcosystemPopulationChildSettlement> children,
             IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
-            : base(request, children, [], diagnostics)
+            : base(request, children, [], [], diagnostics)
         {
         }
     }
@@ -334,7 +396,7 @@ public abstract class EcosystemPopulationLoaderReply
             EcosystemPopulationLoadRequestIdentity request,
             IReadOnlyList<EcosystemPopulationChildSettlement> children,
             IReadOnlyList<EcosystemPopulationLoadDiagnostic> diagnostics)
-            : base(request, children, [], diagnostics)
+            : base(request, children, [], [], diagnostics)
         {
         }
     }
@@ -469,6 +531,35 @@ static class EcosystemPopulationSnapshots
         return ownerships;
     }
 
+    public static EcosystemPopulationOwnedArtifactSessionContribution[]
+        FlattenArtifactSessions(
+        IEnumerable<EcosystemPopulationCompletedChild> children)
+    {
+        EcosystemPopulationOwnedArtifactSessionContribution[] sessions =
+        [
+            .. children
+                .Where(static child => child.ArtifactSession is not null)
+                .Select(
+                    child =>
+                        new EcosystemPopulationOwnedArtifactSessionContribution(
+                            child.ArtifactSession!,
+                            child.Settlement)),
+        ];
+        var seen = new HashSet<object>(
+            ReferenceEqualityComparer.Instance);
+        foreach (EcosystemPopulationOwnedArtifactSessionContribution session
+            in sessions)
+        {
+            if (!seen.Add(session.Session))
+            {
+                throw new ArgumentException(
+                    "One Artifact session cannot be transferred more than once.",
+                    nameof(children));
+            }
+        }
+        return sessions;
+    }
+
     public static EcosystemPopulationLoadDiagnostic[] Diagnostics(
         IEnumerable<EcosystemPopulationLoadDiagnostic> diagnostics,
         bool requireNonEmpty)
@@ -531,6 +622,17 @@ sealed class EcosystemPopulationOwnedLibraryContribution(
 {
     public EcosystemPopulationLibraryOwnership Ownership { get; } =
         ownership;
+    public EcosystemPopulationChildSettlement ChildSettlement { get; } =
+        childSettlement;
+}
+
+[Inspector.Resources.ResourceOwnership]
+sealed class EcosystemPopulationOwnedArtifactSessionContribution(
+    Inspector.Artifacts.Workspaces.ArtifactSetSession session,
+    EcosystemPopulationChildSettlement childSettlement)
+{
+    public Inspector.Artifacts.Workspaces.ArtifactSetSession Session { get; } =
+        session;
     public EcosystemPopulationChildSettlement ChildSettlement { get; } =
         childSettlement;
 }
