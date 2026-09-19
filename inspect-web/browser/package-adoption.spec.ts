@@ -47,7 +47,7 @@ import {
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
-import { selectLibrary } from "./library-hierarchy.support.ts";
+import { selectFirstExactLibrary } from "./library-subject-actions.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
 
@@ -2186,7 +2186,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
           await page.locator(".load-error-detail").textContent() ?? "No details."}`
           + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`);
     }
-    await selectLibrary(page, healthyAssemblyName);
+    await selectFirstExactLibrary(page);
     await chooseInspector(page, "data-library-lens", "references");
 
     const panel = page.locator("#inspector-panel");
@@ -2230,7 +2230,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
           + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`,
       );
     }
-    await selectLibrary(page, "LibraryApiDiffFixture");
+    await selectFirstExactLibrary(page);
     await chooseInspector(page, "data-library-lens", "compare");
 
     const panel = page.locator("#inspector-panel");
@@ -2260,7 +2260,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     const target = page.locator("#package-diff-target");
     await expect(target).toBeVisible();
     await target.selectOption("exact:2.0.0");
-    await selectLibrary(page, "LibraryApiDiffFixture");
+    await selectFirstExactLibrary(page);
     await chooseInspector(page, "data-library-lens", "compare");
     await expect(panel.locator(".library-api-diff-status"))
       .toContainText("No changed Types", { timeout: 60_000 });

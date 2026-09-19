@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
-import { selectLibrary } from "./library-hierarchy.support.ts";
+import {
+  chooseSubject,
+  selectFirstExactLibrary,
+} from "./library-subject-actions.ts";
 
 const site = process.env.INSPECT_WEB_SOURCE_DIFF_URL;
 const fixtureOnly = process.env.INSPECT_WEB_SOURCE_DIFF_FIXTURE_ONLY === "1";
@@ -280,7 +283,8 @@ test.describe("published authored Source comparison transport", () => {
           await applicationPage.locator(".load-error").textContent()
             ?? "Published application failed to load the fixture package.");
       }
-      await selectLibrary(applicationPage, "InspectWebSourceComparisonFixture");
+      await selectFirstExactLibrary(applicationPage);
+      await chooseSubject(applicationPage, "type");
       await applicationPage.locator("#type-list [data-type]")
         .filter({ hasText: /\bCounter\b/ })
         .first()
