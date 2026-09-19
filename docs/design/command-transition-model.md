@@ -839,6 +839,9 @@ Transitions, output, and failure behavior. Preserve supported outcomes and
 explicit cost gates. Any deliberate capability retirement requires its own
 decision under
 [CLI change classification](cli-change-classification.md).
+The non-normative
+[Diff command adoption census](diff-command-adoption-census.md) records the
+current route, acquisition, rendering, and Release-gate baseline.
 
 Production adoption is tracked by
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703):
