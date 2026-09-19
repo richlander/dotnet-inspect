@@ -9,6 +9,7 @@ export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCalleeEvidenceKind = "ExceptionConstruction" | "Localloc" | "Calli" | number;
 export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "InstructionUnavailable" | number;
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
+export type BrowserMemberSourcePartKind = "Member" | "XmlDocumentation" | "Attributes" | "Signature" | "Body" | number;
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
@@ -173,6 +174,21 @@ export interface BrowserMemberFindingFact {
     readonly detail: string | null;
     readonly conditionality: string;
     readonly instanceKey: number | null;
+}
+export interface BrowserMemberSource {
+    readonly source: BrowserSource;
+    readonly parts: ReadonlyArray<BrowserMemberSourcePart>;
+}
+export interface BrowserMemberSourcePart {
+    readonly kind: BrowserMemberSourcePartKind;
+    readonly spans: ReadonlyArray<BrowserMemberSourceSpan>;
+}
+export interface BrowserMemberSourceSpan {
+    readonly start: number;
+    readonly length: number;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly end: number;
 }
 export interface BrowserMethodBodyComparison {
     readonly request: BrowserMethodBodyComparisonRequest;
@@ -342,7 +358,7 @@ export declare function cancelSourceQuery(): void;
 export declare function cancelTypeSourceQuery(operationId: string, reason: string): BrowserTypeSourceCancellation;
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
 export declare function queryMemberFindingCensus(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberFindingCensus>;
-export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberSource>;
 export declare function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult>;
 export declare function queryMethodBodyComparison(operationId: string, requestJson: string): Promise<BrowserMethodBodyComparisonResult>;
 export declare function queryMethodBodyComparisonTargets(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserMethodBodyTargetsResult>;

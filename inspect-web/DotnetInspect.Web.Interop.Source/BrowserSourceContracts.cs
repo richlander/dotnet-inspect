@@ -26,6 +26,33 @@ public sealed record BrowserSource(
     string? PdbSourceLimitation,
     string Text);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserMemberSourcePartKind>))]
+public enum BrowserMemberSourcePartKind
+{
+    Member,
+    XmlDocumentation,
+    Attributes,
+    Signature,
+    Body,
+}
+
+public sealed record BrowserMemberSourceSpan(
+    int Start,
+    int Length,
+    int StartLine,
+    int EndLine)
+{
+    public int End => checked(Start + Length);
+}
+
+public sealed record BrowserMemberSourcePart(
+    BrowserMemberSourcePartKind Kind,
+    BrowserMemberSourceSpan[] Spans);
+
+public sealed record BrowserMemberSource(
+    BrowserSource Source,
+    BrowserMemberSourcePart[] Parts);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceMedium>))]
 public enum BrowserAnnotatedSourceMedium
 {
@@ -954,6 +981,7 @@ public sealed record BrowserAnnotatedSource
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserSource))]
+[JsonSerializable(typeof(BrowserMemberSource))]
 [JsonSerializable(typeof(BrowserTypeSourceResult))]
 [JsonSerializable(typeof(BrowserTypeSourceCancellation))]
 [JsonSerializable(typeof(BrowserMethodBodyTargetsResult))]

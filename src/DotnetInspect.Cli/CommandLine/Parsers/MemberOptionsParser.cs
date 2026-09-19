@@ -307,7 +307,9 @@ public static class MemberOptionsParser
         Option<string[]> RepoOption,
         Option<string?> AtOption,
         Option<bool> ShapeOption,
-        Option<string?> RouterDeferredTargetOption);
+        Option<string?> RouterDeferredTargetOption,
+        Option<bool> SourcePartsOption,
+        Option<string?> SourcePartOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -360,6 +362,19 @@ public static class MemberOptionsParser
         SharedOptions opts,
         MemberCommandArgs args)
     {
+        bool sourceParts = parseResult.GetValue(args.SourcePartsOption);
+        MemberSourcePartKind? sourcePart = null;
+        if (parseResult.GetValue(args.SourcePartOption) is { } partName)
+        {
+            if (!MemberSourcePartsProjection.TryParse(partName, out var parsedPart))
+                return new VersionError("--part must be member, xml-docs, attributes, signature, or body.");
+            if (!parseResult.GetValue(opts.Print))
+                return new VersionError("--part requires --print.");
+            sourcePart = parsedPart;
+        }
+        if (sourceParts && parseResult.GetValue(opts.Print) && sourcePart is null)
+            return new VersionError("Use --print --part to print a member part, or omit --source-parts to print the whole file.");
+
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
                 "Member Facts",
@@ -595,6 +610,8 @@ public static class MemberOptionsParser
         {
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
+        if ((sourceParts || sourcePart is not null) && !hasExplicitSelect)
+            select = [SectionNames.SourceLocations];
 
         OptionError? mermaidError =
             GetMermaidOptionError(parseResult, opts);
@@ -660,6 +677,8 @@ public static class MemberOptionsParser
                 || parseResult.GetResult(opts.Head) is { Implicit: false }
                 || parseResult.GetResult(opts.Tail) is { Implicit: false },
             ShareFormat = shareFormat,
+            SourceParts = sourceParts,
+            SourcePart = sourcePart,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],

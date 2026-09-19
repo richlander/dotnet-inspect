@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using CSharpText;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -56,7 +57,7 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson)
     {
-        BrowserSource source = await QueryMemberSourceCore(
+        BrowserMemberSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -65,10 +66,11 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
-            styleOptionsJson);
+            styleOptionsJson,
+            includeParts: true);
         return JsonSerializer.Serialize(
             source,
-            BrowserSourceJsonContext.Default.BrowserSource);
+            BrowserSourceJsonContext.Default.BrowserMemberSource);
     }
 
     [JSExport]
@@ -162,7 +164,7 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson)
     {
-        BrowserSource source = await QueryMemberSourceCore(
+        BrowserMemberSource source = await QueryMemberSourceCore(
             packageId,
             version,
             targetFramework,
@@ -171,13 +173,14 @@ public static partial class SourceExports
             memberName,
             selectorKey,
             metadataToken,
-            styleOptionsJson);
+            styleOptionsJson,
+            includeParts: false);
         return JsonSerializer.Serialize(
-            source,
+            source.Source,
             BrowserSourceJsonContext.Default.BrowserSource);
     }
 
-    static async Task<BrowserSource> QueryMemberSourceCore(
+    static async Task<BrowserMemberSource> QueryMemberSourceCore(
         string packageId,
         string version,
         string targetFramework,
@@ -186,7 +189,8 @@ public static partial class SourceExports
         string memberName,
         string selectorKey,
         int metadataToken,
-        string styleOptionsJson)
+        string styleOptionsJson,
+        bool includeParts)
     {
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
@@ -214,10 +218,12 @@ public static partial class SourceExports
                 + "the selected body is an accessor rather than a method definition.");
         }
 
-        var request = AssemblyMemberSourceRequest.From(
+        AssemblyMemberSourceRequest request = AssemblyMemberSourceRequest.From(
             resolution.Type,
             resolution.Member,
             BrowserStyleOptions.Resolve(styleOptionsJson));
+        if (includeParts)
+            request = request.WithAuthoredParts(allowDecompiledFallback: true);
         InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
             await scope.UseImplementationParticipant(
                 participant,
@@ -228,7 +234,7 @@ public static partial class SourceExports
                     CreateSourceContext(),
                     operation.CancellationToken));
 
-        return Adapt(inspection.Content, participant);
+        return AdaptMember(inspection.Content, participant, includeParts);
     }
 
     static async Task<(
@@ -322,10 +328,16 @@ public static partial class SourceExports
     internal static BrowserSource Adapt(
         AssemblyMemberSourceEntry result,
         BrowserWorkspaceParticipant participant) =>
+        AdaptMember(result, participant, includeParts: false).Source;
+
+    internal static BrowserMemberSource AdaptMember(
+        AssemblyMemberSourceEntry result,
+        BrowserWorkspaceParticipant participant,
+        bool includeParts) =>
         result switch
         {
             AssemblyMemberSourceEntry.Available available =>
-                Adapt(available.Source, participant),
+                AdaptMember(available.Source, participant, includeParts),
             AssemblyMemberSourceEntry.Rejected rejected =>
                 throw new InvalidOperationException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
@@ -388,6 +400,87 @@ public static partial class SourceExports
             _ => throw new InvalidOperationException(
                 "Unknown available member source result."),
         };
+
+    internal static BrowserMemberSource AdaptMember(
+        AssemblyMemberSource source,
+        BrowserWorkspaceParticipant participant,
+        bool includeParts)
+    {
+        BrowserSource browserSource = Adapt(source, participant);
+        MemberTextParts? parts = includeParts
+            && source is AssemblyMemberSource.Pdb
+            {
+                MemberDocument: { } document,
+            }
+                ? document.Parts
+                : null;
+        return AdaptMember(browserSource, parts);
+    }
+
+    internal static BrowserMemberSource AdaptMember(
+        BrowserSource source,
+        MemberTextParts? parts) =>
+        new(
+            source,
+            parts is null
+                ? []
+                : ProjectMemberParts(parts, source.Text.Length));
+
+    internal static BrowserMemberSourcePart[] ProjectMemberParts(
+        MemberTextParts parts,
+        int memberTextLength)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+        if (memberTextLength < 0)
+            throw new ArgumentOutOfRangeException(nameof(memberTextLength));
+        if (parts.Member.Length != memberTextLength)
+        {
+            throw new InvalidOperationException(
+                "The authored member span does not match the transported member text.");
+        }
+
+        int memberStart = parts.Member.Start;
+        BrowserMemberSourceSpan Rebase(MemberTextPart part)
+        {
+            int start = checked(part.Start - memberStart);
+            if (start < 0 || part.End > parts.Member.End)
+            {
+                throw new InvalidOperationException(
+                    "An authored member part falls outside the transported member text.");
+            }
+
+            return new BrowserMemberSourceSpan(
+                start,
+                part.Length,
+                part.Lines.StartLine,
+                part.Lines.EndLine);
+        }
+
+        return
+        [
+            .. MemberSourcePartsProjection.CreateCatalog(parts)
+                .Select(part => new BrowserMemberSourcePart(
+                    BrowserKind(part.Kind),
+                    [.. part.Spans.Select(Rebase)])),
+        ];
+
+        static BrowserMemberSourcePartKind BrowserKind(
+            MemberSourcePartKind kind) =>
+            kind switch
+            {
+                MemberSourcePartKind.Member =>
+                    BrowserMemberSourcePartKind.Member,
+                MemberSourcePartKind.XmlDocs =>
+                    BrowserMemberSourcePartKind.XmlDocumentation,
+                MemberSourcePartKind.Attributes =>
+                    BrowserMemberSourcePartKind.Attributes,
+                MemberSourcePartKind.Signature =>
+                    BrowserMemberSourcePartKind.Signature,
+                MemberSourcePartKind.Body =>
+                    BrowserMemberSourcePartKind.Body,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            };
+    }
 
     static BrowserSource Adapt(
         AssemblyTypeSource source,

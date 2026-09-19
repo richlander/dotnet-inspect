@@ -2601,6 +2601,14 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
+        if (options is MemberOptions partsOptions && MemberSourcePartsOutput.Handles(partsOptions))
+        {
+            return await MemberSourcePartsOutput.WriteAsync(
+                type, partsOptions, memberCodeSourceAssembly ?? sourceAssembly,
+                packageName, packageVersion,
+                sourceClient ?? DotnetInspector.Networking.HttpClientFactory.Shared, sink);
+        }
+
         if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
             CommandError.Write(

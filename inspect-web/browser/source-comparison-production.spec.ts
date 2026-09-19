@@ -119,6 +119,7 @@ test.describe("published authored Source comparison transport", () => {
       test.skip(!beforePackage || !afterPackage || !beforeSource || !afterSource,
         "Set the four catalog-resolved Source comparison fixture assets.");
       let omitAfterSource = false;
+      let sourceFetchCount = 0;
       await page.context().route(
         "**/inspectweb.sourcecomparisonfixture*.nupkg",
         async route => {
@@ -133,6 +134,7 @@ test.describe("published authored Source comparison transport", () => {
       await page.context().route(
         "https://raw.githubusercontent.com/dotnet-inspect-fixtures/source-comparison/**",
         async route => {
+          sourceFetchCount++;
           const after =
             route.request().url().includes("/source-comparison/v2/");
           if (after && omitAfterSource) {
@@ -222,6 +224,74 @@ test.describe("published authored Source comparison transport", () => {
 
       const authoredMember = await memberSource(page, "1.0.0");
       const authoredType = await typeSource(page, "1.0.0");
+      const body = authoredMember.parts.find(part => part.kind === "Body");
+      if (!body) {
+        throw new Error("Authored fixture member did not publish its body part.");
+      }
+      const expectedBody = body.spans.map(span =>
+        authoredMember.source.text.slice(span.start, span.end)).join("\n");
+
+      const applicationPage = await page.context().newPage();
+      await applicationPage.addInitScript(() => {
+        const state = window as typeof window & {
+          __copiedMemberSource?: string;
+        };
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: {
+            writeText: async (text: string) => {
+              state.__copiedMemberSource = text;
+            },
+          },
+        });
+      });
+      const applicationUrl = new URL(site!);
+      applicationUrl.search = new URLSearchParams({
+        package: "InspectWeb.SourceComparisonFixture",
+        version: "1.0.0",
+        framework: "net11.0",
+      }).toString();
+      applicationUrl.hash = "pkg";
+      await applicationPage.goto(applicationUrl.href);
+      const library =
+        applicationPage.locator(".library-list [data-lib-scope]").first();
+      await expect(library.or(applicationPage.locator(".load-error")))
+        .toBeVisible({ timeout: 180_000 });
+      if (await applicationPage.locator(".load-error").isVisible()) {
+        throw new Error(
+          await applicationPage.locator(".load-error").textContent()
+            ?? "Published application failed to load the fixture package.");
+      }
+      await library.click();
+      await applicationPage.locator("#type-list [data-type]")
+        .filter({ hasText: /\bCounter\b/ })
+        .first()
+        .click();
+      await applicationPage.locator("[data-member]")
+        .filter({ hasText: /\bValue\b/ })
+        .click();
+      await applicationPage.locator(
+        '[data-member-section="source"]:visible',
+      ).click();
+
+      const selector =
+        applicationPage.getByLabel("Select member source part");
+      await expect(selector).toHaveValue("Member", { timeout: 60_000 });
+      const sourceCode = applicationPage.locator(".source-result code");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(authoredMember.source.text);
+      const settledSourceFetchCount = sourceFetchCount;
+      await selector.selectOption("Body");
+      await expect.poll(() => sourceCode.textContent()).toBe(expectedBody);
+      expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await applicationPage.locator("#copy-source").click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource)).toBe(expectedBody);
+      expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await applicationPage.close();
+
       const changed = await compareMember(page, "Value");
       const exact = await compareMember(page, "Unchanged");
       const moved = await compareMember(page, "MovedBlock");
@@ -245,14 +315,17 @@ test.describe("published authored Source comparison transport", () => {
         contentType: "application/json",
       });
 
-      expect(authoredMember.provider).toBe("pdb");
-      expect(authoredMember.text).toContain("1 + 2");
-      expect(authoredMember.pdbSourceLimitation).toBeNull();
-      expect(authoredMember.url).toBeTruthy();
-      expect(fallbackMember.provider).toBe("decompiled");
-      expect(fallbackMember.text).toContain("Value");
-      expect(fallbackMember.pdbSourceLimitation).toBeTruthy();
-      expect(fallbackMember.url).toBeNull();
+      expect(authoredMember.source.provider).toBe("pdb");
+      expect(authoredMember.source.text).toContain("1 + 2");
+      expect(authoredMember.source.pdbSourceLimitation).toBeNull();
+      expect(authoredMember.source.url).toBeTruthy();
+      expect(authoredMember.parts.map(part => part.kind)).toContain("Member");
+      expect(authoredMember.parts.map(part => part.kind)).toContain("Body");
+      expect(fallbackMember.source.provider).toBe("decompiled");
+      expect(fallbackMember.source.text).toContain("Value");
+      expect(fallbackMember.source.pdbSourceLimitation).toBeTruthy();
+      expect(fallbackMember.source.url).toBeNull();
+      expect(fallbackMember.parts).toEqual([]);
 
       expect(authoredType.kind).toBe("Succeeded");
       expect(authoredType.value?.provider).toBe("pdb");

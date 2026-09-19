@@ -834,6 +834,24 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
   border-color: var(--accent);
   color: var(--text);
 }
+.source-part-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dim);
+  font: 9px var(--mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.source-part-picker select {
+  height: 28px;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--text);
+  font: 10px var(--mono);
+}
 .lens kbd { color: var(--dim); font: 10px var(--mono); }
 .lens-context { color: var(--dim); font: 10px var(--mono); }
 
