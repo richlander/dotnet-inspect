@@ -50,6 +50,16 @@ public sealed record AnnotatedSourceFactIdentity
     public FindingInstanceKey InstanceKey { get; }
 }
 
+public enum AllocationExceptionPathKind
+{
+    ThrownValue,
+    ExceptionHandler,
+}
+
+public sealed record AnnotatedSourceAllocationExceptionPath(
+    int FactId,
+    AllocationExceptionPathKind Kind);
+
 public sealed record CostOverlayResult(
     DecompilerResult Body,
     IReadOnlyList<ResearchHeaderFact> HeaderFacts);
@@ -127,4 +137,11 @@ public sealed record MemberProjectionResult(
     /// Product-issued C# node ids for classic awaits whose inline and
     /// suspension/resume paths were proven by reconstruction.
     /// </summary>
-    IReadOnlyList<int>? AwaitCompletionPathNodeIds = null);
+    IReadOnlyList<int>? AwaitCompletionPathNodeIds = null,
+
+    /// <summary>
+    /// Exact allocation facts Analysis placed on a thrown-value or
+    /// exception-handler path.
+    /// </summary>
+    IReadOnlyList<AnnotatedSourceAllocationExceptionPath>?
+        AllocationExceptionPaths = null);

@@ -321,7 +321,11 @@ recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
 shows the exact synchronous-completion structure without claiming that runtime
-blocking was measured.
+blocking was measured. Selecting a proven classic `await` explains its inline
+and suspension/resume paths, while selecting an exception-related allocation
+distinguishes a thrown value from an allocation inside a catch, filter, or
+fault handler. Both are compiled-structure evidence and make no runtime path or
+frequency claim.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -981,6 +985,12 @@ dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
   -S "Clone Candidates" \
   --where "Breadth=Self" \
   --where "Discovery=All"
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 2
+dotnet-inspect package ./app.nupkg --library app.dll \
+  -S "Clone Candidates" -n 2
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 1 --tail --count
 dotnet-inspect type -Q "Clone Candidates"
 ```
 
@@ -989,7 +999,11 @@ dotnet-inspect type -Q "Clone Candidates"
 selected exact library as its finite Workspace participant snapshot and
 discloses that scope in tabular diagnostics and structured coverage. It does
 not infer registered-ecosystem membership or silently narrow the requested
-breadth.
+breadth. `-n`, `--tail`, and strict `--rows` windows select complete ranked
+candidate pairs consistently across Markdown, tables, TSV, JSONL, projected
+JSON, complete JSON, and `--count`. Coverage and the work receipt remain
+complete evidence, so structured `receipt.returned_pairs` can exceed the
+selected `rows` length.
 
 Rows are retrieval candidates, not checked clone relations. They retain rank,
 both exact method endpoints, the 0-10,000 total and component scores, and the

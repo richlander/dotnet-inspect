@@ -883,6 +883,76 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 projection.AwaitCompletionPaths));
     }
 
+    [Theory]
+    [InlineData(
+        "ThrownValue",
+        AllocationExceptionPathKind.ThrownValue)]
+    [InlineData(
+        "ExceptionHandler",
+        AllocationExceptionPathKind.ExceptionHandler)]
+    public async Task MemberProjection_ProjectsAllocationExceptionPaths(
+        string member,
+        AllocationExceptionPathKind expectedKind)
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                AllocationExceptionPathRequest(image, member)));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        AssemblyMemberAllocationExceptionPath path =
+            Assert.Single(
+                Assert.IsAssignableFrom<
+                    IReadOnlyList<
+                        AssemblyMemberAllocationExceptionPath>>(
+                    projection.AllocationExceptionPaths));
+        Assert.Equal(expectedKind, path.Kind);
+        AnnotatedSourceFact fact = document.Facts[path.FactId];
+        Assert.Equal("alloc.new", fact.Descriptor);
+        Assert.Equal(AnnotatedSourceFactOrigin.Body, fact.Origin);
+        Assert.Contains(
+            document.Targets,
+            target => target.FactId == path.FactId);
+    }
+
+    [Fact]
+    public async Task MemberProjection_DoesNotCallConditionalBranchAFallback()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                AllocationExceptionPathRequest(
+                    image,
+                    "ConditionalBranch")));
+
+        Assert.Empty(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<AssemblyMemberAllocationExceptionPath>>(
+                projection.AllocationExceptionPaths));
+    }
+
     [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
@@ -1353,6 +1423,22 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 member),
             SourceDocument: true,
             AwaitCompletionPaths: true);
+
+    static AssemblyContextMemberProjectionRequest
+        AllocationExceptionPathRequest(
+            ImmutableArray<byte> image,
+            string member) =>
+        new(
+            "Target.AllocationExceptionPathApi",
+            member,
+            MethodToken: MethodToken(
+                image,
+                "Target",
+                "AllocationExceptionPathApi",
+                member),
+            SourceDocument: true,
+            FactRows: true,
+            AllocationExceptionPaths: true);
 
     static string NodeText(
         AnnotatedSourceDocument document,

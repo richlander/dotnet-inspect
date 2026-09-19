@@ -135,6 +135,10 @@ public static class PackageCommandDefinitions
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsCloneCandidateRowSelection(
+                    result,
+                    opts,
                     commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
@@ -203,6 +207,30 @@ public static class PackageCommandDefinitions
 
         });
 
+        // Register this fallback first: the registry prepends, so the
+        // established package populations below retain short-limit ownership.
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => PackageOptionsParser.IsCloneCandidateRowSelection(
+                result,
+                opts,
+                commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(

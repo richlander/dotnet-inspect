@@ -280,6 +280,11 @@ const result: AnnotatedSourceResult = {
       unavailableReason: "NotProjected",
       observations: [],
     },
+    allocationExceptionPaths: {
+      available: false,
+      unavailableReason: "NotProjected",
+      observations: [],
+    },
   },
   findingEvidenceDocuments: [{
     id: 0,

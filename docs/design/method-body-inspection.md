@@ -253,8 +253,23 @@ decoded once during acquisition rather than independently by safety evidence
 and occurrence scans. Raw IL, generic decoding scope, metadata readers, and
 reader-bound method bodies remain outside the context so a topic producer
 cannot create a second decode or metadata traversal path.
-Allocation path contexts, confidence, and post-dominance remain private
-Layer-1 interpretations rather than becoming neutral context.
+Allocation path contexts, confidence, and post-dominance remain Layer-1
+interpretations rather than becoming neutral context. Analysis may publish
+those interpretations through the typed `AllocationOccurrence` result; a
+consumer must preserve that owner-issued value rather than infer path context
+from rendered detail text or source syntax. The first Annotated Source adoption
+projects only positive exception-related allocation paths:
+
+- `Escape == ThrowPath` means the allocation constructs the value used by a
+  `throw`;
+- otherwise `PathContext == ErrorPath` means the allocation occurs in a
+  `catch`, filter, or fault handler.
+
+The two cases are structural compiled-code evidence. They do not claim that an
+exception occurred, a handler ran, the path is cold or rare, or how often the
+allocation executed. Branch and switch-arm contexts are not called fallback
+paths because Analysis does not identify the branch's semantic role.
+
 `BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
 throw-path object signals; it receives the metadata-dependent box judgment
 through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path
