@@ -156,7 +156,8 @@ internal sealed class ClassicInverseRewriter
             operandOutput,
             getResult.Callee.ReturnType,
             getResult.Callee.ReturnIsDynamic,
-            _shell.Protocol.AwaitMembers(getResult, operand, _budget));
+            _shell.Protocol.AwaitMembers(getResult, operand, _budget),
+            provesClassicCompletionPaths: true);
         _candidate.Claim(
             _awaitClaimSources.TryGetValue(getResult, out IrNode? attributed)
                 ? attributed
