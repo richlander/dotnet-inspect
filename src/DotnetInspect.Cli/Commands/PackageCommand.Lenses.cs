@@ -138,17 +138,38 @@ public partial class PackageCommand
                 .Contains(PackageSections.PackageInfo);
     }
 
-    private static void ApplyPackageInfoMeasurements(
+    private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         long? fallbackPackageSize,
+        string? requestedTargetFramework,
         Action<string>? log)
     {
+        InspectionEnvelope<PackageInfoMeasurements>? inspection = null;
         if (resolution.HouseSettlement
+                is PackageHouseSettlement.Acquired toolSettlement
+            && await PackageToolDeclarationEvidence.TryCreateAsync(
+                toolSettlement.Payload) is { } declaration)
+        {
+            inspection =
+                PackageInfoMeasurementInspection.ProjectDeclaredTool(
+                    toolSettlement,
+                    declaration,
+                    requestedTargetFramework?.Equals(
+                        "all",
+                        StringComparison.OrdinalIgnoreCase) == true
+                            ? null
+                            : requestedTargetFramework);
+        }
+        else if (resolution.HouseSettlement
             is PackageHouseSettlement.Acquired settlement)
         {
-            InspectionEnvelope<PackageInfoMeasurements> inspection =
+            inspection =
                 PackageInfoMeasurementInspection.Project(settlement);
+        }
+
+        if (inspection is not null)
+        {
             result.PackageInfoMeasurementInspection = inspection;
             result.PackageSize =
                 inspection.Content.CompressedPackageBytes;
@@ -199,18 +220,54 @@ public partial class PackageCommand
         string[] files = Directory.GetFiles(searchPath, "*", SearchOption.AllDirectories);
 
         var relativePaths = files
-            .Select(f => Path.GetRelativePath(relativeBase, f))
+            .Select(
+                f => Path.GetRelativePath(relativeBase, f)
+                    .Replace('\\', '/'))
             .Where(p => !PackageFileLister.IsPlumbing(
-                p.Replace('\\', '/')))
+                p))
             .OrderBy(p => p);
 
-        var results = options.Limit.HasValue
-            ? relativePaths.Take(options.Limit.Value).ToList()
-            : relativePaths.ToList();
-        var visibleResults = RowWindow.Apply(options.Rows, results);
+        var results = relativePaths.ToList();
+        if (!SemanticRowSelection.TrySelectOrApplyLegacy(
+                options.PackageLayoutRowSelection,
+                options.Rows,
+                results,
+                "Package layout files",
+                failure =>
+                    $"Package layout file row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} layout file rows are available.",
+                out IReadOnlyList<string> visibleResults))
+        {
+            return 1;
+        }
 
         if (LensProjection.TryProject(options, "--layout", visibleResults.Count, out var projectionExitCode))
             return projectionExitCode;
+
+        if (options.JsonOutput)
+        {
+            Console.Out.WriteLine(
+                JsonSerializer.Serialize(
+                    visibleResults
+                        .Select(path => new PackageLayoutFileJson(path))
+                        .ToList(),
+                    JsonContext.Default.ListPackageLayoutFileJson));
+            return 0;
+        }
+
+        if (options.Jsonl)
+        {
+            OutputFormatter.WriteStringList(
+                visibleResults,
+                "Path",
+                "path",
+                tsv: false,
+                jsonl: true,
+                output: Console.Out);
+            return 0;
+        }
 
         PackageOutputFormatter.WriteFileTree([.. visibleResults]);
         WriteFileLayoutTips(extractPath, options, packageName, tipLevel, isLayout: true);

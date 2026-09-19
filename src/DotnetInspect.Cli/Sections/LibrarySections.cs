@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -114,6 +115,7 @@ public static class LibrarySections
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
+            .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
                 UnsafeEvidenceQuery.Definition,
@@ -201,6 +203,10 @@ public static class LibrarySections
                 SectionCategoryNames.Integrations,
                 IntegrationSectionNames.Integrations,
                 IntegrationSectionNames.Opportunities)
+            .AddCategory(
+                SectionCategoryNames.Dependencies,
+                SectionNames.References,
+                SectionNames.ReferenceHierarchy)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
                 SectionNames.MemberContext,
@@ -807,8 +813,10 @@ public static class LibrarySections
         => model.AssemblyInfo != null;
 
     private static bool HasReferenceData(LibraryInspection model)
-        => model.AssemblyInfo?.References is { Count: > 0 }
-           || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+        => model.AssemblyReferenceInspection?.Value
+               is FindingInspection<AssemblyReference>.Complete
+           || (model.AssemblyReferenceInspection is null
+               && model.AssemblyInfo?.References is not null);
 
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
@@ -857,8 +865,19 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(LibraryInspection model)
-            => model.AssemblyReferenceInspection.HasFindings()
-               || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+            => HasReferenceData(model);
+    }
+
+    public sealed class ReferenceHierarchy :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.ReferenceHierarchy;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(LibraryInspection model)
+            => model.ReferenceHierarchyProjection is not null;
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>

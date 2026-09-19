@@ -64,6 +64,7 @@ export interface AnnotationTargetIdentity {
 
 export type FindingDetailOpener =
   | { kind: "inspector"; factId: number }
+  | { kind: "relationship"; factId: number }
   | ({ kind: "annotation" } & AnnotationTargetIdentity);
 
 interface FindingDetailState {
@@ -139,6 +140,7 @@ export type AnnotatedFocusTarget =
   | { kind: "medium-toggle"; medium: SourceMedium }
   | { kind: "coordinate-toggle" }
   | { kind: "inspector"; factId: number }
+  | { kind: "relationship"; factId: number }
   | ({ kind: "annotation" } & AnnotationTargetIdentity)
   | { kind: "node"; nodeId: number };
 
@@ -544,12 +546,17 @@ export function closeFindingDetail(
     };
   }
   const opener = detail.opener;
-  const focus = opener.kind === "annotation"
-    && renderedFindingTargets(model, session).some(
-      target => sameTarget(target, opener),
-    )
-    ? opener
-    : { kind: "inspector" as const, factId: detail.factId };
+  const focus =
+    opener.kind === "annotation"
+      && renderedFindingTargets(model, session).some(
+        target => sameTarget(target, opener),
+      )
+      ? opener
+      : opener.kind === "relationship"
+        && model.callRelationships.some(
+          relationship => relationship.factId === opener.factId)
+        ? opener
+        : { kind: "inspector" as const, factId: detail.factId };
   return {
     state: {
       ...session,

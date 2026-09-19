@@ -737,7 +737,10 @@ internal static class DependencyGraphService
         }
 
         NuspecData nuspec = NuspecParser.ParseContent(nuspecXml);
-        if (nuspec.IsToolPackage)
+        if (nuspec.PackageTypes?.Any(static packageType =>
+                packageType.Equals(
+                    "DotnetTool",
+                    StringComparison.OrdinalIgnoreCase)) == true)
         {
             return await ResolvePackageNuspecFromArchiveAsync(
                 httpClient,

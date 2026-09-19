@@ -10,8 +10,9 @@
 `SignatureOccurrenceDecoder.Decode(PEReader, EntityHandle)` implements the
 single-signature operation for MethodDef, FieldDef, and PropertyDef handles.
 Its closed result contains either named occurrences or a typed rejection.
-The decoder-owned source closure is enforced by the structural gates named
-under [Enforcement obligation](#enforcement-obligation), with explicit imported
+The decoder-owned work bound is enforced at the artifact and result boundary
+by the pathological and valid-neighbor gates named under
+[Enforcement obligation](#enforcement-obligation), with explicit imported
 framework and mechanical-guard boundaries.
 
 ## Contract
@@ -644,54 +645,38 @@ nothing about the bound.
 
 ### Enforcement obligation
 
-This contract is enforced structurally, not by review. A conforming gate must
-satisfy all of the following.
+This contract is enforced at the artifact and result boundary.
 
-1. **Deny by default.** Any call that can materialize metadata fails the gate
-   unless its site is classified by this contract. A gate that enumerates
-   forbidden member names is not conforming, because every unnamed member --
-   and every member added later -- is permitted by omission.
-2. **No exempt regions.** A method that charges is not thereby trusted for its
-   other reads. Sanctioned methods are checked like any other.
-3. **Ordering is verified, not assumed.** For Class B sites the gate must
-   establish that the charge dominates the materialization on every
-   control-flow path. Asserting that a charge appears somewhere in the method
-   does not discharge this obligation.
-4. **Classification is explicit.** Each materializing site names its class. An
-   unclassified site fails.
+1. Every author-sized storage category consumed by the decoder has a fresh
+   over-budget fixture that must return the typed `WorkBudget` rejection before
+   allocating storage proportional to the authored value.
+2. Neighboring valid fixtures must decode successfully and report byte-based
+   pricing for assembly names, cultures, full keys or tokens, and module names.
+3. Node, occurrence-copy, aggregate-work, signature-structure, TypeSpec, name,
+   and relationship budgets have direct boundary or pathological fixtures with
+   visible typed rejection.
+4. A new or changed charged quantity extends the cost model and the affected
+   pathological and valid-neighbor outcomes together.
 
-A gate that does not meet these obligations is named and documented for the
-property it actually checks.
+`SignatureOccurrenceDecoderTests.ClassB_RefusesBeforeCopyingAuthorSizedStorage`
+exercises all four raw author-sized storage paths with a low work ceiling and
+asserts that refusal remains below an allocation threshold smaller than the
+authored value. `KeyFlag_NotLength_SelectsTheCostClass` and
+`AssemblyAndModuleStoragePricing_UsesBytesNotDecodedCharacters` cover the
+neighboring accepted paths and exact byte-pricing distinction.
+`NodeAndCopyBudgets_HaveExactInclusiveBoundaries`,
+`WorkBudget_HasExactInclusiveBoundary`, and the signature, TypeSpec, name, and
+relationship cases in `SignatureOccurrenceDecoderTests` cover the bounded
+aggregate mechanisms. `SignatureBlobGuardTests`,
+`MetadataTypeNameBudgetTests`, and `SignatureDecoderSafetyTests` exercise the
+imported guards through their owned result shapes and product paths.
 
-`SignatureOccurrenceMaterializationTests` supplies two cooperating Release gates:
-
-- `DecoderEffectInventory_IsClosedAndIncludesTransitiveSourceBodies` follows
-  the decoder/provider roots through source-defined helpers, constructors,
-  accessors, initializers, delegates, and collection/array construction.
-  `SignatureOccurrenceMaterializationInventory` classifies each materializing
-  site and its multiplicity. Unknown effects fail by default; charge-helper
-  bodies are not exempt.
-- `ClassBRawReads_AreDominatedByExactStorageChargesThroughHelpers` follows
-  reader, handle, and raw-storage-price provenance through the actual helper
-  chain to `GetString` and `GetBlobBytes`. The matching charge must dominate
-  each read on every admitted path, cannot be reused by another materialization,
-  and must select token versus full-key accounting from the same row's flag.
-  Unproved helper entries and projection flows fail rather than being trusted.
-
-The gate is deliberately specific to this decoder, not a general C# analyzer.
-Its explicit imports are SRM/framework effects, the independently owned
-MetadataPrimitives admission/name/traversal contracts, and compiler lowering.
-It does not re-prove those implementations. `SignatureOccurrenceDecoderTests`,
-`SignatureBlobGuardTests`, `MetadataTypeNameBudgetTests`, and
-`SignatureDecoderSafetyTests` exercise the consumed bounds and named decoder
-outcomes. They do not claim exhaustive closure over future call sites. The
-source audit cannot convert an incorrect imported contract into a sound one.
-
-This inventory is derived from reachable source effects, not from charge sites
-that happened to execute in the corpus. The V2 census complements it with
-observed quantities and explicit refusals; a zero or unvisited metric alone
-still does not establish completeness. A newly introduced quantity must extend
-the cost model, source classification, and applicable gates together.
+No repository-source census or exhaustive future-call-site closure is part of
+the behavioral claim. Local helper selection and statement ordering remain
+implementation and review concerns. A new materializing path is unsupported
+until its own pathological refusal and valid-neighbor behavior are proved.
+The V2 census remains complementary observational evidence; a zero or
+unvisited metric does not establish completeness.
 
 ### Failure is visible and attributed
 
