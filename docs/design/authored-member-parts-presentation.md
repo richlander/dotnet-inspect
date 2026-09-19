@@ -42,6 +42,9 @@ adds lexical `parts`; `--print --part` selects one available part. Bare
 generic result-row/section bookkeeping; other print payloads are unchanged.
 Display ranges use one-based inclusive lines, while selection uses native
 UTF-16 spans. Discontiguous parts preserve their individual fragment ranges.
+Authored parts require Source Locations as the sole resolved section. An
+incompatible section selection is rejected, never substituted with another
+command's result.
 
 The CLI uses Markout for human-readable part catalogs and typed JSON for the
 focused nested document. This is a deliberate JSON lowering rather than

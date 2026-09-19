@@ -39,6 +39,11 @@ internal static class MemberSourcePartsOutput
         return null;
     }
 
+    internal static string? ValidateSections(MemberOptions options) =>
+        IsSourceLocationsOnly(options)
+            ? null
+            : "Authored member parts require Source Locations as the only selected section.";
+
     internal static bool Handles(MemberOptions options) =>
         options.SourceParts || options.SourcePart is not null
         || (IsSourceLocationsOnly(options) && options.JsonOutput && !options.Print
@@ -54,9 +59,9 @@ internal static class MemberSourcePartsOutput
         HttpClient symbolClient,
         TextWriter output)
     {
-        if (!IsSourceLocationsOnly(options))
+        if (ValidateSections(options) is { } sectionError)
         {
-            CommandError.Write("Authored member parts require Source Locations as the only selected section.");
+            CommandError.Write(sectionError);
             return 1;
         }
 

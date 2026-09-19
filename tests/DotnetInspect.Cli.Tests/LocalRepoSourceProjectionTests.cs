@@ -327,6 +327,31 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
         Assert.NotEmpty(result.Error);
     }
 
+    // PR-fast: incompatible sections are rejected before clone or source acquisition.
+    [Theory]
+    [InlineData("Clone Candidates", false)]
+    [InlineData("Clone Candidates", true)]
+    [InlineData("Clone*", false)]
+    [InlineData("clone candidates", true)]
+    [InlineData("Facts", false)]
+    [InlineData("Facts", true)]
+    public async Task MemberParts_RejectsIncompatibleResolvedSections(string section, bool print)
+    {
+        var result = await RunCliAsync(
+        [
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "-S", section, "--json", "--tips", "q",
+            .. print ? new[] { "--print", "--part", "signature" } : new[] { "--source-parts" },
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Authored member parts require Source Locations as the only selected section.",
+            result.Error);
+    }
+
     [Fact]
     public async Task MemberParts_RenderedUrlPreferenceDoesNotChangeTheSelectedText()
     {

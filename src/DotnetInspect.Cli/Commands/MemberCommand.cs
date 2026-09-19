@@ -671,6 +671,13 @@ public static class MemberCommand
                 apiType.Members = arityCandidates;
             }
 
+            if ((effectiveOptions.SourceParts || effectiveOptions.SourcePart is not null)
+                && MemberSourcePartsOutput.ValidateSections(effectiveOptions) is { } sectionError)
+            {
+                CommandError.Write(sectionError);
+                return 1;
+            }
+
             if (!CloneCandidatesCommand.ValidatePredicateSelection(
                     effectiveOptions.CloneCandidateQuery,
                     effectiveOptions.IncludeSections))
