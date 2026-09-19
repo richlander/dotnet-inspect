@@ -5,9 +5,11 @@ namespace DotnetInspect.Cli;
 /// <summary>
 /// Provides version information for the CLI tool.
 /// </summary>
-public static partial class VersionInfo
+public static class VersionInfo
 {
     public const string ToolName = "dotnet-inspect";
+    private const string NativeAotRuntimeFlavorSwitch =
+        "DotnetInspect.RuntimeFlavor.NativeAOT";
 
     private static string? _version;
 
@@ -19,7 +21,13 @@ public static partial class VersionInfo
     /// <summary>
     /// Gets the runtime flavor: "NativeAOT" or "CoreCLR".
     /// </summary>
-    public static string Flavor => PublishedRuntimeFlavor;
+    public static string Flavor =>
+        AppContext.TryGetSwitch(
+            NativeAotRuntimeFlavorSwitch,
+            out bool nativeAot)
+        && nativeAot
+            ? "NativeAOT"
+            : "CoreCLR";
 
     /// <summary>
     /// Gets the runtime flavor and .NET version (e.g., "CoreCLR; .NET 10.0").

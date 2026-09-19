@@ -24,15 +24,18 @@
   </PropertyGroup>
 
   <!-- Runtime flavor is a property of the published executable, not of dynamic
-       code availability. Define it for a NativeAOT publish compilation and for
-       the matching RID-specific self-contained build consumed by a publish
-       that skips compilation; ordinary builds remain CoreCLR. -->
-  <Target Name="DefineDotnetInspectNativeAotCompilation"
-          BeforeTargets="CoreCompile"
-          Condition="'$(PublishAot)' == 'true' and ('$(_IsPublishing)' == 'true' or ('$(RuntimeIdentifier)' != '' and '$(SelfContained)' == 'true'))">
-    <PropertyGroup>
-      <DefineConstants>$(DefineConstants);DOTNET_INSPECT_NATIVEAOT</DefineConstants>
-    </PropertyGroup>
+       code availability or its managed build input. NativeAOT consumes runtime
+       host options during IL compilation, including when publish skips the
+       managed build. Ordinary and RID-specific managed builds remain CoreCLR. -->
+  <Target Name="DefineDotnetInspectNativeAotRuntimeFlavor"
+          BeforeTargets="_PrepareTrimConfiguration;WriteIlcRspFileForCompilation"
+          Condition="'$(DotnetInspectRuntimeFlavor)' == 'true' and '$(PublishAot)' == 'true'">
+    <ItemGroup>
+      <RuntimeHostConfigurationOption
+          Include="DotnetInspect.RuntimeFlavor.NativeAOT"
+          Value="true"
+          Trim="true" />
+    </ItemGroup>
   </Target>
 
   <!-- Updated memory-safety rules are a compiler feature and a decompiler

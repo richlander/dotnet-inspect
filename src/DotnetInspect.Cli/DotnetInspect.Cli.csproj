@@ -10,6 +10,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DotnetInspectRuntimeFlavor>true</DotnetInspectRuntimeFlavor>
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 

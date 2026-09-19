@@ -6,10 +6,9 @@
     <Nullable>enable</Nullable>
     <IsPublishable>true</IsPublishable>
     <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
+    <DotnetInspectRuntimeFlavor>true</DotnetInspectRuntimeFlavor>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/DotnetInspect.Cli/VersionInfo.cs" Link="VersionInfo.cs" />
-    <Compile Include="../../src/DotnetInspect.Cli/VersionInfo.RuntimeFlavor.cs"
-             Link="VersionInfo.RuntimeFlavor.cs" />
   </ItemGroup>
 </Project>
