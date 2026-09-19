@@ -78,15 +78,15 @@ public sealed record MemberCallGraphView(
 
     /// <summary>
     /// Every physical call site in the selected member's own IL body, retained
-    /// from the same index that produced the graph roots. Calls attributed from
-    /// generated evidence bodies remain graph receipts, but cannot be anchored
-    /// to the selected body's source document.
+    /// from the same Analysis result that produced the graph roots. Calls
+    /// attributed from generated evidence bodies remain graph receipts, but
+    /// cannot be anchored to the selected body's source document.
     /// </summary>
     public ImmutableArray<Analysis.DirectCall> FocusCallSites { get; init; } =
         [];
 
     /// <summary>
-    /// Compact ownership evidence retained from the same body indexes that
+    /// Compact ownership evidence retained from the same focused results that
     /// produced this graph layer.
     /// </summary>
     public ImmutableArray<Analysis.ArrayPoolOwnershipMethodEvidence>
@@ -153,11 +153,12 @@ public sealed record MemberCallGraphCalleeNeighborhoodRequest
 /// progressively richer member call graphs.
 /// </summary>
 /// <remarks>
-/// The first tier builds at most one body-scoped target index. A later tier
-/// builds at most one full target index and one full index per distinct
-/// cross-library image. Calling a lower tier after a full tier reuses the full
-/// index. One catalog generation and one physical graph serve both traversal
-/// directions. Projection never performs acquisition or another graph walk.
+/// The first tier executes at most one body-scoped target analysis. A later
+/// tier executes at most one full target analysis and one full analysis per
+/// distinct cross-library image. Calling a lower tier after a full tier reuses
+/// the full result. One catalog generation and one physical graph serve both
+/// traversal directions. Projection never performs acquisition or another
+/// graph walk.
 ///
 /// The owning <see cref="AssemblyContextGroup"/> disposes this session's graph
 /// and catalog before releasing retained image snapshots. The type is intended
@@ -174,20 +175,20 @@ public sealed class MemberCallGraphSession : IDisposable
     readonly AssemblyContextParticipant _root;
     readonly int _memberToken;
     readonly MemberCallGraphOptions _options;
-    readonly Dictionary<AssemblyAcquisitionRegistration, IndexBuildResult>
-        _crossIndexes = new(ReferenceEqualityComparer.Instance);
-    readonly Dictionary<AssemblyImageIdentity, IndexBuildResult.Available>
-        _fullIndexesByImage = [];
-    IndexBuildResult? _scopedRoot;
-    IndexBuildResult? _fullRoot;
+    readonly Dictionary<AssemblyAcquisitionRegistration, AnalysisBuildResult>
+        _crossAnalyses = new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<AssemblyImageIdentity, AnalysisBuildResult.Available>
+        _fullAnalysesByImage = [];
+    AnalysisBuildResult? _scopedRoot;
+    AnalysisBuildResult? _fullRoot;
     Analysis.CatalogCallGraphScope? _catalogScope;
     ImmutableArray<MemberCallGraphAcquisitionFailure>
         _crossLibraryFailures;
     bool _crossLibraryBuilt;
     bool _disposed;
-    int _scopedTargetIndexBuilds;
-    int _fullTargetIndexBuilds;
-    int _crossLibraryIndexBuilds;
+    int _scopedTargetAnalysisBuilds;
+    int _fullTargetAnalysisBuilds;
+    int _crossLibraryAnalysisBuilds;
 
     public MemberCallGraphSession(
         AssemblyContextGroup group,
@@ -216,13 +217,13 @@ public sealed class MemberCallGraphSession : IDisposable
     public bool HasCrossLibraryScope => _group.Participants.Length > 1;
 
     /// <summary>
-    /// Builds only the selected body unless a full target index already exists.
+    /// Builds only the selected body unless full target analysis already exists.
     /// </summary>
     public MemberCallGraphView Callees() =>
         Execute(CalleesCore);
 
     /// <summary>
-    /// Builds the full target index once and reuses it for both directions.
+    /// Builds full target analysis once and reuses it for both directions.
     /// </summary>
     public MemberCallGraphView Callers() =>
         Execute(CallersCore);
@@ -284,24 +285,24 @@ public sealed class MemberCallGraphSession : IDisposable
     {
         if (_fullRoot is not null)
         {
-            IndexBuildResult.Available full = Require(_fullRoot);
+            AnalysisBuildResult.Available full = Require(_fullRoot);
             return View(
                 CallGraphTier.Callees,
                 full,
-                full.Index.BuildCallTree(
+                full.CallGraph.BuildCallTree(
                     _memberToken,
                     _options.Depth,
                     _options.MaxNodes),
                 callerRoot: null);
         }
 
-        IndexBuildResult.Available scoped = Require(
-            _scopedRoot ??= BuildIndex(
+        AnalysisBuildResult.Available scoped = Require(
+            _scopedRoot ??= BuildAnalysis(
                 _root,
                 bodyScope: new HashSet<int> { _memberToken },
                 retainAssembly: false,
-                IndexBuildKind.ScopedTarget));
-        Analysis.CallTreeNode root = scoped.Index.BuildCallTree(
+                AnalysisBuildKind.ScopedTarget));
+        Analysis.CallTreeNode root = scoped.CallGraph.BuildCallTree(
             _memberToken,
             maxDepth: 1,
             maxNodes: _options.MaxNodes);
@@ -332,15 +333,15 @@ public sealed class MemberCallGraphSession : IDisposable
 
     MemberCallGraphView CallersCore()
     {
-        IndexBuildResult.Available root = Require(GetFullRoot());
+        AnalysisBuildResult.Available root = Require(GetFullRoot());
         return View(
             CallGraphTier.Callers,
             root,
-            root.Index.BuildCallTree(
+            root.CallGraph.BuildCallTree(
                 _memberToken,
                 _options.Depth,
                 _options.MaxNodes),
-            root.Index.BuildCallerTree(
+            root.CallGraph.BuildCallerTree(
                 _memberToken,
                 _options.Depth,
                 _options.MaxNodes));
@@ -348,18 +349,18 @@ public sealed class MemberCallGraphSession : IDisposable
 
     MemberCallGraphView CrossLibraryCore()
     {
-        IndexBuildResult.Available root = Require(GetFullRoot());
+        AnalysisBuildResult.Available root = Require(GetFullRoot());
         EnsureCrossLibraryScope();
         ThrowIfCrossLibraryFailed();
         return View(
             CallGraphTier.CrossLibrary,
             root,
-            root.Index.BuildCallTree(
+            root.CallGraph.BuildCallTree(
                 _memberToken,
                 _catalogScope!,
                 _options.Depth,
                 _options.MaxNodes),
-            root.Index.BuildCallerTree(
+            root.CallGraph.BuildCallerTree(
                 _memberToken,
                 _catalogScope!,
                 _options.Depth,
@@ -370,11 +371,11 @@ public sealed class MemberCallGraphSession : IDisposable
     InspectionGraphDocument CrossLibraryCalleeNeighborhoodCore(
         MemberCallGraphCalleeNeighborhoodRequest request)
     {
-        IndexBuildResult.Available root = Require(GetFullRoot());
+        AnalysisBuildResult.Available root = Require(GetFullRoot());
         EnsureCrossLibraryScope();
         ThrowIfCrossLibraryFailed();
         Analysis.CallTreeNode calleeRoot =
-            root.Index.BuildCallTree(
+            root.CallGraph.BuildCallTree(
                 _memberToken,
                 _catalogScope!,
                 request.MaxDepth,
@@ -404,7 +405,7 @@ public sealed class MemberCallGraphSession : IDisposable
 
             if (image == rootImage)
                 hubNodeIds.Add(node.Id);
-            else if (_fullIndexesByImage.ContainsKey(image))
+            else if (_fullAnalysesByImage.ContainsKey(image))
                 externalNodeIds.Add(node.Id);
         }
 
@@ -461,15 +462,16 @@ public sealed class MemberCallGraphSession : IDisposable
 
     MemberCallGraphView View(
         CallGraphTier tier,
-        IndexBuildResult.Available source,
+        AnalysisBuildResult.Available source,
         Analysis.CallTreeNode? calleeRoot,
         Analysis.CallTreeNode? callerRoot,
         Analysis.CatalogCallGraphDiagnostics? diagnostics = null)
     {
-        Analysis.LibraryBodyIndex index = source.Index;
-        IEnumerable<IndexBuildResult.Available> evidenceSources =
+        Analysis.LibraryCallGraphAnalysisResult callGraph =
+            source.CallGraph;
+        IEnumerable<AnalysisBuildResult.Available> evidenceSources =
             tier == CallGraphTier.CrossLibrary
-                ? _fullIndexesByImage.Values
+                ? _fullAnalysesByImage.Values
                 : [source];
         return new(tier, calleeRoot, callerRoot)
         {
@@ -478,7 +480,7 @@ public sealed class MemberCallGraphSession : IDisposable
             FocusMethodToken = _memberToken,
             FocusCallSites =
             [
-                .. index.DirectCalls
+                .. callGraph.DirectCalls
                     .Where(call =>
                         call.EvidenceMethod.MetadataToken
                             == _memberToken)
@@ -489,7 +491,7 @@ public sealed class MemberCallGraphSession : IDisposable
             [
                 .. evidenceSources
                     .SelectMany(item =>
-                        item.Index.ArrayPoolOwnership),
+                        item.CallGraph.OwnershipEvidence),
             ],
             OwnershipFlowAvailable =
                 (_options.Features
@@ -519,21 +521,21 @@ public sealed class MemberCallGraphSession : IDisposable
                 continue;
             }
 
-            if (!_crossIndexes.TryGetValue(
+            if (!_crossAnalyses.TryGetValue(
                     participant.Assembly.Registration,
-                    out IndexBuildResult? result))
+                    out AnalysisBuildResult? result))
             {
-                result = BuildIndex(
+                result = BuildAnalysis(
                     participant,
                     bodyScope: null,
                     retainAssembly: true,
-                    IndexBuildKind.CrossLibrary);
-                _crossIndexes.Add(
+                    AnalysisBuildKind.CrossLibrary);
+                _crossAnalyses.Add(
                     participant.Assembly.Registration,
                     result);
             }
 
-            if (result is IndexBuildResult.Unavailable unavailable)
+            if (result is AnalysisBuildResult.Unavailable unavailable)
                 failures.Add(unavailable.Failure);
         }
 
@@ -542,8 +544,8 @@ public sealed class MemberCallGraphSession : IDisposable
         if (!_crossLibraryFailures.IsEmpty)
             return;
 
-        IndexBuildResult.Available[] available =
-            _fullIndexesByImage.Values.ToArray();
+        AnalysisBuildResult.Available[] available =
+            _fullAnalysesByImage.Values.ToArray();
         var policy = new SourceRelativeAssemblyGroupBindingPolicy(
             available.Select(item => (
                 item.Assembly,
@@ -552,21 +554,21 @@ public sealed class MemberCallGraphSession : IDisposable
             policy,
             available.Select(
                 item => new Analysis.CatalogCallGraphParticipant(
-                    item.Index,
+                    item.CallGraph,
                     item.Assembly)));
     }
 
-    IndexBuildResult GetFullRoot()
+    AnalysisBuildResult GetFullRoot()
     {
         if (_fullRoot is not null)
             return _fullRoot;
 
-        _fullRoot = BuildIndex(
+        _fullRoot = BuildAnalysis(
             _root,
             bodyScope: null,
             retainAssembly: true,
-            IndexBuildKind.FullTarget);
-        if (_fullRoot is IndexBuildResult.Available)
+            AnalysisBuildKind.FullTarget);
+        if (_fullRoot is AnalysisBuildResult.Available)
             _scopedRoot = null;
         return _fullRoot;
     }
@@ -576,14 +578,14 @@ public sealed class MemberCallGraphSession : IDisposable
             or ArgumentOutOfRangeException
             or OverflowException;
 
-    IndexBuildResult BuildIndex(
+    AnalysisBuildResult BuildAnalysis(
         AssemblyContextParticipant participant,
         IReadOnlySet<int>? bodyScope,
         bool retainAssembly,
-        IndexBuildKind buildKind)
+        AnalysisBuildKind buildKind)
     {
-        AssemblyImageAccessResult<IndexBuildResult> access =
-            _group.UseSnapshot<IndexBuildResult>(
+        AssemblyImageAccessResult<AnalysisBuildResult> access =
+            _group.UseSnapshot<AnalysisBuildResult>(
                 participant.Assembly,
                 snapshot =>
                 {
@@ -591,9 +593,9 @@ public sealed class MemberCallGraphSession : IDisposable
                         snapshot.Identity,
                         snapshot.ModuleVersionId);
                     if (bodyScope is null
-                        && _fullIndexesByImage.TryGetValue(
+                        && _fullAnalysesByImage.TryGetValue(
                             imageIdentity,
-                            out IndexBuildResult.Available? existing))
+                            out AnalysisBuildResult.Available? existing))
                     {
                         return existing;
                     }
@@ -601,28 +603,28 @@ public sealed class MemberCallGraphSession : IDisposable
                     IncrementBuildCount(buildKind);
                     try
                     {
-                        Analysis.LibraryBodyIndex index =
-                            Analysis.LibraryBodyIndex
-                                .OpenFromPrefetchedImage(
-                                    ParticipantName(participant),
-                                    snapshot.Content,
+                        Analysis.LibraryBodyAnalysisExecution execution =
+                            Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                                ParticipantName(participant),
+                                snapshot.Content,
+                                Analysis.LibraryBodyAnalysisRequest.Create(
                                     _options.Features,
-                                    resolver: null,
-                                    bodyScope);
+                                    bodyScope),
+                                resolver: null);
                         ResolvedAssemblyReference assembly =
                             retainAssembly
                                 ? snapshot.RetainAssemblyReference(
                                     participant.Assembly)
                                 : participant.Assembly;
                         var available =
-                            new IndexBuildResult.Available(
+                            new AnalysisBuildResult.Available(
                                 participant,
                                 assembly,
                                 imageIdentity,
-                                index);
+                                execution.CallGraph);
                         if (bodyScope is null)
                         {
-                            _fullIndexesByImage.Add(
+                            _fullAnalysesByImage.Add(
                                 imageIdentity,
                                 available);
                         }
@@ -631,7 +633,7 @@ public sealed class MemberCallGraphSession : IDisposable
                     catch (Exception ex)
                         when (IsInvalidImageException(ex))
                     {
-                        return new IndexBuildResult.Unavailable(
+                        return new AnalysisBuildResult.Unavailable(
                             new MemberCallGraphAcquisitionFailure
                                 .InvalidImage(
                                     participant.Assembly,
@@ -641,10 +643,10 @@ public sealed class MemberCallGraphSession : IDisposable
 
         return access switch
         {
-            AssemblyImageAccessResult<IndexBuildResult>.Available
+            AssemblyImageAccessResult<AnalysisBuildResult>.Available
                 available => available.Value,
-            AssemblyImageAccessResult<IndexBuildResult>.Rejected
-                rejected => new IndexBuildResult.Unavailable(
+            AssemblyImageAccessResult<AnalysisBuildResult>.Rejected
+                rejected => new AnalysisBuildResult.Unavailable(
                     new MemberCallGraphAcquisitionFailure.Rejected(
                         rejected.Assembly,
                         rejected.Failure)),
@@ -658,16 +660,16 @@ public sealed class MemberCallGraphSession : IDisposable
         participant.Assembly.Path
         ?? participant.Assembly.Identity.Name;
 
-    static IndexBuildResult.Available Require(
-        IndexBuildResult result) =>
+    static AnalysisBuildResult.Available Require(
+        AnalysisBuildResult result) =>
         result switch
         {
-            IndexBuildResult.Available available => available,
-            IndexBuildResult.Unavailable unavailable =>
+            AnalysisBuildResult.Available available => available,
+            AnalysisBuildResult.Unavailable unavailable =>
                 throw new MemberCallGraphAcquisitionException(
                     [unavailable.Failure]),
             _ => throw new InvalidOperationException(
-                "Unknown call-graph index result."),
+                "Unknown call-graph Analysis result."),
         };
 
     void ThrowIfCrossLibraryFailed()
@@ -691,18 +693,18 @@ public sealed class MemberCallGraphSession : IDisposable
             });
     }
 
-    void IncrementBuildCount(IndexBuildKind kind)
+    void IncrementBuildCount(AnalysisBuildKind kind)
     {
         switch (kind)
         {
-            case IndexBuildKind.ScopedTarget:
-                _scopedTargetIndexBuilds++;
+            case AnalysisBuildKind.ScopedTarget:
+                _scopedTargetAnalysisBuilds++;
                 break;
-            case IndexBuildKind.FullTarget:
-                _fullTargetIndexBuilds++;
+            case AnalysisBuildKind.FullTarget:
+                _fullTargetAnalysisBuilds++;
                 break;
-            case IndexBuildKind.CrossLibrary:
-                _crossLibraryIndexBuilds++;
+            case AnalysisBuildKind.CrossLibrary:
+                _crossLibraryAnalysisBuilds++;
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind));
@@ -711,9 +713,9 @@ public sealed class MemberCallGraphSession : IDisposable
 
     internal MemberCallGraphBuildCounts BuildCounts =>
         new(
-            _scopedTargetIndexBuilds,
-            _fullTargetIndexBuilds,
-            _crossLibraryIndexBuilds);
+            _scopedTargetAnalysisBuilds,
+            _fullTargetAnalysisBuilds,
+            _crossLibraryAnalysisBuilds);
 
     internal Analysis.CatalogCallGraphScope? CatalogScope =>
         _catalogScope;
@@ -726,25 +728,25 @@ public sealed class MemberCallGraphSession : IDisposable
         _disposed = true;
         _catalogScope?.Dispose();
         _catalogScope = null;
-        _crossIndexes.Clear();
-        _fullIndexesByImage.Clear();
+        _crossAnalyses.Clear();
+        _fullAnalysesByImage.Clear();
         _scopedRoot = null;
         _fullRoot = null;
         _group.UnregisterOwnedResource(this);
     }
 
-    abstract record IndexBuildResult
+    abstract record AnalysisBuildResult
     {
         internal sealed record Available(
             AssemblyContextParticipant Participant,
             ResolvedAssemblyReference Assembly,
             AssemblyImageIdentity ImageIdentity,
-            Analysis.LibraryBodyIndex Index)
-            : IndexBuildResult;
+            Analysis.LibraryCallGraphAnalysisResult CallGraph)
+            : AnalysisBuildResult;
 
         internal sealed record Unavailable(
             MemberCallGraphAcquisitionFailure Failure)
-            : IndexBuildResult;
+            : AnalysisBuildResult;
     }
 
     readonly record struct AssemblyImageIdentity(
@@ -764,7 +766,7 @@ public sealed class MemberCallGraphSession : IDisposable
                 ModuleVersionId);
     }
 
-    enum IndexBuildKind
+    enum AnalysisBuildKind
     {
         ScopedTarget,
         FullTarget,
@@ -773,6 +775,6 @@ public sealed class MemberCallGraphSession : IDisposable
 }
 
 internal readonly record struct MemberCallGraphBuildCounts(
-    int ScopedTargetIndexes,
-    int FullTargetIndexes,
-    int CrossLibraryIndexes);
+    int ScopedTargetAnalyses,
+    int FullTargetAnalyses,
+    int CrossLibraryAnalyses);

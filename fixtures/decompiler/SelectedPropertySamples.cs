@@ -121,3 +121,58 @@ public interface IStaticPropertySamples
         set => _capacity = value;
     }
 }
+
+public class SelectedAutoPropertySamples
+{
+    public int Count { get; } = 7;
+    public static int SharedCount { get; } = 11;
+    public virtual int Limit { get; } = 13;
+    public int @event { get; } = 17;
+    public string? Label
+    {
+        [System.Diagnostics.DebuggerStepThrough]
+        [return: MaybeNull]
+        get;
+    }
+
+    public int MutableCount { get; set; }
+    public int InitialCount { get; init; }
+
+    public int ComputedCount
+    {
+        [CompilerGenerated]
+        get => field + 1;
+    }
+
+    [field: System.ComponentModel.Description("retained field contract")]
+    public int DescribedCount { get; }
+
+    [field: System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.RootHidden)]
+    public int DebugCount { get; }
+}
+
+public class DerivedAutoPropertySamples : SelectedAutoPropertySamples
+{
+    public override int Limit { get; } = 19;
+}
+
+public class GenericAutoPropertySamples<T>
+{
+    public T? Item { get; }
+    public static int SharedCount { get; } = 23;
+}
+
+public struct StructAutoPropertySamples
+{
+    public int Count { get; }
+}
+
+public interface IAutoPropertySample
+{
+    int Count { get; }
+}
+
+public class ExplicitAutoPropertySamples : IAutoPropertySample
+{
+    int IAutoPropertySample.Count { get; } = 29;
+}

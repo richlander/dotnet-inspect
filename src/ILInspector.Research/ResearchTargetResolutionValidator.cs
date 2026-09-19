@@ -985,6 +985,7 @@ static class ResearchTargetResolutionValidator
                     ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
                 return;
             case TypeDeclarationResult.ExportedFromModule:
+            case TypeDeclarationResult.DefinitionKindUnavailable:
             case TypeDeclarationResult.BudgetExceeded:
             case TypeDeclarationResult.Rejected:
                 RequireNoMetadataResolution(evidence);

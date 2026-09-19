@@ -69,8 +69,9 @@ The whole-member render consumes the
 [selected-accessor composition contract](member-body-substrate.md#selected-property-accessor-source).
 Ordinary and explicit-interface accessors use property syntax only when their
 metadata MethodSemantics relationship proves that they belong to a supported
-non-indexed property; backing-storage cases and narrowed-access overrides
-retain method form under the composition owner's admission boundary.
+non-indexed property. Proven getter-only automatic storage uses `get;`;
+unsupported backing-storage cases and narrowed-access overrides retain method
+form under the composition owner's admission boundary.
 The associated PropertyDef supplies the complete qualified property identity;
 the renderer does not parse accessor markers from the MethodDef name. An
 ordinary explicit method whose source name begins with `get_` or `set_` remains
