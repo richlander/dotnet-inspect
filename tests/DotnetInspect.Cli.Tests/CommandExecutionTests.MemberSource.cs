@@ -53,19 +53,34 @@ public partial class CommandExecutionTests
         Assert.Contains("JsonSerializer.Write.String.cs", output);
     }
 
-    [Fact]
-    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints(bool print)
     {
         // A property has no MethodDef of its own; its PDB source is located through its
         // accessor's PDB sequence points, reported against the owning property (#3278).
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth", "-S", "Source Locations", "--tips", "q");
+            [
+                "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+                "MaxDepth", "-S", "Source Locations", "--tips", "q",
+                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Locations", output);
-        Assert.Contains("public int MaxDepth { get; set; }", output);
+        if (print)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("Source Locations", document.RootElement.GetProperty("section").GetString());
+            Assert.Contains("class JsonSerializerOptions", document.RootElement.GetProperty("content").GetString());
+            Assert.Contains("MaxDepth", document.RootElement.GetProperty("content").GetString());
+        }
+        else
+        {
+            Assert.Contains("## Source Locations", output);
+            Assert.Contains("public int MaxDepth { get; set; }", output);
+        }
         Assert.Contains("JsonSerializerOptions.cs", output);
         Assert.Contains("raw.githubusercontent.com", output);
     }

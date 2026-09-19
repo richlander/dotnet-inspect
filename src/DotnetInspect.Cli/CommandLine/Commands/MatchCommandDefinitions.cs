@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -54,7 +55,7 @@ public static class MatchCommandDefinitions
         };
         var topOption = new Option<int?>("--top")
         {
-            Description = "--similar: number of ranked rows to render as text. Bounds presentation only; JSON keeps every candidate",
+            Description = "--similar: select the highest-ranked candidate rows",
         };
         var maxResultsOption = new Option<int?>("--max-results")
         {
@@ -85,6 +86,7 @@ public static class MatchCommandDefinitions
         matchCommand.Options.Add(maxMethodsOption);
         opts.AddTableOptionsTo(matchCommand);
         opts.AddOutputOptionsTo(matchCommand);
+        opts.AddCountOptionTo(matchCommand);
         opts.AddNuGetOptionsTo(matchCommand);
 
         matchCommand.SetAction(async (parseResult, ct) =>
@@ -92,6 +94,18 @@ public static class MatchCommandDefinitions
             var left = parseResult.GetValue(leftArg);
             var right = parseResult.GetValue(rightArg);
             var similar = parseResult.GetValue(similarOption);
+            RowSelectionIntent<string>? rowSelection = null;
+            if (similar
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Match candidates",
+                        out rowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
 
             if (string.IsNullOrEmpty(left) || (!similar && string.IsNullOrEmpty(right)))
             {
@@ -108,7 +122,8 @@ public static class MatchCommandDefinitions
                     parseResult.GetValue(assemblyWideOption),
                     parseResult.GetValue(topOption),
                     parseResult.GetValue(maxResultsOption),
-                    parseResult.GetValue(maxMethodsOption));
+                    parseResult.GetValue(maxMethodsOption),
+                    parseResult.GetValue(opts.Count));
 
                 if (discoveryOnly is not null)
                 {
@@ -147,6 +162,7 @@ public static class MatchCommandDefinitions
                 IncludeBody = parseResult.GetValue(bodyOption),
                 Similar = similar,
                 AssemblyWide = parseResult.GetValue(assemblyWideOption),
+                RowSelection = rowSelection,
                 Top = parseResult.GetValue(topOption),
                 MaximumResults = parseResult.GetValue(maxResultsOption),
                 MaximumMethods = parseResult.GetValue(maxMethodsOption),
@@ -155,13 +171,37 @@ public static class MatchCommandDefinitions
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Verbose = parseResult.GetValue(opts.Verbose),
-                Rows = opts.ParseRows(parseResult),
+                Rows = rowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
+                Count = parseResult.GetValue(opts.Count),
                 Bare = parseResult.GetValue(opts.Bare),
                 SourceOptions = sourceOptions,
             };
 
             return await MatchCommand.ExecuteAsync(options, ct);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            matchCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                topOption,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Top
+                | CliRowSelectionCapabilities.Lines,
+            result => result.GetValue(similarOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return matchCommand;
     }

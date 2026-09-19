@@ -856,7 +856,7 @@ fallback.
 ### Types, members, and source
 
 ```bash
-dotnet-inspect type string --shape
+dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
@@ -1027,13 +1027,17 @@ and no authorship or copying claim. Within one image, confirm a candidate by
 re-running the pairwise form on the selected pair.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
-opts into whole-assembly retrieval, which costs materially more. `--top` bounds
-rendered rows only; `--json` retains every candidate, per-method outcome,
-blocker, and receipt regardless. `--max-results` and `--max-methods` move the
-product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, the
-ranked candidates are the only row shape; the seed, scope, disposition, receipt,
-blockers, and disclosure are written to stderr so stdout stays single-shaped and
-parseable.
+opts into whole-assembly retrieval, which costs materially more. `-n`,
+`--tail`, strict `--rows` windows, and `--top` select complete ranked candidate
+rows after retrieval; `--top` uses the structural-similarity ranking already
+issued by Analysis. Markdown, table, TSV, JSONL, JSON, and `--count` consume the
+same selected candidate sequence. JSON retains the complete per-method
+outcomes, blockers, and query receipt, with `row_selection` counts that
+distinguish returned candidates from selected rows. `--max-results` and
+`--max-methods` move the product retrieval limits themselves. In `--table`,
+`--tsv`, and `--jsonl`, the ranked candidates are the only row shape; the seed,
+scope, disposition, receipt, blockers, and disclosure are written to stderr so
+stdout stays single-shaped and parseable.
 
 Every ranked row prints a `Token` column holding the candidate's metadata token,
 which the pairwise form accepts directly as the second operand. That keeps every

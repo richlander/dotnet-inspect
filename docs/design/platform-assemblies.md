@@ -188,7 +188,7 @@ Both ref and runtime assemblies support version specifiers:
 
 ```bash
 # Latest version (default)
-dotnet-inspect type JsonSerializer --platform System.Text.Json --shape
+dotnet-inspect type JsonSerializer --platform System.Text.Json --tree
 
 # Specific shared runtime version (library/audit)
 dotnet-inspect library --platform System.Text.Json --version 9.0.12

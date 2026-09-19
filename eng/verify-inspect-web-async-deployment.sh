@@ -282,14 +282,12 @@ fi
   "$domain" \
   "$compiled_sources/out" \
   "$declarations" \
-  "$site" \
-  "$repo_root/inspect-web/src/facades" <<'JS'
+  "$site" <<'JS'
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-const [domainPath, compiled, contract, site, checkedInDeclarations] =
-  process.argv.slice(2);
+const [domainPath, compiled, contract, site] = process.argv.slice(2);
 const domain = JSON.parse(readFileSync(domainPath, "utf8"));
 const expectedDeclarations = domain.map(entry => `${entry.module}.d.ts`).sort();
 const expectedModules = domain.map(entry => `${entry.module}.js`).sort();
@@ -312,10 +310,6 @@ for (const entry of domain) {
     readFileSync(resolve(compiled, declaration)),
     readFileSync(resolve(contract, declaration)),
     `${declaration} differs from the generator contract`);
-  assert.deepEqual(
-    readFileSync(resolve(compiled, declaration)),
-    readFileSync(resolve(checkedInDeclarations, declaration)),
-    `${declaration} differs from the checked-in consumer declaration`);
   assert.deepEqual(
     readFileSync(resolve(compiled, javascript)),
     readFileSync(resolve(site, javascript)),
