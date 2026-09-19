@@ -376,7 +376,10 @@ public static class ImplementationDiff
             result.Research.ApiDiff,
             result.Research.ApiComparison,
             new RetainedFindingComparisonSet(retained));
-        return FromResearchComparison(research, options);
+        return FromResearchComparison(research, options) with
+        {
+            Complexity = result.Complexity,
+        };
     }
 
     public static ImmutableArray<ResearchChange> ToSourceChanges(

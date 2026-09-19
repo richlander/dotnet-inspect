@@ -269,10 +269,16 @@ being dropped. When a logical member owns more than one physical evidence
 method - most commonly multiple lambda/state-machine bodies - the generated
 name's ordinal is not a stable cross-version correspondence key (it shifts
 when lambdas are inserted, removed, or reordered), so those observations report
-Incomplete instead of a possibly-wrong Changed/Added/Removed pairing. The
-explicit CLI Implementation Diff section renders only non-unchanged complexity
-observations alongside its existing C#, IL, and PDB Source evidence lanes.
-Ranking, clustering, and quality shades remain later consumers.
+Incomplete instead of a possibly-wrong Changed/Added/Removed pairing. A
+recoverable per-method Analysis failure (surfaced as a receipt diagnostic)
+leaves a profile missing without distinguishing it from a genuine
+addition/removal, so any diagnostic on either endpoint makes the whole
+comparison unavailable rather than reporting a possibly-spurious
+Added/Removed row. The explicit CLI Implementation Diff section renders only
+non-unchanged complexity observations alongside its existing C#, IL, and PDB
+Source evidence lanes; broad PDB-source enrichment preserves an already
+computed complexity lane rather than resetting it to unavailable. Ranking,
+clustering, and quality shades remain later consumers.
 
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id

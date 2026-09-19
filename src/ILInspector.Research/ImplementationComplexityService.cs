@@ -80,6 +80,23 @@ public static class ImplementationComplexityService
                 + "endpoints.");
         }
 
+        // A recoverable per-method Analysis failure (for example, a body
+        // that cannot be decoded) leaves a diagnostic but no profile for
+        // that method, which is indistinguishable from a genuinely added or
+        // removed method once profiles are compared by presence alone.
+        // Rather than risk reporting an analysis failure as a confident
+        // Added/Removed/Changed complexity result, treat any diagnostic on
+        // either endpoint as making that endpoint's complexity coverage
+        // incomplete.
+        if (oldByAssembly.Values.Any(profile => !profile.Receipt.Diagnostics.IsEmpty)
+            || newByAssembly.Values.Any(profile => !profile.Receipt.Diagnostics.IsEmpty))
+        {
+            return Unavailable(
+                "Normal-flow cyclomatic complexity requires diagnostic-free "
+                + "method-evidence coverage for both implementation-diff "
+                + "endpoints.");
+        }
+
         var changes = new List<ImplementationComplexityChange>();
         foreach (string key in oldByAssembly.Keys
             .Union(newByAssembly.Keys, StringComparer.Ordinal)

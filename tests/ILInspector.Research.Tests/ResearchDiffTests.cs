@@ -2259,6 +2259,105 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ImplementationComplexityService_EndpointDiagnostic_ReportsUnavailable()
+    {
+        // Regression coverage: a recoverable per-method Analysis failure
+        // (surfaced as a receipt diagnostic) leaves that method's profile
+        // missing without any marker distinguishing it from a genuine
+        // addition/removal. Comparing by profile presence alone used to
+        // report such a method as a confident (and possibly wrong)
+        // Added/Removed row instead of flagging the coverage as incomplete.
+        var cleanReceipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var diagnosticReceipt = cleanReceipt with
+        {
+            Diagnostics =
+            [
+                new AnalysisDiagnostic(
+                    0x06000099,
+                    "Widget.Failing()",
+                    "InvalidOperationException: could not decode body"),
+            ],
+        };
+        var method = FakeMethod("Widget", "M", token: 0x06000001);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(method, method, conditionalBranchCount: 0));
+        var newProfiles = ImmutableArray<MethodImplementationProfile>.Empty;
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            diagnosticReceipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            cleanReceipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
+
+        Assert.False(result.IsAvailable);
+        Assert.Empty(result.Changes);
+        Assert.Contains(
+            "diagnostic-free",
+            result.UnavailableReason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ImplementationDiff_PdbSourceComparisons_PreservesComplexityLane()
+    {
+        // Regression coverage: WithPdbSourceComparisons rebuilt the result
+        // through FromResearchComparison, which resets Complexity to its
+        // Unavailable default, silently discarding an already computed
+        // complexity lane whenever broad PDB-source enrichment ran.
+        var complexitySubject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member, "widget.m", "Widget.M()", "Widget", "M");
+        var complexityChange = new ImplementationComplexityChange(
+            complexitySubject,
+            ImplementationComplexityChangeKind.Changed,
+            OldValue: 1,
+            NewValue: 2,
+            Delta: 1,
+            OldIsComplete: true,
+            NewIsComplete: true);
+        var sourceSubject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member, "M~1234567890", "Sample.M()", "Sample", "M");
+        var initial = new ImplementationDiffResult(
+            [],
+            new ResearchComparison([]))
+        {
+            Complexity = new ImplementationComplexityDiff(true, null, [complexityChange]),
+        };
+
+        var result = ImplementationDiff.WithPdbSourceComparisons(
+            initial,
+            [
+                new PdbSourceComparisonInput(
+                    sourceSubject,
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old source unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
+            ]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        var change = Assert.Single(result.Complexity.Changes);
+        Assert.Equal(complexitySubject.Id, change.Subject.Id);
+        Assert.Equal(ImplementationComplexityChangeKind.Changed, change.Kind);
+    }
+
+    [Fact]
     public void ImplementationDiffResult_IsEmpty_ReflectsComplexityLane()
     {
         // Regression coverage: IsEmpty only checked Members, so a diff whose
