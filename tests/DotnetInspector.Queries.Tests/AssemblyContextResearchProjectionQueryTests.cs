@@ -961,39 +961,13 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 File.ReadAllBytes(
                     FixtureCatalog.AnalysisCallerGraphTarget
                         .AssemblyPath()));
-        string runtimeDirectory = Path.GetDirectoryName(
-            typeof(object).Assembly.Location)!;
-        ImmutableArray<byte> systemRuntime =
-            ImmutableCollectionsMarshal.AsImmutableArray(
-                File.ReadAllBytes(
-                    Path.Combine(runtimeDirectory, "System.Runtime.dll")));
-        ImmutableArray<byte> coreLibrary =
-            ImmutableCollectionsMarshal.AsImmutableArray(
-                File.ReadAllBytes(
-                    typeof(object).Assembly.Location));
-        var policy = new MappedBindingPolicy();
-        ResolvedAssemblyReference targetAssembly =
-            ResolvedAssembly(image, "local-throw-target");
-        ResolvedAssemblyReference runtimeAssembly =
-            ResolvedAssembly(systemRuntime, "system-runtime");
-        ResolvedAssemblyReference coreLibraryAssembly =
-            ResolvedAssembly(coreLibrary, "core-library");
-        policy.Add(runtimeAssembly);
-        policy.Add(coreLibraryAssembly);
+        var policy = new RecordingBindingPolicy();
         await using var workspace = new InspectionWorkspace();
-        var targetParticipant =
-            new AssemblyContextParticipant(targetAssembly, policy);
+        var targetParticipant = new AssemblyContextParticipant(
+            ResolvedAssembly(image, "local-throw-target"),
+            policy);
         using AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [
-                    targetParticipant,
-                    new AssemblyContextParticipant(
-                        runtimeAssembly,
-                        policy),
-                    new AssemblyContextParticipant(
-                        coreLibraryAssembly,
-                        policy),
-                ]);
+            workspace.CreateAssemblyContextGroup([targetParticipant]);
 
         AssemblyMemberProjection projection =
             Assert.IsType<
@@ -1030,7 +1004,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         AssemblyMemberLocalThrowSite terminal =
             Assert.Single(path.TerminalThrows);
         Assert.Equal(
-            nameof(ArgumentNullException),
+            "LocalThrowPathException",
             terminal.ExceptionType.Name);
         Assert.True(terminal.ConstructionOffset < terminal.ThrowOffset);
         Assert.True(terminal.ConstructorToken > 0);
@@ -1877,41 +1851,6 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         }
     }
 
-    sealed class MappedBindingPolicy : IAssemblyBindingPolicy
-    {
-        readonly Dictionary<string, ResolvedAssemblyReference>
-            _selections = new(StringComparer.Ordinal);
-
-        public AssemblyBindingPolicyVersion Version { get; } = new();
-
-        public void Add(ResolvedAssemblyReference selection) =>
-            _selections.Add(selection.Identity.Name, selection);
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request)
-        {
-            string name = request.Target switch
-            {
-                AssemblyBindingTarget.AssemblyReference reference =>
-                    reference.Identity.Name,
-                AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                    "System.Private.CoreLib",
-                _ => throw new ArgumentOutOfRangeException(nameof(request)),
-            };
-            AssemblyBindingSelection selection =
-                _selections.TryGetValue(
-                    name,
-                    out ResolvedAssemblyReference? resolved)
-                    ? AssemblyBindingSelection.Found(resolved)
-                    : AssemblyBindingSelection.CannotSelect(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind
-                                .CandidateUnavailable));
-            return new AssemblyBindingSelectionSnapshot(
-                Version,
-                selection);
-        }
-    }
 }
 
 /// <summary>Probe members the group-scoped Research projections address.</summary>

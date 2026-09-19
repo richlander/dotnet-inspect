@@ -1123,20 +1123,17 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task MemberFindingCensus_ProjectsBoundedLocalThrowPath()
     {
         const string PackageId = "Browser.Member.LocalThrowPath";
-        MethodInfo helper =
-            typeof(ArgumentNullException).GetMethod(
-                "ThrowIfNull",
-                [typeof(object), typeof(string)])
-            ?? throw new InvalidOperationException(
-                "CoreLib has no ArgumentNullException.ThrowIfNull overload.");
         byte[] image = File.ReadAllBytes(
-            typeof(ArgumentNullException).Assembly.Location);
+            FixtureCatalog.AnalysisCallerGraphTarget
+                .AssemblyPath());
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
-                PackageEntries(
-                    ("lib/net11.0/System.Private.CoreLib.dll", image)),
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
                 fromCache: false));
 
         string surfaceJson = await QueryPackageSurfaceJson(
@@ -1151,14 +1148,12 @@ public sealed partial class BrowserEngineBoundaryTests
                 .EnumerateArray(),
             candidate =>
                 candidate.GetProperty("definitionId").GetString()
-                    == "System.ArgumentNullException");
+                    == "Target.LocalThrowPathApi");
         JsonElement member = Assert.Single(
             type.GetProperty("api").EnumerateArray(),
             candidate =>
                 candidate.GetProperty("name").GetString()
-                    == "ThrowIfNull"
-                && candidate.GetProperty("metadataToken").GetInt32()
-                    == helper.MetadataToken);
+                    == "Entry");
 
         string censusJson =
             await DotnetInspect.Web.Interop.Source.SourceExports
@@ -1196,7 +1191,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 .EnumerateArray()
                 .Select(value => value.GetInt32()),
         ];
-        Assert.NotEmpty(factIds);
+        Assert.Equal(2, factIds.Length);
         Assert.Equal(
             "Throw",
             path.GetProperty("targets")
@@ -1206,7 +1201,7 @@ public sealed partial class BrowserEngineBoundaryTests
         JsonElement terminal = Assert.Single(
             path.GetProperty("terminalThrows").EnumerateArray());
         Assert.EndsWith(
-            ".ArgumentNullException",
+            ".LocalThrowPathException",
             terminal.GetProperty("exceptionType").GetString(),
             StringComparison.Ordinal);
         Assert.True(

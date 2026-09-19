@@ -10,11 +10,11 @@ export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandl
 
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
 
-export type BrowserAnnotatedSourceLocalThrowPathBoundaryKind = "AnalysisIncomplete" | "TraversalBoundary" | "PartialMethodEvidenceScope" | "UnresolvedLocalCalls" | "UnattributedGeneratedBodies" | "DepthLimit" | "NodeBudget" | "EdgeBudget" | "PathBudget" | "IncompleteLocalThrowEvidence" | "IncompleteCorrespondence" | number;
-
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
 
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
+
+export type BrowserAnnotatedSourceLocalThrowPathBoundaryKind = "AnalysisIncomplete" | "TraversalBoundary" | "PartialMethodEvidenceScope" | "UnresolvedLocalCalls" | "UnattributedGeneratedBodies" | "DepthLimit" | "NodeBudget" | "EdgeBudget" | "PathBudget" | "IncompleteLocalThrowEvidence" | "IncompleteCorrespondence" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 
@@ -810,3 +810,4 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
+

@@ -191,9 +191,12 @@ namespace Target
         static void Throw(string value)
         {
             if (value is null)
-                throw new ArgumentNullException(nameof(value));
+                throw new LocalThrowPathException(nameof(value));
         }
     }
+
+    public sealed class LocalThrowPathException(string parameterName)
+        : Exception(parameterName);
 
     public readonly struct CustomAwaitable
     {
