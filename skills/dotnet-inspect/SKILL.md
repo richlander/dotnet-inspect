@@ -45,8 +45,9 @@ edges, or other complete domain rows. Otherwise the items are rendered lines.
 - `--lines` switches an adopted semantic route to rendered-line selection.
   Use it only when clipping presentation text is the actual goal.
 
-Member `Call Graph` retains a legacy command-owned `--rows` window. A missing
-position succeeds with an empty edge table rather than failing.
+Member `Call Graph` retains a legacy command-owned `--rows` window. It clamps
+an unavailable end to the available edges; only a start beyond the available
+rows produces an empty edge table.
 
 Do not confuse selection with work or ranking. `--take` bounds candidate work;
 `--top` requests a ranked prefix; neither is another spelling of `-n`.
@@ -95,8 +96,8 @@ format the current browser restores:
   routes issue browser-restorable format-1 packets.
 - `share.kind: "available"` means the service request is projectable; it does
   not by itself prove that Inspect Web has adopted that packet format.
-- For CLI restoration, pass opaque packet text to
-  `workspace --packet "$packet"`; this option rejects URLs.
+- For CLI complete restoration of formats 2–4, pass opaque packet text to
+  `workspace --packet "$packet"`; this option rejects URLs and format 1.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer \
@@ -108,12 +109,14 @@ dnx dotnet-inspect -y -- depends \
 
 These URLs carry canonical datapackets rather than rendered output. The member
 URL opens the selected public API Overview. The package-dependency URL lets
-Inspect Web acquire the exact package and compute its dependency graph. The
-CLI can also produce Workspace format-3 and derived-Type format-4 packet or URL
-Shares, but current Inspect Web rejects those formats. Keep them as opaque
-packet strings for supported CLI workflows rather than offering their URLs.
-Package Query envelopes are currently `nonProjectable`; do not hand-author a
-query-bearing packet or promise that Inspect Web can restore it.
+Inspect Web acquire the exact package and compute its dependency graph.
+Format-1 member and dependency packets are browser-restorable, not
+CLI-restorable. The CLI can also produce Workspace format-3 and derived-Type
+format-4 packet or URL Shares, but current Inspect Web rejects those formats.
+Keep them as opaque packet strings for supported CLI workflows rather than
+offering their URLs. Package Query envelopes are currently `nonProjectable`;
+do not hand-author a query-bearing packet or promise that Inspect Web can
+restore it.
 
 ## Member lookup
 

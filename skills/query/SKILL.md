@@ -365,8 +365,8 @@ shortening the result. `-n` and `--rows` are ordered stages, so argument order
 is observable. `--head` and `--tail` modify `-n`, not the range.
 
 Member `Call Graph` is the current exception: its legacy command-owned
-`--rows` window succeeds with an empty edge table when a requested position is
-missing.
+`--rows` window clamps an unavailable end to the available edges. It produces
+an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
 `timeline`, `package query`, package activity, package `--versions` /
@@ -406,10 +406,11 @@ dnx dotnet-inspect -y -- depends \
 
 These browser-restorable format-1 URLs carry canonical datapackets, not
 captured output. The receiving Inspect Web host re-runs the represented member
-or package-dependency operation. For CLI restoration, pass opaque packet text
-to `workspace --packet "$packet"`; it rejects URL input. The CLI can issue
+or package-dependency operation. Format-1 packets are not accepted by CLI
+complete restoration. For formats 2–4, pass opaque packet text to
+`workspace --packet "$packet"`; it rejects URL input. The CLI can issue
 Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
-Inspect Web rejects both formats. Keep them as packet strings for supported CLI
-workflows. Package Query Share is currently `nonProjectable`, and Inspect Web
-does not yet restore query-bearing packets. Keep Package Query answers in
+Inspect Web rejects both formats. Keep them as packet strings for supported
+CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
+Web does not yet restore query-bearing packets. Keep Package Query answers in
 Content rather than manufacturing a link.
