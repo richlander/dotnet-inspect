@@ -288,25 +288,39 @@ for (const width of [1440, 800, 390]) {
 }
 
 test("aggregate Type navigation qualifies only colliding Types by defining Library", async ({ page }) => {
-  const collisionCore = { ...core, publicTypes: 2, publicMembers: 2 };
+  const left = {
+    ...core,
+    id: "asset:left",
+    name: "Example.Shared",
+    asset: "lib/net10.0/left/Example.Shared.dll",
+    publicTypes: 2,
+    publicMembers: 2,
+  };
+  const right = {
+    ...other,
+    id: "asset:right",
+    name: "Example.Shared",
+    asset: "lib/net10.0/right/Example.Shared.dll",
+  };
   const coreWidget = {
-    ...type("Example.Widget", collisionCore),
+    ...type("Example.Widget", left),
     name: "Widget",
     displayName: "Widget",
   };
   const otherWidget = {
-    ...type("Example.Widget", other),
+    ...type("Example.Widget", right),
     name: "Widget",
     displayName: "Widget",
   };
   const neighbor = {
-    ...type("Example.Neighbor", collisionCore),
+    ...type("Example.Neighbor", left),
     name: "Neighbor",
     displayName: "Neighbor",
   };
   await installFacades(page, {
     ...surface,
-    assemblies: [collisionCore, other, empty],
+    defaultAssemblyId: left.id,
+    assemblies: [left, right, empty],
     types: [coreWidget, otherWidget, neighbor],
     accessibility: [
       { id: "public", label: "Public", order: 0, isDefault: true, count: 3 },
@@ -315,19 +329,25 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
   });
   await page.goto(root);
   await chooseSubject(page, "library", "Library");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${left.id}"]`))
+    .toContainText("Example.Shared · lib/net10.0/left/Example.Shared.dll");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${right.id}"]`))
+    .toContainText("Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await chooseSubject(page, "type", "Type");
 
   await expect(page.locator(
     `#type-list [data-type="${coreWidget.id}"] small`))
-    .toHaveText("Example.Core · class");
+    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll · class");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
-    .toHaveText("Example.Other · class");
+    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll · class");
   await expect(page.locator(
     `#type-list [data-type="${neighbor.id}"] small`))
     .toHaveText("class");
 
-  await selectLibrary(page, other.id);
+  await selectLibrary(page, right.id);
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))

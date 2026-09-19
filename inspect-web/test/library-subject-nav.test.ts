@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindLibrarySubjectNav,
+  librarySubjectDisplayLabels,
   renderLibrarySubjectNav,
 } from "../src/library-subject-nav.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -124,6 +125,55 @@ test("Library navigation renders the aggregate first and keeps empty Libraries",
   assert.match(html,
     /data-library-subject="Example\.Empty"[\s\S]*0 types · 0 members/);
   assert.match(html, /role="listbox"[\s\S]*aria-activedescendant=/);
+});
+
+test("Library navigation qualifies duplicate names with product-owned assets", () => {
+  const libraries = [
+    {
+      id: "asset:left",
+      name: "Example.Shared",
+      asset: "lib/net10.0/left/Example.Shared.dll",
+      types: 1,
+      members: 1,
+    },
+    {
+      id: "asset:right",
+      name: "Example.Shared",
+      asset: "lib/net10.0/right/Example.Shared.dll",
+      types: 1,
+      members: 1,
+    },
+    {
+      id: "asset:unique",
+      name: "Example.Unique",
+      asset: "lib/net10.0/Example.Unique.dll",
+      types: 1,
+      members: 1,
+    },
+  ];
+
+  assert.deepEqual(
+    [...librarySubjectDisplayLabels(libraries)],
+    [
+      [
+        "asset:left",
+        "Example.Shared · lib/net10.0/left/Example.Shared.dll",
+      ],
+      [
+        "asset:right",
+        "Example.Shared · lib/net10.0/right/Example.Shared.dll",
+      ],
+      ["asset:unique", "Example.Unique"],
+    ]);
+
+  const html = renderLibrarySubjectNav({
+    libraries,
+    selectedLibraryId: null,
+    escapeHtml,
+  });
+  assert.match(html, /Example\.Shared · lib\/net10\.0\/left\/Example\.Shared\.dll/);
+  assert.match(html, /Example\.Shared · lib\/net10\.0\/right\/Example\.Shared\.dll/);
+  assert.match(html, />Example\.Unique<\/span>/);
 });
 
 test("Library navigation moves locally and commits only on Enter", () => {

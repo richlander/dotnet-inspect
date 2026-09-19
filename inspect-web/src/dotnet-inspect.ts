@@ -149,6 +149,7 @@ import {
 } from "./package-view.ts";
 import {
   bindLibrarySubjectNav,
+  librarySubjectDisplayLabels,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -5646,8 +5647,7 @@ function renderTypeNavPane(
       else
         firstLibraryByDefinition.set(definition, library);
     }
-    const libraryNames = new Map(
-      packageLibraries().map(library => [library.id, library.name]));
+    const libraryNames = librarySubjectDisplayLabels(packageLibraries());
     for (const item of state.package.types) {
       if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
       const library = libraryNames.get(libraryKey(item));

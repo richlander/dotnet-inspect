@@ -1,6 +1,6 @@
 import { renderContentNavigationCloseButton } from "./content-frame.ts";
 
-interface LibrarySubjectNavItem {
+export interface LibrarySubjectNavItem {
   id: string;
   name: string;
   asset: string;
@@ -20,10 +20,27 @@ export interface LibrarySubjectNavActions {
 
 const aggregateValue = "all";
 
+export function librarySubjectDisplayLabels(
+  libraries: readonly LibrarySubjectNavItem[],
+): ReadonlyMap<string, string> {
+  const nameCounts = new Map<string, number>();
+  for (const library of libraries) {
+    const key = library.name.toLocaleLowerCase();
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+  return new Map(libraries.map(library => [
+    library.id,
+    nameCounts.get(library.name.toLocaleLowerCase())! > 1
+      ? `${library.name} · ${library.asset}`
+      : library.name,
+  ]));
+}
+
 export function renderLibrarySubjectNav(
   options: LibrarySubjectNavOptions,
 ): string {
   const { libraries, selectedLibraryId, escapeHtml } = options;
+  const displayLabels = librarySubjectDisplayLabels(libraries);
   const subjects = [
     {
       value: aggregateValue,
@@ -33,7 +50,7 @@ export function renderLibrarySubjectNav(
     },
     ...libraries.map(library => ({
       value: library.id,
-      name: library.name,
+      name: displayLabels.get(library.id) ?? library.name,
       detail: `${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members`,
       selected: library.id === selectedLibraryId,
     })),
