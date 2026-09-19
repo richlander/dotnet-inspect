@@ -419,7 +419,10 @@ public class PropertyAccessorSignatureConsistencyTests
             mismatch == AccessorMismatch.UnsupportedMethodImplementation
                 ? MethodImplAttributes.Runtime
                 : MethodImplAttributes.IL,
-            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddString(
+                mismatch == AccessorMismatch.ExplicitInterfaceGetter
+                    ? "Samples.IContract.get_Value"
+                    : "get_Value"),
             getterSignature,
             bodyOffset: -1,
             MetadataTokens.ParameterHandle(1));
@@ -539,6 +542,7 @@ public class PropertyAccessorSignatureConsistencyTests
                 contract,
                 metadata.GetOrAddString("get_Value"),
                 getterSignature);
+            metadata.AddInterfaceImplementation(target, contract);
             metadata.AddMethodImplementation(target, getter, declaration);
         }
 

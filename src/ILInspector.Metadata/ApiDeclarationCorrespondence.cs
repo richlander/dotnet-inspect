@@ -1708,8 +1708,11 @@ public static class ApiDeclarationCorrespondence
             _explicitImplementationBodies =
                 ApiSurfaceExtractor.GetExplicitImplementationBodies(
                     reader,
+                    declaringType,
                     type,
-                    budget.Charge);
+                    beforeDecodeWork: budget.Charge)
+                .Keys
+                .ToHashSet();
         }
 
         public MemberAnchor Create(

@@ -466,7 +466,7 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
-    public void SelectReturnToSenderTargets_RejectsNonPrivateExplicitInterfaceImplementationBeforeSampling()
+    public void SelectReturnToSenderTargets_RejectsUnrepresentableExplicitInterfaceImplementationsBeforeSampling()
     {
         string assemblyPath = CreateExplicitInterfaceAccessibilityFixture();
         try
@@ -485,6 +485,50 @@ public class FidelityCheckGeneratedFilterTests
                 target =>
                     target.Type == "MalformedExplicitInterfaceFixture"
                     && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MissingFinalExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "BaseMethodImplFixture"
+                    && target.Method == "BaseContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "WrongQualifierExplicitInterfaceFixture"
+                    && target.Method == "IOther.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MissingHideBySigExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MultipleMethodImplFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type.StartsWith(
+                        "GenericContextMismatchFixture",
+                        StringComparison.Ordinal)
+                    && target.Method == "IGenericContract<string>.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "MemberRefMethodImplBodyFixture"
+                    && target.Method == "Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type.StartsWith(
+                        "GenericMemberRefMethodImplBodyFixture",
+                        StringComparison.Ordinal)
+                    && target.Method == "Run");
         }
         finally
         {
@@ -4195,6 +4239,16 @@ public class FidelityCheckGeneratedFilterTests
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle otherContractType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IOther"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
         TypeDefinitionHandle validType =
             metadata.AddTypeDefinition(
                 TypeAttributes.Public | TypeAttributes.Class,
@@ -4211,8 +4265,155 @@ public class FidelityCheckGeneratedFilterTests
                 objectRef,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(3));
+        TypeDefinitionHandle missingFinalType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "MissingFinalExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(4));
+        TypeDefinitionHandle wrongQualifierType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "WrongQualifierExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(5));
+        TypeDefinitionHandle missingHideBySigType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "MissingHideBySigExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(6));
+        TypeDefinitionHandle multipleMethodImplType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("MultipleMethodImplFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(7));
+        TypeDefinitionHandle baseType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("BaseContract"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(8));
+        TypeDefinitionHandle baseMethodImplType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("BaseMethodImplFixture"),
+                baseType,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(9));
+        TypeDefinitionHandle genericContractType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IGenericContract`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(10));
+        TypeDefinitionHandle genericMismatchType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "GenericContextMismatchFixture`1"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(11));
+        TypeDefinitionHandle memberRefBodyType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "MemberRefMethodImplBodyFixture"),
+                baseType,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(12));
+        TypeDefinitionHandle genericMemberRefBodyType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "GenericMemberRefMethodImplBodyFixture`1"),
+                baseType,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(13));
+        metadata.AddGenericParameter(
+            genericContractType,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("TContract"),
+            index: 0);
+        metadata.AddGenericParameter(
+            genericMismatchType,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            genericMemberRefBodyType,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        var genericContractSpecSignature = new BlobBuilder();
+        new BlobEncoder(genericContractSpecSignature)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(
+                genericContractType,
+                genericArgumentCount: 1,
+                isValueType: false)
+            .AddArgument()
+            .String();
+        TypeSpecificationHandle genericContractString =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(
+                    genericContractSpecSignature));
+        var genericMemberRefBodySpecSignature = new BlobBuilder();
+        new BlobEncoder(genericMemberRefBodySpecSignature)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(
+                genericMemberRefBodyType,
+                genericArgumentCount: 1,
+                isValueType: false)
+            .AddArgument()
+            .GenericTypeParameter(0);
+        TypeSpecificationHandle genericMemberRefBody =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(
+                    genericMemberRefBodySpecSignature));
         metadata.AddInterfaceImplementation(validType, contractType);
         metadata.AddInterfaceImplementation(malformedType, contractType);
+        metadata.AddInterfaceImplementation(
+            missingFinalType,
+            contractType);
+        metadata.AddInterfaceImplementation(
+            wrongQualifierType,
+            contractType);
+        metadata.AddInterfaceImplementation(
+            wrongQualifierType,
+            otherContractType);
+        metadata.AddInterfaceImplementation(
+            missingHideBySigType,
+            contractType);
+        metadata.AddInterfaceImplementation(
+            multipleMethodImplType,
+            contractType);
+        metadata.AddInterfaceImplementation(
+            genericMismatchType,
+            genericContractString);
 
         MethodDefinitionHandle declaration =
             metadata.AddMethodDefinition(
@@ -4249,6 +4450,15 @@ public class FidelityCheckGeneratedFilterTests
                 instanceVoidSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle malformedBody =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -4258,6 +4468,122 @@ public class FidelityCheckGeneratedFilterTests
                 instanceVoidSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle missingFinalBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle wrongQualifierBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IOther.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle missingHideBySigBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle multipleMethodImplBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle baseDeclaration =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle baseMethodImplBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("BaseContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        BlobHandle genericInstanceSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x20, 0x01, 0x01, 0x13, 0x00 });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            genericInstanceSignature,
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle genericMismatchBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "IGenericContract<string>.Run"),
+                genericInstanceSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            instanceVoidSignature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            instanceVoidSignature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle genericDeclaration =
+            metadata.AddMemberReference(
+                genericContractString,
+                metadata.GetOrAddString("Run"),
+                genericInstanceSignature);
+        MemberReferenceHandle localBodyReference =
+            metadata.AddMemberReference(
+                memberRefBodyType,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature);
+        MemberReferenceHandle genericLocalBodyReference =
+            metadata.AddMemberReference(
+                genericMemberRefBody,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature);
         metadata.AddMethodImplementation(
             validType,
             validBody,
@@ -4266,6 +4592,42 @@ public class FidelityCheckGeneratedFilterTests
             malformedType,
             malformedBody,
             declaration);
+        metadata.AddMethodImplementation(
+            missingFinalType,
+            missingFinalBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            wrongQualifierType,
+            wrongQualifierBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            missingHideBySigType,
+            missingHideBySigBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            multipleMethodImplType,
+            multipleMethodImplBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            multipleMethodImplType,
+            multipleMethodImplBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            baseMethodImplType,
+            baseMethodImplBody,
+            baseDeclaration);
+        metadata.AddMethodImplementation(
+            genericMismatchType,
+            genericMismatchBody,
+            genericDeclaration);
+        metadata.AddMethodImplementation(
+            memberRefBodyType,
+            localBodyReference,
+            baseDeclaration);
+        metadata.AddMethodImplementation(
+            genericMemberRefBodyType,
+            genericLocalBodyReference,
+            baseDeclaration);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

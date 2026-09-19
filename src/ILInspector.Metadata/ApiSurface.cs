@@ -1165,11 +1165,18 @@ public class ApiMember
     public bool? AccessibilityIsRepresentable { get; set; }
 
     /// <summary>
-    /// Whether this MethodDef's Final flag has an exact C# representation.
-    /// Null means the fact was not retained.
+    /// Whether this MethodDef's declaration modifier flags have an exact C#
+    /// representation. Null means the fact was not retained.
     /// </summary>
     [JsonIgnore]
-    public bool? FinalFlagIsRepresentable { get; set; }
+    public bool? MethodModifiersAreRepresentable { get; set; }
+
+    /// <summary>
+    /// Whether this MethodDef's MethodImpl relationship has an exact C#
+    /// declaration representation. Null means the fact was not retained.
+    /// </summary>
+    [JsonIgnore]
+    public bool? MethodImplementationIsRepresentable { get; set; }
 
     /// <summary>
     /// Whether this method's readonly marker has the exact compiler-recognized

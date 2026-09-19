@@ -83,8 +83,10 @@ public static partial class ApiSurfaceExtractor
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     AccessibilityIsRepresentable =
                         extension.AccessibilityIsRepresentable,
-                    FinalFlagIsRepresentable =
-                        extension.FinalFlagIsRepresentable,
+                    MethodModifiersAreRepresentable =
+                        extension.MethodModifiersAreRepresentable,
+                    MethodImplementationIsRepresentable =
+                        extension.MethodImplementationIsRepresentable,
                     ReadOnlyMarkerIsRepresentable =
                         extension.ReadOnlyMarkerIsRepresentable,
                     MethodSemantics = extension.MethodSemantics,

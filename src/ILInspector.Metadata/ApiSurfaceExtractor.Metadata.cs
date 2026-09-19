@@ -15,13 +15,17 @@ public static partial class ApiSurfaceExtractor
 
     private static void CountSummaryMembers(
         MetadataReader reader,
+        TypeDefinitionHandle typeDefHandle,
         TypeDefinition typeDef,
         ApiType apiType,
         ApiSurface surface,
         bool isExtensionClass,
         Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
     {
-        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var explicitImplementationBodies = GetExplicitImplementationBodies(
+            reader,
+            typeDefHandle,
+            typeDef);
         var accessorMethods = GetSemanticAccessorMethods(reader, typeDef);
         bool isEnum = IsEnum(reader, typeDef);
 
@@ -29,7 +33,8 @@ public static partial class ApiSurfaceExtractor
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
+            bool isExplicitImplementation =
+                explicitImplementationBodies.ContainsKey(methodHandle);
             if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
                 continue;
 
@@ -656,22 +661,624 @@ public static partial class ApiSurfaceExtractor
                 | ApiMethodSemanticsKind.EventAdder
                 | ApiMethodSemanticsKind.EventRemover)) != 0;
 
-    internal static HashSet<MethodDefinitionHandle>
+    internal static Dictionary<MethodDefinitionHandle, ExactTypeIdentity>
         GetExplicitImplementationBodies(
             MetadataReader reader,
+            TypeDefinitionHandle typeDefHandle,
             TypeDefinition typeDef,
+            GenericContext? typeContext = null,
             Action<int>? beforeDecodeWork = null)
     {
-        HashSet<MethodDefinitionHandle> handles = [];
+        GenericContext context = typeContext
+            ?? GenericContext.ForType(
+                reader,
+                typeDef,
+                beforeDecodeWork);
+        var interfaceIdentities = new HashSet<ExactTypeIdentity>();
+        foreach (InterfaceImplementationHandle interfaceHandle
+            in typeDef.GetInterfaceImplementations())
+        {
+            beforeDecodeWork?.Invoke(8);
+            InterfaceImplementation implementation =
+                reader.GetInterfaceImplementation(interfaceHandle);
+            if (TryGetExactTypeIdentity(
+                    reader,
+                    implementation.Interface,
+                    context,
+                    beforeDecodeWork,
+                    out ExactTypeEvidence evidence))
+            {
+                interfaceIdentities.Add(evidence.Identity);
+            }
+        }
+
+        Dictionary<MethodDefinitionHandle, ExactTypeIdentity> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             beforeDecodeWork?.Invoke(16);
-            var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition)
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind
+                    != HandleKind.MethodDefinition
+                || !TryReadMethodDeclaration(
+                    reader,
+                    implementation.MethodDeclaration,
+                    out EntityHandle declarationOwner,
+                    out StringHandle declarationName)
+                || !TryGetExactTypeIdentity(
+                    reader,
+                    declarationOwner,
+                    context,
+                    beforeDecodeWork,
+                    out ExactTypeEvidence declarationOwnerEvidence)
+                || !interfaceIdentities.Contains(
+                    declarationOwnerEvidence.Identity))
+            {
+                continue;
+            }
+
+            MethodDefinitionHandle bodyHandle =
+                (MethodDefinitionHandle)implementation.MethodBody;
+            MethodDefinition body = reader.GetMethodDefinition(bodyHandle);
+            string bodyName = DecodeString(
+                reader,
+                body.Name,
+                beforeDecodeWork);
+            string declaredName = DecodeString(
+                reader,
+                declarationName,
+                beforeDecodeWork);
+            string qualifiedNameSuffix = $".{declaredName}";
+            if (body.GetDeclaringType() != typeDefHandle
+                || declaredName.Length == 0
+                || bodyName.Length == qualifiedNameSuffix.Length
+                || !bodyName.EndsWith(
+                    qualifiedNameSuffix,
+                    StringComparison.Ordinal)
+                || !MethodSignaturesCorrespond(
+                    reader,
+                    body,
+                    implementation.MethodDeclaration,
+                    declarationOwnerEvidence.Type,
+                    context,
+                    beforeDecodeWork))
+            {
+                continue;
+            }
+
+            handles.TryAdd(
+                bodyHandle,
+                declarationOwnerEvidence.Identity);
         }
 
         return handles;
+    }
+
+    private static bool TryReadMethodDeclaration(
+        MetadataReader reader,
+        EntityHandle declaration,
+        out EntityHandle owner,
+        out StringHandle name)
+    {
+        switch (declaration.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                MethodDefinition method =
+                    reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)declaration);
+                owner = method.GetDeclaringType();
+                name = method.Name;
+                return true;
+            case HandleKind.MemberReference:
+                MemberReference member =
+                    reader.GetMemberReference(
+                        (MemberReferenceHandle)declaration);
+                owner = member.Parent;
+                name = member.Name;
+                return owner.Kind is
+                    HandleKind.TypeDefinition
+                        or HandleKind.TypeReference
+                        or HandleKind.TypeSpecification;
+            default:
+                owner = default;
+                name = default;
+                return false;
+        }
+    }
+
+    private static bool MethodSignaturesCorrespond(
+        MetadataReader reader,
+        MethodDefinition body,
+        EntityHandle declaration,
+        TypeNode declarationOwner,
+        GenericContext bodyTypeContext,
+        Action<int>? beforeDecodeWork)
+    {
+        try
+        {
+            if (declarationOwner is not GenericTypeNode)
+            {
+                BlobHandle declarationSignatureBlob =
+                    declaration.Kind switch
+                    {
+                        HandleKind.MethodDefinition =>
+                            reader.GetMethodDefinition(
+                                    (MethodDefinitionHandle)declaration)
+                                .Signature,
+                        HandleKind.MemberReference =>
+                            reader.GetMemberReference(
+                                    (MemberReferenceHandle)declaration)
+                                .Signature,
+                        _ => default,
+                    };
+                return !declarationSignatureBlob.IsNil
+                    && BlobContentsEqual(
+                        reader,
+                        body.Signature,
+                        declarationSignatureBlob,
+                        beforeDecodeWork);
+            }
+
+            var provider = new TypeNodeProvider(
+                beforeRetain: null,
+                beforeMaterialize: beforeDecodeWork);
+            GenericContext bodyContext = GenericContext.ForMethod(
+                reader,
+                bodyTypeContext,
+                body,
+                beforeDecodeWork);
+            MethodSignature<TypeNode> bodySignature =
+                GuardedProviderDecode.Method(
+                    reader,
+                    body,
+                    provider,
+                    bodyContext,
+                    (TypeNode)new DegradedTypeNode());
+            MethodSignature<TypeNode> declarationSignature =
+                declaration.Kind switch
+                {
+                    HandleKind.MethodDefinition =>
+                        DecodeMethodDefinitionSignature(
+                            reader,
+                            (MethodDefinitionHandle)declaration,
+                            provider,
+                            beforeDecodeWork),
+                    HandleKind.MemberReference =>
+                        GuardedProviderDecode.MemberRefMethod(
+                            reader,
+                            reader.GetMemberReference(
+                                (MemberReferenceHandle)declaration),
+                            provider,
+                            bodyTypeContext,
+                            (TypeNode)new DegradedTypeNode()),
+                    _ => default,
+                };
+            if (declarationSignature.ReturnType is null)
+                return false;
+
+            ImmutableArray<TypeNode> declarationTypeArguments =
+                declarationOwner is GenericTypeNode genericOwner
+                    ? genericOwner.Arguments
+                    : [];
+            return MethodSignaturesMatch(
+                bodySignature,
+                declarationSignature,
+                declarationTypeArguments);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static MethodSignature<TypeNode>
+        DecodeMethodDefinitionSignature(
+            MetadataReader reader,
+            MethodDefinitionHandle handle,
+            TypeNodeProvider provider,
+            Action<int>? beforeDecodeWork)
+    {
+        MethodDefinition method = reader.GetMethodDefinition(handle);
+        TypeDefinition declaringType =
+            reader.GetTypeDefinition(method.GetDeclaringType());
+        GenericContext typeContext = GenericContext.ForType(
+            reader,
+            declaringType,
+            beforeDecodeWork);
+        GenericContext methodContext = GenericContext.ForMethod(
+            reader,
+            typeContext,
+            method,
+            beforeDecodeWork);
+        return GuardedProviderDecode.Method(
+            reader,
+            method,
+            provider,
+            methodContext,
+            (TypeNode)new DegradedTypeNode());
+    }
+
+    private static bool MethodSignaturesMatch(
+        MethodSignature<TypeNode> body,
+        MethodSignature<TypeNode> declaration,
+        ImmutableArray<TypeNode> declarationTypeArguments)
+    {
+        if (body.Header.RawValue != declaration.Header.RawValue
+            || body.GenericParameterCount
+                != declaration.GenericParameterCount
+            || body.RequiredParameterCount
+                != declaration.RequiredParameterCount
+            || body.ParameterTypes.Length
+                != declaration.ParameterTypes.Length
+            || !SignatureTypesMatch(
+                body.ReturnType,
+                declaration.ReturnType,
+                declarationTypeArguments))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < body.ParameterTypes.Length; i++)
+        {
+            if (!SignatureTypesMatch(
+                    body.ParameterTypes[i],
+                    declaration.ParameterTypes[i],
+                    declarationTypeArguments))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool SignatureTypesMatch(
+        TypeNode body,
+        TypeNode declaration,
+        ImmutableArray<TypeNode> declarationTypeArguments)
+    {
+        if (body.IsDegraded || declaration.IsDegraded)
+            return false;
+
+        if (declaration is GenericParameterNode
+            {
+                IsMethodParameter: false,
+                Index: var index,
+            }
+            && index >= 0
+            && index < declarationTypeArguments.Length)
+        {
+            return SignatureTypesMatch(
+                body,
+                declarationTypeArguments[index],
+                []);
+        }
+
+        if (body.GetType() != declaration.GetType())
+            return false;
+
+        return (body, declaration) switch
+        {
+            (PrimitiveTypeNode left, PrimitiveTypeNode right) =>
+                left.Name == right.Name,
+            (NamedTypeNode left, NamedTypeNode right) =>
+                left.DefinitionReference()
+                    == right.DefinitionReference(),
+            (GenericTypeNode left, GenericTypeNode right) =>
+                left.DefinitionReference()
+                    == right.DefinitionReference()
+                && TypeSequencesMatch(
+                    left.Arguments,
+                    right.Arguments,
+                    declarationTypeArguments),
+            (SZArrayTypeNode left, SZArrayTypeNode right) =>
+                SignatureTypesMatch(
+                    left.ElementType,
+                    right.ElementType,
+                    declarationTypeArguments),
+            (MDArrayTypeNode left, MDArrayTypeNode right) =>
+                left.Rank == right.Rank
+                && left.ArraySizes.SequenceEqual(right.ArraySizes)
+                && left.ArrayLowerBounds.SequenceEqual(
+                    right.ArrayLowerBounds)
+                && SignatureTypesMatch(
+                    left.ElementType,
+                    right.ElementType,
+                    declarationTypeArguments),
+            (PointerTypeNode left, PointerTypeNode right) =>
+                SignatureTypesMatch(
+                    left.ElementType,
+                    right.ElementType,
+                    declarationTypeArguments),
+            (ByRefTypeNode left, ByRefTypeNode right) =>
+                SignatureTypesMatch(
+                    left.ElementType,
+                    right.ElementType,
+                    declarationTypeArguments),
+            (GenericParameterNode left, GenericParameterNode right) =>
+                left.IsMethodParameter == right.IsMethodParameter
+                && left.Index == right.Index,
+            (FunctionPointerTypeNode left,
+                FunctionPointerTypeNode right) =>
+                MethodSignaturesMatch(
+                    left.Signature,
+                    right.Signature,
+                    declarationTypeArguments),
+            (ModifiedTypeNode left, ModifiedTypeNode right) =>
+                left.IsRequired == right.IsRequired
+                && SignatureTypesMatch(
+                    left.Modifier,
+                    right.Modifier,
+                    declarationTypeArguments)
+                && SignatureTypesMatch(
+                    left.Inner,
+                    right.Inner,
+                    declarationTypeArguments),
+            (PinnedTypeNode left, PinnedTypeNode right) =>
+                SignatureTypesMatch(
+                    left.Inner,
+                    right.Inner,
+                    declarationTypeArguments),
+            _ => false,
+        };
+    }
+
+    private static bool TypeSequencesMatch(
+        ImmutableArray<TypeNode> body,
+        ImmutableArray<TypeNode> declaration,
+        ImmutableArray<TypeNode> declarationTypeArguments)
+    {
+        if (body.Length != declaration.Length)
+            return false;
+
+        for (int i = 0; i < body.Length; i++)
+        {
+            if (!SignatureTypesMatch(
+                    body[i],
+                    declaration[i],
+                    declarationTypeArguments))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryGetExactTypeIdentity(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext context,
+        Action<int>? beforeDecodeWork,
+        out ExactTypeEvidence evidence)
+    {
+        try
+        {
+            var provider = new TypeNodeProvider(
+                beforeRetain: null,
+                beforeMaterialize: beforeDecodeWork);
+            TypeNode type = handle.Kind switch
+            {
+                HandleKind.TypeDefinition =>
+                    provider.GetTypeFromDefinition(
+                        reader,
+                        (TypeDefinitionHandle)handle,
+                        rawTypeKind: 0),
+                HandleKind.TypeReference =>
+                    provider.GetTypeFromReference(
+                        reader,
+                        (TypeReferenceHandle)handle,
+                        rawTypeKind: 0),
+                HandleKind.TypeSpecification =>
+                    GuardedProviderDecode.TypeSpec(
+                        reader,
+                        (TypeSpecificationHandle)handle,
+                        provider,
+                        context,
+                        (TypeNode)new DegradedTypeNode()),
+                _ => new DegradedTypeNode(),
+            };
+            if (type.IsDegraded
+                || type.DefinitionReference() is not
+                    { Assembly: { } assembly })
+            {
+                evidence = default;
+                return false;
+            }
+
+            evidence = new(
+                new(
+                    assembly,
+                    type.StructuralIdentity()),
+                type);
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            evidence = default;
+            return false;
+        }
+    }
+
+    internal readonly record struct ExactTypeIdentity(
+        ApiAssemblyIdentity Assembly,
+        string StructuralIdentity);
+
+    private readonly record struct ExactTypeEvidence(
+        ExactTypeIdentity Identity,
+        TypeNode Type);
+
+    private static Dictionary<MethodDefinitionHandle, int>
+        GetMethodImplementationBodyCounts(
+            MetadataReader reader,
+            TypeDefinitionHandle typeDefHandle,
+            TypeDefinition typeDef,
+            GenericContext typeContext,
+            Action<int>? beforeDecodeWork)
+    {
+        Dictionary<MethodDefinitionHandle, int> counts = [];
+        Dictionary<string, List<MethodDefinitionHandle>>? methodsByName =
+            null;
+        ExactTypeEvidence? declaringTypeEvidence = null;
+        foreach (MethodImplementationHandle implementationHandle
+            in typeDef.GetMethodImplementations())
+        {
+            beforeDecodeWork?.Invoke(8);
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind
+                == HandleKind.MethodDefinition)
+            {
+                Increment(
+                    counts,
+                    (MethodDefinitionHandle)implementation.MethodBody);
+                continue;
+            }
+
+            if (implementation.MethodBody.Kind
+                != HandleKind.MemberReference)
+            {
+                continue;
+            }
+
+            declaringTypeEvidence ??=
+                TryGetExactTypeIdentity(
+                    reader,
+                    typeDefHandle,
+                    typeContext,
+                    beforeDecodeWork,
+                    out ExactTypeEvidence typeEvidence)
+                    ? typeEvidence
+                    : null;
+            MemberReference member = reader.GetMemberReference(
+                (MemberReferenceHandle)implementation.MethodBody);
+            if (declaringTypeEvidence is not { } currentType
+                || !TryGetExactTypeIdentity(
+                    reader,
+                    member.Parent,
+                    typeContext,
+                    beforeDecodeWork,
+                    out ExactTypeEvidence bodyOwner)
+                || !IsCurrentTypeBodyOwner(
+                    bodyOwner.Type,
+                    currentType.Type,
+                    typeDef.GetGenericParameters().Count))
+            {
+                continue;
+            }
+
+            methodsByName ??= IndexMethodsByName(
+                reader,
+                typeDef,
+                beforeDecodeWork);
+            string name = DecodeString(
+                reader,
+                member.Name,
+                beforeDecodeWork);
+            if (!methodsByName.TryGetValue(
+                    name,
+                    out List<MethodDefinitionHandle>? candidates))
+            {
+                continue;
+            }
+
+            foreach (MethodDefinitionHandle candidate in candidates)
+            {
+                beforeDecodeWork?.Invoke(4);
+                if (BlobContentsEqual(
+                        reader,
+                        reader.GetMethodDefinition(candidate).Signature,
+                        member.Signature,
+                        beforeDecodeWork))
+                {
+                    Increment(counts, candidate);
+                }
+            }
+
+        }
+
+        return counts;
+
+        static void Increment(
+            Dictionary<MethodDefinitionHandle, int> counts,
+            MethodDefinitionHandle handle)
+        {
+            counts[handle] = counts.GetValueOrDefault(handle) + 1;
+        }
+    }
+
+    private static bool IsCurrentTypeBodyOwner(
+        TypeNode candidate,
+        TypeNode declaringType,
+        int declaringTypeParameterCount)
+    {
+        if (candidate.DefinitionReference()
+                != declaringType.DefinitionReference())
+        {
+            return false;
+        }
+
+        if (candidate.StructuralIdentity()
+            == declaringType.StructuralIdentity())
+        {
+            return true;
+        }
+
+        if (candidate is not GenericTypeNode candidateGeneric
+            || candidateGeneric.Arguments.Length
+                != declaringTypeParameterCount)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < candidateGeneric.Arguments.Length; i++)
+        {
+            if (candidateGeneric.Arguments[i] is not GenericParameterNode
+                {
+                    IsMethodParameter: false,
+                    Index: var parameterIndex,
+                }
+                || parameterIndex != i)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static Dictionary<string, List<MethodDefinitionHandle>>
+        IndexMethodsByName(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            Action<int>? beforeDecodeWork)
+    {
+        var methods = new Dictionary<
+            string,
+            List<MethodDefinitionHandle>>(StringComparer.Ordinal);
+        foreach (MethodDefinitionHandle handle in typeDef.GetMethods())
+        {
+            beforeDecodeWork?.Invoke(8);
+            string name = DecodeString(
+                reader,
+                reader.GetMethodDefinition(handle).Name,
+                beforeDecodeWork);
+            if (!methods.TryGetValue(
+                    name,
+                    out List<MethodDefinitionHandle>? candidates))
+            {
+                candidates = [];
+                methods.Add(name, candidates);
+            }
+            candidates.Add(handle);
+        }
+
+        return methods;
     }
 
     /// <summary>
@@ -822,6 +1429,7 @@ public static partial class ApiSurfaceExtractor
         BlobHandle rightHandle,
         Action<int>? beforeDecodeWork)
     {
+        beforeDecodeWork?.Invoke(8);
         BlobReader left = reader.GetBlobReader(leftHandle);
         BlobReader right = reader.GetBlobReader(rightHandle);
         if (left.Length != right.Length)

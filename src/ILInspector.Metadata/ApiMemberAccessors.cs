@@ -164,8 +164,8 @@ public static class ApiMemberAccessors
             IsAbstract = modifiers.IsAbstract,
             IsOverride = modifiers.IsOverride,
             IsSealed = modifiers.IsSealed,
-            FinalFlagIsRepresentable =
-                modifiers.FinalFlagIsRepresentable,
+            MethodModifiersAreRepresentable =
+                modifiers.AreRepresentable,
             IsUnsafe = owner.IsUnsafe,
             IsReadOnly = accessorEntry?.IsReadOnly == true
                 || owner.IsReadOnly,

@@ -8,7 +8,7 @@ internal readonly record struct ApiMethodModifiers(
     bool IsAbstract,
     bool IsOverride,
     bool IsSealed,
-    bool FinalFlagIsRepresentable)
+    bool AreRepresentable)
 {
     internal static ApiMethodModifiers FromAttributes(
         MethodAttributes attributes,
@@ -17,19 +17,28 @@ internal readonly record struct ApiMethodModifiers(
         bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
         bool isFinal = (attributes & MethodAttributes.Final) != 0;
+        bool isStatic = (attributes & MethodAttributes.Static) != 0;
+        bool isHideBySig =
+            (attributes & MethodAttributes.HideBySig) != 0;
         bool isOverride = isVirtual
             && !isNewSlot
             && !isExplicitInterfaceImplementation;
         return new(
-            (attributes & MethodAttributes.Static) != 0,
+            isStatic,
             isVirtual,
             (attributes & MethodAttributes.Abstract) != 0,
             isOverride,
             isOverride && isFinal,
-            !isFinal
-                || isOverride
-                || isExplicitInterfaceImplementation
-                    && isVirtual
-                    && isNewSlot);
+            isExplicitInterfaceImplementation
+                ? isStatic
+                    ? isHideBySig
+                        && !isVirtual
+                        && !isNewSlot
+                        && !isFinal
+                    : isHideBySig
+                        && isVirtual
+                        && isNewSlot
+                        && isFinal
+                : !isFinal || isOverride);
     }
 }

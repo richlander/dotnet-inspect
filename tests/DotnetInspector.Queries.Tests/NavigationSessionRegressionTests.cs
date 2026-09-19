@@ -556,7 +556,12 @@ public sealed partial class NavigationSessionTests
             NavigationWorkspaceSnapshotEquality.Member(first, second));
 
         second = Member();
-        second.FinalFlagIsRepresentable = false;
+        second.MethodModifiersAreRepresentable = false;
+        Assert.False(
+            NavigationWorkspaceSnapshotEquality.Member(first, second));
+
+        second = Member();
+        second.MethodImplementationIsRepresentable = false;
         Assert.False(
             NavigationWorkspaceSnapshotEquality.Member(first, second));
 
@@ -590,7 +595,8 @@ public sealed partial class NavigationSessionTests
         {
             ApiMember member = NavigationSnapshotTestData.Member("Run");
             member.AccessibilityIsRepresentable = true;
-            member.FinalFlagIsRepresentable = true;
+            member.MethodModifiersAreRepresentable = true;
+            member.MethodImplementationIsRepresentable = true;
             member.SignatureModel = new()
             {
                 MethodDeclarationHeaderIsRepresentable = true,

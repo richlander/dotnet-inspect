@@ -253,6 +253,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType,
                     surface,
@@ -1014,6 +1015,8 @@ public static partial class ApiSurfaceExtractor
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
+            var implementedInterfaceNames =
+                new Dictionary<ExactTypeIdentity, string>();
             if (interfaces.Count > 0)
             {
                 apiType.Interfaces = [];
@@ -1035,6 +1038,17 @@ public static partial class ApiSurfaceExtractor
                         observeText,
                         observeDecodeWork);
                     apiType.Interfaces.Add(ifaceName);
+                    if (TryGetExactTypeIdentity(
+                            reader,
+                            iface.Interface,
+                            typeContext,
+                            observeDecodeWork,
+                            out ExactTypeEvidence interfaceEvidence))
+                    {
+                        implementedInterfaceNames.TryAdd(
+                            interfaceEvidence.Identity,
+                            ifaceName);
+                    }
                     if (DecodeTypeDefinitionReference(
                             reader,
                             iface.Interface,
@@ -1054,7 +1068,23 @@ public static partial class ApiSurfaceExtractor
             {
             apiType.Members = [];
 
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+            var explicitImplementationBodies =
+                GetExplicitImplementationBodies(
+                    reader,
+                    typeDefHandle,
+                    typeDef,
+                    typeContext,
+                    observeDecodeWork);
+            HashSet<MethodDefinitionHandle>
+                explicitImplementationBodyHandles =
+                    [.. explicitImplementationBodies.Keys];
+            var methodImplementationBodyCounts =
+                GetMethodImplementationBodyCounts(
+                    reader,
+                    typeDefHandle,
+                    typeDef,
+                    typeContext,
+                    observeDecodeWork);
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -1108,7 +1138,21 @@ public static partial class ApiSurfaceExtractor
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
+                var isExplicitInterfaceImplementation =
+                    explicitImplementationBodies.TryGetValue(
+                        methodHandle,
+                        out ExactTypeIdentity explicitInterface);
+                int explicitSeparator = methodName.LastIndexOf('.');
+                bool explicitInterfaceQualifierMatches =
+                    !isExplicitInterfaceImplementation
+                    || explicitSeparator > 0
+                    && implementedInterfaceNames.TryGetValue(
+                        explicitInterface,
+                        out string? interfaceName)
+                    && string.Equals(
+                        methodName[..explicitSeparator],
+                        interfaceName,
+                        StringComparison.Ordinal);
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                 {
                     RetainFilteredRuntimeJsExportFact(
@@ -1254,8 +1298,18 @@ public static partial class ApiSurfaceExtractor
                     IsAbstract = modifiers.IsAbstract,
                     IsOverride = modifiers.IsOverride,
                     IsSealed = modifiers.IsSealed,
-                    FinalFlagIsRepresentable =
-                        modifiers.FinalFlagIsRepresentable,
+                    MethodModifiersAreRepresentable =
+                        modifiers.AreRepresentable,
+                    MethodImplementationIsRepresentable =
+                        methodImplementationBodyCounts.GetValueOrDefault(
+                            methodHandle) switch
+                        {
+                            0 => true,
+                            1 => isFinalizer
+                                || isExplicitInterfaceImplementation
+                                    && explicitInterfaceQualifierMatches,
+                            _ => false,
+                        },
                     IsFinalizer = isFinalizer,
                     IsReadOnly = isReadOnlyMethod,
                     ReadOnlyMarkerIsRepresentable =
@@ -1469,7 +1523,7 @@ public static partial class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
-                    explicitImplementationBodies,
+                    explicitImplementationBodyHandles,
                     includeAll,
                     observeText,
                     observeDecodeWork,
@@ -1942,7 +1996,7 @@ public static partial class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
-                    explicitImplementationBodies,
+                    explicitImplementationBodyHandles,
                     observeText,
                     observeDecodeWork);
 

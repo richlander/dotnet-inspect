@@ -118,7 +118,8 @@ public static class CSharpMemberArtifactEligibility
             return true;
         }
 
-        if (member.FinalFlagIsRepresentable == false
+        if (member.MethodModifiersAreRepresentable != true
+            || member.MethodImplementationIsRepresentable != true
             || member.ReadOnlyMarkerIsRepresentable == false
             || member.IsReadOnly
                 && (member.ReadOnlyMarkerIsRepresentable != true
