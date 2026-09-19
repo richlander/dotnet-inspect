@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
@@ -133,6 +134,48 @@ internal sealed class CapturedLibraryTableFormatter :
 
     internal int WindowedRowCount(RowWindow? rows) =>
         WindowedRows(rows).Count;
+
+    internal Dictionary<string, string>[] JsonRows(RowWindow? rows)
+    {
+        if (_headers is null)
+            return [];
+
+        return
+        [
+            .. WindowedRows(rows).Select(
+                row =>
+                    Enumerable.Range(0, _headers.Length)
+                        .ToDictionary(
+                            index => _headers[index],
+                            index => LowerJsonCell(row[index]),
+                            StringComparer.Ordinal)),
+        ];
+    }
+
+    private static string LowerJsonCell(string value)
+    {
+        if (value is { Length: > 1 }
+            && value[0] == '`'
+            && value[^1] == '`')
+        {
+            return WebUtility.HtmlDecode(value[1..^1]);
+        }
+
+        const string openCode = "<code>";
+        const string closeCode = "</code>";
+        if (value.StartsWith(
+                openCode,
+                StringComparison.OrdinalIgnoreCase)
+            && value.EndsWith(
+                closeCode,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return WebUtility.HtmlDecode(
+                value[openCode.Length..^closeCode.Length]);
+        }
+
+        return WebUtility.HtmlDecode(value);
+    }
 
     internal void ProjectColumns(
         string[]? projectedColumns,
@@ -1262,9 +1305,26 @@ public static class OutputFormatter
             {
                 if (options.JsonOutput)
                 {
-                    output.WriteLine(JsonSerializer.Serialize(
-                        inspections.ToArray(),
-                        JsonContext.Default.LibraryInspectionArray));
+                    if (packageAggregate)
+                    {
+                        output.WriteLine(JsonSerializer.Serialize(
+                            CreatePackageLibraryAggregateJson(
+                                inspections,
+                                aggregatePackage!,
+                                aggregateVersion,
+                                topFieldsOnly,
+                                WriterOptions,
+                                options,
+                                pipeline),
+                            PackageLibraryAggregateJsonContext.Default
+                                .PackageLibraryAggregateJson));
+                    }
+                    else
+                    {
+                        output.WriteLine(JsonSerializer.Serialize(
+                            inspections.ToArray(),
+                            JsonContext.Default.LibraryInspectionArray));
+                    }
                     return;
                 }
 
@@ -1891,6 +1951,130 @@ public static class OutputFormatter
                 tsvTableWritten = true;
             }
         }
+    }
+
+    private static PackageLibraryAggregateJson
+        CreatePackageLibraryAggregateJson(
+            IReadOnlyList<LibraryInspection> inspections,
+            string aggregatePackage,
+            string? aggregateVersion,
+            bool topFieldsOnly,
+            Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+            LibraryOptions options,
+            SectionPipeline<LibraryInspection> pipeline)
+    {
+        var sections =
+            new List<PackageLibraryAggregateSectionJson>();
+        foreach (string section in pipeline.AlphabeticalSectionOrder
+                     .Where(name => inspections.Any(
+                         inspection => IncludesSection(
+                             writerOptions(inspection),
+                             name))))
+        {
+            var rows = new List<Dictionary<string, string>>();
+            if (IsAggregateLibrarySection(section))
+            {
+                CapturedLibraryTableFormatter table =
+                    CaptureAggregateSectionTable(
+                        inspections,
+                        section,
+                        writerOptions,
+                        options,
+                        machineFormat: true,
+                        aggregatePackage,
+                        aggregateVersion);
+                rows.AddRange(table.JsonRows(options.Rows));
+            }
+            else
+            {
+                foreach (LibraryInspection inspection in inspections)
+                {
+                    if (!IncludesSection(
+                            writerOptions(inspection),
+                            section))
+                    {
+                        continue;
+                    }
+
+                    CapturedLibraryTableFormatter table =
+                        CapturePackageLibrarySectionTable(
+                            inspection,
+                            section,
+                            aggregatePackage,
+                            aggregateVersion,
+                            topFieldsOnly,
+                            writerOptions,
+                            options);
+                    rows.AddRange(table.JsonRows(options.Rows));
+                }
+            }
+
+            if (rows.Count > 0)
+            {
+                sections.Add(
+                    new PackageLibraryAggregateSectionJson(
+                        section,
+                        [.. rows]));
+            }
+        }
+
+        return new PackageLibraryAggregateJson(
+            aggregatePackage,
+            aggregateVersion,
+            [.. sections]);
+    }
+
+    private static CapturedLibraryTableFormatter
+        CapturePackageLibrarySectionTable(
+            LibraryInspection inspection,
+            string section,
+            string aggregatePackage,
+            string? aggregateVersion,
+            bool topFieldsOnly,
+            Func<LibraryInspection, MarkoutWriterOptions> writerOptions,
+            LibraryOptions options)
+    {
+        MarkoutWriterOptions participantOptions =
+            writerOptions(inspection);
+        participantOptions.IncludeSections =
+            new HashSet<string>(
+                [section],
+                StringComparer.OrdinalIgnoreCase);
+        participantOptions.Projection =
+            BuildProjection(fields: options.Fields);
+        ConfigureTableWriterOptions(
+            participantOptions,
+            tsv: false,
+            jsonl: true);
+
+        var captured = new CapturedLibraryTableFormatter();
+        MarkoutSerializer.Serialize(
+            new LibraryInspectionView(
+                inspection,
+                topFieldsOnly),
+            TextWriter.Null,
+            new ProducerLibraryTableFormatter(
+                captured,
+                [
+                    "package",
+                    "package_version",
+                    "library",
+                    "tfm",
+                ],
+                [
+                    LibraryViewText.Contain(aggregatePackage)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(aggregateVersion)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.FileName)
+                        ?? string.Empty,
+                    LibraryViewText.Contain(inspection.Tfm)
+                        ?? string.Empty,
+                ],
+                options.Columns),
+            InspectionContext.Default,
+            participantOptions);
+        return captured;
     }
 
     private static CapturedLibraryTableFormatter

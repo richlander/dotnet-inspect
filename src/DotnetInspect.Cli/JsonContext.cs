@@ -73,6 +73,16 @@ public partial class JsonContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PackageLibraryAggregateJson))]
+internal partial class PackageLibraryAggregateJsonContext :
+    JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]

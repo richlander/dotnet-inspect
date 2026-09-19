@@ -256,11 +256,19 @@ public partial class CommandExecutionTests
                 "--rows", "2",
                 "--jsonl",
                 "--tips", "q");
+            var json = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--rows", "2",
+                "--json",
+                "--tips", "q");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, markdown.Exit);
             Assert.Equal(0, tsv.Exit);
             Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, json.Exit);
             Assert.Equal(4, int.Parse(
                 count.Output.Trim(),
                 System.Globalization.CultureInfo.InvariantCulture));
@@ -294,10 +302,40 @@ public partial class CommandExecutionTests
                     .GetProperty("tfm")
                     .GetString());
             Assert.Equal(4, SplitOutputLines(jsonl.Output).Length);
+            using (var document =
+                   System.Text.Json.JsonDocument.Parse(json.Output))
+            {
+                Assert.Equal(
+                    "Test.LibraryFiles",
+                    document.RootElement
+                        .GetProperty("package")
+                        .GetString());
+                Assert.Equal(
+                    "1.0.0",
+                    document.RootElement
+                        .GetProperty("package_version")
+                        .GetString());
+                var section = Assert.Single(
+                    document.RootElement
+                        .GetProperty("sections")
+                        .EnumerateArray());
+                Assert.Equal(
+                    SectionNames.LibraryInfo,
+                    section.GetProperty("name").GetString());
+                var rows = section
+                    .GetProperty("rows")
+                    .EnumerateArray()
+                    .ToArray();
+                Assert.Equal(4, rows.Length);
+                Assert.Equal(
+                    "net10.0",
+                    rows[0].GetProperty("tfm").GetString());
+            }
             Assert.Empty(count.Error);
             Assert.Empty(markdown.Error);
             Assert.Empty(tsv.Error);
             Assert.Empty(jsonl.Error);
+            Assert.Empty(json.Error);
         }
         finally
         {
@@ -343,11 +381,29 @@ public partial class CommandExecutionTests
                 "--rows", "1",
                 "--tsv",
                 "--tips", "q");
+            var jsonl = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "--tfm", "all",
+                "-S", "Switches",
+                "--rows", "1",
+                "--jsonl",
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "--tfm", "all",
+                "-S", "Switches",
+                "--rows", "1",
+                "--json",
+                "--tips", "q");
 
             Assert.Equal(0, count.Exit);
             Assert.Equal(0, markdown.Exit);
             Assert.Equal(0, plainText.Exit);
             Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, json.Exit);
             Assert.Equal(
                 1,
                 int.Parse(
@@ -400,10 +456,60 @@ public partial class CommandExecutionTests
                     .Skip(2)
                     .ToArray();
             Assert.Equal(markdownRow, tsvRow);
+            using var jsonlRow =
+                System.Text.Json.JsonDocument.Parse(
+                    Assert.Single(
+                        SplitOutputLines(jsonl.Output)));
+            using var jsonDocument =
+                System.Text.Json.JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                "Test.MultiLib",
+                jsonDocument.RootElement
+                    .GetProperty("package")
+                    .GetString());
+            Assert.Equal(
+                "1.0.0",
+                jsonDocument.RootElement
+                    .GetProperty("package_version")
+                    .GetString());
+            var jsonSection = Assert.Single(
+                jsonDocument.RootElement
+                    .GetProperty("sections")
+                    .EnumerateArray());
+            Assert.Equal(
+                SectionNames.Switches,
+                jsonSection.GetProperty("name").GetString());
+            var jsonRow = Assert.Single(
+                jsonSection
+                    .GetProperty("rows")
+                    .EnumerateArray());
+            var jsonlProperties =
+                jsonlRow.RootElement
+                    .EnumerateObject()
+                    .ToDictionary(
+                        property => property.Name,
+                        property => property.Value.GetString());
+            var jsonProperties =
+                jsonRow
+                    .EnumerateObject()
+                    .ToDictionary(
+                        property => property.Name,
+                        property => property.Value.GetString());
+            Assert.Equal(jsonlProperties.Count, jsonProperties.Count);
+            foreach (var property in jsonlProperties)
+            {
+                Assert.True(
+                    jsonProperties.TryGetValue(
+                        property.Key,
+                        out string? value));
+                Assert.Equal(property.Value, value);
+            }
             Assert.Empty(count.Error);
             Assert.Empty(markdown.Error);
             Assert.Empty(plainText.Error);
             Assert.Empty(tsv.Error);
+            Assert.Empty(jsonl.Error);
+            Assert.Empty(json.Error);
         }
         finally
         {
