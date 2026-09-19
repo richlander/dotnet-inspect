@@ -585,6 +585,19 @@ Settlement obeys these rules:
 - equal names or versions do not merge different families, targets, sources,
   generations, or physical suppliers.
 
+For ordered Reference-source settlement, `Precedence` and `Fallback` differ
+only at source failure. Both may continue after an unavailable contribution.
+`Precedence` makes a failed higher-priority capability terminal; `Fallback`
+may retain that failure as `OutcomeRelevant` and select a later capability.
+Rejected or incomplete evidence is terminal in either mode. After selection,
+supplied later contributions are `Shadowed`.
+
+`Aggregation` requires one contribution from every authorized capability. One
+authoritative realization plus authoritative absence from every peer selects
+that realization. Multiple authoritative realizations are ambiguous, while
+missing or incomplete evidence cannot complete aggregation. A required source
+failure remains failed, and rejected owner evidence remains rejected.
+
 ASP.NET Core source realizations may retain a .NET runtime support closure.
 The source owner establishes that closure and its version behavior. The House
 preserves the focus target, support targets, members, and evidence rather than
@@ -975,14 +988,13 @@ rejection, or incomplete work retain their existing terminal meaning.
 
 ### Exact source-neutral binding execution
 
-The first executable assembly-reference boundary starts after one authorized
-Platform source has prepared an immutable reference snapshot for an explicit
-Metadata assembly-reference target. It accepts an exact-target
+The source-neutral binding kernel starts after source policy selects one
+authorized immutable reference snapshot for an explicit Metadata
+assembly-reference target. It accepts an exact-target
 `ResolveAssemblyReference` request with global binding origin, Reference view,
 one authoritative reference realization for that same request and identity,
-and finite work. Source discovery, target selection, source fallback or
-aggregation, and source-relative ladder continuation remain outside this
-boundary.
+and finite work. Source discovery, target selection, and source-relative
+ladder continuation remain outside this boundary.
 
 PlatformHouse owns the snapshot from acceptance onward. A completed operation
 has these ordered obligations:
@@ -1032,6 +1044,96 @@ gates terminal cancellation after owned cleanup in Release.
 gates Artifact publication cleanup failure as primary over cancellation in
 Release.
 
+### Multi-source assembly-reference policy execution
+
+The multi-source resolver accepts a finite set of source-prepared attempts for
+the exact Reference selection captured by the request. An attempt is ephemeral
+execution input, not House evidence. A successful attempt carries an
+owner-issued candidate identity and the existing materialization item,
+including its immutable opener. A terminal attempt carries only the exact
+resource-free source contribution and, for rejection, its mapped House
+classification. Attempts, openers, source diagnostics, and live source values
+never enter an outcome or receipt.
+
+The resolver indexes attempts by capability identity, rejects duplicate
+capabilities or candidate identities, and traverses the source plan's
+capability order rather than caller enumeration order. Missing required
+attempts remain incomplete. An in-budget ledger records at least one source
+operation for every supplied attempt, while assembly and byte work apply to
+successful materializations. Exhausted work with an under-reported ledger
+closes as `Incomplete` without retaining source settlements that ledger cannot
+support. The policy modes execute as follows:
+
+- `Precedence` selects the first authoritative realization after unavailable
+  predecessors. A higher-priority failure is terminal.
+- `Fallback` also selects the first authoritative realization, but may
+  continue after an unavailable or failed predecessor. Every predecessor that
+  permits continuation remains `OutcomeRelevant`.
+- `Aggregation` requires every capability. Exactly one realization plus
+  authoritative absence from every peer selects; multiple realizations return
+  owner-identity ambiguity without opening either item; zero realizations
+  returns unavailable only after every supplied capability settles without a
+  stronger terminal result.
+
+Rejected or incomplete ordered evidence prevents later selection. Supplied
+evidence after an ordered terminal or selected attempt is `Shadowed`.
+Aggregation evidence is `OutcomeRelevant`; a selected aggregate realization
+is `Selected`. Once policy selects a realization, the shared binding kernel
+owns publication, Metadata projection, Library borrowing, cleanup, and final
+receipt construction unchanged.
+
+Terminal precedence is:
+
+1. observe cancellation before and throughout attempt acceptance, including
+   once after enumeration completes;
+2. validate the request before enumerating attempts, using `Incomplete`
+   without settlement when work is already exhausted and `Rejected` otherwise;
+3. validate attempt correspondence under the same exhausted-work precedence
+   without retaining foreign evidence;
+4. select the source-policy decision;
+5. reject an in-budget consumed-work ledger that cannot cover the supplied
+   attempts;
+6. preserve a corresponding policy-terminal source failure as
+   `Failed(Source)` when the ledger covers the supplied attempts;
+7. otherwise make exhausted work `Incomplete`, retaining policy evidence only
+   when the ledger covers it;
+8. make required missing/incomplete evidence `Incomplete`; and
+9. apply the remaining selection, ambiguity, rejection, or unavailability
+   decision.
+
+No terminal, shadowed, or ambiguous path opens source content.
+
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_FallbackUsesPlanOrderAndRetainsPriorAbsence`
+gates plan-order execution independent of input enumeration.
+`ResolveAsync_PrecedenceFailureStopsBeforeLaterSuccess`,
+`ResolveAsync_FallbackSupersedesPriorFailure`, and
+`ResolveAsync_FallbackTerminalPreventsLaterSelection` gate the ordered-mode
+distinctions.
+`ResolveAsync_AggregationSelectsAfterAuthoritativePeerAbsence`,
+`ResolveAsync_AggregationAmbiguityOpensNoSourceContent`, and
+`ResolveAsync_AggregationRetainsPeerTerminalOutcome` gate aggregate
+settlement. `ResolveAsync_AggregationFailurePrecedesPeerTerminal` and
+`ResolveAsync_AggregationFailurePrecedesMissingCapability` gate source-failure
+precedence over weaker aggregate terminals.
+`ResolveAsync_MissingCapabilityIsIncompleteWithoutOpeningSuccess`,
+`ResolveAsync_RejectsDuplicateCapabilityAttemptsWithoutOpening`, and
+`ResolveAsync_RejectsDuplicateCandidateIdentityWithoutOpening` gate complete
+and unique attempt correspondence.
+`ResolveAsync_RejectsForeignAttemptBeforeSourceAccess` and
+`ResolveAsync_BudgetExhaustionPrecedesForeignAttempt` gate foreign-evidence
+and finite-work precedence.
+`ResolveAsync_RejectsUnderreportedTerminalSourceWork` gates consumed-work
+coverage for failure and shadowed attempts.
+`ResolveAsync_InvalidRequestDoesNotEnumerateAttempts` gates request rejection
+before attempt production.
+`ResolveAsync_ObservesCancellationDuringAttemptEnumeration` gates typed
+cancellation from a lazy attempt producer before policy settlement.
+`ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration` and
+`ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement` gate
+receipt-compatible exhausted-work closure without unsupported settlement.
+`ResolveAsync_ExhaustedUnderreportedFailureIsIncompleteWithoutSettlement`
+gates the same closure when policy also observes source failure.
+
 ### Installed successful-result binding adoption
 
 The installed adapter admits the exact one-assembly Reference population
@@ -1049,8 +1151,8 @@ Metadata projection, terminal precedence, cleanup, or receipt construction.
 The returned decision therefore remains detached terminal data: the shared
 executor settles the exact installed contribution once and retires every
 temporary Library and Artifact authority before publication. Installed
-source-terminal orchestration, source fallback, source-relative lineage, and
-ladder or host composition remain later owner-adoption slices.
+source-specific invocation orchestration, source-relative lineage, and ladder
+or host composition remain later owner-adoption slices.
 
 `InstalledPlatformHouseAdapterTests.RealizeReference_BindingProducesExactAssemblyContribution`
 gates the authoritative one-assembly installed contribution in Release.
@@ -1085,8 +1187,8 @@ Metadata projection, terminal precedence, cleanup, or receipt construction.
 The returned decision therefore remains detached terminal data: the shared
 executor settles the exact package contribution once and retires every
 temporary Library and Artifact authority before publication. Package
-source-terminal orchestration, fallback or aggregation, source-relative
-lineage, and ladder or host composition remain later owner-adoption slices.
+source-specific invocation orchestration, source-relative lineage, and ladder
+or host composition remain later owner-adoption slices.
 
 `PackagePlatformAssemblyReferenceResolverTests.AdapterProducesExactBindingContributionAfterPackageSettlement`
 gates the authoritative one-assembly package contribution after Package Source
@@ -1125,9 +1227,12 @@ mismatched-target, successful, or otherwise unusable contributions produce
 `Rejected(InvalidOwnerResult)` with no source settlement. Cancellation remains
 `OperationCanceledException`.
 
-This is single-source terminal projection, not source selection. It does not
-add installed projection, target discovery, precedence, fallback, aggregation,
-source-relative lineage, ladder composition, or host adoption.
+The direct projection remains a single-source terminal operation. The package
+bridge also prepares the same terminal result as a common ephemeral attempt
+for the source-neutral policy executor while retaining its diagnostic on the
+caller-owned package result. The bridge itself does not select sources. Target
+discovery, source-relative lineage, ladder composition, and host adoption
+remain later work.
 
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsPackageSourceTerminalOutcomes`
 gates the four package terminal arms, exact outcome-relevant settlement, source
@@ -1160,9 +1265,11 @@ source-owned layout, member, assembly, or other evidence as
 `InvalidOwnerResult`. The installed diagnostic remains on the caller-owned
 adapter result beside the host-neutral House outcome.
 
-This closes the installed single-source terminal algebra. It does not add
-target discovery, source precedence, fallback, aggregation, source-relative
-lineage, ladder composition, or host adoption.
+This closes the installed single-source terminal algebra. The installed bridge
+also prepares success or terminal results as common ephemeral attempts without
+moving its diagnostic into House evidence. Target discovery, source-specific
+invocation orchestration, source-relative lineage, ladder composition, and
+host adoption remain later work.
 
 `InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsInstalledSourceTerminalOutcomes`
 gates the four installed terminal arms, exact outcome-relevant settlement,
