@@ -131,6 +131,14 @@ the complete dependency relationships plus the selected
 The service constructs Share for both JSON modes, but `--json` emits Content
 only; `--envelope` exposes Share.
 
+For one exact NuGet.org package version and TFM, `share.kind` is normally
+`available`; its `full_url` opens the analogous Dependencies view in Inspect
+Web and `packet` is the canonical replay state. Mixed dependency sources and
+explicit `--depth` remain valid Content requests but make Share
+`nonProjectable`, because the published browser cannot preserve them. This is
+the high-value envelope path when a dependency answer should include a
+user-drillable graph.
+
 With `--envelope`, use `--compact` for minified JSON. `--depth` remains
 traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
 selection. Do not combine it with `--json`, another format, Discover or schema
@@ -165,6 +173,12 @@ edge rows consistently across these views.
 
 For a type-level dependency summary, `Called Types` groups direct calls by
 target type, assembly, members, and call kinds.
+
+`Call Graph` has no `--envelope` route. Its graph, row selection, and
+completeness evidence belong to Content, so use the graph views or structured
+row formats above. A separate exact-member `--share url` projects the public
+API Overview, not the Call Graph; do not present that URL as a replay of the
+graph analysis.
 
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"

@@ -3395,8 +3395,10 @@ public partial class CommandExecutionTests
     /// The acquisition guarantee must hold under <c>--json</c> as well; before #3379 this
     /// combination exited 0 with the type surface and never attempted the fetch.
     /// </summary>
-    [Fact]
-    public async Task Type_SourceFiles_PrintRowJson_FetchFailureIsHardError()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SourceDocument_PrintRowJson_FetchFailureIsHardError(bool member)
     {
         using var client = new HttpClient(new NotFoundHandler());
         string cacheDir = Path.Combine(
@@ -3407,8 +3409,13 @@ public partial class CommandExecutionTests
             DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
-                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-                "-S", "Source Files", "--print", "--row", "2", "--json", "--tips", "q");
+                [
+                    member ? "member" : "type", member ? "JsonConvert" : "JsonReader",
+                    "--package", "Newtonsoft.Json@13.0.3",
+                    .. member ? new[] { "-m", "SerializeObject" } : [],
+                    "-S", member ? "Source Locations" : "Source Files",
+                    "--print", "--row", "2", "--json", "--tips", "q",
+                ]);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -3455,8 +3462,10 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Type_SourceFiles_PrintRow_RejectsSameOriginChecksumMismatch()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SourceDocument_PrintRow_RejectsSameOriginChecksumMismatch(bool member)
     {
         using var client = new HttpClient(new SourceResponseHandler(
             "same-origin but wrong content"u8.ToArray()));
@@ -3468,8 +3477,13 @@ public partial class CommandExecutionTests
             DotnetInspector.Networking.HttpClientFactory.SetUntrustedFetchForTesting(client);
             NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
-                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-                "-S", "Source Files", "--print", "--row", "2", "--tips", "q");
+                [
+                    member ? "member" : "type", member ? "JsonConvert" : "JsonReader",
+                    "--package", "Newtonsoft.Json@13.0.3",
+                    .. member ? new[] { "-m", "SerializeObject" } : [],
+                    "-S", member ? "Source Locations" : "Source Files",
+                    "--print", "--row", "2", "--tips", "q",
+                ]);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);

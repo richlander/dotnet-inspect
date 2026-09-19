@@ -299,6 +299,8 @@ public static class ApiCoordinateMatchInspection
                 new(stage, "Rejected", failure.Failure.GetType().Name,
                     Text("Destination Type resolution was rejected."), Budget: failure.Failure switch
                     {
+                        CoordinateTypeResolutionFailureEvidence.DeclarationBudgetExceeded limit =>
+                            limit.Budget,
                         CoordinateTypeResolutionFailureEvidence.HopBudgetExceeded limit => limit.Budget,
                         CoordinateTypeResolutionFailureEvidence.RequestBudgetExceeded limit => limit.Budget,
                         CoordinateTypeResolutionFailureEvidence.DiscoveryBudgetExceeded limit => limit.Budget,
