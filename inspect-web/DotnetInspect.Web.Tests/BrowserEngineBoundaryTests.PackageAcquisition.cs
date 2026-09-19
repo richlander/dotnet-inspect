@@ -956,6 +956,34 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageCacheAccountingIsAtomicAcrossConcurrentReservations()
+    {
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"reservation.concurrent.drain.{Guid.NewGuid():N}", 128L * MiB))
+        {
+        }
+
+        BrowserPackageCacheSnapshot baseline = BrowserPackageWorkspace.Stats();
+        await Task.WhenAll(
+            Enumerable.Range(0, 8).Select(worker => Task.Run(
+                async () =>
+                {
+                    for (int iteration = 0; iteration < 200; iteration++)
+                    {
+                        using BrowserPackageWorkspace.PackageDownloadReservation reservation =
+                            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                                $"reservation.concurrent.{worker}.{iteration}.{Guid.NewGuid():N}",
+                                declaredLength: 0);
+                        _ = BrowserPackageWorkspace.Stats();
+                    }
+                })));
+
+        BrowserPackageCacheSnapshot settled = BrowserPackageWorkspace.Stats();
+        Assert.Equal(baseline.Resident, settled.Resident);
+        Assert.Equal(baseline.ResidentBytes, settled.ResidentBytes);
+    }
+
+    [Fact]
     public async Task BrowserWorkspace_DistinctClientsKeepScopesAndArchiveLeasesSeparate()
     {
         using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(

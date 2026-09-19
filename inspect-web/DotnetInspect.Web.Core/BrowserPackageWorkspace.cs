@@ -209,6 +209,7 @@ internal static class BrowserPackageWorkspace
         MaxEntryCount = 4_096,
         MaxUniqueDirectories = 16_384,
     };
+    static readonly object CacheSync = new();
     static readonly Dictionary<string, CacheEntry> Cache = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -230,6 +231,8 @@ internal static class BrowserPackageWorkspace
         new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
+
+    static long NextClock() => Interlocked.Increment(ref _clock);
 
     internal static HttpClient NetworkClient => Http;
     internal static HttpClient PackageChangesAdvisoryClient =>
@@ -284,18 +287,23 @@ internal static class BrowserPackageWorkspace
     }
 
 
-    public static BrowserPackageCacheSnapshot Stats() =>
-        new(
-            Downloaded.Count,
-            Cache.Count,
-            MaxCachedPackages,
-            Scopes.Count,
-            MaxOpenScopes,
-            BrowserInspectionScope.MaxAssembliesPerRole,
-            Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
-            MaxCachedPackageBytes,
-            BrowserInspectionScope.MaxRetainedImageBytes);
+    public static BrowserPackageCacheSnapshot Stats()
+    {
+        lock (CacheSync)
+        {
+            return new(
+                Downloaded.Count,
+                Cache.Count,
+                MaxCachedPackages,
+                Scopes.Count,
+                MaxOpenScopes,
+                BrowserInspectionScope.MaxAssembliesPerRole,
+                Cache.Values.Sum(entry => entry.Bytes.LongLength)
+                    + Reservations.Values.Sum(reservation => reservation.ReservedBytes),
+                MaxCachedPackageBytes,
+                BrowserInspectionScope.MaxRetainedImageBytes);
+        }
+    }
 
     /// <summary>
     /// Resolves and acquires one package through the shared product owners
@@ -573,20 +581,26 @@ internal static class BrowserPackageWorkspace
         string key = store.PackageKey(
             acquired.Payload.Coordinate.PackageId,
             acquired.Payload.Coordinate.Version);
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                acquired.Payload.ProducerKey)
-            || !ReferenceEquals(
-                cached.Content.GenerationIdentity,
-                acquired.Payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "PackageHouse realization did not publish the acquired generation "
-                + "in the Browser cache.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    acquired.Payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    acquired.Payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "PackageHouse realization did not publish the acquired generation "
+                    + "in the Browser cache.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         var package = new BrowserPackage(
             packageId,
             acquired.Payload,
@@ -673,19 +687,25 @@ internal static class BrowserPackageWorkspace
         AcquiredPackageSourcePayload payload =
             await pending.WaitAsync(waitCancellation.Token).ConfigureAwait(false);
 
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                payload.ProducerKey)
-            || !ReferenceEquals(
-                cached.Content.GenerationIdentity,
-                payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "The shared package acquisition completed without publishing its Browser cache entry.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "The shared package acquisition completed without publishing its Browser cache entry.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageAcquisitionResult.Acquired(
             new(
                 new BrowserPackage(
@@ -1109,17 +1129,25 @@ internal static class BrowserPackageWorkspace
         string key = store.PackageKey(
             available.Payload.Coordinate.PackageId,
             available.Payload.Coordinate.Version);
-        if (!Cache.TryGetValue(key, out CacheEntry? cached)
-            || !store.ProducerKeysMatch(
-                cached.ProducerKey,
-                available.Payload.ProducerKey)
-            || !ReferenceEquals(cached.Content.GenerationIdentity, available.Payload.Content.GenerationIdentity))
+        CacheEntry? cached;
+        lock (CacheSync)
         {
-            throw new InvalidOperationException(
-                "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
+            if (!Cache.TryGetValue(key, out cached)
+                || !store.ProducerKeysMatch(
+                    cached.ProducerKey,
+                    available.Payload.ProducerKey)
+                || !ReferenceEquals(
+                    cached.Content.GenerationIdentity,
+                    available.Payload.Content.GenerationIdentity))
+            {
+                throw new InvalidOperationException(
+                    "Exact Root reacquisition did not publish the acquired generation in the Browser cache.");
+            }
+
+            cached = cached with { LastAccess = NextClock() };
+            Cache[key] = cached;
         }
 
-        Cache[key] = cached with { LastAccess = ++_clock };
         return new BrowserPackageCoordinate(
             new BrowserPackage(
                 request.Coordinate.PackageId,
@@ -1355,7 +1383,7 @@ internal static class BrowserPackageWorkspace
             throw new InvalidOperationException(ScopeCapacityRejection());
         }
 
-        var entry = new ScopeEntry(key, demand, ++_clock)
+        var entry = new ScopeEntry(key, demand, NextClock())
         {
             Uses = 1,
             PackageKeys = packageKeys,
@@ -1453,7 +1481,7 @@ internal static class BrowserPackageWorkspace
             }
 
             entry.State = BrowserScopeState.Ready;
-            entry.LastAccess = ++_clock;
+            entry.LastAccess = NextClock();
             return built;
         }
         finally
@@ -1486,7 +1514,7 @@ internal static class BrowserPackageWorkspace
                     "The browser scope registry entry names a different scope kind.");
             }
 
-            entry.LastAccess = ++_clock;
+            entry.LastAccess = NextClock();
             TouchPackages(entry.PackageKeys);
             return new BrowserScopeLease<TScope>(
                 typed,
@@ -1631,7 +1659,7 @@ internal static class BrowserPackageWorkspace
         entry.Scope = scope;
         entry.PackageKeys = packageKeys;
         entry.State = BrowserScopeState.Ready;
-        entry.LastAccess = ++_clock;
+        entry.LastAccess = NextClock();
         foreach (string packageKey in packageKeys)
             LeasePackage(packageKey);
         var use = new ScopeUse(entry, packageKeys);
@@ -1688,7 +1716,10 @@ internal static class BrowserPackageWorkspace
             Scopes.Where(entry => entry.State is BrowserScopeState.Failed).ToArray())
         {
             foreach (string packageKey in quarantined.PackageKeys)
-                Cache.Remove(packageKey);
+            {
+                lock (CacheSync)
+                    Cache.Remove(packageKey);
+            }
             Scopes.Remove(quarantined);
         }
     }
@@ -1727,7 +1758,7 @@ internal static class BrowserPackageWorkspace
         ScopeEntry entry = FindOpenEntry(scope)
             ?? throw new InvalidOperationException(
                 "The browser inspection scope is no longer retained.");
-        entry.LastAccess = ++_clock;
+        entry.LastAccess = NextClock();
         TouchPackages(entry.PackageKeys);
     }
 
@@ -1780,7 +1811,7 @@ internal static class BrowserPackageWorkspace
     static ScopeUse TakeUse(ScopeEntry entry)
     {
         entry.Uses++;
-        entry.LastAccess = ++_clock;
+        entry.LastAccess = NextClock();
         ImmutableHashSet<string> leased = entry.PackageKeys;
         foreach (string packageKey in leased)
             LeasePackage(packageKey);
@@ -2700,28 +2731,38 @@ internal static class BrowserPackageWorkspace
                 "The requested workspace's package count exceeds the browser package-cache limit.");
         }
 
-        foreach (BrowserPackageCoordinate coordinate in coordinates)
+        lock (CacheSync)
         {
-            string packageKey = PackageKey(coordinate);
-            if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
-                || !ReferenceEquals(
-                    entry.Bytes,
-                    coordinate.Package.RetainedBytes)
-                || !ReferenceEquals(
-                    entry.Content.GenerationIdentity,
-                    coordinate.Package.Content.GenerationIdentity))
+            foreach (BrowserPackageCoordinate coordinate in coordinates)
             {
-                throw new InvalidOperationException(
-                    "A resolved browser package escaped aggregate cache accounting before its "
-                    + "workspace opened.");
+                string packageKey = PackageKey(coordinate);
+                if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
+                    || !ReferenceEquals(
+                        entry.Bytes,
+                        coordinate.Package.RetainedBytes)
+                    || !ReferenceEquals(
+                        entry.Content.GenerationIdentity,
+                        coordinate.Package.Content.GenerationIdentity))
+                {
+                    throw new InvalidOperationException(
+                        "A resolved browser package escaped aggregate cache accounting before its "
+                        + "workspace opened.");
+                }
             }
+
+            RetainPackageKeysUnsafe(packageKeys);
         }
 
-        RetainPackageKeys(packageKeys);
         return packageKeys;
     }
 
     static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
+    {
+        lock (CacheSync)
+            RetainPackageKeysUnsafe(packageKeys);
+    }
+
+    static void RetainPackageKeysUnsafe(ImmutableHashSet<string> packageKeys)
     {
         foreach (string packageKey in packageKeys)
         {
@@ -2733,7 +2774,7 @@ internal static class BrowserPackageWorkspace
             }
         }
 
-        TouchPackages(packageKeys);
+        TouchPackagesUnsafe(packageKeys);
     }
 
     /// <summary>
@@ -2741,7 +2782,7 @@ internal static class BrowserPackageWorkspace
     /// size. Callers that publish into the cache re-evaluate this after every suspension: the
     /// decision is only sound at the instant the entry is added.
     /// </summary>
-    static bool HasCacheRoom(long additionalBytes, int additionalEntries) =>
+    static bool HasCacheRoomUnsafe(long additionalBytes, int additionalEntries) =>
         Cache.Count + Reservations.Count + additionalEntries <= MaxCachedPackages
         && Cache.Values.Sum(entry => entry.Bytes.LongLength)
             + Reservations.Values.Sum(reservation => reservation.ReservedBytes)
@@ -2757,13 +2798,19 @@ internal static class BrowserPackageWorkspace
         long additionalBytes,
         int additionalEntries)
     {
-        while (!HasCacheRoom(additionalBytes, additionalEntries))
+        while (true)
         {
-            string? oldest = Cache
-                .Where(entry => !Leases.ContainsKey(entry.Key))
-                .OrderBy(entry => entry.Value.LastAccess)
-                .Select(entry => entry.Key)
-                .FirstOrDefault();
+            string? oldest;
+            lock (CacheSync)
+            {
+                if (HasCacheRoomUnsafe(additionalBytes, additionalEntries))
+                    return;
+                oldest = Cache
+                    .Where(entry => !Leases.ContainsKey(entry.Key))
+                    .OrderBy(entry => entry.Value.LastAccess)
+                    .Select(entry => entry.Key)
+                    .FirstOrDefault();
+            }
             if (oldest is null)
             {
                 throw new InvalidOperationException(
@@ -2783,32 +2830,38 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     static Task EvictPackageAsync(string packageKey)
     {
-        if (PendingPackageEvictions.TryGetValue(packageKey, out Task? pending))
-            return pending;
-
-        Task eviction = EvictPackageCoreAsync(packageKey);
-        if (!eviction.IsCompleted)
+        lock (PendingPackageEvictions)
         {
-            PendingPackageEvictions[packageKey] = eviction;
-            _ = eviction.ContinueWith(
-                completed =>
-                {
-                    if (PendingPackageEvictions.TryGetValue(
-                            packageKey,
-                            out Task? current)
-                        && ReferenceEquals(current, completed))
+            if (PendingPackageEvictions.TryGetValue(packageKey, out Task? pending))
+                return pending;
+
+            Task eviction = EvictPackageCoreAsync(packageKey);
+            if (!eviction.IsCompleted)
+            {
+                PendingPackageEvictions[packageKey] = eviction;
+                _ = eviction.ContinueWith(
+                    completed =>
                     {
-                        PendingPackageEvictions.Remove(packageKey);
-                    }
+                        lock (PendingPackageEvictions)
+                        {
+                            if (PendingPackageEvictions.TryGetValue(
+                                    packageKey,
+                                    out Task? current)
+                                && ReferenceEquals(current, completed))
+                            {
+                                PendingPackageEvictions.Remove(packageKey);
+                            }
+                        }
 
-                    _ = completed.Exception;
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+                        _ = completed.Exception;
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            return eviction;
         }
-
-        return eviction;
     }
 
     static async Task EvictPackageCoreAsync(string packageKey)
@@ -2837,8 +2890,11 @@ internal static class BrowserPackageWorkspace
         }
 
         // Occurrence queries can acquire an archive lease while scope retirement is suspended.
-        if (!Leases.ContainsKey(packageKey))
-            Cache.Remove(packageKey);
+        lock (CacheSync)
+        {
+            if (!Leases.ContainsKey(packageKey))
+                Cache.Remove(packageKey);
+        }
     }
 
     /// <summary>
@@ -2997,43 +3053,62 @@ internal static class BrowserPackageWorkspace
             throw new InvalidOperationException(
                 "The package exceeds the browser package-cache byte limit.");
         }
-        if (Reservations.ContainsKey(packageKey))
-            throw new InvalidOperationException("The package download is already reserved.");
 
-        while (!HasCacheRoom(declaredLength, additionalEntries: 1))
+        while (true)
         {
+            lock (CacheSync)
+            {
+                if (Reservations.ContainsKey(packageKey))
+                {
+                    throw new InvalidOperationException(
+                        "The package download is already reserved.");
+                }
+                if (HasCacheRoomUnsafe(declaredLength, additionalEntries: 1))
+                {
+                    var reservation = new PackageDownloadReservation(
+                        packageKey,
+                        declaredLength);
+                    Reservations.Add(packageKey, reservation);
+                    return reservation;
+                }
+            }
+
             await MakeCacheRoomAsync(declaredLength, additionalEntries: 1)
                 .ConfigureAwait(false);
         }
-
-        if (Reservations.ContainsKey(packageKey))
-            throw new InvalidOperationException("The package download is already reserved.");
-
-        var reservation = new PackageDownloadReservation(
-            packageKey,
-            declaredLength);
-        Reservations.Add(packageKey, reservation);
-        return reservation;
     }
 
-    internal static IReadOnlyCollection<string> ResidentPackageKeys() =>
-        [.. Cache.Keys];
+    internal static IReadOnlyCollection<string> ResidentPackageKeys()
+    {
+        lock (CacheSync)
+            return [.. Cache.Keys];
+    }
 
     static void LeasePackage(string packageKey)
     {
-        if (!Cache.ContainsKey(packageKey))
-            throw new InvalidOperationException("A package must be cached before it can be leased.");
-        Leases[packageKey] = Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
+        lock (CacheSync)
+        {
+            if (!Cache.ContainsKey(packageKey))
+            {
+                throw new InvalidOperationException(
+                    "A package must be cached before it can be leased.");
+            }
+            Leases[packageKey] =
+                Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
+        }
     }
 
     static void ReleasePackageLease(string packageKey)
     {
-        if (!Leases.TryGetValue(packageKey, out int count))
-            throw new InvalidOperationException("The package lease is not active.");
-        if (count == 1)
-            Leases.Remove(packageKey);
-        else
-            Leases[packageKey] = count - 1;
+        lock (CacheSync)
+        {
+            if (!Leases.TryGetValue(packageKey, out int count))
+                throw new InvalidOperationException("The package lease is not active.");
+            if (count == 1)
+                Leases.Remove(packageKey);
+            else
+                Leases[packageKey] = count - 1;
+        }
     }
 
     internal sealed class PackageLeaseSet : IDisposable
@@ -3095,22 +3170,38 @@ internal static class BrowserPackageWorkspace
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        Cache.Remove(key);
-        while (!HasCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1))
+        lock (CacheSync)
+            Cache.Remove(key);
+        while (true)
         {
+            lock (CacheSync)
+            {
+                if (HasCacheRoomUnsafe(
+                    package.RetainedBytes.LongLength,
+                    additionalEntries: 1))
+                {
+                    Cache[key] = new CacheEntry(
+                        package.RetainedBytes,
+                        package.Content,
+                        NextClock());
+                    return;
+                }
+            }
+
             await MakeCacheRoomAsync(
                     package.RetainedBytes.LongLength,
                     additionalEntries: 1)
                 .ConfigureAwait(false);
         }
-
-        Cache[key] = new CacheEntry(
-            package.RetainedBytes,
-            package.Content,
-            ++_clock);
     }
 
     static void TouchPackages(IEnumerable<string> packageKeys)
+    {
+        lock (CacheSync)
+            TouchPackagesUnsafe(packageKeys);
+    }
+
+    static void TouchPackagesUnsafe(IEnumerable<string> packageKeys)
     {
         foreach (string packageKey in packageKeys)
         {
@@ -3120,7 +3211,7 @@ internal static class BrowserPackageWorkspace
                     "An open browser workspace lost its retained package-cache entry.");
             }
 
-            Cache[packageKey] = entry with { LastAccess = ++_clock };
+            Cache[packageKey] = entry with { LastAccess = NextClock() };
         }
     }
 
@@ -3207,21 +3298,28 @@ internal static class BrowserPackageWorkspace
             Action<string>? log = null)
         {
             string key = PackageKey(packageName, version);
-            if (!Cache.TryGetValue(key, out CacheEntry? entry)
-                || allowedSourceKeys is null)
-            {
-                return null;
-            }
-            string? producerKey = allowedSourceKeys.FirstOrDefault(
-                candidate => ProducerKeysMatch(
-                    entry.ProducerKey,
-                    candidate));
-            if (producerKey is null)
+            if (allowedSourceKeys is null)
                 return null;
 
-            Cache[key] = entry with { LastAccess = ++_clock };
+            InMemoryPackageContent content;
+            string? producerKey;
+            lock (CacheSync)
+            {
+                if (!Cache.TryGetValue(key, out CacheEntry? entry))
+                    return null;
+                producerKey = allowedSourceKeys.FirstOrDefault(
+                    candidate => ProducerKeysMatch(
+                        entry.ProducerKey,
+                        candidate));
+                if (producerKey is null)
+                    return null;
+
+                Cache[key] = entry with { LastAccess = NextClock() };
+                content = entry.Content;
+            }
+
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return entry.Content.AsCacheHitForProducer(producerKey);
+            return content.AsCacheHitForProducer(producerKey);
         }
 
         public async ValueTask<IPackageContent> CommitAsync(
@@ -3242,12 +3340,14 @@ internal static class BrowserPackageWorkspace
             }
 
             string key = PackageKey(packageName, version);
-            if (!Reservations.TryGetValue(
-                    key,
-                    out PackageDownloadReservation? reservation))
+            PackageDownloadReservation? reservation;
+            lock (CacheSync)
             {
-                throw new InvalidOperationException(
-                    "The Browser package store requires a pre-download reservation.");
+                if (!Reservations.TryGetValue(key, out reservation))
+                {
+                    throw new InvalidOperationException(
+                        "The Browser package store requires a pre-download reservation.");
+                }
             }
 
             byte[] bytes;
@@ -3334,32 +3434,38 @@ internal static class BrowserPackageWorkspace
 
         public void Complete()
         {
-            if (_completed)
-                throw new InvalidOperationException("The package reservation is complete.");
-            if (_stagedBytes is null || _stagedContent is null)
+            lock (CacheSync)
             {
-                throw new InvalidOperationException(
-                    "The package reservation has no validated content to publish.");
-            }
+                if (_completed)
+                    throw new InvalidOperationException("The package reservation is complete.");
+                if (_stagedBytes is null || _stagedContent is null)
+                {
+                    throw new InvalidOperationException(
+                        "The package reservation has no validated content to publish.");
+                }
 
-            RemoveReservation();
-            Cache[_packageKey] = new CacheEntry(
-                _stagedBytes,
-                _stagedContent,
-                ++_clock);
-            Downloaded.Add(_packageKey);
-            _completed = true;
+                RemoveReservationUnsafe();
+                Cache[_packageKey] = new CacheEntry(
+                    _stagedBytes,
+                    _stagedContent,
+                    NextClock());
+                Downloaded.Add(_packageKey);
+                _completed = true;
+            }
         }
 
         public void Dispose()
         {
-            if (_completed)
-                return;
-            RemoveReservation();
-            _completed = true;
+            lock (CacheSync)
+            {
+                if (_completed)
+                    return;
+                RemoveReservationUnsafe();
+                _completed = true;
+            }
         }
 
-        void RemoveReservation()
+        void RemoveReservationUnsafe()
         {
             if (Reservations.TryGetValue(
                     _packageKey,
