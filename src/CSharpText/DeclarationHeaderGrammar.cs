@@ -27,7 +27,7 @@ internal static class DeclarationHeaderGrammar
     internal readonly record struct Declarator(string Name, bool HasInitializer);
     internal readonly record struct TruncatedHeader(
         List<ScanToken> Header,
-        int ArrowLine,
+        ScanToken? ArrowToken,
         bool CutAtEquals);
 
     // "union" declares a metadata struct (Roslyn reports a StructDeclarationSyntax), so a file that
@@ -81,9 +81,9 @@ internal static class DeclarationHeaderGrammar
     /// the expression-bodied property looking like a field.
     /// </para>
     /// </summary>
-    /// <param name="ArrowLine">
-    /// 1-based line of the <c>=&gt;</c> that opens an expression body, or -1 when the header was
-    /// not cut at one.
+    /// <param name="ArrowToken">
+    /// The <c>=</c> token of the <c>=&gt;</c> that opens an expression body, or
+    /// <see langword="null"/> when the header was not cut at one.
     /// </param>
 
     /// <summary>
@@ -136,7 +136,7 @@ internal static class DeclarationHeaderGrammar
         // The arrow scan deliberately runs past a "where" clause. A generic constraint carries no
         // top-level "=", so the first one after it is still the header's own — and an
         // expression-bodied generic method spells its constraints before its arrow.
-        int arrowLine = -1;
+        ScanToken? arrowToken = null;
         bool cutAtEquals = false;
         depth = 0;
         bool inOperatorSymbol = false;
@@ -172,7 +172,7 @@ internal static class DeclarationHeaderGrammar
                     && text(pending[i + 1]) == ">"
                     && pending[i + 1].Line == t.Line
                     && pending[i + 1].Column == t.Column + 1;
-                if (arrow) arrowLine = t.Line + 1;
+                if (arrow) arrowToken = t;
                 cutAtEquals = true;
                 if (i < cut) cut = i;
                 break;
@@ -180,7 +180,7 @@ internal static class DeclarationHeaderGrammar
         }
 
         return new TruncatedHeader(
-            cut >= pending.Count ? pending : pending.GetRange(0, cut), arrowLine, cutAtEquals);
+            cut >= pending.Count ? pending : pending.GetRange(0, cut), arrowToken, cutAtEquals);
     }
 
     /// <summary>
@@ -298,7 +298,7 @@ internal static class DeclarationHeaderGrammar
         // With no parameter list, a body means a property. An expression body counts: "int P => 1;"
         // is a property, while "Func<int,int> F = x => x;" is a field whose value happens to be a
         // lambda, and the two are told apart by whether the header was cut at the arrow.
-        return opensBody || truncated.ArrowLine >= 0
+        return opensBody || truncated.ArrowToken is not null
             ? (DeclarationKind.Property, words[^1])
             : (DeclarationKind.Field, Declarators(pending, text)[0].Name);
     }

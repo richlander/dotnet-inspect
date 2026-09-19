@@ -24,7 +24,7 @@ internal sealed class WorkspaceProjectionContractAudit
     internal static readonly IReadOnlyDictionary<Type, int> RequiredUnions = new Dictionary<Type, int>
     {
         [typeof(TypeResolutionOutcome)] = 6,
-        [typeof(TypeResolutionFailure)] = 16,
+        [typeof(TypeResolutionFailure)] = 17,
         [typeof(TypeResolutionAmbiguity)] = 2,
         [typeof(ResolutionPlanRequest)] = 2,
         [typeof(TypeResolutionStart)] = 4,

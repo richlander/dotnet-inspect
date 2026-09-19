@@ -140,6 +140,11 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 Available: false,
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
                 Observations: []);
+        var unavailableAwaitCompletionPaths =
+            new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                Observations: []);
         var catalog = new BrowserAnnotatedSourceViewerCatalog(
             defaultFindingIds,
             supportedMedia,
@@ -149,6 +154,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             unavailable,
             unavailableCycles,
             unavailableSynchronousCompletions,
+            unavailableAwaitCompletionPaths,
             []);
 
         defaultFindingIds[0] = 99;
@@ -336,6 +342,58 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                     observations[0],
                     observations[0],
                 ]));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesAwaitCompletionPathEvidence()
+    {
+        var document = new AnnotatedSourceDocument(
+            "await work",
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    AnnotatedSourceNodeKinds.AwaitExpression,
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 10)]),
+            ],
+            [],
+            [],
+            []);
+        BrowserAnnotatedSourceAwaitCompletionPath[] observations =
+        [
+            new(NodeId: 0),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                awaitCompletionPaths: observations);
+
+        Assert.True(catalog.AwaitCompletionPaths.Available);
+        Assert.Single(catalog.AwaitCompletionPaths.Observations);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                awaitCompletionPaths:
+                [
+                    observations[0],
+                    observations[0],
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                new AnnotatedSourceDocument(
+                    "work()",
+                    [
+                        new AnnotatedSourceNode(
+                            0,
+                            "InvocationExpression",
+                            SourceLineKind.CSharp,
+                            [new AnnotatedSourceSpan(0, 6)]),
+                    ],
+                    [],
+                    [],
+                    []),
+                awaitCompletionPaths: observations));
     }
 
     [Fact]

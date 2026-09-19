@@ -1219,20 +1219,40 @@ public static class SourceHouse
                             attempts);
                     }
 
+                    SourceHouseAuthoredMemberDocument? memberDocument = null;
                     if (prepared.Mapping
                         is SourceHouseAuthoredMapping.Member member)
                     {
                         try
                         {
-                            text =
-                                MemberTextSlicer.ExtractMemberText(
+                            if (request.Target is SourceHouseTarget.MemberTarget
+                                { SourceForm: SourceHouseMemberSourceForm.DocumentParts })
+                            {
+                                MemberTextParts? parts = MemberTextSlicer.GetMemberTextParts(
                                     text,
                                     member.Observation.StartLine,
                                     member.Observation.EndLine,
                                     member.Observation.Anchor.MemberName,
-                                    member.Observation
-                                        .SequencePointStartLines)
-                                ?? "";
+                                    member.Observation.SequencePointStartLines);
+                                if (parts is not null)
+                                {
+                                    memberDocument = new(text, parts);
+                                    text = text.Substring(parts.Member.Start, parts.Member.Length);
+                                }
+                                else
+                                {
+                                    text = "";
+                                }
+                            }
+                            else
+                            {
+                                text = MemberTextSlicer.ExtractMemberText(
+                                    text,
+                                    member.Observation.StartLine,
+                                    member.Observation.EndLine,
+                                    member.Observation.Anchor.MemberName,
+                                    member.Observation.SequencePointStartLines) ?? "";
+                            }
                         }
                         catch (Exception exception) when (
                             exception
@@ -1301,7 +1321,8 @@ public static class SourceHouse
                             text,
                             prepared.Mapping,
                             selected,
-                            attempts);
+                            attempts,
+                            memberDocument);
                     return new AvailableOutcome(
                         prepared.PdbContribution,
                         authored,

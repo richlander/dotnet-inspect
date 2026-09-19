@@ -29,8 +29,9 @@ CLI and Browser/Wasm, adopted under #7448. Shared
 [member acquisition](member-source-acquisition.md) now also supplies browser
 member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
 Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
-Source through `TypeSourceInspection` under #7522. Broader CLI enrichment and
-the full source-policy contract remain later adoption.
+Source through `TypeSourceInspection` under #7522, CLI type-document printing
+under #7546, and member Source Locations document printing under #7679.
+Broader CLI enrichment and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
@@ -186,6 +187,42 @@ Source operation as its neighbor. This is a prerequisite within the existing
 twelve-step plan, not a claim that CLI adoption or legacy retirement is complete.
 No rendering changes are introduced here: the later CLI cutover retains its
 Markout sections and printable-document lowering.
+
+#### Authored member parts
+
+An explicit member-parts demand settles the verified document together with
+the [CSharpText-issued member parts](member-text-parts.md). Their coordinates
+address that same decoded document, not a normalized declaration or a second
+fetch. The selected member text includes its attached documentation and
+attributes; the ordinary declaration-text demand keeps its existing behavior.
+
+SourceHouse preserves the original member mapping, selected document, checksum
+verification, attempts, bounds, and lease-settlement evidence alongside the
+document and parts. Lexical uncertainty remains unavailable, and lexical
+failure remains a failed attempt. Another source candidate may be attempted
+under the existing policy; decompilation is not an authored-parts substitute.
+
+The result is verified, PDB-correlated source. Neither checksum verification
+nor lexical ranges prove exact Metadata-to-physical-declaration authorship.
+The stronger correspondence work in #6584 and parsed documentation in #6583
+remain separate.
+
+This is slice 2 of the three-delivery plan in #7718: CSharpText parts,
+SourceHouse settlement with the shared completed inspection handoff, then CLI
+and Browser/Wasm production adoption. The shared query forwards the requested
+form and preserves the native document/parts result in its envelope. Existing
+ordinary Source can still fall back when the consumer explicitly permits it;
+an authored-only parts request cannot. Hosts do not rediscover lexical bounds.
+
+The motivating asset is `richlander/dotnet-inspect` at
+`bffd209a896d0380193e8d5f0f3a8beac3770d0f`: its compiled
+`CSharpText.MemberSlicing` library, matching PDB, and XML-documented
+`src/CSharpText.MemberSlicing/MemberTextSlicer.cs` `ExtractMemberText` declaration.
+PR-fast Release `AuthoredSourceHouseTests` and
+`AssemblyContextSourceQueryTests` member-parts cases gate original-text/span
+association, checksum rejection, native evidence, explicit fallback policy,
+and unchanged ordinary member acquisition. The lexical contract and its
+boundary gates remain owned by CSharpText.
 
 ## Authority and exact claim
 
