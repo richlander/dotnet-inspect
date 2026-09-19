@@ -9,8 +9,17 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using System.Diagnostics;
 using System.Globalization;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Commands;
+
+internal sealed record ILOffsetAnalysisPreparation(
+    ILOffsetAnalysisInput? Input,
+    string? Failure)
+{
+    internal static ILOffsetAnalysisPreparation None { get; } =
+        new(null, null);
+}
 
 internal static class ILOffsetQuery
 {
@@ -25,6 +34,11 @@ internal static class ILOffsetQuery
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        var coordinate = Coordinate(options);
+        ILOffsetAnalysisPreparation analysis = PrepareAnalysis(
+            service,
+            options,
+            [coordinate.MethodToken]);
         var (exitCode, result, _) = await ResolveAsync(
             service,
             packageName,
@@ -34,7 +48,8 @@ internal static class ILOffsetQuery
             httpClient,
             logger,
             writeErrors: true,
-            allowNonBoundaryContextAbsence: false);
+            allowNonBoundaryContextAbsence: false,
+            analysis);
         return (exitCode, result);
     }
 
@@ -48,7 +63,8 @@ internal static class ILOffsetQuery
         bool isPlatformAssembly,
         LibraryOptions options,
         HttpClient httpClient,
-        VerboseLogger logger) =>
+        VerboseLogger logger,
+        ILOffsetAnalysisPreparation? analysis) =>
         ResolveAsync(
             service,
             packageName,
@@ -58,20 +74,21 @@ internal static class ILOffsetQuery
             httpClient,
             logger,
             writeErrors: false,
-            allowNonBoundaryContextAbsence: false);
+            allowNonBoundaryContextAbsence: false,
+            analysis: analysis);
 
     internal static Task<(
         int ExitCode,
         ILOffsetProjection? Result,
-        ILOffsetProjectionFailure? Failure)>
-        ResolveDiscoveryAsync(
-            SourceLinkService service,
-            string? packageName,
-            string? packageVersion,
-            bool isPlatformAssembly,
-            LibraryOptions options,
-            HttpClient httpClient,
-            VerboseLogger logger) =>
+        ILOffsetProjectionFailure? Failure)> ResolveDiscoveryAsync(
+        SourceLinkService service,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        LibraryOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        ILOffsetAnalysisPreparation? analysis) =>
         ResolveAsync(
             service,
             packageName,
@@ -81,7 +98,8 @@ internal static class ILOffsetQuery
             httpClient,
             logger,
             writeErrors: false,
-            allowNonBoundaryContextAbsence: true);
+            allowNonBoundaryContextAbsence: true,
+            analysis: analysis);
 
     static async Task<(
         int ExitCode,
@@ -95,16 +113,15 @@ internal static class ILOffsetQuery
         HttpClient httpClient,
         VerboseLogger logger,
         bool writeErrors,
-        bool allowNonBoundaryContextAbsence)
+        bool allowNonBoundaryContextAbsence,
+        ILOffsetAnalysisPreparation? analysis)
     {
-        if (options.CoordinateRequest
-            is not LibraryCoordinateRequest.IlPoint coordinate)
-        {
-            throw new UnreachableException(
-                "IL coordinate resolution requires an admitted IL point.");
-        }
-
+        var coordinate = Coordinate(options);
         var capabilities = ProjectionCapabilities(options);
+        analysis ??= PrepareAnalysis(
+            service,
+            options,
+            [coordinate.MethodToken]);
         if ((capabilities & ILOffsetProjectionCapabilities.SourceLocation) != 0)
         {
             await SourceEnricher.AcquirePdbAsync(
@@ -127,6 +144,8 @@ internal static class ILOffsetQuery
             capabilities,
             options.PreferRenderedUrls,
             logger.Log,
+            Analysis: analysis.Input,
+            AnalysisFailure: analysis.Failure,
             AllowNonBoundaryContextAbsence:
                 allowNonBoundaryContextAbsence));
         if (!outcome.Succeeded)
@@ -150,12 +169,80 @@ internal static class ILOffsetQuery
         return (0, outcome.Projection, null);
     }
 
+    internal static ILOffsetAnalysisPreparation PrepareAnalysis(
+        SourceLinkService service,
+        LibraryOptions options,
+        IEnumerable<int> methodTokens)
+    {
+        ArgumentNullException.ThrowIfNull(service);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(methodTokens);
+
+        ILOffsetProjectionCapabilities capabilities =
+            ProjectionCapabilities(options);
+        Analysis.LibraryBodyAnalysisFeatures features =
+            AnalysisFeatures(capabilities);
+        if (features == Analysis.LibraryBodyAnalysisFeatures.None)
+            return ILOffsetAnalysisPreparation.None;
+
+        HashSet<int> bodyScope = [.. methodTokens];
+        if (bodyScope.Count == 0)
+            return ILOffsetAnalysisPreparation.None;
+
+        try
+        {
+            PdbContext context = service.Context;
+            Analysis.LibraryBodyAnalysisExecution execution =
+                Analysis.LibraryBodyAnalysisService.ExecuteImage(
+                    context.AssemblyPathOrNull
+                        ?? "IL-offset assembly",
+                    context.GetPrefetchedImage(),
+                    Analysis.LibraryBodyAnalysisRequest.Create(
+                        features,
+                        bodyScope));
+            return new(
+                new ILOffsetAnalysisInput(
+                    execution.Allocations,
+                    execution.Safety,
+                    execution.CallGraph),
+                Failure: null);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or IOException
+            or InvalidOperationException
+            or ArgumentException
+            or UnauthorizedAccessException)
+        {
+            return new(
+                Input: null,
+                $"IL-offset semantic analysis unavailable: "
+                    + $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    internal static bool RequiresAnalysis(
+        LibraryOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return AnalysisFeatures(
+                ProjectionCapabilities(options))
+            != Analysis.LibraryBodyAnalysisFeatures.None;
+    }
+
     internal static string FormatFailure(ILOffsetProjectionFailure? failure)
         => failure is null
             ? "unknown failure"
             : failure.Detail is { Length: > 0 } detail
                 ? $"{failure.Message} {detail}"
                 : failure.Message;
+
+    static LibraryCoordinateRequest.IlPoint Coordinate(
+        LibraryOptions options)
+        => options.CoordinateRequest
+            is LibraryCoordinateRequest.IlPoint coordinate
+                ? coordinate
+                : throw new UnreachableException(
+                    "IL coordinate resolution requires an admitted IL point.");
 
     static ILOffsetProjectionCapabilities ProjectionCapabilities(LibraryOptions options)
     {
@@ -177,6 +264,27 @@ internal static class ILOffsetQuery
         if (RequiresCostContext(options))
             capabilities |= ILOffsetProjectionCapabilities.CostContext;
         return capabilities;
+    }
+
+    static Analysis.LibraryBodyAnalysisFeatures AnalysisFeatures(
+        ILOffsetProjectionCapabilities capabilities)
+    {
+        Analysis.LibraryBodyAnalysisFeatures features =
+            Analysis.LibraryBodyAnalysisFeatures.None;
+        if ((capabilities
+                & ILOffsetProjectionCapabilities.AllocationContext)
+            != 0)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
+        }
+        if ((capabilities
+                & (ILOffsetProjectionCapabilities.SafetyContext
+                    | ILOffsetProjectionCapabilities.CostContext))
+            != 0)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
+        }
+        return features;
     }
 
     static void WriteError(bool enabled, string message)
