@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using InertText;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -171,7 +172,9 @@ public class InspectionResultView
         return null;
     }
 
-    public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
+    public InspectionResultView(
+        InspectionResult data,
+        bool includeTitleVersion = true)
     {
         _data = data;
         _includeTitleVersion = includeTitleVersion;
@@ -220,6 +223,25 @@ public class InspectionResultView
             dependency.Id,
             dependency.Version))
         .ToList();
+
+    [MarkoutSection(
+        Name = PackageSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy
+    {
+        get
+        {
+            DependsAssetProjection? projection =
+                _data.DependencyHierarchyProjection;
+            if (projection is null)
+                return null;
+
+            return DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                projection.HierarchyRows,
+                markWindowedFragments: true);
+        }
+    }
 
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
@@ -1185,7 +1207,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
-[MarkoutContext(typeof(EmptyDepsView))]
 public partial class InspectionContext : MarkoutSerializerContext
 {
 }

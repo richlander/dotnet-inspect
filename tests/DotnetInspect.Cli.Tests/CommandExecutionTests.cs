@@ -1485,7 +1485,8 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir) CreateLocalDependencyPackage()
-        => CreateLocalReadmePackage(
+    {
+        var package = CreateLocalReadmePackage(
             "Test.DependencyGroups",
             "README.md",
             "readme",
@@ -1493,15 +1494,65 @@ public partial class CommandExecutionTests
             """
             <dependencies>
               <group targetFramework="net8.0">
-                <dependency id="Test.Dependency.One" />
+                <dependency id="Test.Dependency.One" version="[1.0.0]" />
               </group>
               <group targetFramework="net9.0">
-                <dependency id="Test.Dependency.One" />
-                <dependency id="Test.Dependency.Two" />
+                <dependency id="Test.Dependency.One" version="[1.0.0]" />
+                <dependency id="Test.Dependency.Two" version="[1.0.0]" />
               </group>
               <group targetFramework="net10.0" />
             </dependencies>
             """);
+        CreateLocalFeedPackage(
+            package.TempDir,
+            "Test.Dependency.One",
+            """
+            <dependencies>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.Shared" version="[1.0.0]" />
+              </group>
+            </dependencies>
+            """);
+        CreateLocalFeedPackage(
+            package.TempDir,
+            "Test.Dependency.Two",
+            """
+            <dependencies>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.Shared" version="[1.0.0]" />
+              </group>
+            </dependencies>
+            """);
+        CreateLocalFeedPackage(
+            package.TempDir,
+            "Test.Dependency.Shared");
+        return package;
+    }
+
+    private static void CreateLocalFeedPackage(
+        string feed,
+        string id,
+        string extraNuspecMetadata = "")
+    {
+        string packageRoot = Path.Combine(
+            feed,
+            $"{id}-content-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(packageRoot);
+        File.WriteAllText(Path.Combine(packageRoot, $"{id}.nuspec"), $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>{{id}}</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test dependency package</description>{{extraNuspecMetadata}}
+              </metadata>
+            </package>
+            """);
+        ZipFile.CreateFromDirectory(
+            packageRoot,
+            Path.Combine(feed, $"{id}.1.0.0.nupkg"));
+    }
 
     private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
         string id,

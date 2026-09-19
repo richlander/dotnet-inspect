@@ -21,11 +21,11 @@ catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 projected member Facts JSON, Workspace top-level inventory, and Integration
 graph edges, a single package's `Package files` or `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
-and `match --similar` ranked candidates have semantic `-n` adoption. Their
-supported Window and direction capabilities remain command-specific. These
-adopters also accept explicit rendered-line selection where their output
-format permits it. Unselected modes of a partially adopted command use the
-rendered-line fallback.
+`match --similar` ranked candidates, and the exact `Clone Candidates` section
+for Library, Type, or Member have semantic `-n` adoption. Their supported
+Window and direction capabilities remain command-specific. These adopters also
+accept explicit rendered-line selection where their output format permits it.
+Unselected modes of a partially adopted command use the rendered-line fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -70,8 +70,10 @@ declaration. The Type catalog adoption selects complete `ApiType` entries after
 type, kind, and unsafe filtering when package, library, platform, or project
 source selection makes the catalog interpretation unambiguous. The
 `match --similar` adoption selects Analysis-ranked structural candidates after
-retrieval while preserving complete non-row retrieval evidence. Semantic
-adoption for the remaining command row sets is still staged.
+retrieval while preserving complete non-row retrieval evidence. The Clone
+Candidates adoption selects the Query-issued global candidate-pair ranking
+while preserving complete coverage and work evidence. Semantic adoption for
+the remaining command row sets is still staged.
 
 Only the implemented subsets are verified by their named Release gates in
 [Required gates](#required-gates). Every other asserted behavior remains
@@ -914,6 +916,64 @@ receipt, and disclosure are companion evidence, not additional selectable row
 sets. A rejected, unsupported, limit-reached, or failed retrieval remains
 visible and nonzero rather than being replaced by a row-selection failure.
 
+## Clone Candidates adoption
+
+An exact `Clone Candidates` section on `library`, including the delegated
+`package --library` route, `type`, or `member` declares one semantic row per
+Query-issued `CloneCandidateRow`. Workspace realization, seed expansion,
+candidate admission, retrieval, suppression, and global ranking finish before
+Head/Tail or strict Window stages select from that ranked vector. The same
+declaration applies when a `Breadth` or `Discovery` predicate infers the section.
+
+```console
+$ dotnet-inspect type Cases.Widget --library ./app.dll \
+    -S "Clone Candidates" -n 1 --tail --json
+{
+  ...
+  "rows": [
+    {
+      "rank": 14,
+      ...
+    }
+  ],
+  "seeds": [
+    ...
+  ],
+  "libraries": [
+    ...
+  ],
+  "receipt": {
+    "returned_pairs": 14,
+    ...
+  }
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, projected JSON, complete JSON, and
+Count consume the same selected candidate identities. Complete JSON selection
+changes only `rows`; seed coverage, participant coverage, limits, and the
+query-issued receipt remain complete companion evidence. Consequently
+`receipt.returned_pairs` may exceed `rows.length` without claiming that the
+Query returned less evidence.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Since the
+Query has already placed rows in global rank order, `-n N` selects the highest
+ranked *N* candidates. The shared `--top` option remains Performance Triage
+syntax and is not reinterpreted for Clone Candidates. Complete JSON rejects
+rendered-line selection before source resolution. An unavailable strict Window
+withholds every output shape:
+
+```console
+$ dotnet-inspect type Cases.Widget --library ./app.dll \
+    -S "Clone Candidates" --rows 999..1000 --json
+Error: Clone Candidates row selection stage 1 requires row 1000, but only 14 ranked candidates are available.
+```
+
+Other Library, Type, and Member sections remain outside this declaration.
+Type-catalog and projected Member Facts adoptions retain their existing
+activation rules; all other neighboring surfaces use their existing row
+contracts or rendered-line fallback.
+
 ## Package SourceLink file adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -1206,6 +1266,14 @@ The Match candidate adoption is enforced by:
 | `MatchDiscoveryTests.Similar_TopSelectsCandidateRowsAcrossJsonAndMarkdown`, `Similar_SemanticTailSelectsTheSameCandidateAcrossFormats`, and `Similar_CliTopUsesSharedSemanticSelection` | The completed Analysis-ranked candidate vector receives semantic Top or Tail once before Markdown, table, TSV, JSONL, or JSON lowering, and the real CLI routes `--top` through the shared row-selection grammar. |
 | `MatchDiscoveryTests.Similar_CountObservesTheSelectedCandidateSequence`, `Similar_CliCountObservesSemanticTail`, `Similar_UnavailableSemanticWindowWithholdsOutput`, `Similar_CliUnavailableSemanticWindowWithholdsOutput`, `Similar_SemanticSelectionDoesNotHideRetrievalFailure`, and `Similar_JsonLineSelectionRejectsBeforeSourceResolution` | Count observes selected candidates through both the typed handoff and real CLI; one strict unavailable Window after completed retrieval emits no partial payload; a retrieval failure remains visible instead of becoming a selection failure; complete-JSON line clipping fails before source resolution. |
 | `MatchDiscoveryTests.Similar_MaximumResultsBoundsTheProductRetrievalAndIsReported`, `Similar_MethodOutcomes_AreNotBoundedByTop`, `Similar_Json_IdentifiesEveryMethodOutcomeBehindTheReceiptCounts`, `PairwiseMatch_IsUnchangedWhenSimilarIsNotRequested`, and `Pairwise_InferredLimitRetainsRenderedLineFallback` | Product retrieval limits remain distinct from candidate selection; complete method outcomes and the query receipt remain truthful companion evidence; pairwise Match stays outside the semantic candidate declaration and retains inferred rendered-line selection. |
+
+The Clone Candidates adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CloneCandidatesSectionTests.SemanticTailSelectsTheSameCandidateAcrossFormats`, `CountObservesSemanticHeadAcrossSubjectHosts`, `PackageLibraryRouteObservesSemanticSelection`, and `QueryPredicateImplicitSelectionAdoptsSemanticRows` | The Query-issued global ranking receives semantic Head or Tail once before Markdown, table, TSV, JSONL, projected JSON, or complete JSON lowering; Count observes the selected vector across Library, delegated package-backed Library, Type, and Member hosts; Clone predicates reach the same declaration. |
+| `CloneCandidatesSectionTests.UnavailableSemanticWindowWithholdsOutput`, `SemanticSelectionFailureKeepsIncompleteCoverageVisible`, `JsonLineSelectionRejectsBeforeSourceResolution`, and `NumericLegacyRowsAreRejectedBeforeSourceResolution` | One strict unavailable Window emits no partial payload, incomplete coverage remains visible beside a selection failure, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before library resolution. |
+| `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | The adjacent Type-catalog and projected Member Facts semantic declarations retain their own activation and row identities. |
 
 The Project document row adoption is enforced by:
 

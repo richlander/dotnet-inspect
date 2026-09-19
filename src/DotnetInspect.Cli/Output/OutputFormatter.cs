@@ -1,3 +1,4 @@
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Views;
@@ -513,20 +514,53 @@ public static class OutputFormatter
         if (options.JsonOutput && !options.Count)
         {
             return JsonSerializer.Serialize(
-                PackageInspectionJson.Create(result),
+                PackageInspectionJson.Create(result, options.Rows),
                 PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
-        var view = new InspectionResultView(result, includeTitleVersion: false);
+        var view = new InspectionResultView(
+            result,
+            includeTitleVersion: false);
         var writerOptions = BuildPackageDocumentWriterOptions(result, options, pipeline);
         if (options.Count)
         {
-            var projection = CountProjectionFormatter.Capture(
-                view, InspectionContext.Default, writerOptions);
+            var projection = CapturePackageCountProjection(
+                result,
+                options,
+                pipeline);
             var ordered = ResolveCountMapSections(
                 pipeline, options.IncludeSections, options.FixedOverview);
             return CountOutput.Render(
                 projection, ordered, options.Format, options.NoHeader);
+        }
+
+        if (options.Format == OutputFormat.Markdown
+            && options.Columns is not { Length: > 0 }
+            && options.Fields is not { Length: > 0 }
+            && result.DependencyHierarchyProjection is { } hierarchy
+            && writerOptions.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy) == true)
+        {
+            writerOptions.IncludeSections =
+                writerOptions.IncludeSections
+                    .Where(section => !section.Equals(
+                        PackageSections.DependencyHierarchy,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            string package = MarkoutSerializer.Serialize(
+                view,
+                InspectionContext.Default,
+                writerOptions).TrimEnd();
+            string hierarchySection =
+                DependsCommand.RenderHierarchySection(
+                    hierarchy,
+                    options.Rows,
+                    embeddedMermaid: false);
+            return string.Join(
+                Environment.NewLine + Environment.NewLine,
+                new[] { package, hierarchySection }
+                    .Where(static fragment =>
+                        !string.IsNullOrWhiteSpace(fragment)));
         }
 
         return MarkoutSerializer.Serialize(
@@ -537,10 +571,28 @@ public static class OutputFormatter
         InspectionResult result,
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
-        => CountProjectionFormatter.Capture(
-            new InspectionResultView(result, includeTitleVersion: false),
+    {
+        MarkoutWriterOptions writerOptions =
+            BuildPackageDocumentWriterOptions(result, options, pipeline);
+        CountProjection projection = CountProjectionFormatter.Capture(
+            new InspectionResultView(
+                result,
+                includeTitleVersion: false),
             InspectionContext.Default,
-            BuildPackageDocumentWriterOptions(result, options, pipeline));
+            writerOptions);
+        if (result.DependencyHierarchyProjection is { } hierarchy
+            && writerOptions.IncludeSections?.Contains(
+                PackageSections.DependencyHierarchy) == true)
+        {
+            int count = options.Rows is { IsUnlimited: false } window
+                ? window.Apply(hierarchy.HierarchyRows).Count
+                : hierarchy.HierarchyRows.Length;
+            projection.SetRows(
+                PackageSections.DependencyHierarchy,
+                count);
+        }
+        return projection;
+    }
 
     internal static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
         InspectionResult result,
@@ -570,7 +622,8 @@ public static class OutputFormatter
     {
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-        var view = new InspectionResultView(result);
+        var view = new InspectionResultView(
+            result);
         WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);

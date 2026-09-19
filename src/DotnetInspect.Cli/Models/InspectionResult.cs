@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -193,6 +194,12 @@ public class InspectionResult
     public List<string>? LibraryFiles { get; set; }
 
     public List<DependencyGroup>? DependencyGroups { get; set; }
+
+    /// <summary>
+    /// The shared Depends operation projected for this resolved Package subject.
+    /// </summary>
+    [JsonIgnore]
+    internal DependsAssetProjection? DependencyHierarchyProjection { get; set; }
 
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 

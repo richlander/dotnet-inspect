@@ -293,7 +293,11 @@ public partial class PackageCommand
             Paths = options.Paths,
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
-            Rows = options.Rows,
+            Rows = options.CloneCandidateRowSelection is null
+                ? options.Rows
+                : null,
+            CloneCandidateRowSelection =
+                options.CloneCandidateRowSelection,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity,
