@@ -436,19 +436,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_AllLibraries_ReferenceTreeRejectsCount()
+    public async Task Package_AllLibraries_ReferenceHierarchyRequiresExactLibrary()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
         try
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--all-libraries",
-                "-S", "References", "--count", "--tree", "--tips", "q");
+                "-S", "Reference Hierarchy", "--count", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "reference tree does not declare countable row semantics",
+                "Reference Hierarchy requires one exact library",
                 error);
         }
         finally
@@ -500,7 +500,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_LibraryFlag_ReferenceTreeRejectsNonMarkdownFormat()
+    public async Task PackageCommand_LibraryFlag_ReferenceHierarchyTreeHonorsProjectionBoundaries()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
@@ -510,35 +510,35 @@ public partial class CommandExecutionTests
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
             var environment = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--tips", "q");
             var explicitMarkdown = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--markdown", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--markdown", "--tips", "q");
             var bare = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--bare", "--markdown", "--tips", "q");
+                "-S", "Reference Hierarchy", "--tree", "--bare", "--markdown", "--tips", "q");
             var file = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--markdown",
+                "-S", "Reference Hierarchy", "--tree", "--markdown",
                 "--out", outputPath, "--tips", "q");
             var noHeader = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--no-header",
+                "-S", "Reference Hierarchy", "--tree", "--no-header",
                 "--markdown", "--tips", "q");
 
             Assert.Equal(1, environment.Exit);
             Assert.Empty(environment.Output);
             Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", environment.Error);
-            Assert.Equal(0, explicitMarkdown.Exit);
-            Assert.Empty(explicitMarkdown.Error);
-            Assert.Contains("## References", explicitMarkdown.Output);
+            Assert.Equal(1, explicitMarkdown.Exit);
+            Assert.NotEmpty(explicitMarkdown.Error);
+            Assert.Contains("DotnetInspect.Cli.Tests", explicitMarkdown.Output);
             Assert.Equal(1, bare.Exit);
             Assert.Empty(bare.Output);
             Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", bare.Error);
-            Assert.Equal(0, file.Exit);
+            Assert.Equal(1, file.Exit);
             Assert.Empty(file.Output);
-            Assert.Empty(file.Error);
-            Assert.Contains("## References", File.ReadAllText(outputPath));
+            Assert.NotEmpty(file.Error);
+            Assert.Contains("DotnetInspect.Cli.Tests", File.ReadAllText(outputPath));
             Assert.Equal(1, noHeader.Exit);
             Assert.Empty(noHeader.Output);
             Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", noHeader.Error);
@@ -546,15 +546,15 @@ public partial class CommandExecutionTests
             var windowed = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--markdown",
+                "-S", "Reference Hierarchy", "--tree", "--markdown",
                 "--lines", "-n", "2", "--tips", "q");
             var windowedFile = await RunAppInDirectoryAsync(
                 tempDir,
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--markdown",
+                "-S", "Reference Hierarchy", "--tree", "--markdown",
                 "--lines", "-n", "2", "--out", outputPath, "--tips", "q");
 
-            Assert.Equal(0, windowed.Exit);
+            Assert.Equal(1, windowed.Exit);
             Assert.Equal(2, windowed.Output.Count(character => character == '\n'));
             Assert.Equal(windowed.Exit, windowedFile.Exit);
             Assert.Equal(windowed.Error, windowedFile.Error);

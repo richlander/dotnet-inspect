@@ -117,7 +117,7 @@ wildcard:
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Async*"
 dotnet-inspect library System.Text.Json -S @Performance
-dotnet-inspect library System.Text.Json -S References --tree --depth 2
+dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
 dotnet-inspect package query Newtonsoft.Json -S @Query

@@ -364,8 +364,8 @@ public static class InspectionCommandDefinitions
         assemblyPathArg.DefaultValueFactory = _ => null;
 
         var referencesOption = new Option<bool>("--references") { Description = "Legacy alias for -S References" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S References --tree" };
-        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Removed; use -S \"Reference Hierarchy\"" };
+        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S \"Reference Hierarchy\": maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
@@ -383,6 +383,7 @@ public static class InspectionCommandDefinitions
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
@@ -397,6 +398,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
         // trace should advertise the flag. A flag every command accepts and only one honours is
         // worse than an unrecognized argument, which at least fails loudly.
@@ -602,7 +605,7 @@ public static class InspectionCommandDefinitions
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
-                ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
+                ReferenceHierarchyDepth = parseResult.GetValue(referenceDepthOption),
                 PackagePath = packagePath,
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
                 PlatformAssembly = platformAssembly,
@@ -649,6 +652,7 @@ public static class InspectionCommandDefinitions
                 CloneCandidateQuery = cloneCandidateQuery,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
+                OutputPath = parseResult.GetValue(outOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

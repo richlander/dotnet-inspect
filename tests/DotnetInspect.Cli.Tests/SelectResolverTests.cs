@@ -131,13 +131,13 @@ public class SelectResolverTests
     }
 
     [Fact]
-    public void ResolveSelect_DependencyAlias_ResolvesToReferences()
+    public void ResolveSelect_DependencyAlias_DoesNotCrossDomains()
     {
         var result = SelectResolver.ResolveSelectAsSections(
             ["Dependencies"], ["References"]);
 
-        Assert.Equal("References", Assert.Single(result.Sections!));
-        Assert.Empty(result.Unresolved);
+        Assert.Null(result.Sections);
+        Assert.Equal("Dependencies", Assert.Single(result.Unresolved).Value);
     }
 
     [Fact]

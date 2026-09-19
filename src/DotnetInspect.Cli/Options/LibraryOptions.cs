@@ -28,14 +28,9 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeReferences { get; init; }
 
     /// <summary>
-    /// Legacy CLI request for the References tree projection.
+    /// Removed legacy CLI request for the reference hierarchy.
     /// </summary>
     public bool IncludeDependencies { get; init; }
-
-    /// <summary>
-    /// Internal execution demand for the resolved transitive reference tree.
-    /// </summary>
-    internal bool CollectReferenceTree { get; init; }
 
     /// <summary>
     /// Internal execution demand for the identifier audit's resolved transitive scope.
@@ -45,10 +40,10 @@ public record LibraryOptions : IProjectionOptions
     internal bool CollectIdentifierConfusionReferenceTree { get; init; }
 
     /// <summary>
-    /// Maximum reference-tree depth, where 1 includes direct references only.
+    /// Maximum reference-hierarchy depth, where 1 includes direct references only.
     /// Null traverses the complete resolvable graph.
     /// </summary>
-    public int? ReferenceTreeDepth { get; init; }
+    public int? ReferenceHierarchyDepth { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.
