@@ -1932,7 +1932,9 @@ public sealed partial class AuthoredSourceHouseTests
         int maximumTargetMappings = 10_000,
         int maximumCandidateAttempts = 10,
         int maximumSourceBytes = 16 * 1024 * 1024,
-        int maximumSourceTextCharacters = 16 * 1024 * 1024) =>
+        int maximumSourceTextCharacters = 16 * 1024 * 1024,
+        int maximumAttestationContributions = 16,
+        int maximumPhysicalDeclarationCharacters = 1_000_000) =>
         new(
             maximumAssemblyBytes,
             maximumPortablePdbBytes,
@@ -1947,7 +1949,9 @@ public sealed partial class AuthoredSourceHouseTests
             maximumTargetMappings,
             maximumCandidateAttempts,
             maximumSourceBytes,
-            maximumSourceTextCharacters);
+            maximumSourceTextCharacters,
+            maximumAttestationContributions,
+            maximumPhysicalDeclarationCharacters);
 
     private static async Task<SourceHouseOutcome> ExecuteAsync(
         LibraryFixture library,
@@ -2393,7 +2397,7 @@ public sealed partial class AuthoredSourceHouseTests
                 ReadAssemblyIdentity(assemblyPath));
         }
 
-        private static async Task<LibraryFixture> CreateAsync(
+        public static async Task<LibraryFixture> CreateAsync(
             byte[] assembly,
             byte[]? pdb,
             AssemblyReferenceIdentity declaredIdentity)

@@ -7,6 +7,9 @@ correspondence, tracked by
 [#6584](https://github.com/richlander/dotnet-inspect/issues/6584). It is
 DocumentationHouse production-adoption slice 13 under
 [#6579](https://github.com/richlander/dotnet-inspect/issues/6579).
+The first typed in-memory issuer and SourceHouse validator path is
+DocumentationHouse slice 14, tracked by
+[#7859](https://github.com/richlander/dotnet-inspect/issues/7859).
 
 The one claim is:
 
@@ -510,10 +513,10 @@ generation association rejects the stale evidence.
 
 This design is the current slice in the existing DocumentationHouse plan:
 
-1. **Slice 13 — this PR:** lock SourceHouse physical-declaration
+1. **Slice 13 — complete:** lock SourceHouse physical-declaration
    correspondence and its build-attestation evidence basis.
-2. **Slice 14:** implement one production SourceHouse build-attestation issuer
-   and validator path with a real TypeDef and MethodDef.
+2. **Slice 14 — current implementation:** provide one production build-time
+   issuer and SourceHouse validator path with a real TypeDef and MethodDef.
 3. **Slices 15–16:** lock and implement CSharpText declaration-attached
    documentation extraction under #6583.
 4. **Slices 17–19:** adapt SourceHouse correspondence and CSharpText evidence
@@ -524,10 +527,13 @@ This design is the current slice in the existing DocumentationHouse plan:
 6. **Slice 22:** delete `DocCommentParser` after every consumer is gone.
 
 The first implementation uses this repository's
-`MemberTextSlicer.ExtractMemberText` and its real built module, PDB, Source Link
-source, and build attestation. The implementation PR must demonstrate both the
-exact row and the mapped-destination pathological case in a Release
-SourceHouse gate.
+`MemberTextSlicer.ExtractMemberText` source in a direct build-time emit owned by
+`SourceBuildAttestation`, then supplies that exact PE, Portable PDB, physical
+source input, and typed attestation through ordinary Library and SourceHouse
+settlement. Roslyn remains outside the SourceHouse runtime graph. The path is
+typed and in-memory; authentication and serialization remain issuer-owned
+non-claims. Release gates demonstrate both the exact row and the
+checksum-valid, byte-identical mapped-destination pathological case.
 
 There is no rendering change. Correspondence is typed producer evidence;
 DocumentationHouse and host presentation retain their existing owners.
