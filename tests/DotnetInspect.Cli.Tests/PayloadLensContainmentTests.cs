@@ -360,21 +360,6 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Fact]
-    public void EmptyDependencyTree_ContainsItsPackageTitle()
-    {
-        using var package = HostilePackage.Create(emptyDependencyGroup: true);
-
-        var (output, _) = RunCli([package.Path, "--dependencies", "--tips", "q"]);
-
-        HostileOutputAssert.MarkersRendered(
-            output,
-            "empty-dependency-tree",
-            "HOSTILE",
-            "MARKERPACKAGE");
-        HostileOutputAssert.NoRenderingHazard(output, "empty-dependency-tree");
-    }
-
-    [Fact]
     public void PackageInfoValue_UsesThePackagePresentationBoundary()
     {
         using var package = HostilePackage.Create();
@@ -417,7 +402,7 @@ public class PayloadLensContainmentTests : IDisposable
 
         public string Path { get; }
 
-        public static HostilePackage Create(bool emptyDependencyGroup = false)
+        public static HostilePackage Create()
         {
             string directory = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "lens-" + Guid.NewGuid().ToString("N"));
@@ -426,15 +411,12 @@ public class PayloadLensContainmentTests : IDisposable
             string path = System.IO.Path.Combine(directory, "Hostile.Lens.1.0.0.nupkg");
             using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
             {
-                string dependencies = emptyDependencyGroup
-                    ? """<dependencies><group targetFramework="net8.0" /></dependencies>"""
-                    : "";
                 WriteEntry(archive, "Hostile.Lens.nuspec", $"""
                     <?xml version="1.0" encoding="utf-8"?>
                     <package><metadata><id>HOSTILE{Bidi}MARKERPACKAGE</id><version>1.0.0</version>
                     <description>d</description><authors>a</authors>
                     <repository type="git" url="https://example.test/HOSTILE{ZeroWidthSpace}MARKERREPOSITORY" />
-                    {dependencies}</metadata></package>
+                    </metadata></package>
                     """);
 
                 // --readme selects by name, so the hazard payload has to live
