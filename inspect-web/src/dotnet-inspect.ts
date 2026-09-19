@@ -3396,6 +3396,17 @@ function selectedLibraryName() {
   return selectedLibrary()?.name ?? "";
 }
 
+function packageLibraryDisplayLabels() {
+  return librarySubjectDisplayLabels(packageLibraries());
+}
+
+function selectedLibraryDisplayLabel() {
+  const library = selectedLibrary();
+  return library
+    ? packageLibraryDisplayLabels().get(library.id) ?? library.name
+    : "";
+}
+
 function aggregateTypeLibraryLabels() {
   const labels = new Map<string, string>();
   if (!aggregateLibrarySubjectIsActive() || !state.package) return labels;
@@ -3412,7 +3423,7 @@ function aggregateTypeLibraryLabels() {
       firstLibraryByDefinition.set(definition, library);
   }
 
-  const libraryNames = librarySubjectDisplayLabels(packageLibraries());
+  const libraryNames = packageLibraryDisplayLabels();
   for (const item of state.package.types) {
     if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
     const library = libraryNames.get(libraryKey(item));
@@ -3427,6 +3438,21 @@ function typeDefiningLibraryLabel(
   return item ? aggregateTypeLibraryLabels().get(item.id) ?? "" : "";
 }
 
+function typeLibraryContextLabel(
+  item: AppTypeSurface | null | undefined,
+) {
+  return typeDefiningLibraryLabel(item) || selectedLibraryDisplayLabel();
+}
+
+function typeQualifiedLibraryLabel(
+  item: AppTypeSurface | null | undefined,
+) {
+  const definingLibrary = typeDefiningLibraryLabel(item);
+  if (definingLibrary) return definingLibrary;
+  const selectedLabel = selectedLibraryDisplayLabel();
+  return selectedLabel !== selectedLibraryName() ? selectedLabel : "";
+}
+
 function aggregateLibrarySubjectIsActive() {
   return state.rootKind !== "platform" && state.libraryScope === null;
 }
@@ -3438,7 +3464,7 @@ function aggregateLibrarySubjectIsAvailable() {
 function activeLibrarySubjectName() {
   return aggregateLibrarySubjectIsActive()
     ? "All libraries"
-    : selectedLibraryName();
+    : selectedLibraryDisplayLabel();
 }
 
 function selectedLibrary() {
@@ -5570,7 +5596,7 @@ function inspectedSubjectPath(
       }]
     : [];
   if (state.atPackageRoot) return path;
-  const library = typeDefiningLibraryLabel(current) || selectedLibraryName();
+  const library = typeLibraryContextLabel(current);
   if (library) {
     path.push({
       kind: "library",
@@ -7330,7 +7356,7 @@ function renderGraphMemberPendingHtml(
     item,
     title,
     packageContext: currentPackage(),
-    libraryLabel: typeDefiningLibraryLabel(item) || item.assembly,
+    libraryLabel: typeQualifiedLibraryLabel(item) || item.assembly,
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -7454,7 +7480,7 @@ function renderApiLens(item: AppTypeSurface) {
   };
   const publicGroups = memberGroups(publicSurface);
   const visibleGroups = visibleMemberGroups(publicSurface);
-  const definingLibrary = typeDefiningLibraryLabel(item);
+  const definingLibrary = typeQualifiedLibraryLabel(item);
   const definingLibraryHtml = definingLibrary
     ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
     : "";

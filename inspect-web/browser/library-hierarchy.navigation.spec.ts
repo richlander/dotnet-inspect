@@ -363,11 +363,33 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
 
   await chooseSubject(page, "library", "Library");
+  await selectLibrary(page, left.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    `#type-list [data-type="${coreWidget.id}"]`).click();
+  await expect(page.locator("[data-type-nav-back]"))
+    .toHaveAccessibleName(
+      "Example.Shared · lib/net10.0/left/Example.Shared.dll: Back to library");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("Example.Shared · lib/net10.0/left/Example.Shared.dll");
+  await expect(page.locator("#inspector-panel [data-type-library]"))
+    .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
+
+  await chooseSubject(page, "library", "Library");
   await selectLibrary(page, right.id);
   await chooseSubject(page, "type", "Type");
   await expect(page.locator(
     `#type-list [data-type="${otherWidget.id}"] small`))
     .toHaveText("class");
+  await page.locator(
+    `#type-list [data-type="${otherWidget.id}"]`).click();
+  await expect(page.locator("[data-type-nav-back]"))
+    .toHaveAccessibleName(
+      "Example.Shared · lib/net10.0/right/Example.Shared.dll: Back to library");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll");
+  await expect(page.locator("#inspector-panel [data-type-library]"))
+    .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
 });
 
 for (const subject of ["Package", "Library"]) {
