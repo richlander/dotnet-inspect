@@ -42,6 +42,13 @@ internal static class DeclarationIndexBuilder
         public bool HasInitializer;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
+        public SourceTextPoint SignatureStart;
+        public SourceTextPoint SignatureEnd;
+        public SourceTextPoint? BodyStart;
+        public SourceTextPoint TerminalEnd;
+        public ImmutableArray<SourceTextRange> XmlDocumentation = [];
+        public ImmutableArray<SourceTextRange> AttributeSpans = [];
+        public bool TextPartsKnown = true;
     }
 
     public static ImmutableArray<DeclarationSpan> Build(
@@ -128,6 +135,8 @@ internal static class DeclarationIndexBuilder
         // ends. Keeping it separate from headerKnown is gated by
         // ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow.
         bool attachedAttributesKnown = true;
+        bool attachedDocumentationKnown = true;
+        bool textPartsHeaderKnown = true;
         int lastClosed = -1;
         int lastClosedSection = 0;
         bool inAttribute = false;
@@ -141,6 +150,12 @@ internal static class DeclarationIndexBuilder
         bool unitAttribute = false;
         var attributeLists = new List<LineRange>();
         var attributeStarts = new List<(int Line, int Column)>();
+        var attributeSpans = new List<SourceTextRange>();
+        var xmlDocumentation = new List<SourceTextRange>();
+        var documentationSections = new HashSet<int>();
+        int openDocumentationBlock = -1;
+        int previousLineDocumentationLine = -2;
+        bool previousDocumentationWasLine = false;
         int nestedBraceDepth = 0;
         int lastTerminatorLine = 0;
 
@@ -301,6 +316,8 @@ internal static class DeclarationIndexBuilder
             bool crossesABranch =
                 (triviaStart >= 0 && triviaSection != terminator.Section) ||
                 (pending.Count > 0 && pending[0].Section != terminator.Section);
+            bool documentationCrossesABranch =
+                documentationSections.Any(section => section != terminator.Section);
 
             pending.Clear();
             headerDelimiters.Clear();
@@ -339,14 +356,27 @@ internal static class DeclarationIndexBuilder
             triviaKnown = true;
 
             if (terminator.DepthKnown)
+            {
                 headerKnown = true;
+                textPartsHeaderKnown = true;
+            }
             else
+            {
                 headerKnown &= !crossesABranch;
+                textPartsHeaderKnown &= !documentationCrossesABranch;
+            }
 
             attachedAttributesKnown = true;
+            attachedDocumentationKnown = true;
             triviaStart = -1;
             attributeLists.Clear();
             attributeStarts.Clear();
+            attributeSpans.Clear();
+            xmlDocumentation.Clear();
+            documentationSections.Clear();
+            openDocumentationBlock = -1;
+            previousLineDocumentationLine = -2;
+            previousDocumentationWasLine = false;
         }
 
         void EndDeclaration(ScanToken terminator)
@@ -363,11 +393,24 @@ internal static class DeclarationIndexBuilder
             ScanToken terminator,
             DeclarationKind kind,
             string name,
-            int bodyStart,
+            ScanToken? bodyStart,
             bool hasInitializer = false)
         {
             int sigStart = pending.Count > 0 ? pending[0].Line + 1 : terminator.Line + 1;
             int sigColumn = pending.Count > 0 ? pending[0].Column : terminator.Column;
+            var truncated = DeclarationHeaderGrammar.Truncate(pending, Text);
+            ScanToken signatureEnd = terminator;
+            if (bodyStart is { } bodyOpener)
+            {
+                int bodyStartIndex = pending.IndexOf(bodyOpener);
+                if (bodyStartIndex > 0)
+                    signatureEnd = pending[bodyStartIndex - 1];
+            }
+            var terminalEnd = new SourceTextPoint(terminator.Line, terminator.End);
+            bool spanKnown = terminator.DepthKnown && triviaKnown && headerKnown
+                && attachedAttributesKnown && headerDelimitersKnown
+                && unknownTransparentScopes == 0
+                && pending.All(t => t.DepthKnown);
             var row = new Row
             {
                 Kind = kind,
@@ -377,19 +420,27 @@ internal static class DeclarationIndexBuilder
                 SignatureStartColumn = sigColumn,
                 FirstCodeColumn = FirstCodeColumn(sigStart, sigColumn),
                 SignatureEndLine = terminator.Line + 1,
-                BodyStartLine = bodyStart,
+                BodyStartLine = bodyStart?.Line + 1 ?? -1,
                 EndLine = terminator.Line + 1,
                 ParentIndex = EnclosingIndex(),
                 AttributeLists = [.. attributeLists],
-                SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown
-                    && attachedAttributesKnown && headerDelimitersKnown
-                    && unknownTransparentScopes == 0
-                    && pending.All(t => t.DepthKnown),
+                SpanKnown = spanKnown,
                 IsStatic = DeclarationHeaderGrammar.HasTopLevelKeyword(
-                    DeclarationHeaderGrammar.Truncate(pending, Text).Header,
+                    truncated.Header,
                     "static",
                     Text),
                 HasInitializer = hasInitializer,
+                SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
+                SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
+                BodyStart = bodyStart is { } body
+                    ? new SourceTextPoint(body.Line, body.Column)
+                    : null,
+                TerminalEnd = terminalEnd,
+                XmlDocumentation = [.. xmlDocumentation],
+                AttributeSpans = [.. attributeSpans],
+                TextPartsKnown = spanKnown
+                    && textPartsHeaderKnown
+                    && attachedDocumentationKnown,
             };
             AddRow(row);
             return row;
@@ -420,6 +471,13 @@ internal static class DeclarationIndexBuilder
                 IsStatic = sharedDeclaration.IsStatic,
                 HasInitializer = declarator.HasInitializer,
                 ClosesAtEndOfFile = sharedDeclaration.ClosesAtEndOfFile,
+                SignatureStart = sharedDeclaration.SignatureStart,
+                SignatureEnd = sharedDeclaration.SignatureEnd,
+                BodyStart = sharedDeclaration.BodyStart,
+                TerminalEnd = sharedDeclaration.TerminalEnd,
+                XmlDocumentation = sharedDeclaration.XmlDocumentation,
+                AttributeSpans = sharedDeclaration.AttributeSpans,
+                TextPartsKnown = sharedDeclaration.TextPartsKnown,
             });
         }
 
@@ -618,6 +676,7 @@ internal static class DeclarationIndexBuilder
                 // the carried state instead, which is reconstructed here.
                 var comment = Text(tok);
                 bool opens = !inBlockComment;
+                bool closesBlock = false;
                 if (opens)
                 {
                     commentOpenLine = tok.Line + 1;
@@ -626,10 +685,13 @@ internal static class DeclarationIndexBuilder
                     // comment, it is an unterminated one.
                     inBlockComment = comment.StartsWith("/*", StringComparison.Ordinal)
                         && !(comment.Length >= 4 && comment.EndsWith("*/", StringComparison.Ordinal));
+                    closesBlock = !inBlockComment
+                        && comment.StartsWith("/*", StringComparison.Ordinal);
                 }
                 else if (comment.EndsWith("*/", StringComparison.Ordinal))
                 {
                     inBlockComment = false;
+                    closesBlock = true;
                 }
 
                 // Trivia only counts while a header has not started. A comment sitting inside a
@@ -642,11 +704,68 @@ internal static class DeclarationIndexBuilder
                     triviaSection = tok.Section;
                     triviaKnown &= tok.DepthKnown;
                 }
+
+                bool attached = pending.Count == 0
+                    && !inAttribute
+                    && commentOpenLine > lastTerminatorLine;
+                if (opens)
+                {
+                    openDocumentationBlock = -1;
+                    if (attached && comment.StartsWith("///", StringComparison.Ordinal))
+                    {
+                        var end = new SourceTextPoint(tok.Line, tok.End);
+                        if (previousDocumentationWasLine
+                            && previousLineDocumentationLine + 1 == tok.Line)
+                        {
+                            var current = xmlDocumentation[^1];
+                            xmlDocumentation[^1] = current with { End = end };
+                        }
+                        else
+                        {
+                            xmlDocumentation.Add(new SourceTextRange(
+                                new SourceTextPoint(tok.Line, tok.Column),
+                                end));
+                        }
+
+                        documentationSections.Add(tok.Section);
+                        attachedDocumentationKnown &= tok.DepthKnown;
+                        previousDocumentationWasLine = true;
+                        previousLineDocumentationLine = tok.Line;
+                    }
+                    else if (attached && comment.StartsWith("/**", StringComparison.Ordinal))
+                    {
+                        xmlDocumentation.Add(new SourceTextRange(
+                            new SourceTextPoint(tok.Line, tok.Column),
+                            new SourceTextPoint(tok.Line, tok.End)));
+                        openDocumentationBlock = xmlDocumentation.Count - 1;
+                        documentationSections.Add(tok.Section);
+                        attachedDocumentationKnown &= tok.DepthKnown;
+                        previousDocumentationWasLine = false;
+                    }
+                    else
+                    {
+                        previousDocumentationWasLine = false;
+                    }
+                }
+                else if (openDocumentationBlock >= 0)
+                {
+                    var current = xmlDocumentation[openDocumentationBlock];
+                    xmlDocumentation[openDocumentationBlock] = current with
+                    {
+                        End = new SourceTextPoint(tok.Line, tok.End),
+                    };
+                    documentationSections.Add(tok.Section);
+                    attachedDocumentationKnown &= tok.DepthKnown;
+                }
+
+                if (closesBlock)
+                    openDocumentationBlock = -1;
                 continue;
             }
 
             if (tok.Kind is ScanTokenKind.StringLiteral or ScanTokenKind.CharLiteral)
             {
+                previousDocumentationWasLine = false;
                 if (!inAttribute)
                     pending.Add(tok);
                 continue;
@@ -718,7 +837,17 @@ internal static class DeclarationIndexBuilder
                         // vouch was still wrong.
                         triviaKnown = true;
                         headerKnown &= attachedAttributesKnown && attributeKnown;
+                        textPartsHeaderKnown &= attachedDocumentationKnown
+                            && !documentationSections.Any(
+                                section => section != tok.Section);
                         attachedAttributesKnown = true;
+                        attachedDocumentationKnown = true;
+                        attributeSpans.Clear();
+                        xmlDocumentation.Clear();
+                        documentationSections.Clear();
+                        openDocumentationBlock = -1;
+                        previousLineDocumentationLine = -2;
+                        previousDocumentationWasLine = false;
 
                         lastTerminatorLine = tok.Line + 1;
                     }
@@ -726,6 +855,9 @@ internal static class DeclarationIndexBuilder
                     {
                         attributeLists.Add(list);
                         attributeStarts.Add((attributeStart, attributeStartColumn));
+                        attributeSpans.Add(new SourceTextRange(
+                            new SourceTextPoint(attributeStart - 1, attributeStartColumn),
+                            new SourceTextPoint(tok.Line, tok.End)));
 
                         // Every list, not just the one that opened the trivia. A list written
                         // inside a conditional group is reported in AttributeLists even though
@@ -772,6 +904,7 @@ internal static class DeclarationIndexBuilder
             }
             if (pending.Count == 0 && text == "[")
             {
+                previousDocumentationWasLine = false;
                 inAttribute = true;
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
@@ -791,6 +924,8 @@ internal static class DeclarationIndexBuilder
                 unitAttribute = false;
                 continue;
             }
+
+            previousDocumentationWasLine = false;
 
             if (text == "{")
             {
@@ -838,6 +973,11 @@ internal static class DeclarationIndexBuilder
                     int sigStart = pending.Count > 0 ? pending[0].Line + 1 : tok.Line + 1;
                     int sigColumn = pending.Count > 0 ? pending[0].Column : tok.Column;
                     var declarationHeader = DeclarationHeaderGrammar.Truncate(pending, Text).Header;
+                    ScanToken signatureEnd = pending.Count > 0 ? pending[^1] : tok;
+                    bool spanKnown = tok.DepthKnown && triviaKnown && headerKnown
+                        && attachedAttributesKnown && headerDelimitersKnown
+                        && unknownTransparentScopes == 0
+                        && pending.All(t => t.DepthKnown);
                     var row = new Row
                     {
                         Kind = k,
@@ -850,14 +990,20 @@ internal static class DeclarationIndexBuilder
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
                         AttributeLists = [.. attributeLists],
-                        SpanKnown = tok.DepthKnown && triviaKnown && headerKnown
-                            && attachedAttributesKnown && headerDelimitersKnown
-                            && unknownTransparentScopes == 0
-                            && pending.All(t => t.DepthKnown),
+                        SpanKnown = spanKnown,
                         IsStatic = DeclarationHeaderGrammar.HasTopLevelKeyword(declarationHeader, "static", Text),
                         StaticModifierKnown = headerKnown
                             && declarationHeader.All(t => t.DepthKnown),
                         IsPartial = DeclarationHeaderGrammar.HasTopLevelKeyword(declarationHeader, "partial", Text),
+                        SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
+                        SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
+                        BodyStart = new SourceTextPoint(tok.Line, tok.Column),
+                        TerminalEnd = new SourceTextPoint(tok.Line, tok.End),
+                        XmlDocumentation = [.. xmlDocumentation],
+                        AttributeSpans = [.. attributeSpans],
+                        TextPartsKnown = spanKnown
+                            && textPartsHeaderKnown
+                            && attachedDocumentationKnown,
                     };
                     AddRow(row);
                     scopes.Add((rows.Count - 1, true, true, true));
@@ -909,7 +1055,7 @@ internal static class DeclarationIndexBuilder
                             pending[^1],
                             DeclarationKind.EnumMember,
                             en,
-                            bodyStart: -1,
+                            bodyStart: null,
                             hasInitializer: DeclarationHeaderGrammar.Truncate(pending, Text).CutAtEquals);
                     EndDeclaration(tok);
                 }
@@ -956,7 +1102,9 @@ internal static class DeclarationIndexBuilder
                     {
                         rows[idx].BodyEndLine = tok.Line + 1;
                         rows[idx].EndLine = tok.Line + 1;
+                        rows[idx].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
                         if (!tok.DepthKnown) rows[idx].SpanKnown = false;
+                        if (!tok.DepthKnown) rows[idx].TextPartsKnown = false;
                         lastClosed = idx;
                         lastClosedSection = tok.Section;
                     }
@@ -1075,6 +1223,7 @@ internal static class DeclarationIndexBuilder
                     {
                         rows[lastClosed].EndLine = tok.Line + 1;
                         rows[lastClosed].HasInitializer = true;
+                        rows[lastClosed].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
 
                         // This extends a span that was already measured and marked known when its
                         // accessor block closed, so it needs the same correction that close took:
@@ -1123,6 +1272,7 @@ internal static class DeclarationIndexBuilder
                     if (lastClosedSection == tok.Section && tok.DepthKnown)
                     {
                         rows[lastClosed].EndLine = tok.Line + 1;
+                        rows[lastClosed].TerminalEnd = new SourceTextPoint(tok.Line, tok.End);
                     }
                     else
                     {
@@ -1214,14 +1364,14 @@ internal static class DeclarationIndexBuilder
                     if (kind is { } k && Allowed(k, Enclosing(), InAnonymousScope()))
                     {
                         var truncated = DeclarationHeaderGrammar.Truncate(pending, Text);
-                        int arrow = truncated.ArrowLine;
+                        ScanToken? arrow = truncated.ArrowToken;
                         var declarators =
-                            k is DeclarationKind.Field or DeclarationKind.Event && arrow < 0
+                            k is DeclarationKind.Field or DeclarationKind.Event && arrow is null
                                 ? DeclarationHeaderGrammar.Declarators(pending, Text)
                                 : null;
                         bool hasInitializer = declarators is not null
                             ? declarators[0].HasInitializer
-                            : truncated.CutAtEquals && arrow < 0;
+                            : truncated.CutAtEquals && arrow is null;
 
                         var sharedDeclaration =
                             EmitBodiless(tok, k, name, arrow, hasInitializer);
@@ -1271,7 +1421,7 @@ internal static class DeclarationIndexBuilder
                     pending[^1],
                     DeclarationKind.EnumMember,
                     name,
-                    bodyStart: -1,
+                    bodyStart: null,
                     hasInitializer: DeclarationHeaderGrammar.Truncate(pending, Text).CutAtEquals);
                 EndDeclaration(tok);
                 continue;
@@ -1336,6 +1486,15 @@ internal static class DeclarationIndexBuilder
             AttributeLists = r.AttributeLists,
             IsStatic = r.IsStatic,
             HasInitializer = r.HasInitializer,
+            TextCoordinates = new DeclarationTextCoordinates(
+                new SourceTextRange(r.SignatureStart, r.SignatureEnd),
+                r.BodyStart is { } bodyStart
+                    ? new SourceTextRange(bodyStart, r.TerminalEnd)
+                    : null,
+                r.TerminalEnd,
+                r.XmlDocumentation,
+                r.AttributeSpans,
+                r.SpanKnown && r.TextPartsKnown),
         })];
 
         int FirstCodeColumn(int signatureStartLine, int signatureStartColumn) =>
