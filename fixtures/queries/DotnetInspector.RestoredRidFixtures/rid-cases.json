@@ -1,0 +1,22 @@
+[
+  {
+    "rid": "win",
+    "sdkRuntimeAsset": "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+    "workspaceRuntimeAsset": "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.dll"
+  },
+  {
+    "rid": "win-x64",
+    "sdkRuntimeAsset": "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+    "workspaceRuntimeAsset": "lib/net10.0/System.Security.Cryptography.Pkcs.dll"
+  },
+  {
+    "rid": "linux-x64",
+    "sdkRuntimeAsset": "lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+    "workspaceRuntimeAsset": "lib/net10.0/System.Security.Cryptography.Pkcs.dll"
+  },
+  {
+    "rid": "osx-arm64",
+    "sdkRuntimeAsset": "lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+    "workspaceRuntimeAsset": "lib/net10.0/System.Security.Cryptography.Pkcs.dll"
+  }
+]
