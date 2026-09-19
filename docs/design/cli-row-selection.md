@@ -19,7 +19,8 @@ The package `--versions` and `--versions-with-feed` lenses, finite `demo list`
 catalog, `find`, `implements`, `extensions`, `depends`, `ecosystem`,
 `vocabulary` value rendering, `timeline`, `package query`, package activity,
 projected member Facts JSON, Workspace top-level inventory, and Integration
-graph edges, a single package's `Package files` or `SourceLink: Files` section,
+graph edges, a single package's layout lens, `Package files`, or
+`SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
 for Library, Type, or Member have semantic `-n` adoption. Their supported
@@ -61,6 +62,9 @@ logical edges after complete induced-set construction without reducing package
 acquisition or graph production. The Package `SourceLink: Files` adoption
 selects complete package-library/type/URL rows after SourceLink collection and
 type filtering without reducing package, library, or PDB acquisition. The
+Package layout adoption selects complete normalized file paths after scoped
+enumeration, plumbing exclusion, and sorting without reducing package
+acquisition or archive extraction. The
 Package `Package files` adoption selects complete ordered package-file rows
 after archive extraction, full file enumeration, and optional path filtering.
 The Project document adoption selects complete restored-package Skill or root
@@ -817,6 +821,41 @@ version listing, and multiple-package inspection remain outside this
 declaration. Those surfaces retain their existing row contracts and use
 rendered-line fallback for bare `-n`. Direct callers that provide only the
 legacy `RowWindow` also retain their existing behavior.
+
+## Package layout adoption
+
+The ordinary single-package `package --layout` lens declares one semantic row
+per normalized package-relative file path in its scoped layout. Package
+resolution, extraction, scoped recursive enumeration, packaging-plumbing
+exclusion, and path sorting finish before Head/Tail or strict Window stages
+select from the completed vector.
+
+The scope remains layout-specific. `--lib` and `--tools` scope to those package
+roots. `--tfm <TFM>` scopes to `lib/<TFM>` when present and otherwise
+`tools/<TFM>`, rendering paths relative to the TFM directory's parent so the
+framework remains the tree root. It does not adopt the cross-root Package-file
+TFM predicate.
+
+Markdown renders a tree derived only from the selected file identities. JSON
+emits a document array of `{ "path": ... }` rows, JSONL emits one such row per
+line, and Count observes the same selected vector. The adoption supports
+Head/Tail, Window, and explicit Lines. Explicit `--lines` clips the rendered
+tree and does not select file identities; JSON rejects line selection before
+package resolution.
+
+One strict Window failure withholds every output shape:
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
+    --layout --rows 20..21 --json
+Error: Package layout file row selection stage 1 requires row 21, but only 20 layout file rows are available.
+```
+
+Dependencies, TFM and version listings, file and content sections, embedded
+`--library`/`--all-libraries` inspection, multiple-package inspection,
+discovery/schema, envelope output, and unsupported print or shape projections
+remain outside this declaration. Unselected Package modes continue to use the
+rendered-line fallback for bare `-n`.
 
 ## Package TFM adoption
 

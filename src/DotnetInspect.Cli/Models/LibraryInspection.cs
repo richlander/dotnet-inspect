@@ -1618,6 +1618,8 @@ public sealed record VersionJson(string Version);
 
 public sealed record PackageTfmJson(string Tfm);
 
+public sealed record PackageLayoutFileJson(string Path);
+
 public sealed record VersionListingJson(string Version, string Listing);
 
 /// <summary>

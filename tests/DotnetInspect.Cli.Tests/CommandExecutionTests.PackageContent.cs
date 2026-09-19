@@ -139,6 +139,313 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Layout_SemanticTailSelectsTheSameFilesAcrossOutputs()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string[] args =
+            [
+                "package",
+                packagePath,
+                "--layout",
+                "-n",
+                "2",
+                "--tail",
+                "--tips",
+                "q",
+            ];
+
+            var tree = await RunAppAsync(args);
+            var json = await RunAppAsync([.. args, "--json"]);
+            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
+            var count = await RunAppAsync([.. args, "--count"]);
+
+            foreach (var result in new[] { tree, json, jsonl, count })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            string[] expected =
+            [
+                "lib/net10.0/Latest.Two.dll",
+                "lib/net8.0/Older.dll",
+            ];
+
+            using (JsonDocument document = JsonDocument.Parse(json.Output))
+            {
+                Assert.Equal(
+                    expected,
+                    document.RootElement
+                        .EnumerateArray()
+                        .Select(row => row.GetProperty("path").GetString()!)
+                        .ToArray());
+            }
+
+            Assert.Equal(
+                expected,
+                jsonl.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(
+                        line =>
+                        {
+                            using JsonDocument document =
+                                JsonDocument.Parse(line);
+                            return document.RootElement
+                                .GetProperty("path")
+                                .GetString()!;
+                        })
+                    .ToArray());
+            Assert.Equal("2", count.Output.Trim());
+            Assert.Contains("Latest.Two.dll", tree.Output, StringComparison.Ordinal);
+            Assert.Contains("Older.dll", tree.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Latest.One.dll", tree.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Latest.One.xml", tree.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_WindowSelectsSortedFileIdentities()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--rows",
+                "2..3",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(
+                [
+                    "lib/net10.0/Latest.One.xml",
+                    "lib/net10.0/Latest.Two.dll",
+                ],
+                document.RootElement
+                    .EnumerateArray()
+                    .Select(row => row.GetProperty("path").GetString()!)
+                    .ToArray());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_TfmScopePreservesLibThenToolsBehavior()
+    {
+        var (libPackage, libTempDir) = CreateLocalLibPackage();
+        var (toolsPackage, toolsTempDir) = CreateLocalReadmePackage(
+            "Test.Layout.Tools",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("tools/net9.0/Tool.dll", "tool"),
+            ]);
+        try
+        {
+            var lib = await RunAppAsync(
+                "package",
+                libPackage,
+                "--layout",
+                "--tfm",
+                "net10.0",
+                "--json",
+                "--tips",
+                "q");
+            var tools = await RunAppAsync(
+                "package",
+                toolsPackage,
+                "--layout",
+                "--tfm",
+                "net9.0",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, lib.Exit);
+            Assert.Empty(lib.Error);
+            using (JsonDocument document = JsonDocument.Parse(lib.Output))
+            {
+                Assert.Equal(
+                    [
+                        "net10.0/Latest.One.dll",
+                        "net10.0/Latest.One.xml",
+                        "net10.0/Latest.Two.dll",
+                    ],
+                    document.RootElement
+                        .EnumerateArray()
+                        .Select(row => row.GetProperty("path").GetString()!)
+                        .ToArray());
+            }
+
+            Assert.Equal(0, tools.Exit);
+            Assert.Empty(tools.Error);
+            using (JsonDocument document = JsonDocument.Parse(tools.Output))
+            {
+                JsonElement row = Assert.Single(
+                    document.RootElement.EnumerateArray());
+                Assert.Equal(
+                    "net9.0/Tool.dll",
+                    row.GetProperty("path").GetString());
+            }
+        }
+        finally
+        {
+            Directory.Delete(libTempDir, recursive: true);
+            Directory.Delete(toolsTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_LinesClipsTheRenderedTree()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--lines",
+                "-n",
+                "2",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                2,
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_UnavailableWindowWithholdsOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--rows",
+                "4..5",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package layout file row selection stage 1 requires row 5, "
+                    + "but only 4 layout file rows are available.",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Layout_RejectsInvalidSelectionBeforePackageResolution()
+    {
+        var legacyCount = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--rows",
+            "1",
+            "--json");
+        var jsonLines = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--lines",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, legacyCount.Exit);
+        Assert.Empty(legacyCount.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, jsonLines.Exit);
+        Assert.Empty(jsonLines.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_UnselectedModeRetainsRenderedLineFallback()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.LineFallback",
+            "README.md",
+            "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-n",
+                "1",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DiscoverSchema_ListsPackageContentAuditColumns()
     {
         var (exit, output, error) = await RunAppAsync(

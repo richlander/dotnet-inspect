@@ -138,6 +138,10 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
+                && !PackageOptionsParser.IsPackageLayoutRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
@@ -267,6 +271,10 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 || PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageLayoutRowSelection(
                     result,
                     opts,
                     commandArgs)

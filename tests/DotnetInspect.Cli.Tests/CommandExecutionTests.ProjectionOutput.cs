@@ -1543,7 +1543,7 @@ public partial class CommandExecutionTests
                 "--count", "--rows", "1..1", "--tips", "q");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--count", "--rows", "1", "--tips", "q");
