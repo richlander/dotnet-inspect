@@ -61,7 +61,10 @@ test("Package Info renders typed non-success instead of empty measurements", () 
     packageVersion: "1.2.3",
     compressedPackageBytes: 2048,
     selectedTargetFramework: null,
-    availableTargetFrameworks: ["net8.0", "net6.0"],
+    availableTargetFrameworks: [
+      "net8.0",
+      String.raw`net6.0\u202EHOSTILE`,
+    ],
     selectedTargetFrameworkFolders: null,
     selectedLibraryPayloadBytes: null,
     selectedLibraryCount: null,
@@ -72,6 +75,7 @@ test("Package Info renders typed non-success instead of empty measurements", () 
 
   assert.match(html, /No Applicable Slice/);
   assert.match(html, /No compile slice applies to net10\.0\./);
-  assert.match(html, /net8\.0, net6\.0/);
+  assert.match(html, /net8\.0, net6\.0\\u202EHOSTILE/);
+  assert.doesNotMatch(html, /\u202E/);
   assert.doesNotMatch(html, /Selected-TFM Size/);
 });

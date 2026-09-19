@@ -591,7 +591,9 @@ empty-group marker is not content.
 Folder names are package-authored, sink-bound text. A host-neutral projection
 carries each name as `InertString` under `TextPolicy.Field`; structured formats
 retain the collection as an array rather than collapsing it into presentation
-text.
+text. Available framework identities originate in the same package-authored
+paths and use the same containment before crossing the Package Info inspection
+boundary.
 
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a

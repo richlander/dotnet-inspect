@@ -43,7 +43,8 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(
             ["net10.0", "net8.0"],
-            measurements.AvailableTargetFrameworks);
+            measurements.AvailableTargetFrameworks!
+                .Select(static framework => framework.ToString()));
         Assert.Equal(
             ["build", @"HOSTILE\u202EMARKER", "lib"],
             measurements.SelectedTargetFrameworkFolders!
@@ -131,6 +132,49 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             InspectionDiagnosticSeverity.Warning,
             diagnostic.Severity);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task PackageInfoEnvelopeContainsAvailableFrameworkIdentities()
+    {
+        const string UnsafeFramework = "net8.0\u202EHOSTILE";
+        byte[] archive = TestPackageArchive.Create(
+            $"lib/{UnsafeFramework}/{MaterializedPackageId}.dll");
+        var content = new InMemoryPackageContent(
+            archive,
+            fromCache: true,
+            PackageProducerIdentity.NuGetOrg.Key);
+        await using HouseEnvironment environment =
+            HouseEnvironment.CreateNuGetOrg(
+                MaterializedPackageId,
+                new SourceBehavior([Version]));
+        PackageHouseSettlement.Acquired settlement =
+            await ExecuteCompileMeasurementAsync(
+                environment,
+                content,
+                "net10.0");
+
+        InspectionEnvelope<PackageInfoMeasurements> envelope =
+            PackageInfoMeasurementInspection.Project(settlement);
+        PackageInfoMeasurements measurements = envelope.Content;
+
+        Assert.Equal(
+            PackageInfoMeasurementStatus.NoApplicableSlice,
+            measurements.Status);
+        Assert.Equal(
+            [@"net8.0\u202EHOSTILE"],
+            measurements.AvailableTargetFrameworks!
+                .Select(static framework => framework.ToString()));
+        string json = JsonSerializer.Serialize(
+            envelope,
+            PackageInfoMeasurementJsonContext.Default
+                .InspectionEnvelopePackageInfoMeasurements);
+        Assert.Contains(
+            "\"availableTargetFrameworks\":[\"net8.0\\\\u202EHOSTILE\"]",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', json);
         await environment.AssertRootSettledAsync();
     }
 

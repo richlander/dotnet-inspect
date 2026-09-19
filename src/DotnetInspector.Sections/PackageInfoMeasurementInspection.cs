@@ -28,7 +28,7 @@ public sealed record PackageInfoMeasurements
         PackageInfoMeasurementStatus status,
         long? compressedPackageBytes,
         string? selectedTargetFramework,
-        IReadOnlyList<string>? availableTargetFrameworks,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
@@ -60,7 +60,7 @@ public sealed record PackageInfoMeasurements
         string packageVersion,
         long? compressedPackageBytes,
         string? selectedTargetFramework,
-        IReadOnlyList<string>? availableTargetFrameworks,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
@@ -109,7 +109,7 @@ public sealed record PackageInfoMeasurements
         PackageInfoMeasurementStatus status,
         long? compressedPackageBytes,
         string? selectedTargetFramework,
-        IReadOnlyList<string>? availableTargetFrameworks,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
@@ -120,17 +120,25 @@ public sealed record PackageInfoMeasurements
         bool hasValidAvailableTargetFrameworks =
             availableTargetFrameworks is not null
             && availableTargetFrameworks.All(
-                static framework => !string.IsNullOrWhiteSpace(framework))
+                static framework =>
+                    !string.IsNullOrWhiteSpace(framework.ToString())
+                    && InertString.IsPermitted(
+                        TextPolicy.Field,
+                        framework.ToString()))
             && availableTargetFrameworks
+                .Select(static framework => framework.ToString())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count() == availableTargetFrameworks.Count;
         bool hasSelectedMeasurements =
             compressedPackageBytes.HasValue
             && !string.IsNullOrWhiteSpace(selectedTargetFramework)
             && hasValidAvailableTargetFrameworks
-            && availableTargetFrameworks!.Contains(
-                selectedTargetFramework,
-                StringComparer.OrdinalIgnoreCase)
+            && availableTargetFrameworks!.Any(framework =>
+                framework.ToString().Equals(
+                    new InertString(
+                        TextPolicy.Field,
+                        selectedTargetFramework).ToString(),
+                    StringComparison.OrdinalIgnoreCase))
             && selectedTargetFrameworkFolders is not null
             && selectedTargetFrameworkFolders.All(
                 static folder =>
@@ -208,7 +216,7 @@ public sealed record PackageInfoMeasurements
 
     public string? SelectedTargetFramework { get; }
 
-    public IReadOnlyList<string>? AvailableTargetFrameworks { get; }
+    public IReadOnlyList<InertString>? AvailableTargetFrameworks { get; }
 
     public IReadOnlyList<InertString>? SelectedTargetFrameworkFolders { get; }
 
@@ -339,7 +347,10 @@ public static class PackageInfoMeasurementInspection
                     unavailable.PackageMeasurements?.CompressedPackageBytes,
                     selectedTargetFramework: null,
                     unavailable.PackageMeasurements
-                        ?.AvailableTargetFrameworks,
+                        ?.AvailableTargetFrameworks
+                        .Select(static framework =>
+                            new InertString(TextPolicy.Field, framework))
+                        .ToArray(),
                     selectedTargetFrameworkFolders: null,
                     selectedLibraryPayloadBytes: null,
                     selectedLibraryCount: null,
@@ -358,7 +369,10 @@ public static class PackageInfoMeasurementInspection
             status,
             measurements.CompressedPackageBytes,
             measurements.SelectedTargetFramework,
-            measurements.AvailableTargetFrameworks,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
             measurements.SelectedTargetFrameworkFolders
                 .Select(static folder =>
                     new InertString(TextPolicy.Field, folder))
@@ -378,7 +392,10 @@ public static class PackageInfoMeasurementInspection
             status,
             measurements.CompressedPackageBytes,
             selectedTargetFramework: null,
-            measurements.AvailableTargetFrameworks,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
             selectedTargetFrameworkFolders: null,
             selectedLibraryPayloadBytes: null,
             selectedLibraryCount: null,

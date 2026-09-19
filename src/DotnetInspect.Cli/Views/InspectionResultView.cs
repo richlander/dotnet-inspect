@@ -51,7 +51,10 @@ public class InspectionResultView
                 is { } frameworks
                 ? frameworks.Count == 0
                     ? "None"
-                    : string.Join(", ", frameworks)
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        frameworks).ToString()
                 : null),
         new("Selected-TFM Size", static view =>
             view.PackageMeasurements?.SelectedLibraryPayloadBytes
@@ -695,7 +698,10 @@ public class InspectionResultView
                 "TFMs",
                 targetFrameworks.Count == 0
                     ? "None"
-                    : string.Join(", ", targetFrameworks)));
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        targetFrameworks).ToString()));
         }
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));

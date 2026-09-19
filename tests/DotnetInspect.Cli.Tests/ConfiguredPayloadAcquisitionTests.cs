@@ -864,7 +864,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Equal("net11.0", measurements.SelectedTargetFramework);
             Assert.Equal(
                 ["net11.0", "net8.0"],
-                measurements.AvailableTargetFrameworks);
+                measurements.AvailableTargetFrameworks!
+                    .Select(static framework => framework.ToString()));
             Assert.Equal(
                 [@"HOSTILE\u202EMARKER", "lib"],
                 measurements.SelectedTargetFrameworkFolders!
