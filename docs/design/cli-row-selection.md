@@ -811,6 +811,50 @@ declaration. Those surfaces retain their existing row contracts and use
 rendered-line fallback for bare `-n`. Direct callers that provide only the
 legacy `RowWindow` also retain their existing behavior.
 
+## Package TFM adoption
+
+The ordinary single-package `package --tfms` lens declares one semantic row
+per target-framework string. Package resolution, extraction, complete assembly
+enumeration, TFM de-duplication, and TFM-priority ordering finish before
+Head/Tail or strict Window stages select from that completed vector.
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
+    --tfms -n 1 --tail --json
+[
+  {
+    "tfm": "net20"
+  }
+]
+```
+
+What to notice: `-n 1 --tail` selects the final complete TFM row. Markdown,
+table, TSV, JSONL, JSON, and Count consume the same selected TFM identity.
+Selection does not reduce package acquisition, archive extraction, or assembly
+enumeration.
+
+The adoption supports Head/Tail, Window, and explicit Lines. JSON rejects
+explicit line selection before package resolution. One strict Window failure
+withholds every output shape:
+
+```console
+$ dotnet-inspect package Newtonsoft.Json@13.0.4 \
+    --tfms --rows 8..9 --json
+Error: Package TFM row selection stage 1 requires row 9, but only 8 TFM rows are available.
+```
+
+The declaration activates only for the ordinary one-package TFM lens.
+Version listing and its population-only modifiers, valid or malformed
+package-range coordinates, dependencies, bare `--tree`, layout, file, content,
+and SourceLink selectors or modifiers, embedded
+`--library`/`--all-libraries` inspection, multiple-package inspection, explicit
+section selection, discovery/schema, envelope output, and unsupported print or
+shape projections remain outside it. Fields and columns remain inside only
+with Count, where they project the TFM lens's count result. These competing
+intents retain their existing diagnostics or legacy row contracts and use
+rendered-line fallback for bare `-n`. Numeric `--rows N` is rejected on the
+ordinary adopted lens because Window requires range syntax.
+
 ## Package SourceLink file adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -1087,6 +1131,14 @@ The Package Files adoption is enforced by:
 | `CommandExecutionTests.Package_FileRows_SemanticTailSelectsTheSameRowAcrossFormats` and `Package_FileRows_AliasAndPathAcceptSemanticWindows` | One selected whole-package Files section applies semantic Head/Tail and strict Window after complete ordered file enumeration and optional path filtering; Markdown, table, TSV, JSONL, complete JSON, Count, value projection, and paths consume the same selected rows. |
 | `CommandExecutionTests.Package_FileRows_UnavailableWindowWithholdsOutput`, `Package_FileRows_RejectInvalidRequestsBeforePackageResolution`, and `Package_FileRows_ExplicitLinesClipsRenderedText` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and complete-JSON line clipping fail before package resolution, document-family bare `-n` remains rendered-line selection, and explicit Lines clips rendered table text. |
 | `CommandExecutionTests.Package_FileRows_MultiSectionRetainsLegacyWindowValidation`, `Package_MultiplePackages_FilesJsonlWindowsCombinedRows`, and `PackageContentOutput_RowWindowHydratesTheUnarySelection` | Document-family sections, `@Files`, mixed sections, multiple-package file rows, and package-content payloads remain outside the semantic declaration and retain their existing row-window behavior. |
+
+The Package TFM adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats` and `Tfms_Count_CountsTheListedFrameworks` | One ordinary `--tfms` lens selects complete TFM rows after package extraction and TFM ordering; Markdown, table, TSV, JSONL, JSON, and Count consume the same selected identity. |
+| `CommandExecutionTests.Tfms_UnavailableWindowWithholdsOutput`, `Tfms_RejectInvalidSelectionBeforePackageResolution`, and `Tfms_LinesMakesRenderedClippingExplicit` | One unavailable strict Window emits no partial payload, numeric legacy `--rows` and JSON line clipping fail before package resolution, and explicit Lines clips rendered text. |
+| `CommandExecutionTests.Tfms_CompetingLayoutRetainsRenderedLineFallback`, `Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics`, `Tfms_CompetingProjectionsRetainOwnedDiagnostics`, `Tfms_CompetingModifiersRetainLegacyWindow`, and `LensCounts_ApplyRowsAndValidateProjectedColumns` | Competing Package modes, selectors, modifiers, unsupported projections, and valid or malformed range coordinates remain outside the declaration and retain their owned diagnostics or legacy Window validation, while the ordinary TFM lens applies semantic Window before Count, declared-column validation, and JSONL lowering. |
 
 The Project document row adoption is enforced by:
 

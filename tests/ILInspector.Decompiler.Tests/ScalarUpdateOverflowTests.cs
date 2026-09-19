@@ -14,9 +14,9 @@ public sealed class ScalarUpdateOverflowTests
     [InlineData("CheckedRhsNegation", "checked { value -= unchecked(-amount); }")]
     [InlineData("CheckedRhsConversion", "checked { value *= unchecked((short)amount); }")]
     [InlineData("CheckedRhsNested", "checked { value += unchecked(amount + checked(step * 2)); }")]
-    [InlineData("CheckedRhsAllChecked", "checked { value += (amount + 1); }")]
+    [InlineData("CheckedRhsAllChecked", "checked { value += amount + 1; }")]
     [InlineData("UncheckedRhsChecked", "value += checked(amount + 1);")]
-    [InlineData("CheckedRhsBitwise", "checked { value += (amount & 7); }")]
+    [InlineData("CheckedRhsBitwise", "checked { value += amount & 7; }")]
     public void CompilerProducedContextsPreserveTheirOwnOverflow(string method, string expected)
     {
         foreach (bool updated in new[] { false, true })

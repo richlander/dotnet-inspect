@@ -217,7 +217,20 @@ public partial class PackageCommand
     private static int ListPackageTfms(string extractPath, InspectionOptions options)
     {
         var tfms = TfmSelector.GetPackageTfms(extractPath);
-        var visibleTfms = RowWindow.Apply(options.Rows, tfms);
+        if (!SemanticRowSelection.TrySelectOrApplyLegacy(
+                options.PackageTfmRowSelection,
+                options.Rows,
+                tfms,
+                "Package TFMs",
+                failure =>
+                    $"Package TFM row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} TFM rows are available.",
+                out IReadOnlyList<string> visibleTfms))
+        {
+            return 1;
+        }
 
         if (LensProjection.TryProject(
                 options,
@@ -226,6 +239,17 @@ public partial class PackageCommand
                 out var projectionExit,
                 ["TFM"]))
             return projectionExit;
+
+        if (options.JsonOutput)
+        {
+            Console.Out.WriteLine(
+                JsonSerializer.Serialize(
+                    visibleTfms
+                        .Select(tfm => new PackageTfmJson(tfm))
+                        .ToList(),
+                    JsonContext.Default.ListPackageTfmJson));
+            return 0;
+        }
 
         OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
         return 0;
