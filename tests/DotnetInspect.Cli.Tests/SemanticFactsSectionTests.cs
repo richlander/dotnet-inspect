@@ -61,8 +61,10 @@ public class SemanticFactsSectionTests
     public async Task LibraryIlOffsetSemanticContexts_RenderPointFacts()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.AllSignals))!;
-        var index = LibraryBodyIndex.Open(TestAssemblyPath);
-        var allocationOffset = index.GetAllocationOccurrences()[method.MetadataToken][0].ILOffset;
+        LibraryBodyAnalysisExecution analysis = Analyze();
+        var allocationOffset =
+            analysis.Allocations.Occurrences[
+                method.MetadataToken][0].ILOffset;
 
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
@@ -87,8 +89,10 @@ public class SemanticFactsSectionTests
     public async Task LibraryIlOffsetAllocationContext_RendersEstimatedSize()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.ConstArray))!;
-        var index = LibraryBodyIndex.Open(TestAssemblyPath);
-        var allocationOffset = index.GetAllocationOccurrences()[method.MetadataToken][0].ILOffset;
+        LibraryBodyAnalysisExecution analysis = Analyze();
+        var allocationOffset =
+            analysis.Allocations.Occurrences[
+                method.MetadataToken][0].ILOffset;
 
         var result = await ConsoleCapture.RunAsync(() => LibraryCommand.ExecuteAsync(new LibraryOptions
         {
@@ -139,10 +143,9 @@ public class SemanticFactsSectionTests
             typeof(SemanticFactsFixture).GetMethod(
                 nameof(SemanticFactsFixture
                     .AsyncVirtualDispatch))!;
-        var index =
-            LibraryBodyIndex.Open(TestAssemblyPath);
+        LibraryBodyAnalysisExecution analysis = Analyze();
         DirectCall call = Assert.Single(
-            index.DirectCalls,
+            analysis.CallGraph.DirectCalls,
             call => call.Caller.MetadataToken
                     == method.MetadataToken
                 && call.EvidenceMethod != call.Caller
@@ -181,8 +184,8 @@ public class SemanticFactsSectionTests
     public async Task LibraryIlOffsetSafetyContext_FlagsUnsafeCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.UnsafeAs))!;
-        var index = LibraryBodyIndex.Open(TestAssemblyPath);
-        var call = Assert.Single(index.DirectCalls, call =>
+        LibraryBodyAnalysisExecution analysis = Analyze();
+        var call = Assert.Single(analysis.CallGraph.DirectCalls, call =>
             call.Caller.MetadataToken == method.MetadataToken
             && call.Callee.DeclaringType.ToQualifiedDisplayString() == "System.Runtime.CompilerServices.Unsafe"
             && call.Callee.Name == "As");
@@ -210,8 +213,8 @@ public class SemanticFactsSectionTests
     public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanCall()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpan))!;
-        var index = LibraryBodyIndex.Open(TestAssemblyPath);
-        var call = Assert.Single(index.DirectCalls, call =>
+        LibraryBodyAnalysisExecution analysis = Analyze();
+        var call = Assert.Single(analysis.CallGraph.DirectCalls, call =>
             call.Caller.MetadataToken == method.MetadataToken
             && call.Callee.Name == nameof(Span<int>.Slice));
 
@@ -239,8 +242,8 @@ public class SemanticFactsSectionTests
     public async Task LibraryIlOffsetSafetyContext_DoesNotFlagSafeSpanOfUnsafeNamedType()
     {
         var method = typeof(SemanticFactsFixture).GetMethod(nameof(SemanticFactsFixture.SafeSpanOfUnsafeNamedType))!;
-        var index = LibraryBodyIndex.Open(TestAssemblyPath);
-        var call = Assert.Single(index.DirectCalls, call =>
+        LibraryBodyAnalysisExecution analysis = Analyze();
+        var call = Assert.Single(analysis.CallGraph.DirectCalls, call =>
             call.Caller.MetadataToken == method.MetadataToken
             && call.Callee.Name == nameof(Span<int>.Slice));
 
@@ -287,6 +290,12 @@ public class SemanticFactsSectionTests
             $"0x{methodToken:X}+0x{ilOffset:X}",
             methodToken,
             ilOffset);
+
+    static LibraryBodyAnalysisExecution Analyze() =>
+        LibraryBodyAnalysisService.ExecutePath(
+            TestAssemblyPath,
+            LibraryBodyAnalysisRequest.Create(
+                LibraryBodyAnalysisFeatures.Default));
 
     static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
         string member,

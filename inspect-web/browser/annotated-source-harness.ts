@@ -285,6 +285,15 @@ const result: AnnotatedSourceResult = {
       unavailableReason: "NotProjected",
       observations: [],
     },
+    localThrowPaths: {
+      available: false,
+      unavailableReason: "NotProjected",
+      isComplete: false,
+      boundaries: [],
+      limits: null,
+      receipt: null,
+      paths: [],
+    },
   },
   findingEvidenceDocuments: [{
     id: 0,

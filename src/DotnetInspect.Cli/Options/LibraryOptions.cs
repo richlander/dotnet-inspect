@@ -299,6 +299,11 @@ public record LibraryOptions : IProjectionOptions
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for direct assembly references.
+    /// </summary>
+    public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
+
+    /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;

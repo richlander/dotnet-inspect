@@ -10,7 +10,11 @@ internal sealed record LibraryBodyAnalysisResult(
     OptimizationAnalysisResult Optimizations,
     OwnershipFlowAnalysisResult OwnershipFlow,
     ResourceLifecycleAnalysisResult Resources,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    internal ResourceOccurrenceLibraryAnalysisResult? ResourceOccurrences
+    { get; init; }
+}
 
 internal sealed record MethodBodyAnalysisResult(
     ImmutableArray<MethodIdentity> DeclaredMethods,
@@ -48,3 +52,7 @@ internal sealed record ResourceLifecycleAnalysisResult(
 
 internal sealed record OwnershipFlowAnalysisResult(
     ImmutableArray<ArrayPoolOwnershipMethodEvidence> Methods);
+
+internal sealed record ResourceOccurrenceLibraryAnalysisResult(
+    ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations);

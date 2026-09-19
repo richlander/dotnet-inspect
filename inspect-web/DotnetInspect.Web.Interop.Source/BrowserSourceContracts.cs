@@ -113,6 +113,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
             AwaitCompletionPaths,
         BrowserAnnotatedSourceAllocationExceptionPathInspection
             AllocationExceptionPaths,
+        BrowserAnnotatedSourceLocalThrowPathInspection
+            LocalThrowPaths,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -125,6 +127,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(SynchronousCompletions);
         ArgumentNullException.ThrowIfNull(AwaitCompletionPaths);
         ArgumentNullException.ThrowIfNull(AllocationExceptionPaths);
+        ArgumentNullException.ThrowIfNull(LocalThrowPaths);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -144,6 +147,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.SynchronousCompletions = SynchronousCompletions;
         this.AwaitCompletionPaths = AwaitCompletionPaths;
         this.AllocationExceptionPaths = AllocationExceptionPaths;
+        this.LocalThrowPaths = LocalThrowPaths;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -161,6 +165,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         AwaitCompletionPaths { get; }
     public BrowserAnnotatedSourceAllocationExceptionPathInspection
         AllocationExceptionPaths { get; }
+    public BrowserAnnotatedSourceLocalThrowPathInspection
+        LocalThrowPaths { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -438,6 +444,135 @@ public sealed record BrowserAnnotatedSourceAllocationExceptionPathInspection
         [.. _observations];
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<
+    BrowserAnnotatedSourceLocalThrowPathBoundaryKind>))]
+public enum BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+{
+    AnalysisIncomplete,
+    TraversalBoundary,
+    PartialMethodEvidenceScope,
+    UnresolvedLocalCalls,
+    UnattributedGeneratedBodies,
+    DepthLimit,
+    NodeBudget,
+    EdgeBudget,
+    PathBudget,
+    IncompleteLocalThrowEvidence,
+    IncompleteCorrespondence,
+}
+
+public sealed record BrowserAnnotatedSourceLocalThrowPathBoundary(
+    BrowserAnnotatedSourceLocalThrowPathBoundaryKind Kind,
+    int Value);
+
+public sealed record BrowserAnnotatedSourceLocalThrowSite(
+    string ExceptionType,
+    Guid DefinitionModuleVersionId,
+    int DefinitionToken,
+    int ConstructionOffset,
+    int ConstructorToken,
+    int ThrowOffset);
+
+public sealed record BrowserAnnotatedSourceLocalThrowPath
+{
+    private readonly int[] _factIds;
+    private readonly BrowserCallGraphTarget[] _targets;
+    private readonly BrowserAnnotatedSourceLocalThrowSite[] _terminalThrows;
+
+    public BrowserAnnotatedSourceLocalThrowPath(
+        int[] FactIds,
+        BrowserCallGraphTarget[] Targets,
+        BrowserAnnotatedSourceLocalThrowSite[] TerminalThrows)
+    {
+        ArgumentNullException.ThrowIfNull(FactIds);
+        ArgumentNullException.ThrowIfNull(Targets);
+        ArgumentNullException.ThrowIfNull(TerminalThrows);
+        _factIds = [.. FactIds];
+        _targets = [.. Targets];
+        _terminalThrows = [.. TerminalThrows];
+    }
+
+    public int[] FactIds => [.. _factIds];
+    public BrowserCallGraphTarget[] Targets => [.. _targets];
+    public BrowserAnnotatedSourceLocalThrowSite[] TerminalThrows =>
+        [.. _terminalThrows];
+}
+
+public sealed record BrowserAnnotatedSourceLocalThrowPathLimits(
+    int MaximumDepth,
+    int MaximumNodes,
+    int MaximumEdges,
+    int MaximumPaths);
+
+public sealed record BrowserAnnotatedSourceLocalThrowPathReceipt(
+    int DestinationSearches,
+    int SearchNodes,
+    int SearchedEdges,
+    int ObservedReachablePairs,
+    int ReturnedPaths);
+
+public sealed record BrowserAnnotatedSourceLocalThrowPathInspection
+{
+    private readonly BrowserAnnotatedSourceLocalThrowPathBoundary[] _boundaries;
+    private readonly BrowserAnnotatedSourceLocalThrowPath[] _paths;
+
+    public BrowserAnnotatedSourceLocalThrowPathInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        bool IsComplete,
+        BrowserAnnotatedSourceLocalThrowPathBoundary[] Boundaries,
+        BrowserAnnotatedSourceLocalThrowPathLimits? Limits,
+        BrowserAnnotatedSourceLocalThrowPathReceipt? Receipt,
+        BrowserAnnotatedSourceLocalThrowPath[] Paths)
+    {
+        ArgumentNullException.ThrowIfNull(Boundaries);
+        ArgumentNullException.ThrowIfNull(Paths);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Local throw path availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available
+            && (IsComplete
+                || Boundaries.Length > 0
+                || Limits is not null
+                || Receipt is not null
+                || Paths.Length > 0))
+        {
+            throw new ArgumentException(
+                "Unavailable local throw paths cannot carry evidence or completeness state.");
+        }
+        if (Available
+            && (Limits is null
+                || Receipt is null
+                || IsComplete != (Boundaries.Length == 0)))
+        {
+            throw new ArgumentException(
+                "Available local throw paths require limits, a receipt, and matching completeness.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        this.IsComplete = IsComplete;
+        _boundaries = [.. Boundaries];
+        this.Limits = Limits;
+        this.Receipt = Receipt;
+        _paths = [.. Paths];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason
+    {
+        get;
+    }
+    public bool IsComplete { get; }
+    public BrowserAnnotatedSourceLocalThrowPathBoundary[] Boundaries =>
+        [.. _boundaries];
+    public BrowserAnnotatedSourceLocalThrowPathLimits? Limits { get; }
+    public BrowserAnnotatedSourceLocalThrowPathReceipt? Receipt { get; }
+    public BrowserAnnotatedSourceLocalThrowPath[] Paths => [.. _paths];
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
 {
@@ -572,6 +707,11 @@ public sealed record BrowserMemberFindingCensus
             allocationExceptionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             allocationExceptionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceLocalThrowPathInspection?
+            localThrowPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            localThrowPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -701,7 +841,9 @@ public sealed record BrowserMemberFindingCensus
                 awaitCompletionPaths,
                 awaitCompletionPathsUnavailableReason,
                 allocationExceptionPaths,
-                allocationExceptionPathsUnavailableReason),
+                allocationExceptionPathsUnavailableReason,
+                localThrowPaths,
+                localThrowPathsUnavailableReason),
             projectedIdentities);
     }
 
@@ -1145,6 +1287,11 @@ public sealed record BrowserAnnotatedSource
             allocationExceptionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             allocationExceptionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceLocalThrowPathInspection?
+            localThrowPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            localThrowPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -1170,7 +1317,9 @@ public sealed record BrowserAnnotatedSource
                 awaitCompletionPaths,
                 awaitCompletionPathsUnavailableReason,
                 allocationExceptionPaths,
-                allocationExceptionPathsUnavailableReason),
+                allocationExceptionPathsUnavailableReason,
+                localThrowPaths,
+                localThrowPathsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],
