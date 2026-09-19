@@ -173,19 +173,19 @@ public static class AssemblyPairCallUseQuery
             policy,
             available.Select(item =>
                 new Analysis.CatalogCallGraphParticipant(
-                    item.Index,
+                    item.Index.CallGraphAnalysis,
                     item.Assembly)));
 
         ImmutableArray<AssemblyPairCallUseOccurrence> occurrences =
         [
             .. scope
                 .ResolvedCalls(
-                    firstIndexed.Index,
-                    secondIndexed.Index)
+                    firstIndexed.Index.CallGraphAnalysis,
+                    secondIndexed.Index.CallGraphAnalysis)
                 .Concat(
                     scope.ResolvedCalls(
-                        secondIndexed.Index,
-                        firstIndexed.Index))
+                        secondIndexed.Index.CallGraphAnalysis,
+                        firstIndexed.Index.CallGraphAnalysis))
                 .Where(call =>
                     call.Call.Kind is
                         Analysis.CallKind.Call
@@ -195,14 +195,14 @@ public static class AssemblyPairCallUseQuery
                 {
                     IndexedParticipant source =
                         ReferenceEquals(
-                            call.Source.Index,
-                            firstIndexed.Index)
+                            call.Source.CallGraph,
+                            firstIndexed.Index.CallGraphAnalysis)
                             ? firstIndexed
                             : secondIndexed;
                     IndexedParticipant target =
                         ReferenceEquals(
-                            call.Target.Index,
-                            firstIndexed.Index)
+                            call.Target.CallGraph,
+                            firstIndexed.Index.CallGraphAnalysis)
                             ? firstIndexed
                             : secondIndexed;
                     return new AssemblyPairCallUseOccurrence(

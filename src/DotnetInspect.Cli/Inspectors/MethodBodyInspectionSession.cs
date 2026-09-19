@@ -35,11 +35,14 @@ public sealed class MethodBodyInspectionSession
     }
 
     /// <summary>
-    /// Neutral Analysis index built for this command's requested capabilities and body scope.
-    /// Consumers query it directly instead of growing a parallel forwarding surface here.
+    /// Compatibility facade for consumers not yet migrated to focused results.
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex =>
         AnalysisExecution.CompatibilityIndex();
+
+    /// <summary>Detached local call-graph evidence for this execution.</summary>
+    public Analysis.LibraryCallGraphAnalysisResult CallGraphAnalysis =>
+        AnalysisExecution.CallGraph;
 
     /// <summary>
     /// Detached focused results from the shared Analysis execution.
@@ -110,7 +113,8 @@ public sealed class MethodBodyInspectionSession
         bool includeOpportunities = true,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
-        bool includeAsyncSiblingOpportunities = false)
+        bool includeAsyncSiblingOpportunities = false,
+        bool includeImplementationProfiles = false)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         if (includeAllocations)
@@ -124,6 +128,11 @@ public sealed class MethodBodyInspectionSession
         {
             features |= Analysis.LibraryBodyAnalysisFeatures
                 .AsyncSiblingOpportunities;
+        }
+        if (includeImplementationProfiles)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures
+                .ImplementationProfiles;
         }
 
         return OpenWithFeatures(
@@ -226,13 +235,13 @@ public sealed class MethodBodyInspectionSession
         if (scopes is null)
         {
             diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
-            return BodyIndex.BuildCallerTree(methodToken);
+            return CallGraphAnalysis.BuildCallerTree(methodToken);
         }
 
         using Analysis.CatalogCallGraphScope scope =
             CreateCallGraphScope([this, .. scopes]);
         Analysis.CallTreeNode tree =
-            BodyIndex.BuildCallerTree(methodToken, scope);
+            scope.BuildCallerTree(CallGraphAnalysis, methodToken);
         diagnostics = scope.Diagnostics;
         return scope.Detach(tree);
     }
@@ -240,7 +249,7 @@ public sealed class MethodBodyInspectionSession
     internal Analysis.CallTreeNode CallerTree(
         int methodToken,
         Analysis.CatalogCallGraphScope scope) =>
-        BodyIndex.BuildCallerTree(methodToken, scope);
+        scope.BuildCallerTree(CallGraphAnalysis, methodToken);
 
     /// <summary>
     /// Builds one bidirectional projection over direction-specific assembly
@@ -284,13 +293,13 @@ public sealed class MethodBodyInspectionSession
         if (scopes is null)
         {
             diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
-            return BodyIndex.BuildCallTree(methodToken);
+            return CallGraphAnalysis.BuildCallTree(methodToken);
         }
 
         using Analysis.CatalogCallGraphScope scope =
             CreateCallGraphScope([this, .. scopes]);
         Analysis.CallTreeNode tree =
-            BodyIndex.BuildCallTree(methodToken, scope);
+            scope.BuildCallTree(CallGraphAnalysis, methodToken);
         diagnostics = scope.Diagnostics;
         return scope.Detach(tree);
     }
@@ -310,7 +319,7 @@ public sealed class MethodBodyInspectionSession
             participants.Select(
                 session =>
                     new Analysis.CatalogCallGraphParticipant(
-                        session.BodyIndex,
+                        session.CallGraphAnalysis,
                         session.Assembly)));
     }
 
@@ -319,8 +328,7 @@ public sealed class MethodBodyInspectionSession
         sessions
             .GroupBy(session => (
                 session.Assembly.Identity,
-                session.BodyIndex.DeclaredMethods.FirstOrDefault()
-                    ?.ModuleVersionId ?? Guid.Empty))
+                session.CallGraphAnalysis.ModuleIdentity.ModuleVersionId))
             .Select(group => group.First())
             .ToArray();
 
@@ -341,7 +349,7 @@ public sealed class MethodBodyInspectionSession
         IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
         Analysis.CallerResolutionPlan? declaringTypeResolution = null)
     {
-        var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
+        var selected = CallGraphAnalysis.DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == targetToken);
         var pattern = selected is { } identity
             ? Analysis.MemberPattern.Method(identity)
@@ -349,7 +357,7 @@ public sealed class MethodBodyInspectionSession
 
         var edges = ImmutableArray.CreateBuilder<CallerEdge>();
 
-        foreach (var call in BodyIndex.DirectCalls)
+        foreach (var call in CallGraphAnalysis.DirectCalls)
         {
             if (call.CalleeDefinitionToken == targetToken || (pattern is not null && pattern.Matches(call.Callee)))
                 edges.Add(new CallerEdge(SourceName, call));
@@ -365,24 +373,26 @@ public sealed class MethodBodyInspectionSession
                         participant.Assembly,
                         participant.BindingPolicy)));
             var target = new Analysis.CatalogCallGraphParticipant(
-                participants[0].BodyIndex,
+                participants[0].CallGraphAnalysis,
                 participants[0].Assembly);
             var sources = participants
                 .Skip(1)
                 .Select(
                     participant =>
                         new Analysis.CatalogCallGraphParticipant(
-                            participant.BodyIndex,
+                            participant.CallGraphAnalysis,
                             participant.Assembly))
                 .ToArray();
             var sourceNames =
-                new Dictionary<Analysis.LibraryBodyIndex, string>(
+                new Dictionary<
+                    Analysis.LibraryCallGraphAnalysisResult,
+                    string>(
                     ReferenceEqualityComparer.Instance);
             foreach (MethodBodyInspectionSession participant
                 in participants.Skip(1))
             {
                 sourceNames.Add(
-                    participant.BodyIndex,
+                    participant.CallGraphAnalysis,
                     participant.SourceName);
             }
             foreach (Analysis.CatalogDirectCaller match
@@ -395,7 +405,7 @@ public sealed class MethodBodyInspectionSession
             {
                 edges.Add(
                     new CallerEdge(
-                        sourceNames[match.Participant.Index],
+                        sourceNames[match.Participant.CallGraph],
                         match.Call));
             }
         }

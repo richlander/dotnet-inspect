@@ -923,6 +923,8 @@ public static class ApiDeclarationCorrespondence
                     endpoint,
                     name,
                     ambiguous.Candidates)),
+            TypeDeclarationResult.DefinitionKindUnavailable unavailable =>
+                KindFailure(unavailable.Failure, stage),
             TypeDeclarationResult.BudgetExceeded => new(
                 default,
                 Failure(
@@ -944,6 +946,40 @@ public static class ApiDeclarationCorrespondence
                 "Unknown Type declaration result."),
         };
     }
+
+    static TypeLookup KindFailure(
+        MetadataTypeDefinitionKindFailure failure,
+        ApiDeclarationCorrespondenceStage stage) =>
+        failure switch
+        {
+            MetadataTypeDefinitionKindFailure.BudgetExceeded exceeded => new(
+                default,
+                Failure(
+                    ApiDeclarationCorrespondenceStatus.Failed,
+                    ApiDeclarationCorrespondenceReason.WorkLimitExceeded,
+                    stage,
+                    exceeded.Detail),
+                []),
+            MetadataTypeDefinitionKindFailure.Malformed malformed => new(
+                default,
+                Failure(
+                    ApiDeclarationCorrespondenceStatus.Failed,
+                    ApiDeclarationCorrespondenceReason.MalformedMetadata,
+                    stage,
+                    malformed.Detail),
+                []),
+            MetadataTypeDefinitionKindFailure.Unsupported unsupported => new(
+                default,
+                Failure(
+                    ApiDeclarationCorrespondenceStatus.Refused,
+                    ApiDeclarationCorrespondenceReason
+                        .UnsupportedMetadataFormat,
+                    stage,
+                    unsupported.Detail),
+                []),
+            _ => throw new InvalidOperationException(
+                "Unknown TypeDef kind failure."),
+        };
 
     static ImmutableArray<ApiDeclarationCandidateEvidence> TypeCandidates(
         MetadataReader reader,

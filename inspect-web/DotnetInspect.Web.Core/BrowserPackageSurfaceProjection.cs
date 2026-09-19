@@ -117,6 +117,97 @@ internal static class BrowserPackageSurfaceProjection
             surfaces);
     }
 
+    internal static BrowserPackageProjectionInfo Project(
+        NavigationPackageEvaluation evaluation,
+        BrowserPackageCoordinate coordinate)
+    {
+        ArgumentNullException.ThrowIfNull(evaluation);
+        ArgumentNullException.ThrowIfNull(coordinate);
+        if (evaluation.Libraries.Any(
+            library => !ReferenceEquals(
+                library.Association.Package,
+                coordinate.Root.Identity)))
+        {
+            throw new ArgumentException(
+                "The Navigation evaluation and Browser coordinate must share "
+                    + "one exact Package Root.",
+                nameof(coordinate));
+        }
+
+        BrowserCompileLibraryInfo compileLibrary =
+            BrowserCompileLibraryProjection.Project(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
+        {
+            return new BrowserPackageProjectionInfo(
+                new BrowserPackageSurfaceInfo(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    BrowserFrameworkText.Available(coordinate),
+                    BrowserFrameworkText.Active(coordinate),
+                    coordinate.Package.Icon,
+                    DefaultAssemblyId: null,
+                    compileLibrary,
+                    Assemblies: [],
+                    Types: [],
+                    Accessibility: [],
+                    TotalMembers: 0,
+                    coordinate.Package.Documents(),
+                    InspectionErrors: [],
+                    InspectionError: null),
+                ApiSurfaces: evaluation.Surface);
+        }
+
+        PackageCompileAsset defaultAsset = coordinate.DefaultAsset
+            ?? throw new InvalidOperationException(
+                "A selected compile-library outcome did not identify its "
+                    + "default asset.");
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                evaluation.Surface,
+                [
+                    .. evaluation.Libraries.Select(
+                        static library =>
+                            new BrowserSurfaceProjection.Participant(
+                                library.Association.Participant,
+                                library.Asset.AssemblyName,
+                                library.Asset.Id,
+                                library.Asset.Path)),
+                ]);
+        if (projected.Assemblies.Length == 0 && !projected.IsTruncated)
+        {
+            throw new InvalidOperationException(
+                $"No assembly of {coordinate.PackageId} "
+                    + $"{coordinate.Version} produced an API surface. "
+                    + (projected.InspectionError
+                        ?? "The workspace reported no failure."));
+        }
+
+        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
+                assembly => assembly.Id.Equals(
+                    defaultAsset.Id,
+                    StringComparison.Ordinal))
+            ?.Id
+            ?? projected.Assemblies.FirstOrDefault()?.Id
+            ?? defaultAsset.Id;
+        return new BrowserPackageProjectionInfo(
+            new BrowserPackageSurfaceInfo(
+                coordinate.PackageId,
+                coordinate.Version,
+                BrowserFrameworkText.Available(coordinate),
+                BrowserFrameworkText.Active(coordinate),
+                coordinate.Package.Icon,
+                defaultAssemblyId,
+                compileLibrary,
+                projected.Assemblies,
+                projected.Types,
+                projected.Accessibility,
+                projected.TotalMembers,
+                coordinate.Package.Documents(),
+                projected.InspectionErrors,
+                projected.InspectionError),
+            evaluation.Surface);
+    }
+
     static (AssemblyContextApiSurfaceResult ApiSurfaces,
         BrowserSurfaceProjection.Surface Surface) ProjectSurfaces(
             BrowserInspectionScope scope,

@@ -280,6 +280,16 @@ public static class ApiCoordinateMatchInspection
         var outcome = ((CoordinateTypeResolutionEvidence.Available)resolution).Outcome;
         return outcome switch
         {
+            CoordinateTypeResolutionOutcomeEvidence.Resolved
+            {
+                Definition.KindResolutionFailure: { } failure,
+            } => new(
+                stage,
+                "ResolvedKindUnavailable",
+                failure.GetType().Name,
+                Text("The destination Type definition resolved, but its "
+                    + "definition kind is unavailable."),
+                Budget: FailureBudget(failure)),
             CoordinateTypeResolutionOutcomeEvidence.Resolved => new(stage, "Resolved", null, null),
             CoordinateTypeResolutionOutcomeEvidence.NotFound notFound =>
                 new(stage, "NotFound", null, Text(notFound.Hops.IsEmpty
@@ -297,18 +307,31 @@ public static class ApiCoordinateMatchInspection
                     Text("Destination Type resolution is ambiguous.")),
             CoordinateTypeResolutionOutcomeEvidence.Rejected failure =>
                 new(stage, "Rejected", failure.Failure.GetType().Name,
-                    Text("Destination Type resolution was rejected."), Budget: failure.Failure switch
-                    {
-                        CoordinateTypeResolutionFailureEvidence.DeclarationBudgetExceeded limit =>
-                            limit.Budget,
-                        CoordinateTypeResolutionFailureEvidence.HopBudgetExceeded limit => limit.Budget,
-                        CoordinateTypeResolutionFailureEvidence.RequestBudgetExceeded limit => limit.Budget,
-                        CoordinateTypeResolutionFailureEvidence.DiscoveryBudgetExceeded limit => limit.Budget,
-                        _ => null,
-                    }),
+                    Text("Destination Type resolution was rejected."),
+                    Budget: FailureBudget(failure.Failure)),
             _ => throw new InvalidOperationException("Unknown destination Type resolution outcome."),
         };
     }
+
+    static int? FailureBudget(
+        CoordinateTypeResolutionFailureEvidence failure) =>
+        failure switch
+        {
+            CoordinateTypeResolutionFailureEvidence.DeclarationBudgetExceeded
+                limit => limit.Budget,
+            CoordinateTypeResolutionFailureEvidence.DefinitionKindUnavailable
+            {
+                Failure:
+                    MetadataTypeDefinitionKindFailure.BudgetExceeded limit,
+            } => checked((int)limit.Budget),
+            CoordinateTypeResolutionFailureEvidence.HopBudgetExceeded limit =>
+                limit.Budget,
+            CoordinateTypeResolutionFailureEvidence.RequestBudgetExceeded
+                limit => limit.Budget,
+            CoordinateTypeResolutionFailureEvidence.DiscoveryBudgetExceeded
+                limit => limit.Budget,
+            _ => null,
+        };
 
     static ApiCoordinateMatchAssembly? Target(CoordinateAssemblyBindingTargetEvidence target) =>
         target is CoordinateAssemblyBindingTargetEvidence.AssemblyReference reference

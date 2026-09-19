@@ -279,11 +279,10 @@ internal static class LibraryMetadataService
             ApplySourceLinkAudit(service, inspection);
 
             // Run typed queries against one shared assembly context.
-            var collectReferenceTree = options.CollectReferenceTree;
             var referencesWillRun =
                 queryPlan is not null
                 && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
-            if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
+            if (needsAuditSignals && !referencesWillRun)
             {
                 using var session = AssemblyInspectionSession.Borrow(pdbContext);
                 ApplyAssemblyReferencesResult(
@@ -394,25 +393,6 @@ internal static class LibraryMetadataService
                     inspection.AssemblyReferenceFailureKind
                     ?? IdentifierConfusionAuditFailureKind.InspectionFailed;
                 inspection.IdentifierConfusionFailure = failure;
-            }
-
-            // The query produces the flat direct-reference currency. Tree traversal remains a
-            // path-owning CLI projection over that result.
-            if (collectReferenceTree
-                && inspection.AssemblyReferenceIdentities is { Count: > 0 } referenceIdentities)
-            {
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(
-                    inspection.AssemblyInfo.AssemblyName
-                    ?? Path.GetFileNameWithoutExtension(path));
-
-                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    referenceIdentities,
-                    path,
-                    visited,
-                    logger,
-                    deduplicate: true,
-                    maxDepth: options.ReferenceTreeDepth);
             }
 
             if (options.CollectIdentifierConfusionReferenceTree

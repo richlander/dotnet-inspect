@@ -168,6 +168,22 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ImplementationProfiles_ExposeNormalFlowCyclomaticComplexity()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            LibraryBodyAnalysisFeatures.ImplementationProfiles);
+
+        var profile = Assert.Single(
+            index.ImplementationProfiles(),
+            candidate => candidate.Method.Name == "SemanticSwitchCase");
+
+        Assert.Equal(1, profile.SwitchCount);
+        Assert.Equal(9, profile.SwitchTargetCount);
+        Assert.Equal(10, profile.NormalFlowCyclomaticComplexity);
+    }
+
+    [Fact]
     public void ImplementationProfiles_RequireExplicitAcquisition()
     {
         var index = LibraryBodyIndex.Open(
