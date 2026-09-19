@@ -23,10 +23,15 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserMemberSource,
+  BrowserSource,
+} from "../src/facades/inspect-web-source.d.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -611,6 +616,74 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   assert.deepEqual(await notSettledResult, notSettled);
   assert.equal((await notSettledResult).surface, null);
   assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("ordinary source transport preserves member parts and flat graph source", async () => {
+  const flat = {
+    provider: "pdb",
+    provenance: inertStringFixture("SourceLink"),
+    url: "https://example.test/source.cs",
+    pdbSourceLimitation: null,
+    text: "public void M() { }",
+  } satisfies BrowserSource;
+  const member = {
+    source: flat,
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: flat.text.length,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: flat.text.length,
+      }],
+    }, {
+      kind: "Body",
+      spans: [{
+        start: 16,
+        length: 3,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: 19,
+      }],
+    }],
+  } satisfies BrowserMemberSource;
+  const state = fixture({
+    source: {
+      queryMemberSource: async () => member,
+      queryTypeMemberSource: async () => flat,
+    },
+  });
+
+  const memberResult = state.client.source.queryMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  const graphResult = state.client.source.queryTypeMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await memberResult, member);
+  assert.deepEqual(await graphResult, flat);
   state.host.dispose();
 });
 

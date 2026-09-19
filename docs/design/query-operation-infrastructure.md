@@ -2,20 +2,24 @@
 
 ## Status
 
-**Proposed cross-cutting pattern for
+**Implemented host-neutral substrate; production adoption pending under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
 
 The repository already has implemented portable intent, typed row-query
 resolution, semantic row selection, operation-specific plans, and query
-discovery. It does not yet have one executable registration that composes those
-parts for every route. Current CLI query discovery is partly maintained through
-command-specific catalogs, while Package Query and Graph bind their syntax
-through separate paths.
+discovery. `DotnetInspector.QueryEngine` now carries
+`QueryOperationDefinition<TPredicate, TPlan>`, executable term and order
+bindings, Query Profiles, validated typed routes, profile-scoped portable
+resolution, effective capability projection, and heterogeneous
+`QueryOperationRegistry` lookup. `QueryOperationInfrastructureGateTests` is the
+Release gate for this substrate.
 
-This document locks the missing composition contract. It does not declare any
-adopter complete.
+Current CLI query discovery remains partly maintained through command-specific
+catalogs, while Package Query and Graph bind their syntax through separate
+paths. This document and substrate do not declare any production adopter
+complete.
 
 ## Authority and exact claim
 
@@ -532,6 +536,10 @@ The migration begins from useful but separate systems:
 
 - `PortableQueryIntent` and `PortableQueryVocabulary<TPredicate, TPlan>`
   provide canonical intent and atomic owner resolution.
+- `QueryOperationDefinition<TPredicate, TPlan>`,
+  `QueryOperationRoute<TPredicate, TPlan>`, and `QueryOperationRegistry`
+  provide executable registration, applicability validation, effective
+  capability projection, and profile-scoped resolution over that intent.
 - Package Query supplies the first production portable vocabulary and
   `PackageQueryPlan`.
 - `RowQueryIntent`, `ResolvedRowQueryPlan<TRow>`, `RowQueryResolver`, and
@@ -545,8 +553,9 @@ The migration begins from useful but separate systems:
 - Find exposes its Results and Members sections to discovery but currently has
   no executable query-term or order inventory.
 
-The new registry replaces parallel route-local capability descriptions. It
-does not replace the implemented intent, row, producer, or operation plans.
+The new registry is implemented. Production adopters still need to replace
+their parallel route-local capability descriptions. The registry does not
+replace the implemented intent, row, producer, or operation plans.
 
 ## Counted production adoption
 
@@ -582,15 +591,23 @@ on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/iss
 
 ## Required gates
 
-The implementation and adopter slices must provide Release gates for:
+`QueryOperationInfrastructureGateTests` provides the substrate Release gates
+for:
 
 - construction-time rejection of descriptive query terms or orders without
   executable binders;
 - rejection of route bindings naming inapplicable subject roles, result
   grains, row sets, facets, bounds, or orders;
-- exact `-Q` derivation from effective registrations;
-- atomic resolution that executes nothing after any unsupported or invalid
-  term;
+- exact effective term, order, dimension, and stage projection from the
+  selected registration;
+- profile-scoped atomic resolution that starts no plan after an unsupported
+  term or order; and
+- required term families, dimensions, and Top ranking remaining executable
+  through the selected route.
+
+Adopter slices must add Release gates for:
+
+- exact `-Q` and Browser-control derivation from effective registrations;
 - command and operation-backed-section equivalence for one Graph and one
   Dependency scenario;
 - CLI and Browser/Wasm intent and plan equivalence for Package Query;

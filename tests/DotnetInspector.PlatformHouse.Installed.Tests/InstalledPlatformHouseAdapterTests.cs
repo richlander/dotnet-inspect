@@ -62,6 +62,40 @@ public sealed class InstalledPlatformHouseAdapterTests
     }
 
     [Fact]
+    public void
+        DiscoverTargets_DemandMismatchReturnsTypedRejection()
+    {
+        using var hive = new TestHive();
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformSourceCapabilityIdentity demanded =
+            PlatformSourceCapabilityIdentity.Create("other");
+        PlatformHouseRequest request = SelectingRequest(
+            adapter,
+            demandedCapability: demanded,
+            sourceCapabilities:
+            [
+                adapter.Capabilities.TargetDiscovery,
+                demanded,
+            ],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.IsType<PlatformHouseRequestValidation.Accepted>(
+            PlatformHouseRequestValidation.Validate(request));
+        InstalledPlatformHouseResult<InstalledReferenceTargetInventory>
+            result = adapter.DiscoverTargets(request);
+
+        var notSucceeded = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceTargetInventory>.NotSucceeded>(result);
+        Assert.Equal(
+            PlatformSourceContributionKind.Rejected,
+            notSucceeded.Contribution.Kind);
+        Assert.Same(
+            adapter.Capabilities.TargetDiscovery,
+            notSucceeded.Contribution.Capability);
+    }
+
+    [Fact]
     public async Task RealizeReference_ProducesAuthoritativeExactTargetContribution()
     {
         using var hive = new TestHive();
@@ -234,6 +268,9 @@ public sealed class InstalledPlatformHouseAdapterTests
     static PlatformHouseRequest SelectingRequest(
         InstalledPlatformHouseAdapter adapter,
         bool authorizeCapability = true,
+        PlatformSourceCapabilityIdentity? demandedCapability = null,
+        IReadOnlyList<PlatformSourceCapabilityIdentity>? sourceCapabilities =
+            null,
         PlatformHouseWorkBudget? work = null,
         CancellationToken cancellationToken = default)
     {
@@ -248,13 +285,20 @@ public sealed class InstalledPlatformHouseAdapterTests
                 PlatformTargetFramework.Parse("net11.0"),
                 new PlatformVersionSelectionDemand.Requirement(
                     PlatformVersionRequirementIdentity.Create("net11")),
-                [adapter.Capabilities.TargetDiscovery],
+                [
+                    demandedCapability
+                        ?? adapter.Capabilities.TargetDiscovery,
+                ],
                 new PlatformTargetDiscoveryBudget(8, 16)),
             Origin(),
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.CompletePopulation(),
                 PlatformViewDemand.Reference),
-            Plan(PlatformSourceFacet.TargetDiscovery, authorized),
+            Plan(
+                PlatformSourceFacet.TargetDiscovery,
+                sourceCapabilities is null
+                    ? [authorized]
+                    : [.. sourceCapabilities]),
             work ?? Work(),
             cancellationToken);
     }
@@ -341,7 +385,7 @@ public sealed class InstalledPlatformHouseAdapterTests
 
     static PlatformSourcePlan Plan(
         PlatformSourceFacet facet,
-        PlatformSourceCapabilityIdentity capability) =>
+        params PlatformSourceCapabilityIdentity[] capabilities) =>
         new(
             PlatformSourcePlanIdentity.Create("installed-plan"),
             PlatformSourcePolicyGeneration.Create("installed-policy"),
@@ -349,7 +393,7 @@ public sealed class InstalledPlatformHouseAdapterTests
                 new PlatformSourceSelection(
                     facet,
                     PlatformSourceSelectionMode.Precedence,
-                    [capability]),
+                    capabilities),
             ]);
 
     static PlatformHouseRequestOrigin Origin() =>

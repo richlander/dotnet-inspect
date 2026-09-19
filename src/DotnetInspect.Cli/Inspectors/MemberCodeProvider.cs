@@ -6,6 +6,7 @@ using ILInspector.Decompiler.Pipeline;
 using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Research;
 
 using Decompiler = ILInspector.Decompiler;
 
@@ -20,7 +21,16 @@ namespace DotnetInspect.Cli.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, bool FindingCensus = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, bool FindingCensus = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null)
+    {
+        internal bool RequiresResearchProjection =>
+            AnnotatedSource
+            || CostOverlay
+            || SemanticsOverlay
+            || Facts
+            || SourceDocument
+            || FindingCensus;
+    }
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -37,7 +47,7 @@ internal static class MemberCodeProvider
         string? ILText,
         string? ILDiagnostic,
         IReadOnlyList<(string Name, string? Value)>? Attributes,
-        IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
+        IReadOnlyList<ILInspector.Research.FactRow>? Facts = null,
         FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
         IReadOnlyList<Decompiler.DecompilerDecision>? AppliedTaste = null,
         bool RequiresAsyncBodyModifier = false,
@@ -47,15 +57,18 @@ internal static class MemberCodeProvider
         bool StyledProjectionProduced = false,
         Decompiler.AnnotatedSourceDocument? SourceDocument = null,
         Decompiler.DecompilerResult? SourceDocumentFailure = null,
-        IReadOnlyList<ILInspector.Research.ResearchViews.AnnotatedSourceFactIdentity>?
+        IReadOnlyList<ILInspector.Research.AnnotatedSourceFactIdentity>?
             SourceDocumentFactIdentities = null,
-        FindingCensusReceipt? FactCensusReceipt = null);
+        FindingCensusReceipt? FactCensusReceipt = null,
+        Decompiler.SelectedPropertyAccessorSource? PropertySource = null,
+        IReadOnlyList<string>? AccessorAttributes = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
         Request request, string? pdbPath = null, bool includeAll = false,
         PrinterOptions? renderOptions = null,
-        ResolvedAssemblyReference? sourceAssembly = null)
+        ResolvedAssemblyReference? sourceAssembly = null,
+        ResearchAssemblyContext? researchAssembly = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -216,13 +229,12 @@ internal static class MemberCodeProvider
                 }
             }
 
-            ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
-            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay
-                    || request.Facts || request.SourceDocument || request.FindingCensus)
+            MemberProjectionResult? researchProjection = null;
+            if (request.RequiresResearchProjection
                 && pipelineSource is not null)
             {
-                researchProjection = ILInspector.Research.ResearchViews.ProjectMember(
-                    new ILInspector.Research.ResearchViews.MemberProjectionRequest(
+                researchProjection = MemberProjectionProducer.Produce(
+                    new MemberProjectionRequest(
                         pipelineSource,
                         lookupType,
                         method.Name,
@@ -245,7 +257,9 @@ internal static class MemberCodeProvider
                             ? renderOptions
                             : null,
                         CaretFocus: request.CaretFocus,
-                        SourceDocument: request.SourceDocument || request.FindingCensus));
+                        SourceDocument:
+                            request.SourceDocument || request.FindingCensus,
+                        Assembly: researchAssembly));
 
                 // Promotion never hides a fact, so a focus that matched nothing
                 // renders identically to no focus at all. Say so, and name the
@@ -338,9 +352,16 @@ internal static class MemberCodeProvider
 
             // Structured Research overlay rows for one method: the table-shaped
             // projection of the same facts the annotated source/IL views render.
-            IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? facts = null;
+            IReadOnlyList<ILInspector.Research.FactRow>? facts = null;
             if ((request.Facts || request.FindingCensus) && researchProjection is not null)
                 facts = researchProjection.Facts;
+
+            var propertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
+                && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
+                ? Decompiler.SelectedPropertyAccessorSource.Create(
+                    pipelineSource, propertyMethodToken, method,
+                    includeAttributes: request.AnnotatedSource)
+                : null;
 
             results.Add((method, new Item(
                 decompiledResult,
@@ -360,7 +381,9 @@ internal static class MemberCodeProvider
                 sourceDocument,
                 sourceDocumentFailure,
                 researchProjection?.SourceDocumentFactIdentities,
-                researchProjection?.FactCensusReceipt)));
+                researchProjection?.FactCensusReceipt,
+                propertySource,
+                propertySource?.Attributes)));
         }
 
         return results;

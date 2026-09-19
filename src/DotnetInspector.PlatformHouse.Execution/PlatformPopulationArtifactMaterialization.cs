@@ -75,7 +75,7 @@ public static class PlatformHousePopulationArtifactMaterializer
         MaterializeReferencesAsync(
             PlatformHouseRequest request,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> items,
+                PlatformPopulationLibraryArtifactMaterializationItem> items,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix) =>
         MaterializeAsync(
@@ -91,9 +91,11 @@ public static class PlatformHousePopulationArtifactMaterializer
         MaterializeReferenceAndImplementationAsync(
             PlatformHouseRequest request,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> references,
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    references,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> implementations,
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    implementations,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix) =>
         MaterializeAsync(
@@ -109,7 +111,7 @@ public static class PlatformHousePopulationArtifactMaterializer
         MaterializeImplementationsAsync(
             PlatformHouseRequest request,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> items,
+                PlatformPopulationLibraryArtifactMaterializationItem> items,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix) =>
         MaterializeAsync(
@@ -126,9 +128,11 @@ public static class PlatformHousePopulationArtifactMaterializer
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> references,
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    references,
             IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> implementations,
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    implementations,
             PlatformHouseConsumedWork consumedWork,
             string identityPrefix)
     {
@@ -196,17 +200,20 @@ public static class PlatformHousePopulationArtifactMaterializer
                             new List<ArtifactContribution>(
                                 plan.Items.Count);
                         foreach (
-                            PlatformLibraryArtifactMaterializationItem item
+                            PlatformPopulationLibraryArtifactMaterializationItem
+                                item
                             in plan.Items)
                         {
+                            PlatformLibraryArtifactMaterializationItem
+                                library = item.Library;
                             ArtifactContribution contribution =
                                 scope.Register(
                                     new PlatformLibraryArtifactProvenance(
-                                        item.Contribution,
-                                        item.Provenance),
-                                    item.OpenRead);
+                                        library.Contribution,
+                                        library.Provenance),
+                                    library.OpenRead);
                             contributions.Add(contribution);
-                            item.ArtifactIdentity =
+                            library.ArtifactIdentity =
                                 contribution.Descriptor.Identity;
                             artifactIdentities.Add(
                                 contribution.Descriptor.Identity);
@@ -279,7 +286,8 @@ public static class PlatformHousePopulationArtifactMaterializer
                 selections.Add(
                     new PlatformPopulationLibraryContentSelection(
                         content,
-                        projections[content.Artifact]));
+                        projections[content.Artifact],
+                        plan.Items[index].Attribution));
                 contentLeases.Add(
                     session.IssueContentLease(
                         content,
@@ -414,13 +422,13 @@ public static class PlatformHousePopulationArtifactMaterializer
         }
 
         ArtifactIdentity artifact = view.Artifact;
-        PlatformLibraryArtifactMaterializationItem item =
+        PlatformPopulationLibraryArtifactMaterializationItem item =
             plan.Items.Single(
                 candidate => ReferenceEquals(
-                    candidate.ArtifactIdentity,
+                    candidate.Library.ArtifactIdentity,
                     artifact));
         if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                item.Identity,
+                item.Library.Identity,
                 projected.Value.Identity))
         {
             return Failure(
@@ -592,7 +600,8 @@ public static class PlatformHousePopulationArtifactMaterializer
     sealed class PopulationMaterializationPlan
     {
         private PopulationMaterializationPlan(
-            IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+            IReadOnlyList<
+                PlatformPopulationLibraryArtifactMaterializationItem> items,
             int referenceCount,
             long totalContentLength,
             int maxContentLength,
@@ -607,7 +616,7 @@ public static class PlatformHousePopulationArtifactMaterializer
         }
 
         internal IReadOnlyList<
-            PlatformLibraryArtifactMaterializationItem> Items
+            PlatformPopulationLibraryArtifactMaterializationItem> Items
         { get; }
 
         internal int ReferenceCount { get; }
@@ -615,20 +624,22 @@ public static class PlatformHousePopulationArtifactMaterializer
         internal int MaxContentLength { get; }
         internal bool ExceedsMaterializationBudget { get; }
         internal IEnumerable<PlatformSourceContribution> Contributions =>
-            Items.Select(static item => item.Contribution)
+            Items.Select(static item => item.Library.Contribution)
                 .Distinct<PlatformSourceContribution.Realization>(
                     ReferenceEqualityComparer.Instance);
 
         internal static PopulationMaterializationPlan? TryCreate(
             PlatformHouseRequest request,
             PlatformViewDemand expectedView,
-            IReadOnlyList<PlatformLibraryArtifactMaterializationItem>
+            IReadOnlyList<
+                PlatformPopulationLibraryArtifactMaterializationItem>
                 references,
-            IReadOnlyList<PlatformLibraryArtifactMaterializationItem>
+            IReadOnlyList<
+                PlatformPopulationLibraryArtifactMaterializationItem>
                 implementations,
             PlatformHouseConsumedWork consumedWork)
         {
-            PlatformLibraryArtifactMaterializationItem[] items =
+            PlatformPopulationLibraryArtifactMaterializationItem[] items =
                 [.. references, .. implementations];
             bool validShape = expectedView switch
             {
@@ -649,7 +660,8 @@ public static class PlatformHousePopulationArtifactMaterializer
                 } operation
                 || view != expectedView
                 || !validShape
-                || items.Any(static item => item.ContentLength <= 0)
+                || items.Any(
+                    static item => item.Library.ContentLength <= 0)
                 || consumedWork.Assemblies < items.Length)
             {
                 return null;
@@ -670,7 +682,7 @@ public static class PlatformHousePopulationArtifactMaterializer
                 return null;
 
             int sourceOperations = items.Select(
-                    static item => item.Contribution)
+                    static item => item.Library.Contribution)
                 .Distinct<PlatformSourceContribution.Realization>(
                     ReferenceEqualityComparer.Instance)
                 .Count();
@@ -681,7 +693,7 @@ public static class PlatformHousePopulationArtifactMaterializer
             try
             {
                 totalContentLength = checked(items.Sum(
-                    static item => item.ContentLength));
+                    static item => item.Library.ContentLength));
             }
             catch (OverflowException)
             {
@@ -700,11 +712,12 @@ public static class PlatformHousePopulationArtifactMaterializer
                 || totalContentLength > request.Work.MaxBytes
                 || totalContentLength > int.MaxValue
                 || items.Any(
-                    static item => item.ContentLength > int.MaxValue);
+                    static item =>
+                        item.Library.ContentLength > int.MaxValue);
             int maxContentLength = exceedsBudget
                 ? 0
                 : checked((int)items.Max(
-                    static item => item.ContentLength));
+                    static item => item.Library.ContentLength));
             return new(
                 items,
                 references.Count,
@@ -715,7 +728,8 @@ public static class PlatformHousePopulationArtifactMaterializer
 
         static bool ValidFacet(
             PlatformSourceFacet expectedFacet,
-            IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items,
+            IReadOnlyList<
+                PlatformPopulationLibraryArtifactMaterializationItem> items,
             PlatformHouseRequest request,
             PlatformFamilyTarget target,
             PlatformPopulationDemand population)
@@ -725,13 +739,13 @@ public static class PlatformHousePopulationArtifactMaterializer
             PlatformSourceContribution.Realization? populationContribution =
                 items.Count == 0
                     ? null
-                    : items[0].Contribution;
+                    : items[0].Library.Contribution;
             foreach (
-                PlatformLibraryArtifactMaterializationItem item
+                PlatformPopulationLibraryArtifactMaterializationItem item
                 in items)
             {
                 PlatformSourceContribution.Realization contribution =
-                    item.Contribution;
+                    item.Library.Contribution;
                 if (!ReferenceEquals(
                         contribution,
                         populationContribution)
@@ -749,7 +763,7 @@ public static class PlatformHousePopulationArtifactMaterializer
                     || !request.Sources.Authorizes(
                         expectedFacet,
                         contribution.Capability)
-                    || !identities.Add(item.Identity))
+                    || !identities.Add(item.Library.Identity))
                 {
                     return false;
                 }

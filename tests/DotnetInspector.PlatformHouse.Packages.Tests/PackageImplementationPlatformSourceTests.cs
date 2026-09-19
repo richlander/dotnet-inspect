@@ -113,6 +113,13 @@ public sealed class PackageImplementationPlatformSourceTests
             succeeded.Value.Frameworks.Select(
                 static framework => framework.Name.Value));
         Assert.Equal(
+            [
+                PlatformFamily.DotNetRuntime,
+                PlatformFamily.AspNetCore,
+            ],
+            succeeded.Value.Frameworks.Select(
+                static framework => framework.Family));
+        Assert.Equal(
             ["Microsoft.AspNetCore.Hosting", "System.Runtime"],
             succeeded.Value.Libraries.Select(
                 static library => library.Identity.Name));

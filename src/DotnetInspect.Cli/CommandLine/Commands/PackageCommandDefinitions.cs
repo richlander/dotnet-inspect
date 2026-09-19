@@ -45,6 +45,11 @@ public static class PackageCommandDefinitions
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
         var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
+        var rootsOption = new Option<bool>("--roots")
+        {
+            Description =
+                "Project ordered distinct top-level roots represented by selected Package files rows"
+        };
         var tfmsOption = new Option<bool>("--tfms")
         {
             Description =
@@ -89,6 +94,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
         packageCommand.Options.Add(skipEmptyOption);
+        packageCommand.Options.Add(rootsOption);
         packageCommand.Options.Add(tfmsOption);
         packageCommand.Options.Add(libOption);
         packageCommand.Options.Add(toolsOption);
@@ -113,7 +119,7 @@ public static class PackageCommandDefinitions
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption,
             opts.Lines, opts.TailLines, outOption, pathMatchOption,
-            skipEmptyOption, opts.NoHeaders);
+            skipEmptyOption, rootsOption, opts.NoHeaders);
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -135,6 +141,10 @@ public static class PackageCommandDefinitions
                 && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsCloneCandidateRowSelection(
+                    result,
+                    opts,
                     commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
@@ -149,7 +159,7 @@ public static class PackageCommandDefinitions
             skipEmptyOption, tfmsOption, libOption, toolsOption,
             libraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
-            tfmOption, typeFilterOption, versionOption);
+            tfmOption, typeFilterOption, versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             bool hasPluralVersionSelector =
@@ -203,6 +213,30 @@ public static class PackageCommandDefinitions
 
         });
 
+        // Register this fallback first: the registry prepends, so the
+        // established package populations below retain short-limit ownership.
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => PackageOptionsParser.IsCloneCandidateRowSelection(
+                result,
+                opts,
+                commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(

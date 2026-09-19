@@ -77,6 +77,7 @@ public partial class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
+        if (options.Roots) conflicts.Add("--roots");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
@@ -98,6 +99,7 @@ public partial class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version");
         if (options.Print) conflicts.Add("--print");
+        if (options.Roots) conflicts.Add("--roots");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null
             && !allowStaticDiscovery)
@@ -793,7 +795,11 @@ public partial class PackageCommand
             Paths = options.Paths,
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
-            Rows = options.Rows,
+            Rows = options.CloneCandidateRowSelection is null
+                ? options.Rows
+                : null,
+            CloneCandidateRowSelection =
+                options.CloneCandidateRowSelection,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity

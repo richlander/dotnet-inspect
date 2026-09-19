@@ -129,6 +129,32 @@ public class IndexBuildInvariantTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public async Task MemberCommand_ResearchProjection_ReusesAnalysisSession()
+    {
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+
+        var result = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName = typeof(IndexBuildGuardFixture).FullName,
+                AssemblyPath = FixtureAssembly,
+                MemberFilter = [nameof(IndexBuildGuardFixture.Work)],
+                IncludeSections =
+                [
+                    SectionNames.AnnotatedSource,
+                    SectionNames.Facts,
+                ],
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Detailed,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public async Task TypeCommand_MultipleAnalysisSections_BuildsIndexOnce()
     {
         MethodBodyInspectionSession.OpenCountForTests = 0;

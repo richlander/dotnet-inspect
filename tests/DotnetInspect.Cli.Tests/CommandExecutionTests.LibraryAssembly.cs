@@ -189,6 +189,27 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("--pdb-source", output);
         Assert.DoesNotContain("--authored-source", output);
+        Assert.DoesNotContain("--count", output);
+    }
+
+    [Fact]
+    public async Task Diff_CountGuardPreventsPositionalRebinding()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff",
+            "--count",
+            "--library",
+            "missing-old.dll..missing-new.dll",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count is not supported by the 'diff' command",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("File not found", error, StringComparison.Ordinal);
     }
 
     [Fact]
