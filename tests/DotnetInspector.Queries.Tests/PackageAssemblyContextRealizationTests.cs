@@ -864,6 +864,67 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.True(request.UsesCompatibleImplementationSelection);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompatibleNoMatchRequest_ReopensSameContent(bool resolved)
+    {
+        const string packageId = "compatible.no-match";
+        var content = new InMemoryPackageContent(
+            Archive(("ref/net10.0/Compatible.NoMatch.dll", [0x01])),
+            fromCache: false,
+            producerKey: "tests");
+        PackageRootReacquisitionRequest request;
+        PackageRootBinding reopened;
+        if (resolved)
+        {
+            var payload = new AcquiredPackagePayload(
+                new ResolvedPackageCoordinate(
+                    packageId,
+                    "1.0.0",
+                    "net9.0",
+                    runtimeIdentifier: null,
+                    [PackageSource.NuGetOrg],
+                    wasFloating: false),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            request =
+                PackageRootBinding.CreateFromResolvedWithCompatibleSelection(
+                    payload,
+                    "net9.0").CreateReacquisitionRequest();
+            reopened =
+                PackageRootBinding.CreateFromReacquiredResolved(
+                    payload,
+                    request);
+        }
+        else
+        {
+            var payload = new AcquiredPackageSourcePayload(
+                PackageSourceCoordinate.Create(packageId, "1.0.0"),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+            request =
+                PackageRootBinding.CreateFromSourceWithCompatibleSelection(
+                    payload,
+                    "net9.0").CreateReacquisitionRequest();
+            reopened =
+                Assert.IsType<PackageRootRebindingOutcome.Bound>(
+                    PackageRootAcquisition.BindReacquired(
+                        request,
+                        payload)).Binding;
+        }
+
+        Assert.True(request.AllowsCompatibleTargetSelection);
+        Assert.False(request.UsesCompatibleImplementationSelection);
+        Assert.False(request.HasSelectedImplementationUniverse);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            reopened.Root.AssetSelection.Status);
+        Assert.Equal(request, reopened.CreateReacquisitionRequest());
+    }
+
     [Fact]
     public void
         CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget()

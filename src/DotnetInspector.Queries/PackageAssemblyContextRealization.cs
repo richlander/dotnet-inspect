@@ -380,7 +380,8 @@ public sealed class PackageRootBinding
             runtimeIdentifier: null,
             assetSelection: compatibleSelection,
             compileTargetFramework: requestedTargetFramework,
-            usesCompatibleImplementationSelection: true,
+            usesCompatibleImplementationSelection:
+                compatibleSelection.UsesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection: true);
     }
 
@@ -536,7 +537,8 @@ public sealed class PackageRootBinding
             payload.Coordinate.RuntimeIdentifier,
             compatibleSelection,
             requestedTargetFramework,
-            usesCompatibleImplementationSelection: true,
+            usesCompatibleImplementationSelection:
+                compatibleSelection.UsesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection: true);
     }
 
@@ -591,7 +593,8 @@ public sealed class PackageRootBinding
             payload.Coordinate.RuntimeIdentifier,
             compatibleSelection,
             requestedTargetFramework,
-            usesCompatibleImplementationSelection: true,
+            usesCompatibleImplementationSelection:
+                compatibleSelection.UsesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection: true);
     }
 

@@ -3202,7 +3202,8 @@ The request preserves seven facts separately:
   target selection; and
 - whether implementation selection used a compatible universe relative to a
   caller-requested compile target, including when compatible selection
-  produced no unique universe.
+  produced no unique universe. Authorization remains true while observed use
+  remains false when no compatible implementation universe exists.
 
 Keeping them separate is load-bearing. Framework-neutral acquisition may pair
 with a real compile target. Compatible implementation selection may instead
@@ -3335,8 +3336,10 @@ is bounded in length before parsing, requires the exact field count for its
 version, and revalidates every field through the owner's own canonical
 coordinate and request construction, so a malformed, over-long, or forged
 token is a `false` return rather than an exception or a value this owner would
-not have issued. A current token that is not already canonical is refused
-rather than silently normalized, so one current request has exactly one token.
+not have issued. A current token cannot claim a selected implementation
+universe without the corresponding implementation-selection target. A current
+token that is not already canonical is refused rather than silently normalized,
+so one current request has exactly one token.
 A decoded request is a request, **not** an authorization: acquiring the Root it
 names still passes the destination host's own source authorization, transfer
 policy, and payload limits. Host caches, registries, credential handling, and
@@ -3375,8 +3378,9 @@ implementation-presence, compatible-selection authorization, and observed-use
 fields plus `pkgroot1` through `pkgroot4` migration.
 `Token_RejectsMalformedOrNonCanonicalInput` rejects an observed compatible-use
 claim without its authorization, invalid implementation-presence values,
-compatible authorization without compile and selection targets, and blank or
-padded target fields through the decoder's total `false` result.
+selected implementation presence without a selection target, compatible
+authorization without compile and selection targets, and blank or padded
+target fields through the decoder's total `false` result.
 
 In `ArtifactRootCorrespondenceTests`,
 `PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility` gates
@@ -3405,6 +3409,9 @@ replacement content whose highest implementation universe is `lib/net7.0`;
 authorization retention when exact target selection wins;
 `PackageRootBinding_CompatibleSelectionPreservesLowerImplementationTarget`
 gates the same split for the public compatible-construction path; and
+`CompatibleNoMatchRequest_ReopensSameContent` gates source and resolved
+compatible authorization when no implementation universe exists, preserving
+observed use as false across same-content reopening; and
 `CompatibleExactRequest_RejectsReplacementWithDifferentSelectedTarget` gates
 reacquisition rejection when replacement content changes that prior exact
 selection outcome.

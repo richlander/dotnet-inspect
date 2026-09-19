@@ -478,6 +478,11 @@ public sealed class PackageRootReacquisitionRequest :
             hasSelectedImplementationUniverse =
                 selectionTargetFramework is not null;
         }
+        if (hasSelectedImplementationUniverse
+            && selectionTargetFramework is null)
+        {
+            return false;
+        }
         if (compileTargetFramework is null
             && allowsCompatibleTargetSelection)
         {
