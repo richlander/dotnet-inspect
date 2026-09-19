@@ -40,6 +40,14 @@ The input preserves their shared execution receipt; it is not a general result
 bag. CLI and Workspace/L1 composition own the single Analysis execution and
 pass the focused values into Research.
 
+The second Research adoption moves IL-offset allocation, safety, and cost
+composition off `LibraryBodyIndex`. `ILOffsetAnalysisInput` joins the three
+focused results from one receipt. CLI coordinate composition executes Analysis
+once over the already-prefetched authoritative image, scopes the request to
+the selected physical MethodDef tokens, and reuses the input across coordinate
+file rows. The Research producer validates source-module correspondence and
+result participation without reopening Analysis.
+
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
@@ -241,6 +249,13 @@ carry the same receipt and provides only the member-projection joins over those
 results. Path-backed compatibility production and immutable-image L1
 production each execute Analysis once; only the L1 query retains a
 compatibility index for its separate callee-evidence composition.
+
+The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
+safety, and call-graph results from one exact receipt. CLI single-coordinate
+execution prepares one token-scoped input; coordinate-file execution prepares
+one input for the union of selected physical MethodDef tokens. This preserves
+the existing point-fact output and typed failure boundary while removing both
+`AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
 
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence
