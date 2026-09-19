@@ -35,7 +35,22 @@ public sealed record MethodImplementationProfile(
     int IncomingOverloadCallerCount,
     int OutgoingOverloadTargetCount,
     bool IsComplete,
-    ImmutableArray<string> IncompleteReasons);
+    ImmutableArray<string> IncompleteReasons)
+{
+    /// <summary>
+    /// Cyclomatic complexity of the ordinary-flow IL graph.
+    /// </summary>
+    /// <remarks>
+    /// This is a compiled-implementation measure, not a source-level C# metric. The graph has
+    /// one entry and one virtual exit; conditional branch opcodes contribute one additional
+    /// edge, except <c>switch</c>, whose target count supplies the additional edges. Exception
+    /// dispatch and cleanup edges are deliberately excluded and remain available through the
+    /// exception counts. Interpret the value as incomplete when <see cref="IsComplete"/> is
+    /// <see langword="false"/>.
+    /// </remarks>
+    public int NormalFlowCyclomaticComplexity =>
+        1 + ConditionalBranchCount - SwitchCount + SwitchTargetCount;
+}
 
 /// <summary>An exact direct call between distinct methods in one overload family.</summary>
 public sealed record OverloadCallRelationship(

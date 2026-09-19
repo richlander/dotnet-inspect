@@ -440,6 +440,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageAllLibraries_ReferenceHierarchyRequiresExactLibrary()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.ReferenceHierarchy,
+                "--count",
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Reference Hierarchy requires one exact library",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibrary_ReferenceHierarchyUsesSharedLibraryRendering()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--library", "Test.Primary.dll",
+                "-S", SectionNames.ReferenceHierarchy,
+                "--tree",
+                "--markdown",
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains(
+                "DotnetInspect.Cli.Tests",
+                result.Output);
+            Assert.NotEmpty(result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibraries_HonorsOutputDestination()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

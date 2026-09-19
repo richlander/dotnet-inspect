@@ -376,14 +376,17 @@ Some command facts are not expressed by a section producer. The command passes
 those typed queries as attributed command demand so the same closure and trace
 machinery still owns execution.
 
-`References` binds typed direct-reference inspection:
+`References` binds typed direct-reference inspection, while
+`Reference Hierarchy` binds the shared host-neutral Depends operation:
 
 - `-S References` collects direct assembly references and renders a flat table.
-- `-S References --tree` additionally resolves the transitive graph.
-- `--depth N` limits traversal; depth 1 contains direct references.
+- `-S "Reference Hierarchy"` resolves rooted transitive reference occurrences.
+- `--tree` changes only the hierarchy projection.
+- `--depth N` limits hierarchy traversal; depth 1 contains direct references.
 
-The planner enables direct or tree collection from the candidate set instead
-of creating synonymous sections.
+The planner binds the selected semantic result before acquisition. Direct
+reference inspection never authorizes traversal, and discovery advertises the
+hierarchy structurally without acquiring it.
 
 Extension-method, custom-attribute, manifest-resource, and type-forwarder
 inspection are also typed query work. `Library Info` binds all four query

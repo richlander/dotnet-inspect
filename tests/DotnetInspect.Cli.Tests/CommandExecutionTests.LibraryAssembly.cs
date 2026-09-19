@@ -515,7 +515,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.References,
+                SectionNames.ReferenceHierarchy,
                 "--tree",
                 "--tips",
                 "q");
@@ -527,8 +527,10 @@ public partial class CommandExecutionTests
                 CountMarkdownDataRows(audit.Output));
             Assert.Equal(0, tree.Exit);
             Assert.Empty(tree.Error);
+            // The audit reports one canonical identity, while the hierarchy preserves the
+            // two parent-relative occurrences that reach it.
             Assert.Equal(
-                1,
+                2,
                 tree.Output.Split(
                     concerningName,
                     StringSplitOptions.None).Length - 1);
@@ -935,22 +937,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectedReferences_TreeCollectsResolvedTransitiveReferences()
+    public async Task LibraryCommand_SelectedReferenceHierarchy_CollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References, "--tree", "--tips", "q");
+            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy, "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## References", output);
+        Assert.Contains("## Reference Hierarchy", output);
         Assert.Contains("System.Runtime", output);
         Assert.Contains("System.Private.CoreLib", output);
-        Assert.DoesNotContain("## Dependencies", output);
+        Assert.DoesNotContain("## References", output);
         Assert.DoesNotContain("Name: System.Text.Json", output);
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectedReferences_TreeResolvesBareRelativePath()
+    public async Task LibraryCommand_SelectedReferenceHierarchy_TreeResolvesBareRelativePath()
     {
         var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
         try
@@ -960,7 +962,7 @@ public partial class CommandExecutionTests
                 "library",
                 "Root.dll",
                 "-S",
-                SectionNames.References,
+                SectionNames.ReferenceHierarchy,
                 "--tree",
                 "--tips",
                 "q");
@@ -976,7 +978,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryReferenceTree_ReadFailureDiagnosticIsContentFree()
+    public async Task LibraryReferenceHierarchy_ReadFailureDiagnosticIsContentFree()
     {
         var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
         try
@@ -989,22 +991,31 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.References,
+                SectionNames.ReferenceHierarchy,
                 "--tree",
                 "--verbose",
                 "--tips",
                 "q");
 
-            Assert.Equal(0, exit);
-            Assert.Contains("## References", output);
+            Assert.Equal(1, exit);
+            Assert.Contains("Root", output);
+            string[] diagnostics = error.ReplaceLineEndings("\n")
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal("Inspecting: Root.dll", diagnostics[0]);
             Assert.Equal(
-                [
-                    "Inspecting: Root.dll",
-                    "Warning: Could not inspect a resolved assembly "
-                    + "reference: invalid assembly metadata",
-                ],
-                error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Could not inspect a resolved assembly "
+                + "reference: invalid assembly metadata",
+                diagnostics[1]);
+            Assert.Contains(
+                diagnostics,
+                diagnostic => diagnostic.Contains(
+                    "typed failure record(s) are reported",
+                    StringComparison.Ordinal));
+            Assert.Contains(
+                diagnostics,
+                diagnostic => diagnostic.Contains(
+                    "Dependency traversal completed as Partial",
+                    StringComparison.Ordinal));
             Assert.DoesNotContain("Bridge", error);
             Assert.DoesNotContain(tempDir, error);
         }
@@ -1015,10 +1026,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectedReferences_TreeDepthOneStopsAtDirectReferences()
+    public async Task LibraryCommand_SelectedReferenceHierarchy_TreeDepthOneStopsAtDirectReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.References,
+            "System.Text.Json", "-S", SectionNames.ReferenceHierarchy,
             "--tree", "--depth", "1", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -1028,7 +1039,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath()
+    public async Task LibraryCommand_SelectedReferenceHierarchy_PreservesSharedTargetOccurrences()
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -1062,7 +1073,7 @@ public partial class CommandExecutionTests
                 "library",
                 rootPath,
                 "-S",
-                SectionNames.References,
+                SectionNames.ReferenceHierarchy,
                 "--tree",
                 "--depth",
                 "3",
@@ -1073,10 +1084,11 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("Leaf", output);
             Assert.Equal(
-                1,
+                2,
                 output.Split(
                     "Target ",
                     StringSplitOptions.None).Length - 1);
+            Assert.Contains("(revisit) Target", output);
         }
         finally
         {
@@ -1085,27 +1097,274 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_DependencySectionAlias_RendersReferenceTree()
+    public async Task LibraryCommand_ReferenceHierarchyJson_PreservesSharedOccurrencesAndCycle()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-occurrence-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Shared.dll"),
+                "Shared",
+                "Root");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Left.dll"),
+                "Left",
+                "Shared");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Right.dll"),
+                "Right",
+                "Shared");
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Left",
+                "Right");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.ReferenceHierarchy,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using JsonDocument json = JsonDocument.Parse(output);
+            JsonElement occurrences = json.RootElement
+                .GetProperty("reference_hierarchy")
+                .GetProperty("occurrences");
+            JsonElement[] shared =
+            [
+                .. occurrences.EnumerateArray().Where(
+                    occurrence =>
+                        occurrence.GetProperty("target_identity")
+                            .GetProperty("library")
+                            .GetProperty("name")
+                            .GetString() == "Shared"),
+            ];
+            Assert.Equal(2, shared.Length);
+            Assert.Contains(
+                shared,
+                occurrence => occurrence.GetProperty("disposition")
+                    .GetString() == "Expanded");
+            Assert.Contains(
+                shared,
+                occurrence => occurrence.GetProperty("disposition")
+                    .GetString() == "Revisit");
+            Assert.NotEqual(
+                shared[0].GetProperty("parent_occurrence_id").GetInt32(),
+                shared[1].GetProperty("parent_occurrence_id").GetInt32());
+            Assert.Contains(
+                occurrences.EnumerateArray(),
+                occurrence =>
+                    occurrence.GetProperty("target_identity")
+                        .GetProperty("library")
+                        .GetProperty("name")
+                        .GetString() == "Root"
+                    && occurrence.GetProperty("disposition")
+                        .GetString() == "Cycle");
+            Assert.DoesNotContain(
+                "\"dependency_hierarchy\"",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceHierarchyTable_HonorsRowsAndOutputFile()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-output-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Left.dll"),
+                "Left");
+            WriteReferenceFixtureAssembly(
+                Path.Combine(tempDir, "Right.dll"),
+                "Right");
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            string outputPath = Path.Combine(tempDir, "hierarchy.tsv");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Left",
+                "Right");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.ReferenceHierarchy,
+                "--tsv",
+                "--columns",
+                "Target,Depth,Disposition",
+                "--rows",
+                "1..2",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.True(exit == 0, error);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            string[] lines = File.ReadAllLines(outputPath);
+            Assert.Equal(3, lines.Length);
+            Assert.Equal("target\tdepth\tdisposition", lines[0]);
+            Assert.Contains("Left", lines[1]);
+            Assert.Contains("Right", lines[2]);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceHierarchyEffectiveDiscovery_DoesNotTraverse()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-discovery-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(
+                rootPath,
+                "Root",
+                "Missing");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-D",
+                SectionNames.ReferenceHierarchy,
+                "--effective",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Occurrence", output);
+            Assert.Contains("Disposition", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DirectEmptyReferences_RemainsSuccessful()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-empty-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteReferenceFixtureAssembly(rootPath, "Root");
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("No references", output, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DirectReferenceFailure_RemainsVisible()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-failure-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            var result = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Warning: References inspection failed "
+                + "(Assembly reference): Read out of bounds."
+                + Environment.NewLine,
+                result.Error);
+
+            var count = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, count.Exit);
+            Assert.Equal("0" + Environment.NewLine, count.Output);
+            Assert.Equal(result.Error, count.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DependencySectionAlias_IsRejected()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Text.Json", "-S", "Dependencies", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("## References", output);
-        Assert.Contains("System.Private.CoreLib", output);
-        Assert.DoesNotContain("## Dependencies", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Dependencies' not found", error);
     }
 
     [Fact]
-    public async Task LibraryCommand_TreeRequiresReferencesSelection()
+    public async Task LibraryCommand_TreeRequiresReferenceHierarchySelection()
     {
         var (exit, output, error) = await RunAppAsync(
             "System.Text.Json", "--tree", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--tree requires exactly one tree-shaped section (-S References)", error);
+        Assert.Contains("--tree requires exactly '-S \"Reference Hierarchy\"'", error);
     }
 
     [Fact]
@@ -1530,8 +1789,8 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
-                "@Audit", "@Integrations", "@Library", "@Metadata", "@Performance",
-                "@ReadyToRun", "@SourceLink", "@Surface",
+                "@Audit", "@Dependencies", "@Integrations", "@Library", "@Metadata",
+                "@Performance", "@ReadyToRun", "@SourceLink", "@Surface",
             },
             categoryNames);
 
@@ -3370,22 +3629,20 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);
-            Assert.Equal(1, multiTreeCountExit);
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
-            Assert.Empty(multiTreeCountOutput);
-            Assert.Contains(
-                "requires exactly one selected shape",
-                multiTreeCountError);
             Assert.Contains(
                 "net10.0 / Async Methods\t0",
                 multiCountOutput);
             Assert.Contains(
                 $"net8.0 / Async Methods\t{singleCountOutput.Trim()}",
                 multiCountOutput);
+            Assert.Equal(1, multiTreeCountExit);
+            Assert.Empty(multiTreeCountOutput);
+            Assert.Contains("Reference Hierarchy", multiTreeCountError);
             Assert.Equal(1, multiTreeMapExit);
             Assert.Empty(multiTreeMapOutput);
-            Assert.Contains("exactly one", multiTreeMapError);
+            Assert.Contains("Reference Hierarchy", multiTreeMapError);
         }
         finally
         {

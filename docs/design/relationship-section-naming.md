@@ -223,8 +223,9 @@ each component.
 | Package `Dependency Hierarchy` | Rooted occurrence-addressed Depends result | Conforming hierarchy name and identity; adopted by #7649 |
 | Removed Package `--dependencies` and `Dependencies --tree` spellings | Former transitive hierarchy request | Intentionally removed by #7649 with replacement guidance |
 | Depends `Dependency Hierarchy` | Rooted occurrence-addressed dependency result over canonical backing evidence | Conforming hierarchy name and identity; adopted by #7648 |
-| Library `References` without `--tree` | Direct assembly-reference evidence | Conforming direct name |
-| Library `References --tree` | Resolved transitive rooted reference result | **Target:** separate `Reference Hierarchy`; projection must stop changing the result |
+| Library `References` | Direct assembly-reference evidence | Conforming direct name; preserved by #7647 |
+| Library `Reference Hierarchy` | Rooted occurrence-addressed Depends result over assembly-reference evidence | Conforming hierarchy name and identity; adopted by #7647 |
+| Removed Library `--dependencies`, `Dependencies`, and `References --tree` spellings | Former transitive hierarchy requests | Intentionally removed by #7647 with replacement guidance |
 | `Calls` and `Callers` | Direct call evidence by direction | Conforming direct names |
 | `Call Graph` | Identity-preserving typed call topology | Conforming Graph name |
 | Shipped `Integrations` | Set-valued direct Integration evidence | Conforming direct name |
@@ -232,7 +233,7 @@ each component.
 | `Integration Graph` | Identity-preserving Integration topology | Conforming Graph name |
 | `Direct Use Clusters` | Optional call-concentration analysis | Conforming analysis name |
 | `Type Hierarchy` | Identity-preserving type topology | Reserved conventional exception |
-| Legacy `Dependencies` to `References` alias | Cross-domain compatibility routing | Incompatible debt requiring focused CLI disposition |
+| Removed `Dependencies` to `References` alias | Cross-domain compatibility routing | Intentionally removed by #7647 |
 
 Internal CLR type names such as `DependencyGraphDocument` are outside this
 inventory. They may remain when they do not leak a false user-facing contract.
@@ -244,15 +245,15 @@ performing a blind text replacement:
 
 | Surface | Current evidence | Adoption obligation |
 | --- | --- | --- |
-| Canonical section registration | Depends and Package register `Dependency Hierarchy`; Library registers `References` | Preserve the canonical Depends hierarchy and add the Library hierarchy section in its owning adoption |
-| Request planning and acquisition | Package binds `Dependency Hierarchy` to Depends before acquisition; Library `References --tree` still authorizes transitive work | Preserve the Package binding; bind `Reference Hierarchy` before Library producer planning and make `--tree` projection-only |
+| Canonical section registration | Depends and Package register `Dependency Hierarchy`; Library registers `References` and `Reference Hierarchy` | Preserve each direct or hierarchy identity in later adoptions |
+| Request planning and acquisition | Package and Library bind their hierarchy sections to Depends before acquisition | Preserve operation binding before producer planning; renderers do not authorize traversal |
 | Help, discovery, and completion | Host output is derived from or supplemented around current section catalogs | Advertise the canonical name once, classify obsolete spellings, and avoid presenting an alias as a second supported result |
 | Categories | `@Dependencies`, `@Calls`, `@Relations`, and `@Integrations` group current sections | Keep category identity separate; deliberately place each new hierarchy or graph section |
-| Compatibility aliases | `SelectResolver.LegacySectionAliases` globally maps `Dependencies` to `References` when no exact section wins | Remove or narrow the cross-domain alias under CLI change classification |
-| Portable View Facets | `package.dependencies` and `package.dependency-hierarchy` are distinct issued identities; Library and Member retain their current facets | Preserve current purposes; issue a distinct identity for each remaining hierarchy or graph result |
-| Structured output | Depends exposes a `dependency_hierarchy` member whose roots and relationship occurrences retain root and parent identity | Package and Library adoptions must issue their own hierarchy-shaped schemas rather than repurpose direct-result fields |
+| Compatibility aliases | No cross-domain `Dependencies` to `References` alias remains | Keep aliases within one semantic domain and classify future removals explicitly |
+| Portable View Facets | Package and Library direct and hierarchy results have distinct issued identities | Preserve current purposes; issue a distinct identity for each remaining graph result |
+| Structured output | Depends exposes the occurrence-addressed hierarchy shape; Package and Library expose subject-named hierarchy members over that shape | Preserve root and parent occurrence identity rather than repurpose direct-result fields |
 | Share and replay | Portable state binds facet identity and query intent rather than display text | Preserve old packet meaning and map new result shapes through new or explicitly versioned identities |
-| README, focused docs, and shipped skills | Depends and Package guidance use `Dependency Hierarchy`; Library guidance still contains `References --tree` | Update the remaining Library examples in its owning adoption |
+| README, focused docs, and shipped skills | Depends, Package, and Library guidance use their explicit hierarchy sections | Keep direct evidence and hierarchy examples visibly separate |
 | Browser labels and gestures | Browser currently exposes direct `Integrations` and `Call Graph`; hierarchy facets are not issued | Reuse conforming names and add hierarchy labels only when the shared host-neutral result is available |
 | Tests and snapshots | Existing gates assert current selectors, help, projections, schemas, and facet titles | Replace or add assertions in the owning adoption and retain compatibility cases only for the approved migration |
 
@@ -380,6 +381,7 @@ Adoption is staged by architectural owner:
 4. **Library reference owner:** [#7647](https://github.com/richlander/dotnet-inspect/issues/7647)
    separates direct `References` from `Reference Hierarchy`; `--tree` becomes a
    projection of the latter rather than an acquisition switch for the former.
+   This adoption is complete.
 5. **Graph owner:** #7624 applies `Dependency Graph`, `Reference Graph`,
    `Call Graph`, `Dispatch Graph`, `Integration Graph`, and the conventional
    `Type Hierarchy` to authored Graph presets.

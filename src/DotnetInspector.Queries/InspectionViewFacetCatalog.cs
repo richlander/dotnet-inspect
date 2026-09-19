@@ -21,6 +21,9 @@ public static class InspectionViewFacetCatalog
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
         Binding(
+            "library.reference-hierarchy",
+            InspectionViewFacetExecution.LibraryReferenceHierarchy),
+        Binding(
             "library.integrations",
             InspectionViewFacetExecution.LibraryIntegrations),
         Binding(
@@ -113,6 +116,15 @@ public static class InspectionViewFacetCatalog
                 100,
                 ViewFacetRole.LibraryReferences),
             "Direct assembly references for the active Library.",
+            AppliesToLibrary),
+        Active(
+            Descriptor(
+                "library.reference-hierarchy",
+                StructuralSubjectKind.Library,
+                "Reference Hierarchy",
+                "Rooted transitive assembly references for the active Library.",
+                150),
+            "Rooted transitive assembly references for the active Library.",
             AppliesToLibrary),
         Active(
             Descriptor(
@@ -308,6 +320,7 @@ internal enum InspectionViewFacetExecution
     PackageDependencies,
     PackageDependencyHierarchy,
     LibraryReferences,
+    LibraryReferenceHierarchy,
     LibraryIntegrations,
     LibraryAnalysis,
     LibraryMetadata,
