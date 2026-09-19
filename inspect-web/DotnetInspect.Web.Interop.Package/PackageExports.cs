@@ -206,6 +206,145 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageDependencies);
     }
 
+    /// <summary>
+    /// Qualifies the current package surface population by direct AssemblyRef
+    /// simple names through the shared Library Query envelope.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibraries(
+        string packageId,
+        string version,
+        string targetFramework,
+        string requiredReferencesJson)
+    {
+        BrowserLibraryQueryInspection inspection =
+            await QueryLibrariesAsync(
+                packageId,
+                version,
+                targetFramework,
+                requiredReferencesJson);
+        return JsonSerializer.Serialize(
+            inspection,
+            BrowserPackageJsonContext.Default
+                .BrowserLibraryQueryInspection);
+    }
+
+    private static async Task<BrowserLibraryQueryInspection>
+        QueryLibrariesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string requiredReferencesJson)
+    {
+        string[] requiredReferences =
+            JsonSerializer.Deserialize(
+                requiredReferencesJson,
+                BrowserPackageJsonContext.Default.StringArray)
+            ?? throw new ArgumentException(
+                "Library Query references are required.",
+                nameof(requiredReferencesJson));
+        LibraryQueryPlanResult planResult = LibraryQuery.ResolveIntent(
+            LibraryQuery.CreateIntent(requiredReferences));
+        if (planResult is LibraryQueryPlanResult.Rejected rejected)
+        {
+            throw new ArgumentException(
+                $"Library Query intent was rejected: "
+                + $"{rejected.Failure.Reason} at "
+                + $"{rejected.Failure.Location}.",
+                nameof(requiredReferencesJson));
+        }
+
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        InspectionEnvelope<LibraryQueryDocument> envelope =
+            scope.UseSurface(group =>
+            {
+                if (group.Participants.Length
+                    != scope.SurfaceParticipants.Length
+                    || group.Participants.Where((participant, index) =>
+                        !ReferenceEquals(
+                            participant.Assembly.Registration,
+                            scope.SurfaceParticipants[index]
+                                .Assembly.Registration)).Any())
+                {
+                    throw new InvalidOperationException(
+                        "The Browser surface occurrence order does not match "
+                        + "the Library Query population.");
+                }
+
+                return LibraryQueryInspection.Execute(
+                    LibraryQueryPopulation.FromGroup(group),
+                    ((LibraryQueryPlanResult.Accepted)planResult).Plan);
+            });
+        BrowserLibraryQueryInspection inspection =
+            ProjectLibraryQuery(scope, envelope);
+        return inspection;
+    }
+
+    private static BrowserLibraryQueryInspection ProjectLibraryQuery(
+        BrowserInspectionScope scope,
+        InspectionEnvelope<LibraryQueryDocument> envelope)
+    {
+        BrowserWorkspaceParticipant Participant(int occurrence)
+        {
+            if ((uint)occurrence
+                >= (uint)scope.SurfaceParticipants.Length)
+            {
+                throw new InvalidOperationException(
+                    "Library Query returned an occurrence outside the "
+                    + "current surface population.");
+            }
+
+            return scope.SurfaceParticipants[occurrence];
+        }
+
+        LibraryQueryDocument content = envelope.Content;
+        return new(
+            new(
+                [
+                    .. content.Results.Select(result =>
+                    {
+                        BrowserWorkspaceParticipant participant =
+                            Participant(result.Occurrence);
+                        return new BrowserLibraryQueryRow(
+                            result.Occurrence,
+                            participant.Asset.Id,
+                            result.Library.Name,
+                            result.Library.Version?.ToString() ?? "",
+                            [.. result.Answers]);
+                    }),
+                ],
+                [
+                    .. content.Failures.Select(failure =>
+                        new BrowserLibraryQueryFailure(
+                            failure.Occurrence,
+                            failure.Source,
+                            failure.Kind.ToString(),
+                            failure.Message)),
+                ],
+                new(
+                    content.Summary.Population,
+                    content.Summary.Evaluated,
+                    content.Summary.Matches,
+                    content.Summary.Failures,
+                    content.Summary.CandidateLimit,
+                    content.Summary.Completion.ToString(),
+                    content.Summary.IsExact)),
+            BrowserPackageQueryOperations.Project(envelope.Share),
+            [
+                .. envelope.Diagnostics.Select(diagnostic =>
+                    new BrowserInspectionDiagnostic(
+                        diagnostic.Code,
+                        diagnostic.Severity.ToString(),
+                        diagnostic.Summary.ToString(),
+                        diagnostic.Correspondence?.ToString())),
+            ]);
+    }
+
     static async Task<BrowserPackageDependencies> PackageDependenciesAsync(
         string packageId,
         string version,

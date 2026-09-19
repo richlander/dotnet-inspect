@@ -1082,7 +1082,14 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderOverview,
     /const libraries = packageLibraries\(\)/);
   assert.match(renderOverview,
+    /data-library-query-form[\s\S]*data-library-query-reference[\s\S]*data-library-query-clear/);
+  assert.match(renderOverview,
+    /libraryQueryStatusHtml\(\)/);
+  assert.match(renderOverview,
     /data-lib-scope=[\s\S]*No managed libraries were admitted/);
+  assert.match(
+    appSource,
+    /async function runLibraryQuery\([\s\S]*inspectLibraries\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*JSON\.stringify\(\[reference\]\)\)[\s\S]*state\.libraryQuerySequence === sequence[\s\S]*packageIdentityEquals\(state\.package, pkg\)/);
   assert.match(renderOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =

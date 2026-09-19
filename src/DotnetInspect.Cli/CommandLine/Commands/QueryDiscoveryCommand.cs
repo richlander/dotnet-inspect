@@ -73,6 +73,7 @@ internal static class QueryDiscoveryCommand
                 or "member"
                 or "package"
                 or "package query"
+                or "library query"
                 or "find"
                 or "graph libraries"))
         {
@@ -127,7 +128,7 @@ internal static class QueryDiscoveryCommand
                 return true;
             }
         }
-        if (command == "package query")
+        if (command is "package query" or "library query")
         {
             foreach (Option option in result.CommandResult.Command.Options.Where(option =>
                 option.Name is "--take" or "--nuspec-only"))
@@ -187,10 +188,10 @@ internal static class QueryDiscoveryCommand
     {
         string name = result.CommandResult.Command.Name;
         if (name == "query"
-            && result.CommandResult.Parent is CommandResult package
-            && package.Command.Name == "package")
+            && result.CommandResult.Parent is CommandResult parent
+            && parent.Command.Name is "package" or "library")
         {
-            return "package query";
+            return $"{parent.Command.Name} query";
         }
         if (name == "libraries"
             && result.CommandResult.Parent is CommandResult graph

@@ -576,6 +576,7 @@ import type {
   BrowserPackagePruningResult,
   BrowserPackageSurface,
   BrowserExactLibraryApiInspection,
+  BrowserLibraryQueryInspection,
   BrowserTypeCandidate,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
@@ -620,6 +621,7 @@ let inspectPlatformMemberDocumentation:
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
+let inspectLibraries: EngineClient["package"]["queryLibraries"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
 let inspectPackagePruning:
@@ -751,6 +753,7 @@ async function loadEngineModule() {
       prefetchPlatformPacks: inspectPrefetchPlatformPacks,
       packageCacheStats: inspectPackageCacheStats,
       queryLibraryApi: inspectLibraryApi,
+      queryLibraries: inspectLibraries,
       queryMemberDocumentation: inspectMemberDocumentation,
       queryPlatformMemberDocumentation:
         inspectPlatformMemberDocumentation,
@@ -1038,6 +1041,12 @@ const initialState = {
     new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
   libraryApiErrors: new Map<string, string>(),
+  libraryQueryReference: "",
+  libraryQueryInspection: null,
+  libraryQueryLoading: false,
+  libraryQueryError: "",
+  libraryQueryKey: "",
+  libraryQuerySequence: 0,
   packageDependencies: null,
   packageDependenciesLoading: false,
   packageDependenciesError: "",
@@ -1183,6 +1192,7 @@ interface StateOverrides {
     Map<string, BrowserExactLibraryApiInspection>;
   libraryApiLoads: Set<string>;
   libraryApiErrors: Map<string, string>;
+  libraryQueryInspection: BrowserLibraryQueryInspection | null;
   packageDependencies: BrowserPackageDependencies | null;
   packagePruning: BrowserPackagePruningResult | null;
   dependenciesGroupIndex: number | null;
@@ -3371,7 +3381,7 @@ function libraryKey(item: InspectedTypeSurface | null | undefined) {
 // Libraries admitted by the selected package coordinate, sorted by public
 // surface size then name. Assembly descriptors keep libraries with no public
 // types visible instead of deriving the package inventory from type rows.
-function packageLibraries() {
+function packageLibraryInventory() {
   if (!state.package) return [];
   const libraries = state.package.assemblies.map(assembly => ({
     id: assembly.id,
@@ -3388,6 +3398,89 @@ function packageLibraries() {
     right.types - left.types
     || right.members - left.members
     || left.name.localeCompare(right.name));
+}
+
+function libraryQuerySignature(pkg: AppPackage, reference: string) {
+  return `${packageIdentityKey(pkg)}|references=${reference.trim().toLowerCase()}`;
+}
+
+function libraryQueryOwnsCurrentPackage() {
+  const pkg = state.package;
+  const reference = state.libraryQueryReference.trim();
+  return Boolean(
+    pkg
+    && reference
+    && state.libraryQueryKey === libraryQuerySignature(pkg, reference));
+}
+
+function currentLibraryQueryInspection() {
+  if (!libraryQueryOwnsCurrentPackage()) return null;
+  return state.libraryQueryInspection;
+}
+
+function packageLibraries() {
+  const libraries = packageLibraryInventory();
+  const inspection = currentLibraryQueryInspection();
+  if (!inspection) return libraries;
+  const matches = new Set(
+    inspection.content.results.map(result => result.assetId));
+  return libraries.filter(library => matches.has(library.id));
+}
+
+function clearLibraryQuery() {
+  state.libraryQuerySequence++;
+  state.libraryQueryReference = "";
+  state.libraryQueryInspection = null;
+  state.libraryQueryLoading = false;
+  state.libraryQueryError = "";
+  state.libraryQueryKey = "";
+}
+
+async function runLibraryQuery(requiredReference: string) {
+  const reference = requiredReference.trim();
+  const pkg = state.package;
+  if (!reference) {
+    clearLibraryQuery();
+    renderPreservingContentFrameFocus();
+    return;
+  }
+  if (!pkg || pkg.isRuntimePack) return;
+
+  const key = libraryQuerySignature(pkg, reference);
+  const sequence = ++state.libraryQuerySequence;
+  state.libraryQueryReference = reference;
+  state.libraryQueryInspection = null;
+  state.libraryQueryLoading = true;
+  state.libraryQueryError = "";
+  state.libraryQueryKey = key;
+  renderPreservingContentFrameFocus();
+
+  try {
+    const inspection = await inspectLibraries(
+      pkg.id,
+      pkg.version,
+      pkg.activeFramework,
+      JSON.stringify([reference]));
+    if (state.libraryQuerySequence === sequence
+      && state.libraryQueryKey === key
+      && packageIdentityEquals(state.package, pkg)) {
+      state.libraryQueryInspection = inspection;
+    }
+  } catch (error) {
+    if (state.libraryQuerySequence === sequence
+      && state.libraryQueryKey === key
+      && packageIdentityEquals(state.package, pkg)) {
+      state.libraryQueryError =
+        errorMessage(error) || "Library Query failed.";
+    }
+  } finally {
+    if (state.libraryQuerySequence === sequence
+      && state.libraryQueryKey === key
+      && packageIdentityEquals(state.package, pkg)) {
+      state.libraryQueryLoading = false;
+      renderPreservingContentFrameFocus();
+    }
+  }
 }
 
 function selectedLibraryName() {
@@ -7036,8 +7129,38 @@ function maybeAutoLoadLibraryApi() {
     `Loading ${library.name} public API`);
 }
 
+function libraryQueryStatusHtml() {
+  if (!libraryQueryOwnsCurrentPackage()) return "";
+  const reference = state.libraryQueryReference.trim();
+  if (state.libraryQueryLoading) {
+    return `<p class="library-query-status" role="status">Checking which libraries directly reference <code>${escapeHtml(reference)}</code>…</p>`;
+  }
+  if (state.libraryQueryError) {
+    return `<p class="library-query-status error" role="alert">${escapeHtml(state.libraryQueryError)}</p>`;
+  }
+
+  const inspection = currentLibraryQueryInspection();
+  if (!inspection) return "";
+  const summary = inspection.content.summary;
+  const completion = summary.isExact
+    ? ""
+    : ` Results are incomplete (${escapeHtml(summary.completion)}).`;
+  const failures = inspection.content.failures.length
+    ? `<div class="library-query-failures">
+        <strong>${inspection.content.failures.length} librar${inspection.content.failures.length === 1 ? "y" : "ies"} could not be evaluated.</strong>
+        <ul>${inspection.content.failures.map(failure =>
+          `<li><code>${escapeHtml(failure.source)}</code>: ${escapeHtml(failure.message)}</li>`).join("")}</ul>
+      </div>`
+    : "";
+  return `<div class="library-query-status" role="status">
+    <p><strong>${summary.matches}</strong> of ${summary.population} librar${summary.population === 1 ? "y" : "ies"} directly reference <code>${escapeHtml(reference)}</code>.${completion}</p>
+    ${failures}
+  </div>`;
+}
+
 function renderPackageOverview() {
   const pkg = currentPackage();
+  const allLibraries = packageLibraryInventory();
   const libraries = packageLibraries();
   const libraryRows = libraries.map(library => `
     <button class="library-row as-button" data-lib-scope="${escapeHtml(library.id)}" title="Inspect ${escapeHtml(library.name)}">
@@ -7049,12 +7172,37 @@ function renderPackageOverview() {
     </button>`).join("");
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
+  const libraryQueryActive =
+    libraryQueryOwnsCurrentPackage()
+    && (Boolean(currentLibraryQueryInspection())
+      || state.libraryQueryLoading
+      || Boolean(state.libraryQueryError));
+  const libraryQueryBusy =
+    libraryQueryOwnsCurrentPackage() && state.libraryQueryLoading;
+  const libraryQueryControls = pkg.isRuntimePack
+    ? `<span>${libraries.length} admitted</span>`
+    : `<div class="library-query-heading-actions">
+        <span>${libraryQueryActive
+          ? `${libraries.length} of ${allLibraries.length} shown`
+          : `${allLibraries.length} admitted`}</span>
+        <form class="library-query-form" data-library-query-form role="search">
+          <label for="library-query-reference">Direct reference</label>
+          <input id="library-query-reference" data-library-query-reference type="search" value="${escapeHtml(libraryQueryOwnsCurrentPackage() ? state.libraryQueryReference : "")}" placeholder="Assembly simple name" autocomplete="off"${libraryQueryBusy ? " disabled" : ""}>
+          <button type="submit"${libraryQueryBusy ? " disabled" : ""}>Query</button>
+          ${libraryQueryActive
+            ? '<button type="button" data-library-query-clear>Clear</button>'
+            : ""}
+        </form>
+      </div>`;
 
   const inventoryHtml = `
     <section class="document-section">
-      <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
+      <div class="section-title library-query-title"><h2>Libraries</h2>${libraryQueryControls}</div>
       ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
-      <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
+      ${libraryQueryStatusHtml()}
+      <div class="library-list">${libraryRows || (libraryQueryActive
+        ? `<div class="empty-list">No admitted libraries directly reference <code>${escapeHtml(state.libraryQueryReference)}</code>.</div>`
+        : '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>')}</div>
     </section>`;
   const comparisonHtml = `
     <section id="package-comparison-targets" class="document-section">
@@ -7843,6 +7991,14 @@ const libraryControlActions: LibraryControlBindingActions = {
   onLibraryJump: library => {
     if (library && selectLibrarySubject(library)) render();
   },
+  onLibraryQueryClear: () => {
+    clearLibraryQuery();
+    renderPreservingContentFrameFocus();
+  },
+  onLibraryQuerySubmit: reference =>
+    observeAsync(
+      runLibraryQuery(reference),
+      "Qualifying package libraries"),
   onPlatformLibrarySelect: (name, pack) =>
     observeAsync(
       openPlatformLibrary(name, pack, { inPlace: true }),

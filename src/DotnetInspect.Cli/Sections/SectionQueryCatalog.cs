@@ -41,6 +41,7 @@ public sealed record SectionQueryCatalog(
             ],
             "package" => [Project(StructuralViewIdentity.Package, InspectionCatalogIdentity.Package)],
             "package query" => [],
+            "library query" => [],
             "find" => [],
             "graph libraries" => [],
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
@@ -52,6 +53,13 @@ public sealed record SectionQueryCatalog(
                 PackageProfileSections.Packages,
                 PackageQueryOptions.DiscoverySummary,
                 PackageQueryOptions.QueryKeys));
+        }
+        if (command == "library query")
+        {
+            queries.Add(new(
+                LibraryQuerySections.LibrariesName,
+                LibraryQueryOptions.DiscoverySummary,
+                LibraryQueryOptions.QueryKeys));
         }
         if (command is "library" or "type" or "member")
         {

@@ -54,6 +54,7 @@ Workspace coordinate replacement is the exception: request
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
 | `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| `library query` | Carries complete occurrence-grain Library Query Content, completion, failures, and diagnostics. |
 | Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
 | Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
@@ -130,6 +131,7 @@ evidence unless a category is named.
 | `ecosystem` | `@Ecosystem` | none |
 | `graph libraries` | `@Libraries` | none |
 | `package query` | `@Query` | none |
+| `library query` | `@Query` | none |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -175,7 +177,7 @@ kinds and adds `Kind` when multiple kinds have rows.
 
 `-Q` (alias `--query-help`) is structural and does not acquire or inspect a
 target. It is available on `library`, `type`, `member`, `package`,
-`package query`, and `find`.
+`package query`, `library query`, and `find`.
 Use it before constructing filters; displayed columns do not imply support for
 `--where`, `--order-by`, or `--top`.
 
@@ -267,6 +269,22 @@ explicit `Packages` preserves its empty schema. Select `@Query` to compose both
 sections in Markdown or JSON.
 Package Query does not accept API-search scopes, source overrides, or ranking.
 Query-execution flags cannot be combined with `-Q`.
+
+`library query -Q Libraries` exposes the route-derived `references` facet
+without opening any candidate:
+
+```bash
+dnx dotnet-inspect -y -- library query -Q Libraries --json
+dnx dotnet-inspect -y -- library query ./bin \
+  --where "references=System.Text.Json"
+```
+
+The explicit files and top-level directory `.dll` files form one ordered
+occurrence population. Repeated paths and duplicate assembly identities remain
+separate rows. `references` matches direct `AssemblyRef` simple names
+case-insensitively and never resolves or traverses them. `--take` bounds
+candidate evaluation to 1–256; reached bounds and candidate failures make
+completion inexact and remain visible beside successful matches.
 
 `library -Q Integrations` describes the concept and ecosystem facets for the
 whole Integration family. All integrations are enabled by default; use
@@ -408,8 +426,9 @@ selects one displayed row; `first` and `last` mean the rendered endpoints.
 Missing payloads fail rather than sliding to another row.
 
 Keep work bounds and ranking separate: Package Query `--take N` bounds
-candidate work before final row selection, while `--top N` requires a ranking
-order. Neither is another spelling of `-n`.
+candidate work before final row selection, and Library Query `--take N` bounds
+its explicit occurrence population before final row selection, while `--top N`
+requires a ranking order. None is another spelling of `-n`.
 
 ## Use a URL as part of the answer
 
@@ -435,5 +454,8 @@ Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
 Inspect Web rejects both formats. Keep them as packet strings for supported
 CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
 Web does not yet restore query-bearing packets. Keep Package Query answers in
-Content rather than manufacturing a link.
+Content rather than manufacturing a link. Inspect Web directly adopts Library
+Query in the current package overview by sending the same portable
+`references` intent to the shared envelope and filtering with returned asset
+IDs; it does not infer matches from display names.
 Offer a URL only for a browser-restorable scenario selection.

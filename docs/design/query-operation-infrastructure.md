@@ -2,9 +2,9 @@
 
 ## Status
 
-**Implemented host-neutral substrate with Package Query adopted in CLI and
-Inspect Web, and Graph Libraries adopted across its CLI query sections;
-remaining production adoption continues under
+**Implemented host-neutral substrate with Package Query and Library Query
+adopted in CLI and Inspect Web, and Graph Libraries adopted across its CLI
+query sections; remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -23,7 +23,9 @@ catalogs. Package Query is the first production adopter: one effective route
 now supplies plan resolution, CLI discovery terms, and Browser control terms.
 Graph Libraries is the second adopter: one command route and five row-set
 routes supply its Cluster plan, CLI lowering, and section discovery. The
-remaining operations still bind their syntax through separate paths.
+Library Query is the third adopter: one explicit-population route supplies its
+reference plan, CLI discovery, and Browser gesture. The remaining operations
+still bind their syntax through separate paths.
 
 ## Authority and exact claim
 
@@ -73,7 +75,7 @@ dotnet-inspect library query ./bin \
 ```
 
 Find returns Type and Member results. Package Query returns Package results.
-Library Query will return Library results. Depends may return direct dependency
+Library Query returns Library results. Depends may return direct dependency
 evidence or a rooted hierarchy. Graph returns identity-preserving topology.
 Uniformity therefore means that each route receives the same infrastructure
 for syntax lowering, discovery, intent, resolution, bounds, and result shaping.
@@ -584,8 +586,8 @@ eight-step path:
    root, traversal, evidence, completion, or hierarchy semantics.
 6. Adopt Find Type and Member query capability without changing its discovery
    grammar, scope rules, or result grains.
-7. Add Library Query over explicit Library populations, with assembly-reference
-   qualification as its first production facet.
+7. **Implemented:** add Library Query over explicit Library populations, with
+   assembly-reference qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
    adopter has Release-gate coverage.
 
@@ -612,6 +614,15 @@ pair query, cluster derivation, root-path composition, section selection,
 Markout lowering, completion, and failure contracts remain unchanged. Inspect
 Web has no two-Library selection surface, so this focused adoption adds no
 Browser gesture; a future Browser consumer can use the same route and plan.
+
+Library Query is the third adopter and the second CLI-plus-Browser adopter. Its
+operation definition registers explicit ordered Library populations,
+occurrence-grain results, direct-reference qualification, and the bounded
+candidate dimension. The CLI and current-package Browser gesture resolve the
+same portable intent and execute one shared
+`InspectionEnvelope<LibraryQueryDocument>` completion boundary. Browser rows
+map owner-issued occurrence ordinals back to exact package asset IDs rather
+than matching display names.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
@@ -643,13 +654,19 @@ Cluster inheritance across all five row-set routes, canonical CLI intent,
 atomic rejection of unsupported terms, and the existing cluster-scoped command
 behavior and visible unavailable-cluster failures.
 
+Library Query's Release gates cover exact route and CLI discovery projection,
+atomic intent rejection, occurrence preservation, direct-reference AND
+semantics, typed candidate failures, bounded completion, exact Browser asset
+mapping, and equivalent CLI and Browser use of the shared envelope.
+
 Remaining adopter slices must add Release gates for:
 
 - command and operation-backed-section equivalence for one Dependency
   scenario;
 - separation of candidate work bounds from result-row selection;
 - visible acquisition, decode, traversal, and row-resolution failures; and
-- Package and Library reference qualification at their distinct result grains.
+- Package and Library reference qualification remaining distinct at their
+  respective result grains as later adopters compose with them.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a

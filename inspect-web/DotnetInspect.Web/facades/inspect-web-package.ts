@@ -239,6 +239,43 @@ export interface BrowserInspectionShare {
   readonly reason: string | null;
 }
 
+export interface BrowserLibraryQueryDocument {
+  readonly results: ReadonlyArray<BrowserLibraryQueryRow>;
+  readonly failures: ReadonlyArray<BrowserLibraryQueryFailure>;
+  readonly summary: BrowserLibraryQuerySummary;
+}
+
+export interface BrowserLibraryQueryFailure {
+  readonly occurrence: number;
+  readonly source: string;
+  readonly kind: string;
+  readonly message: string;
+}
+
+export interface BrowserLibraryQueryInspection {
+  readonly content: BrowserLibraryQueryDocument;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserLibraryQueryRow {
+  readonly occurrence: number;
+  readonly assetId: string;
+  readonly library: string;
+  readonly version: string;
+  readonly answers: ReadonlyArray<string>;
+}
+
+export interface BrowserLibraryQuerySummary {
+  readonly population: number;
+  readonly evaluated: number;
+  readonly matches: number;
+  readonly failures: number;
+  readonly candidateLimit: number;
+  readonly completion: string;
+  readonly isExact: boolean;
+}
+
 export interface BrowserMemberBodySelector {
   readonly token: number;
   readonly memberName: string;
@@ -1193,6 +1230,7 @@ type $ManagedExports = {
             readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
             readonly "PackageCacheStats.1310674786": () => string;
             readonly "PrefetchPlatformPacks.1782598084": (targetFramework: string, platformVersion: string) => Promise<void>;
+            readonly "QueryLibraries.1579276339": (packageId: string, version: string, targetFramework: string, requiredReferencesJson: string) => Promise<string>;
             readonly "QueryLibraryApi.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
@@ -1435,6 +1473,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "PrefetchPlatformPacks.1782598084");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.PrefetchPlatformPacks.1782598084\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryLibraries.1579276339");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryLibraries.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -1748,6 +1798,12 @@ export function packageCacheStats(): BrowserPackageCacheStats {
 
 export async function prefetchPlatformPacks(targetFramework: string, platformVersion: string): Promise<void> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["PrefetchPlatformPacks.1782598084"](targetFramework, platformVersion);
+}
+
+export async function queryLibraries(packageId: string, version: string, targetFramework: string, requiredReferencesJson: string): Promise<BrowserLibraryQueryInspection> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryLibraries.1579276339"](packageId, version, targetFramework, requiredReferencesJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserLibraryQueryInspection;
 }
 
 export async function queryLibraryApi(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserExactLibraryApiInspection> {

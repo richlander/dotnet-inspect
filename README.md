@@ -163,6 +163,7 @@ stderr rather than mixed into structured output.
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
+| Library Queries | `library query FILE_OR_DIRECTORY --where "references=NAME"` | Qualify an explicit ordered Library population by direct assembly-reference simple name while preserving occurrence grain, typed failures, and bounded completion. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -174,6 +175,7 @@ stderr rather than mixed into structured output.
 | `package activity --ecosystem NAME` | Report bounded recent package activity for an ecosystem-selected package population, with source coverage and security evidence. |
 | `project [path]` | Inspect restored project package skills and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, async methods, and rendered body shapes. |
+| `library query X...` | Query explicit Library files and top-level directory assemblies by direct assembly-reference simple name. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, rendered body shapes, checksum-verified PDB source, and IL. |
 | `find [X]` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, such as `.Serialize`) to search member names instead. Use `--package-prefix PREFIX` with a type/member pattern to expand package scope. |
@@ -555,6 +557,21 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
+
+Use `library query` when the candidate population is already a set of local
+assemblies rather than packages:
+
+```bash
+dotnet-inspect library query ./bin \
+  --where "references=System.Text.Json"
+```
+
+Explicit files and top-level `.dll` files from explicit directories form one
+ordered Library population. Each matching occurrence stays distinct, including
+duplicate paths or assembly identities. The query matches direct `AssemblyRef`
+simple names case-insensitively without resolving or traversing them. `--take`
+bounds evaluation to at most 256 candidates; candidate failures and incomplete
+completion remain visible beside successful rows.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
