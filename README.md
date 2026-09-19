@@ -434,6 +434,8 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
+dotnet-inspect package Newtonsoft.Json@13.0.4 \
+  --tfms -n 1 --tail --json
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
@@ -449,6 +451,11 @@ For one package with exactly `Package files` selected, `-n`, `--tail`, and
 enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
 `--value`, and `--paths` observe the same selected rows; add `--lines` only to
 clip rendered text.
+
+For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
+complete target-framework rows after archive extraction, framework
+de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
+observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
