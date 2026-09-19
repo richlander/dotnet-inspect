@@ -18,7 +18,6 @@ internal sealed record MatchDiscoveryRequest(
     string Scope,
     string? CandidateAssembly,
     StructuralCloneRetrievalLimits Limits,
-    int? Top,
     string? CandidatePackage = null,
     string? CandidateTfm = null,
     string? ReplayLibrary = null,
@@ -178,9 +177,8 @@ public record MatchDiscoveryCandidateRow
 }
 
 /// <summary>
-/// Complete structured evidence for one seeded retrieval. Every query-returned candidate, outcome,
-/// blocker, limit, and receipt is retained here regardless of <c>--top</c>, which bounds only the
-/// rendered text rows.
+/// Complete structured evidence for one seeded retrieval. Candidate row selection changes only
+/// <see cref="Candidates"/>. Query-issued outcomes, blockers, limits, and receipt remain complete.
 /// </summary>
 public sealed record MatchDiscoveryDocument
 {
@@ -215,6 +213,8 @@ public sealed record MatchDiscoveryDocument
     }
 
     public required MatchDiscoveryLimitsDocument Limits { get; init; }
+
+    public required MatchDiscoveryRowSelectionDocument RowSelection { get; init; }
 
     public MatchDiscoverySeedDocument? SeedOutcome { get; init; }
 
@@ -257,8 +257,11 @@ public sealed record MatchDiscoveryMethodOutcomeDocument
 
 public sealed record MatchDiscoveryLimitsDocument(
     int MaximumMethods,
-    int MaximumResults,
-    int? TextRows);
+    int MaximumResults);
+
+public sealed record MatchDiscoveryRowSelectionDocument(
+    int AvailableCandidates,
+    int SelectedCandidates);
 
 public sealed record MatchDiscoverySeedDocument
 {
@@ -465,11 +468,16 @@ internal static class MatchDiscoveryFormatter
     internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
         MatchDiscoveryRequest request,
         AssemblyContextStructuralCloneRetrievalResult result,
-        MatchDiscoveryNames names)
+        MatchDiscoveryNames names,
+        IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates)
         => result switch
         {
             AssemblyContextStructuralCloneRetrievalResult.Available available =>
-                BuildAvailable(request, available, names),
+                BuildAvailable(
+                    request,
+                    available,
+                    names,
+                    selectedCandidates),
             AssemblyContextStructuralCloneRetrievalResult.Rejected rejected =>
                 BuildTerminal(
                     request,
@@ -515,6 +523,7 @@ internal static class MatchDiscoveryFormatter
             Disposition = disposition,
             Disclosure = DisclosureFor(request),
             Limits = LimitsOf(request),
+            RowSelection = new(0, 0),
             Failure = failure,
         };
         return (view, document);
@@ -523,7 +532,8 @@ internal static class MatchDiscoveryFormatter
     static (MatchDiscoveryView, MatchDiscoveryDocument) BuildAvailable(
         MatchDiscoveryRequest request,
         AssemblyContextStructuralCloneRetrievalResult.Available available,
-        MatchDiscoveryNames names)
+        MatchDiscoveryNames names,
+        IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates)
     {
         StructuralCloneRetrievalResult retrieval = available.Retrieval;
         var view = NewView(request, retrieval.Disposition.ToString());
@@ -550,13 +560,9 @@ internal static class MatchDiscoveryFormatter
         }
 
         ImmutableArray<StructuralCloneRetrievalCandidate> candidates = retrieval.Candidates;
-        if (!candidates.IsEmpty)
+        if (selectedCandidates.Count > 0)
         {
-            // --top bounds the rendered rows only. The document below keeps every candidate.
-            IEnumerable<StructuralCloneRetrievalCandidate> shown = request.Top is int top
-                ? candidates.Take(top)
-                : candidates;
-            view.Candidates = shown
+            view.Candidates = selectedCandidates
                 .Select(candidate => new MatchDiscoveryCandidateRow
                 {
                     Rank = candidate.Rank,
@@ -570,10 +576,10 @@ internal static class MatchDiscoveryFormatter
                     Locals = candidate.Similarity.LocalScore,
                 })
                 .ToList();
-
-            if (request.Top is int limit && candidates.Length > limit)
-                view.Showing = $"{limit} of {candidates.Length} returned candidates";
         }
+        if (selectedCandidates.Count != candidates.Length)
+            view.Showing =
+                $"{selectedCandidates.Count} of {candidates.Length} returned candidates selected";
 
         var document = new MatchDiscoveryDocument
         {
@@ -583,6 +589,9 @@ internal static class MatchDiscoveryFormatter
             Disposition = retrieval.Disposition.ToString(),
             Disclosure = DisclosureFor(request),
             Limits = LimitsOf(request),
+            RowSelection = new(
+                candidates.Length,
+                selectedCandidates.Count),
             SeedOutcome = new MatchDiscoverySeedDocument
             {
                 // The seed's own resolved display, never a lookup in the candidate name map: the
@@ -604,14 +613,15 @@ internal static class MatchDiscoveryFormatter
                 receipt.ReturnedCandidates,
                 receipt.BodyProductions),
             Blockers = [.. retrieval.Blockers.Select(Blocker)],
-            Candidates = [.. candidates.Select(candidate => new MatchDiscoveryCandidateDocument
+            Candidates = [.. selectedCandidates.Select(candidate => new MatchDiscoveryCandidateDocument
             {
                 Rank = candidate.Rank,
                 Member = names.Display(candidate.Method),
                 Token = $"0x{candidate.Method.Token:X8}",
                 Similarity = Similarity(candidate.Similarity),
             })],
-            // Never bounded by --top: this is the per-method evidence behind the receipt counts.
+            // Row selection applies only to ranked candidate rows. These outcomes remain the
+            // complete per-method evidence behind the receipt counts.
             MethodOutcomes =
             [
                 .. retrieval.Methods.Select(outcome => new MatchDiscoveryMethodOutcomeDocument
@@ -651,8 +661,7 @@ internal static class MatchDiscoveryFormatter
     static MatchDiscoveryLimitsDocument LimitsOf(MatchDiscoveryRequest request)
         => new(
             request.Limits.MaximumMethods,
-            request.Limits.MaximumResults,
-            request.Top);
+            request.Limits.MaximumResults);
 
     static MatchDiscoveryBlockerDocument Blocker(StructuralCloneBlocker blocker)
         => new() { Kind = blocker.Kind.ToString(), Detail = blocker.Detail };
