@@ -251,6 +251,7 @@ import {
   type MemberFocusSnapshot,
 } from "./member-focus.ts";
 import {
+  buildAnnotatedRelationshipGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -292,6 +293,8 @@ import {
   selectAllAnnotations,
   selectDefaultAnnotations,
   selectFinding,
+  selectRelationshipPresentation,
+  showRelationshipOccurrences,
   selectNode as selectAnnotatedNode,
   toggleCoordinates,
   toggleFindingAnnotation,
@@ -2859,6 +2862,7 @@ type DomPurifyModule = typeof import("dompurify");
 let mermaidModule: Promise<MermaidModule> | undefined;
 let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
+let mermaidRenderSequence = 0;
 let callGraphRenderSeq = 0;
 type CallGraphRenderResult =
   | { status: "rendered" }
@@ -5310,6 +5314,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && state.memberSection === "call-graph"
     && currentCallGraph()?.mermaid) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
+  }
+  if (state.memberAnnotatedModal?.relationshipPresentation === "Diagram") {
+    observeAsync(
+      renderAnnotatedRelationshipDiagram(),
+      "Rendering Annotated Source relationships");
   }
 }
 
@@ -8535,6 +8544,19 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       setSession(next);
       syncFindingSelectionFromAnnotatedSession(next);
       renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
+      return;
+    }
+    case "relationship-occurrences-open": {
+      const transition = showRelationshipOccurrences(session, action.factId);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus, "modal");
+      return;
+    }
+    case "relationship-presentation": {
+      const transition =
+        selectRelationshipPresentation(session, action.value);
+      setSession(transition.state);
+      renderAndFocusAnnotated(transition.focus, "modal");
       return;
     }
     case "annotation-set": {
@@ -13340,6 +13362,70 @@ async function loadSelectedTypeMetadata() {
   });
 }
 
+async function renderMermaidDefinition(
+  idPrefix: string,
+  definition: string,
+): Promise<string> {
+  mermaidModule ??= import("mermaid");
+  const { default: mermaid } = await mermaidModule;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: state.theme === "light" ? "default" : "dark",
+    themeVariables: { fontSize: "17px" },
+    flowchart: { htmlLabels: false, curve: "basis" }
+  });
+  const id =
+    `${idPrefix}-${Date.now().toString(36)}-${++mermaidRenderSequence}`;
+  const rootStyle = getComputedStyle(document.documentElement);
+  const resolved = resolveMermaidCssVariables(
+    definition, name => rootStyle.getPropertyValue(name));
+  return (await mermaid.render(id, resolved)).svg;
+}
+
+async function renderAnnotatedRelationshipDiagram() {
+  const container =
+    document.querySelector<HTMLElement>("#annotated-relationship-diagram");
+  const result = state.memberAnnotated;
+  const session = state.memberAnnotatedModal;
+  if (!container
+    || !result
+    || session?.relationshipPresentation !== "Diagram") return;
+
+  const model = createAnnotatedSourceViewerModel(result);
+  const graph = buildAnnotatedRelationshipGraphMermaid(
+    model.callRelationships);
+  if (!graph) return;
+  if (container.dataset.graphDef === graph.definition
+    && container.querySelector(".graph-viewport")) return;
+
+  try {
+    const svg = await renderMermaidDefinition(
+      "annotated-relationships",
+      graph.definition);
+    const targetContainer =
+      document.querySelector<HTMLElement>("#annotated-relationship-diagram");
+    if (targetContainer !== container
+      || state.memberAnnotatedModal?.relationshipPresentation !== "Diagram") {
+      return;
+    }
+    targetContainer.innerHTML =
+      '<div class="graph-viewport" aria-label="Direct call diagram"></div>'
+      + graphControlsHtml();
+    const viewport =
+      targetContainer.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
+    viewport.innerHTML = svg;
+    targetContainer.dataset.graphDef = graph.definition;
+    bindGraphPanZoom(targetContainer, viewport, { keybindings });
+  } catch (error) {
+    if (document.querySelector("#annotated-relationship-diagram") === container) {
+      container.innerHTML =
+        `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+    }
+  }
+}
+
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
 // renders with the same pan/zoom/click affordances as the call graph.
 async function renderTypeGraph() {
@@ -13352,20 +13438,7 @@ async function renderTypeGraph() {
   const graphNodeOf = new Map(
     (meta.graphNodes || []).map((node, index) => [`t${index}`, node]));
   try {
-    mermaidModule ??= import("mermaid");
-    const { default: mermaid } = await mermaidModule;
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: state.theme === "light" ? "default" : "dark",
-      themeVariables: { fontSize: "17px" },
-      flowchart: { htmlLabels: false, curve: "basis" }
-    });
-    const id = `type-graph-${Date.now().toString(36)}`;
-    const rootStyle = getComputedStyle(document.documentElement);
-    const resolved = resolveMermaidCssVariables(
-      definition, name => rootStyle.getPropertyValue(name));
-    const { svg } = await mermaid.render(id, resolved);
+    const svg = await renderMermaidDefinition("type-graph", definition);
     if (document.querySelector("#type-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="graph-viewport"></div>'
