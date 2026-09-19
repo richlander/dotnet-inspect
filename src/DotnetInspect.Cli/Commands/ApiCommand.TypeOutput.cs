@@ -183,6 +183,7 @@ public partial class ApiCommand
         bool findingCensusJson = IsFindingCensusJson(options);
         bool factsJson = IsFactsJson(options);
         bool projectedFactsJson = IsProjectedFactsJson(options);
+        bool callersJson = IsCallersJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         string? exactSourceFailure =
@@ -236,7 +237,7 @@ public partial class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
             && !sourceDocumentJson && !findingCensusJson && !factsJson
-            && !projectedFactsJson)
+            && !projectedFactsJson && !callersJson)
         {
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.ImplementationProfiles))
@@ -482,6 +483,32 @@ public partial class ApiCommand
 
         if (options is MemberOptions
             {
+                CallerRowSelection: { } callerRowSelection,
+            })
+        {
+            IReadOnlyList<CallerSiteRow> callerRows =
+                view.MemberCode?.CallerRows ?? [];
+            if (!CliSemanticRowSelection.TrySelect(
+                    callerRowSelection,
+                    callerRows,
+                    "Member Callers",
+                    failure =>
+                        $"Member Callers row selection stage "
+                        + $"{failure.Failure.StageNumber} requires caller row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} caller rows are "
+                        + "available.",
+                    out IReadOnlyList<CallerSiteRow> selectedCallerRows))
+            {
+                return 1;
+            }
+
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.CallerRows = [.. selectedCallerRows];
+        }
+
+        if (options is MemberOptions
+            {
                 MemberHasNoBody: true,
                 DllPath: { } memberDllPath,
                 OverloadIndex: not null,
@@ -540,6 +567,33 @@ public partial class ApiCommand
                 Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
                 Decompiler.AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
                 options.CompactJson);
+            return 0;
+        }
+
+        if (callersJson)
+        {
+            if (view.MemberCode is not { CallerRows: not null } memberCode)
+            {
+                CommandError.Write(
+                    $"section '{SectionNames.Callers}' produced no payload.");
+                return 1;
+            }
+
+            OutputFormatter.WriteProjectedJson(
+                sink,
+                options.Columns,
+                options.Fields,
+                (writer, formatter, writerOptions) =>
+                {
+                    writerOptions.IncludeSections = [SectionNames.Callers];
+                    MarkoutSerializer.Serialize(
+                        memberCode,
+                        writer,
+                        formatter,
+                        ApiViewContext.Default,
+                        writerOptions);
+                },
+                !options.CompactJson);
             return 0;
         }
 

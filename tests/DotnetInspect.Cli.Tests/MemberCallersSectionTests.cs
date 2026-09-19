@@ -2,6 +2,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using System.Text.Json;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -21,6 +22,237 @@ public class MemberCallersSectionTests
         Assert.Contains("| call | direct |", result.Output);
         Assert.Contains("`IL_", result.Output);
         Assert.Contains("`0x06", result.Output);
+    }
+
+    [Fact]
+    public async Task CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats()
+    {
+        string[] args =
+        [
+            "member",
+            typeof(MemberCallersFixture).FullName!,
+            "--library",
+            typeof(MemberCallersFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallersFixture.Target),
+            "-S",
+            SectionNames.Callers,
+            "-n",
+            "1",
+            "--tail",
+            "--tips",
+            "q",
+        ];
+
+        var markdown = await RunCliAsync(args);
+        var table = await RunCliAsync([.. args, "--table"]);
+        var tsv = await RunCliAsync(
+            [.. args, "--tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. args, "--jsonl"]);
+        var json = await RunCliAsync([.. args, "--json"]);
+        var count = await RunCliAsync([.. args, "--count"]);
+        var jsonCount = await RunCliAsync(
+            [.. args, "--count", "--json"]);
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+            count,
+            jsonCount,
+        })
+        {
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+        })
+        {
+            Assert.Contains(
+                nameof(MemberCallersFixture.CallsTargetTwice),
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                nameof(MemberCallersFixture.CallsTargetOnce),
+                result.Output,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using var document = JsonDocument.Parse(json.Output);
+        JsonElement caller = Assert.Single(
+            document.RootElement
+                .GetProperty("callers")
+                .EnumerateArray());
+        Assert.EndsWith(
+            $"{nameof(MemberCallersFixture.CallsTargetTwice)}()",
+            caller.GetProperty("caller").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal("1", jsonCount.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CallersSection_ScansAuthorizedScopesBeforeSemanticSelection()
+    {
+        string scopeDirectory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-callers-").FullName;
+        try
+        {
+            string testAssembly = typeof(MemberCallersSectionTests)
+                .Assembly.Location;
+            File.Copy(
+                testAssembly,
+                Path.Combine(
+                    scopeDirectory,
+                    Path.GetFileName(testAssembly)));
+
+            var result = await RunCliAsync(
+                "member",
+                typeof(MemberCommand).FullName!,
+                "--library",
+                typeof(MemberCommand).Assembly.Location,
+                "-m",
+                $"{nameof(MemberCommand.ExecuteAsync)}:1",
+                "-S",
+                SectionNames.Callers,
+                "--bin",
+                scopeDirectory,
+                "-n",
+                "1",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            JsonElement caller = Assert.Single(
+                document.RootElement
+                    .GetProperty("callers")
+                    .EnumerateArray());
+            Assert.StartsWith(
+                $"{Path.GetFileNameWithoutExtension(testAssembly)}.",
+                caller.GetProperty("caller").GetString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(scopeDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CallersSection_UnavailableWindowWithholdsOutput()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallersFixture).FullName!,
+            "--library",
+            typeof(MemberCallersFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallersFixture.Target),
+            "-S",
+            SectionNames.Callers,
+            "--rows",
+            "4..4",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires caller row 4, but only 3 caller rows are available",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CallersSection_ExplicitLinesRejectJsonBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-callers-{Guid.NewGuid():N}.dll");
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallersFixture).FullName!,
+            "--library",
+            missingAssembly,
+            "-m",
+            nameof(MemberCallersFixture.Target),
+            "-S",
+            SectionNames.Callers,
+            "-n",
+            "1",
+            "--lines",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            missingAssembly,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Callers,Calls")]
+    [InlineData("@Calls")]
+    public async Task CallersSection_MultiSectionSelectionRetainsRenderedLineFallback(
+        string selection)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-callers-{Guid.NewGuid():N}.dll");
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallersFixture).FullName!,
+            "--library",
+            missingAssembly,
+            "-m",
+            nameof(MemberCallersFixture.Target),
+            "-S",
+            selection,
+            "-n",
+            "1",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            missingAssembly,
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -243,6 +475,18 @@ public class MemberCallersSectionTests
             TabularExplicitlySet = tsv || discover,
             FormatExplicitlySet = true,
         }));
+
+    static Task<(int ExitCode, string Output, string Error)> RunCliAsync(
+        params string[] args) =>
+        ConsoleCapture.RunAsync(() =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            string[] processed =
+                CommandLineBuilder.PreprocessArgs(args, root);
+            return CommandLineBuilder.InvokeAsync(
+                root.Parse(processed),
+                processed);
+        });
 
     static int CountOccurrences(string text, string value)
     {
