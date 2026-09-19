@@ -76,8 +76,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 methodLimitations =
             [
                 .. limitations.Where(limitation =>
-                    limitation.Method is null
-                    || limitation.Method == method),
+                    limitation.Method == method),
             ];
             MethodBodyAnalysisContext? context = methodResults
                 .Select(result => result.ResourceOccurrenceContext)

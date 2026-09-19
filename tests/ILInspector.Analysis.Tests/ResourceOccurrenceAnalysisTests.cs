@@ -20,6 +20,8 @@ public sealed class ResourceOccurrenceAnalysisTests
         new("test.resource-occurrence.unsupported-target");
     static readonly ResourceEffectModelIdentity MixedTargetModel =
         new("test.resource-occurrence.mixed-target");
+    static readonly ResourceEffectModelIdentity AuthorityTargetModel =
+        new("test.resource-occurrence.authority-target");
     static readonly ResourceKindIdentity FirstKind =
         new("test.resource-occurrence.first");
     static readonly ResourceKindIdentity SecondKind =
@@ -81,19 +83,50 @@ public sealed class ResourceOccurrenceAnalysisTests
                 occurrence.Root == root
                 && occurrence.Operations.Contains(
                     ResourceOccurrenceOperationKind.Release));
-        Assert.False(method.IsComplete);
-        Assert.All(
-            method.Limitations,
-            limitation =>
-                Assert.Equal(
-                    ResourceOccurrenceLimitationKind.EffectResolution,
-                    limitation.Kind));
+        Assert.True(method.IsComplete);
+        Assert.Empty(method.Limitations);
         Assert.Contains(
             execution.ResourceOccurrences.Limitations,
             limitation =>
-                limitation.EffectResolutionGap
-                == ResourceEffectResolutionGapKind
-                    .InterfaceApplicationIncomplete);
+                limitation.Method is null
+                && limitation.EffectResolutionGap
+                    == ResourceEffectResolutionGapKind
+                        .InterfaceApplicationIncomplete);
+    }
+
+    [Fact]
+    public void ExecutePath_AssociatesAuthorityByBoundTargetProvenance()
+    {
+        ResourceEffectAdmissionOutcome admission =
+            ResourceEffectAdmissionBuilder.Admit(
+                [AuthorityTargetDefinition()]);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    Assert.IsType<
+                        ResourceEffectAdmissionOutcome.Admitted>(
+                            admission).Admission),
+                resolver);
+        ResourceOccurrenceAnalysisResult method =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                result =>
+                    result.Method.Name == "RentAndReturnFromHelper");
+        ResourceOccurrenceRoot.Acquisition root =
+            Assert.IsType<ResourceOccurrenceRoot.Acquisition>(
+                Assert.Single(method.Roots));
+        ResourceOccurrenceAuthority authority =
+            Assert.Single(root.Authorities);
+        ResourceEffect.Authority effect =
+            Assert.IsType<ResourceEffect.Authority>(
+                authority.Effect.Effect);
+
+        Assert.IsType<ResourceEffectLocation.Return>(effect.Target);
     }
 
     [Fact]
@@ -133,7 +166,79 @@ public sealed class ResourceOccurrenceAnalysisTests
                     && occurrence.Operations.Contains(
                         ResourceOccurrenceOperationKind.Release));
         }
-        Assert.False(method.IsComplete);
+        Assert.True(method.IsComplete);
+        Assert.Equal(
+            method.Occurrences
+                .Select(occurrence => occurrence.ILOffset)
+                .Order(),
+            method.Occurrences.Select(
+                occurrence => occurrence.ILOffset));
+    }
+
+    static ResourceEffectModelDefinition AuthorityTargetDefinition()
+    {
+        ResourceTypeExpression.Named byteType = CoreType("Byte");
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(byteType);
+        ResourceTypeExpression.Named arrayPool = new(
+            new ResourceAssemblySelector(
+                "System.Buffers",
+                "cc7b13ffcd2ddd51",
+                ResourceAssemblyVersionPolicy.Any,
+                allowCoreLibraryFacade: true),
+            "System.Buffers",
+            [new ResourceTypeNameSegment("ArrayPool", 1)],
+            [byteType]);
+        ResourceKindReference first = new(FirstKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            AuthorityTargetModel,
+            [
+                new ResourceKindDefinition(
+                    FirstKind,
+                    arity: 0,
+                    [Provenance(AuthorityTargetModel, 0)]),
+            ],
+            [],
+            [
+                Declaration(
+                    AuthorityTargetModel,
+                    FixtureEntryType(),
+                    "ReturnRentedArrayToCaller",
+                    [byteArray],
+                    byteArray,
+                    new ResourceEffect.Acquire(
+                        first,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        new ResourceEffectLocation.Parameter(0),
+                        Lender: null),
+                    1),
+                Declaration(
+                    AuthorityTargetModel,
+                    arrayPool,
+                    "Rent",
+                    [CoreType("Int32")],
+                    byteArray,
+                    new ResourceEffect.Authority(
+                        first,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceAuthorityKey.Value()),
+                    2,
+                    isStatic: false),
+                Declaration(
+                    AuthorityTargetModel,
+                    arrayPool,
+                    "Rent",
+                    [CoreType("Int32")],
+                    byteArray,
+                    new ResourceEffect.Authority(
+                        first,
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceAuthorityKey.Value()),
+                    3,
+                    isStatic: false),
+            ]);
     }
 
     [Fact]
@@ -680,17 +785,18 @@ public sealed class ResourceOccurrenceAnalysisTests
         ImmutableArray<ResourceTypeExpression> parameters,
         ResourceTypeExpression returnType,
         ResourceEffect effect,
-        int ordinal) =>
+        int ordinal,
+        bool isStatic = true) =>
         new(
             new ResourceEffectTargetSelector.Member(
                 new ResourceEffectMemberSelector(
                     declaringType,
                     name,
                     ResourceEffectMemberKind.Method,
-                    isStatic: true,
+                    isStatic,
                     genericArity: 0,
                     ResourceEffectCallingConvention.Default,
-                    hasThis: false,
+                    hasThis: !isStatic,
                     explicitThis: false,
                     [
                         .. parameters.Select(parameter =>

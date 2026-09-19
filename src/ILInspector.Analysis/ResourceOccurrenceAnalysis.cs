@@ -601,8 +601,8 @@ internal static class ResourceOccurrenceAnalysisService
             ],
             [
                 .. groups
-                    .OrderBy(entry => entry.Key.Root)
-                    .ThenBy(entry => entry.Key.ILOffset)
+                    .OrderBy(entry => entry.Key.ILOffset)
+                    .ThenBy(entry => entry.Key.Root)
                     .Select(entry => entry.Value.Build()),
             ],
             [
@@ -839,7 +839,7 @@ internal static class ResourceOccurrenceAnalysisService
                         == acquisition.DirectCall.Call.EvidenceMethod
                     && authorityOffsets.Contains(
                         effect.DirectCall.Call.ILOffset)
-                    && effect.Effect is ResourceEffect.Authority
+                    && AuthorityTargetsCorrespondence(effect, value)
                     && ResourceDomainKey(effect.ResourceKinds).Equals(
                         domain))
                 .OrderBy(effect => effect.DirectCall.Call.ILOffset)
@@ -849,6 +849,24 @@ internal static class ResourceOccurrenceAnalysisService
                             effect.DirectCall.Call),
                         ResourceOccurrenceEffect.From(effect))),
         ];
+    }
+
+    static bool AuthorityTargetsCorrespondence(
+        ResolvedResourceEffect effect,
+        ResolvedValueSet correspondence)
+    {
+        if (effect.Effect is not ResourceEffect.Authority authority)
+            return false;
+
+        ResolvedValueSet? target = ValueAt(
+            effect.DirectCall.Call,
+            effect.Binding.Location(authority.Target));
+        return target is { IsResolved: true }
+            && target.Sources.All(targetSource =>
+                targetSource.IsCallResult
+                && correspondence.Sources.Any(source =>
+                    source.Kind == targetSource.Kind
+                    && source.ILOffset == targetSource.ILOffset));
     }
 
     static ResourceDomain ResourceDomainKey(
