@@ -163,6 +163,12 @@ with `--bin`, `--project`, or `--caller-package`. With no explicit source, the
 first `--project` is the source context; repeated `--project` values after it
 remain caller scopes.
 
+With exactly `-S Callers`, `-n`, `--tail`, and strict `--rows A..B` select
+complete deduplicated call-site rows after every authorized caller scope has
+been scanned. Markdown, table, TSV, JSONL, JSON, and Count consume that same
+selected vector. Add `--lines` only for rendered-text clipping; `@Calls`, mixed
+sections, and scope-implied Callers retain rendered-line fallback.
+
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls
 dnx dotnet-inspect -y -- member string -m IndexOf~147d84bbd7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
