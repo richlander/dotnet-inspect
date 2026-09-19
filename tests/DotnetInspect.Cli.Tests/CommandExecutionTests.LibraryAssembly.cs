@@ -1299,6 +1299,53 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DirectReferenceFailure_RemainsVisible()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"reference-failure-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string rootPath = Path.Combine(tempDir, "Root.dll");
+            WriteMalformedAssemblyReferenceNameAssembly(rootPath);
+
+            var result = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                "Warning: References inspection failed "
+                + "(Assembly reference): Read out of bounds."
+                + Environment.NewLine,
+                result.Error);
+
+            var count = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, count.Exit);
+            Assert.Equal("0" + Environment.NewLine, count.Output);
+            Assert.Equal(result.Error, count.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_DependencySectionAlias_IsRejected()
     {
         var (exit, output, error) = await RunAppAsync(

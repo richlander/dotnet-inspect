@@ -225,7 +225,8 @@ public class LibraryInspectionView
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
             .ToList() is { Count: > 0 } list
                 ? list
-                : _data.AssemblyReferenceInspection is not null
+                : _data.AssemblyReferenceInspection is { } inspection
+                  && inspection.Failure() is null
                     ? []
                     : null;
 

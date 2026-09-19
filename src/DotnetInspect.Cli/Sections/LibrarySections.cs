@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Sections;
 
@@ -812,8 +813,10 @@ public static class LibrarySections
         => model.AssemblyInfo != null;
 
     private static bool HasReferenceData(LibraryInspection model)
-        => model.AssemblyReferenceInspection is not null
-           || model.AssemblyInfo?.References is not null;
+        => model.AssemblyReferenceInspection?.Value
+               is FindingInspection<AssemblyReference>.Complete
+           || (model.AssemblyReferenceInspection is null
+               && model.AssemblyInfo?.References is not null);
 
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
@@ -862,8 +865,7 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(LibraryInspection model)
-            => model.AssemblyReferenceInspection is not null
-               || model.AssemblyInfo?.References is not null;
+            => HasReferenceData(model);
     }
 
     public sealed class ReferenceHierarchy :
