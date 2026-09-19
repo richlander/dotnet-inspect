@@ -185,6 +185,10 @@ test("Workspace Add is offered independently of occurrence loading and disabled 
     /data-workspace-add-package>Add package/);
   assert.match(renderWorkspaceView({ ...options, canAddPackage: false }),
     /data-workspace-add-package disabled/);
+  assert.match(renderWorkspaceView({ ...options, canAddPackageSet: true }),
+    /data-workspace-open-package-set>Add package set/);
+  assert.match(renderWorkspaceView({ ...options, canAddPackageSet: false }),
+    /data-workspace-open-package-set disabled/);
 });
 
 test("Workspace selection, switching, deletion, and occurrence activation dispatch separate actions", () => {

@@ -124,6 +124,7 @@ import {
   createAppMemberSurface,
   createAppTypeSurface,
   createPackageAcquisition,
+  createNuGetPackageModel,
   createWorkspaceOccurrencePackageModel,
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
@@ -577,6 +578,8 @@ import type {
   BrowserPackageSurface,
   BrowserExactLibraryApiInspection,
   BrowserTypeCandidate,
+  BrowserWorkspacePackageSetDescriptor,
+  BrowserWorkspacePackageSetRealization,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
 } from "./facades/inspect-web-package.d.ts";
@@ -596,6 +599,7 @@ import type {
   BrowserHomeDemoRunResult,
   BrowserWorkspaceShareState,
 } from "./facades/inspect-web-catalog.d.ts";
+import { workspacePackageSets } from "./workspace-package-sets.ts";
 
 type ProductionEngineWorkerModule =
   typeof import("./engine-worker-client.ts");
@@ -1263,6 +1267,13 @@ let diagnosticsDestinationFocusScheduled = false;
 let diagnosticsDestinationFocusGeneration: number | null = null;
 let platformLibraryRetry: RetryAction = null;
 let platformCatalogRetry: RetryAction = null;
+let workspacePackageSetRequest = 0;
+let workspacePackageSetPicker = {
+  open: false,
+  loading: false,
+  error: "",
+  packageSets: [] as BrowserWorkspacePackageSetDescriptor[],
+};
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -5795,6 +5806,13 @@ function renderWorkspaceView() {
       : null);
   return renderWorkspaceViewPure({
     canAddPackage: state.engineReady && !state.loading && !state.error,
+    canAddPackageSet: state.engineReady && !state.loading && !state.error,
+    packageSetPicker: {
+      ...workspacePackageSetPicker,
+      availableSlots: Math.max(
+        0,
+        MAX_WORKSPACE_PACKAGES - workspaceCoordinateCount()),
+    },
     savedWorkspaces: {
       state: savedWorkspaces.state,
       canSave: state.engineReady && !state.loading && !state.error && (state.packages.length > 0 || state.platformSelection !== null),
@@ -8756,6 +8774,15 @@ function bindWorkspaceSubjectEvents() {
     onRetry: retryWorkspaceOccurrenceView,
     onRemove: removeWorkspacePackageRow,
     onAddPackage: openWorkspacePackagePicker,
+    onOpenPackageSet: () =>
+      observeAsync(
+        openWorkspacePackageSetPicker(),
+        "Opening the Workspace package-set picker"),
+    onClosePackageSet: closeWorkspacePackageSetPicker,
+    onAddPackageSet: id =>
+      observeAsync(
+        addWorkspacePackageSet(id),
+        "Adding the Workspace package set"),
     onPlatform: showPlatformRoot,
     onFrameworkLibrary: (assembly, pack, tfm, version) =>
       observeAsync(
@@ -11667,6 +11694,209 @@ function openWorkspacePackagePicker(): void {
       });
     },
   });
+}
+
+async function openWorkspacePackageSetPicker(): Promise<void> {
+  if (!state.engineReady || state.loading || state.error) {
+    showToast("Workspace is not ready to add a package set.");
+    return;
+  }
+
+  const request = ++workspacePackageSetRequest;
+  workspacePackageSetPicker = {
+    ...workspacePackageSetPicker,
+    open: true,
+    loading: workspacePackageSetPicker.packageSets.length === 0,
+    error: "",
+  };
+  render({ synchronizeUrl: false });
+  focusWorkspacePackageSetPicker();
+  if (!workspacePackageSetPicker.loading) return;
+
+  try {
+    const catalog = workspacePackageSets(
+      await engineClient.package.listWorkspacePackageSets());
+    if (request !== workspacePackageSetRequest
+      || !workspacePackageSetPicker.open) return;
+    workspacePackageSetPicker = {
+      open: true,
+      loading: false,
+      error: "",
+      packageSets: catalog,
+    };
+  } catch (error) {
+    if (request !== workspacePackageSetRequest
+      || !workspacePackageSetPicker.open) return;
+    workspacePackageSetPicker = {
+      open: true,
+      loading: false,
+      error: `Product package sets are unavailable: ${errorMessage(error)}`,
+      packageSets: [],
+    };
+  }
+  render({ synchronizeUrl: false });
+  focusWorkspacePackageSetPicker();
+}
+
+function closeWorkspacePackageSetPicker(): void {
+  workspacePackageSetRequest++;
+  workspacePackageSetPicker = {
+    ...workspacePackageSetPicker,
+    open: false,
+    loading: false,
+  };
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(() =>
+    restoreWorkspaceFocus(document, { kind: "add-package-set" }));
+}
+
+function focusWorkspacePackageSetPicker(): void {
+  afterCurrentNavigationFrame(() => {
+    const target = document.querySelector<HTMLElement>(
+      "[data-workspace-add-package-set]:not([disabled])")
+      ?? document.querySelector<HTMLElement>(
+        "#workspace-package-set-dialog");
+    target?.focus();
+  });
+}
+
+async function addWorkspacePackageSet(id: string): Promise<void> {
+  const packageSet = workspacePackageSetPicker.packageSets.find(
+    candidate => candidate.id === id);
+  if (!packageSet) {
+    showToast("The selected product package set is unavailable.");
+    return;
+  }
+
+  const availableSlots =
+    Math.max(0, MAX_WORKSPACE_PACKAGES - workspaceCoordinateCount());
+  if (packageSet.coordinates.length > availableSlots) {
+    appendQueryNotice(
+      `${packageSet.title} contains ${packageSet.coordinates.length} packages,`
+        + ` but this Workspace has ${availableSlots} available package slots.`
+        + " Package-set membership is never truncated.",
+      null);
+    closeWorkspacePackageSetPicker();
+    return;
+  }
+
+  workspacePackageSetRequest++;
+  workspacePackageSetPicker = {
+    ...workspacePackageSetPicker,
+    open: false,
+    loading: false,
+  };
+  beginSpotlightNavigation();
+  spotlight.reset();
+  const navigationSeq = beginDemoNavigation(location.href);
+  const snapshot = captureWorkspaceMutationSnapshot(navigationSeq);
+  state.loading = true;
+  state.loadingMessage = `Adding ${packageSet.title}…`;
+  state.loadingSubtitle =
+    `Resolving all ${packageSet.coordinates.length} package coordinates before publication…`;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  render();
+
+  try {
+    const result: BrowserWorkspacePackageSetRealization =
+      await engineClient.package.realizeWorkspacePackageSet(
+        JSON.stringify(workspaceOccurrenceRequest()),
+        workspaceCoordinateCount(),
+        packageSet.id);
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (result.packageSetId !== packageSet.id
+      || result.title !== packageSet.title
+      || result.requestedPackageCount !== packageSet.coordinates.length) {
+      throw new Error(
+        "The realized package set does not match the selected declaration.");
+    }
+    if (result.kind === "CapacityRejected") {
+      cancelPendingWorkspaceConstruction();
+      appendQueryNotice(
+        `${packageSet.title} contains ${result.requestedPackageCount} packages,`
+          + ` but this Workspace has ${result.availableSlots} available package slots.`
+          + " Package-set membership is never truncated.",
+        null);
+      render({ synchronizeUrl: false });
+      afterCurrentNavigationFrame(() =>
+        restoreWorkspaceFocus(document, { kind: "add-package-set" }));
+      return;
+    }
+    if (result.kind !== "Completed" || result.packages.length === 0) {
+      throw new Error("The package-set realization did not complete.");
+    }
+
+    const existingPackageKeys = new Set(
+      state.packages.map(packageIdentityKey));
+    const additions: AppPackage[] = [];
+    for (const surface of result.packages) {
+      const packageModel = createNuGetPackageModel(surface);
+      const key = packageIdentityKey(packageModel);
+      if (existingPackageKeys.add(key))
+        additions.push(packageModel);
+    }
+    if (workspaceCoordinateCount() + additions.length
+        > MAX_WORKSPACE_PACKAGES) {
+      throw new Error(
+        "The completed package-set realization exceeds Workspace capacity.");
+    }
+    state.packages = [...state.packages, ...additions];
+    invalidateWorkspaceMembershipViews();
+    if (!state.package && additions[0]) {
+      activatePackage(additions[0], { resetAccessibility: true });
+      state.requestedPackage = additions[0].id;
+      state.requestedVersion = additions[0].version;
+      state.requestedFramework = additions[0].activeFramework;
+    }
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.loading = false;
+    const destination = (await buildStateUrl()).toString();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    stageDemoNavigation(navigationSeq, destination);
+    if (retainedWorkspaces.activeWorkspaceId === null) {
+      const publication = stageCurrentWorkspacePublication(
+        null,
+        destination);
+      if (!commitStagedWorkspaceNavigation(navigationSeq, publication)) {
+        throw new Error(
+          "The package-set Workspace could not commit its destination.");
+      }
+    } else {
+      if (!commitDemoNavigation(navigationSeq)) {
+        throw new Error(
+          "The package-set Workspace could not commit its destination.");
+      }
+      activeWorkspaceUrl = destination;
+      discardPendingWorkspaceConstruction();
+    }
+    for (const packageModel of additions) {
+      recordRecentPackage(
+        packageModel.id,
+        packageModel.version,
+        packageModel.activeFramework);
+    }
+    refreshPackageStats();
+    render();
+    showToast(
+      `Added ${packageSet.title} (${packageSet.coordinates.length} packages).`);
+    focusInspectionResult(navigationSeq);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    discardPendingWorkspaceConstruction();
+    failWorkspaceCatalogAction(
+      `Adding ${packageSet.title} failed: ${errorMessage(error)}`,
+      snapshot,
+      () => observeAsync(
+        addWorkspacePackageSet(id),
+        `Retrying ${packageSet.title}`),
+      () => restoreWorkspaceFocus(
+        document, { kind: "add-package-set" }),
+    );
+  } finally {
+    cancelDemoNavigation(navigationSeq);
+  }
 }
 
 async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void> {

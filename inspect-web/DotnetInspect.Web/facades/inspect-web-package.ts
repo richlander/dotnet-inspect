@@ -1054,6 +1054,36 @@ export interface BrowserWorkspacePackageOccurrenceView {
   readonly superseded: boolean;
 }
 
+export interface BrowserWorkspacePackageSetCatalog {
+  readonly version: number;
+  readonly packageSets: ReadonlyArray<BrowserWorkspacePackageSetDescriptor>;
+}
+
+export interface BrowserWorkspacePackageSetCoordinate {
+  readonly packageId: string;
+  readonly version: string | null;
+  readonly framework: string | null;
+  readonly runtimeIdentifier: string | null;
+}
+
+export interface BrowserWorkspacePackageSetDescriptor {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly order: number;
+  readonly sourceKind: string;
+  readonly coordinates: ReadonlyArray<BrowserWorkspacePackageSetCoordinate>;
+}
+
+export interface BrowserWorkspacePackageSetRealization {
+  readonly kind: string;
+  readonly packageSetId: string;
+  readonly title: string;
+  readonly requestedPackageCount: number;
+  readonly availableSlots: number;
+  readonly packages: ReadonlyArray<BrowserPackageSurface>;
+}
+
 export interface CompiledDocumentationAssemblyIdentity {
   readonly name?: string;
   readonly version?: string;
@@ -1188,6 +1218,7 @@ type $ManagedExports = {
             readonly "GetPlatformVersions.976702342": (targetFramework: string) => Promise<string>;
             readonly "ListPackageActivityPackageSets.1310674786": () => string;
             readonly "ListPackageQueryCatalog.1310674786": () => string;
+            readonly "ListWorkspacePackageSets.1310674786": () => string;
             readonly "LoadRuntimePack.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
             readonly "LoadRuntimePackAssembly.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, assetFileName: string) => Promise<string>;
             readonly "MatchPackageDependencyCoordinate.1537767637": (packageId: string, declaredRange: string | null, candidatesJson: string) => string;
@@ -1202,6 +1233,7 @@ type $ManagedExports = {
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
             readonly "QueryPlatformMemberDocumentation.1330709314": (framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string) => Promise<string>;
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
+            readonly "RealizeWorkspacePackageSet.2085512650": (workspaceJson: string, occupiedCoordinateCount: number, packageSetId: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
             readonly "RunPackageActivity.1791926993": (operationId: string, requestJson: string, eventSink: unknown) => Promise<string>;
@@ -1384,6 +1416,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ListWorkspacePackageSets.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ListWorkspacePackageSets.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "LoadRuntimePack.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.LoadRuntimePack.451505237\u0027 is not callable.");
@@ -1543,6 +1587,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "RealizeWorkspacePackageSet.2085512650");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.RealizeWorkspacePackageSet.2085512650\u0027 is not callable.");
     }
   }
   {
@@ -1726,6 +1782,12 @@ export function listPackageQueryCatalog(): BrowserPackageQueryCatalog {
   return $parsed as BrowserPackageQueryCatalog;
 }
 
+export function listWorkspacePackageSets(): BrowserWorkspacePackageSetCatalog {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ListWorkspacePackageSets.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageSetCatalog;
+}
+
 export async function loadRuntimePack(targetFramework: string, platformVersion: string): Promise<string> {
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePack.451505237"](targetFramework, platformVersion);
 }
@@ -1802,6 +1864,12 @@ export async function queryWorkspacePackageOccurrences(workspaceJson: string): P
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspacePackageOccurrenceView;
+}
+
+export async function realizeWorkspacePackageSet(workspaceJson: string, occupiedCoordinateCount: number, packageSetId: string): Promise<BrowserWorkspacePackageSetRealization> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["RealizeWorkspacePackageSet.2085512650"](workspaceJson, occupiedCoordinateCount, packageSetId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageSetRealization;
 }
 
 export function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse {

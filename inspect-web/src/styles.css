@@ -517,8 +517,16 @@ body:has(:not([hidden]) > [role="dialog"][aria-modal="true"])
 .workspace-section { margin-top: 14px; }
 .workspace-heading { flex-wrap: wrap; }
 .workspace-heading > [data-workspace-save] { margin-left: auto; }
-.workspace-section .section-title:has(.workspace-add-package) { gap: 12px; flex-wrap: wrap; }
-.workspace-add-package { margin-left: auto; flex-shrink: 0; }
+.workspace-section .section-title:has(.workspace-package-actions) { gap: 12px; flex-wrap: wrap; }
+.workspace-package-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.workspace-package-set-dialog { width: min(640px, calc(100vw - 32px)); }
+.workspace-package-set-dialog > p { margin: 12px 0; color: var(--muted); }
+.workspace-package-set-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.workspace-package-set-list li { display: flex; align-items: center; gap: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.workspace-package-set-list li > div { min-width: 0; flex: 1; }
+.workspace-package-set-list p { margin: 4px 0; }
+.workspace-package-set-list small { color: var(--dim); }
+.workspace-package-set-status { min-height: 48px; }
 .workspace-save-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .workspace-save-form label { color: var(--muted); font-size: 12px; }
 .workspace-save-form input { flex: 1 1 200px; min-width: 0; max-width: 100%; }

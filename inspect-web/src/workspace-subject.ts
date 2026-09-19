@@ -17,6 +17,11 @@ import {
   isProductHomeDemoId,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import {
+  bindWorkspacePackageSetPicker,
+  renderWorkspacePackageSetPicker,
+  type WorkspacePackageSetPickerState,
+} from "./workspace-package-sets.ts";
 
 export interface WorkspaceSubjectRenderOptions {
   workspaces: readonly WorkspaceSubjectItem[];
@@ -32,6 +37,8 @@ export interface WorkspaceSubjectItem {
 
 export interface WorkspaceViewRenderOptions {
   canAddPackage?: boolean;
+  canAddPackageSet?: boolean;
+  packageSetPicker?: WorkspacePackageSetPickerState;
   savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
@@ -58,6 +65,9 @@ export interface WorkspaceSubjectBindingActions {
   onRetry: () => void;
   onRemove?: (key: string) => void;
   onAddPackage?: () => void;
+  onOpenPackageSet?: () => void;
+  onClosePackageSet?: () => void;
+  onAddPackageSet?: (id: string) => void;
   onPlatform?: () => void;
   onFrameworkLibrary?: (
     assembly: string,
@@ -85,6 +95,7 @@ export type WorkspaceFocusTarget =
   | { kind: "workspace"; id: string }
   | { kind: "delete-workspace"; id: string; index: number }
   | { kind: "add-package" }
+  | { kind: "add-package-set" }
   | { kind: "remove"; key: string; index: number }
   | { kind: "demo"; id: string };
 
@@ -208,13 +219,16 @@ export function renderWorkspaceView(
   <div class="workspace-overview">
     ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
-      <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span>${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div>
+      <div class="section-title"><h2>Packages</h2><span>${packageCount} coordinate${packageCount === 1 ? "" : "s"}</span><div class="workspace-package-actions">${options.canAddPackageSet === undefined ? "" : `<button type="button" data-workspace-open-package-set${options.canAddPackageSet ? "" : " disabled"}>Add package set</button>`}${options.canAddPackage === undefined ? "" : `<button class="workspace-add-package" type="button" data-workspace-add-package${options.canAddPackage ? "" : " disabled"}>Add package</button>`}</div></div>
       <p>Choose a package to inspect it, or remove it with the adjacent close button.</p>
       ${content}
     </section>
     ${frameworkLibraryRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Libraries</h2></div><ul class="workspace-detail-list loaded">${frameworkLibraryRows}</ul></section>` : ""}
     ${platformRows ? `<section class="document-section workspace-section"><div class="section-title"><h2>Platform</h2></div><ul class="workspace-detail-list loaded">${platformRows}</ul></section>` : ""}
-  </div>`;
+  </div>
+  ${options.packageSetPicker
+    ? renderWorkspacePackageSetPicker(options.packageSetPicker, escapeHtml)
+    : ""}`;
 }
 
 export function bindWorkspaceSubject(
@@ -250,6 +264,12 @@ export function bindWorkspaceSubject(
     ?.addEventListener("click", actions.onRetry);
   root.querySelector<HTMLElement>("[data-workspace-add-package]")
     ?.addEventListener("click", () => actions.onAddPackage?.());
+  root.querySelector<HTMLElement>("[data-workspace-open-package-set]")
+    ?.addEventListener("click", () => actions.onOpenPackageSet?.());
+  bindWorkspacePackageSetPicker(root, {
+    onClose: () => actions.onClosePackageSet?.(),
+    onAdd: id => actions.onAddPackageSet?.(id),
+  });
   root.querySelector<HTMLElement>("[data-workspace-platform]")
     ?.addEventListener("click", () => actions.onPlatform?.());
   const frameworkLibrary =
@@ -286,7 +306,7 @@ export function captureWorkspaceFocus(
   const savedFocus = captureSavedWorkspaceFocus(element);
   if (savedFocus) return savedFocus;
   const target = element?.closest<HTMLElement>(
-    "[data-workspace-select], [data-workspace-switch], [data-workspace-delete], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package]");
+    "[data-workspace-select], [data-workspace-switch], [data-workspace-delete], [data-workspace-demo], [data-workspace-remove], [data-workspace-add-package], [data-workspace-open-package-set]");
   if (!target) return null;
   const workspaceId =
     target.dataset.workspaceSelect ?? target.dataset.workspaceSwitch;
@@ -303,6 +323,9 @@ export function captureWorkspaceFocus(
   }
   if (target.hasAttribute("data-workspace-add-package")) {
     return { kind: "add-package" };
+  }
+  if (target.hasAttribute("data-workspace-open-package-set")) {
+    return { kind: "add-package-set" };
   }
   if (target.dataset.workspaceRemove !== undefined) {
     return {
@@ -353,6 +376,10 @@ export function restoreWorkspaceFocus(
     }
     case "add-package":
       element = root.querySelector<HTMLElement>("[data-workspace-add-package]");
+      break;
+    case "add-package-set":
+      element = root.querySelector<HTMLElement>(
+        "[data-workspace-open-package-set]");
       break;
     case "demo":
       element = [...root.querySelectorAll<HTMLElement>("[data-workspace-demo]")]

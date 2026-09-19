@@ -283,11 +283,14 @@ executable, run in Release in normal CI. Its public-consumer gates cover:
 | `PackagePrefixRequestTests` | Declaration-only construction/inspection, independent consumer policies on one declaration, equivalent text-based/composed requests, malformed prefix/bound rejection, separator and maximum-length boundaries |
 | `SearchSourceNormalizerTests` | Broad-versus-explicit candidate intent, complete finite platform/group truth table, every direct source, stable package precedence/deduplication, retained prefix declaration and distinct consumer requests, and empty-group non-fallback |
 | `PackageSourceIntentTests` | Reference/archive inspection, owner-issued parsing and version acceptance, original spelling, mixed-source ordering and equality, and explicit-source non-fallback |
+| `BrowserWorkspacePackageSetOperationsTests` | Browser catalog identity resolves through one `PackageGroup`, preserves exact ordered membership, forms one complete aggregate Workspace request, and rejects an over-capacity set before realization |
 
 The tests use product construction and normalization, not replacement
 algorithms or manufactured acquisition evidence. The four multi-source CLI
 search adapters adopted declaration and normalization in #6142; the unary
 `library` and `library coordinate` adapters declare one source without search
-defaulting in #7830. Browser execution, broader source realization, and
-end-to-end catalog prefix selection remain unverified until their respective
-adoption slices.
+defaulting in #7830. Inspect Web package-set admission declares catalog
+membership through this boundary and realizes the complete replacement
+Workspace as one aggregate operation under #7862. Broader source realization
+and end-to-end catalog prefix selection remain unverified until their
+respective adoption slices.

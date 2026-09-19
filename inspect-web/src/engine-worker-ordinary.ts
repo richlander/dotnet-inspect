@@ -47,6 +47,7 @@ type PackageOperationName =
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "getPackageDocument"
+  | "listWorkspacePackageSets"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
@@ -54,6 +55,7 @@ type PackageOperationName =
   | "queryPackagePruning"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
+  | "realizeWorkspacePackageSet"
   | "resolvePackageDependencyVersion";
 
 type MetadataOperationName =
@@ -719,6 +721,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["getPlatformVersions"]>
       ) => facades.package.getPlatformVersions(...args),
     ),
+    listWorkspacePackageSets: valueOperation(
+      "ordinary-package-list-workspace-package-sets",
+      0,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["listWorkspacePackageSets"]>
+      ) => facades.package.listWorkspacePackageSets(...args),
+    ),
     matchPackageDependencyCoordinate: valueOperation(
       "ordinary-package-match-dependency-coordinate",
       3,
@@ -870,6 +880,16 @@ export const engineWorkerOrdinaryOperations = {
           PackageFacade["queryWorkspacePackageOccurrences"]
         >
       ) => facades.package.queryWorkspacePackageOccurrences(...args),
+    ),
+    realizeWorkspacePackageSet: valueOperation(
+      "ordinary-package-realize-workspace-package-set",
+      3,
+      (
+        facades,
+        ...args: Parameters<
+          PackageFacade["realizeWorkspacePackageSet"]
+        >
+      ) => facades.package.realizeWorkspacePackageSet(...args),
     ),
     resolvePackageDependencyVersion: valueOperation(
       "ordinary-package-resolve-dependency-version",
@@ -1263,6 +1283,9 @@ export function bindEngineWorkerOrdinaryClient(
       getPlatformVersions: bind(
         engineWorkerOrdinaryOperations.package.getPlatformVersions,
       ),
+      listWorkspacePackageSets: bind(
+        engineWorkerOrdinaryOperations.package.listWorkspacePackageSets,
+      ),
       matchPackageDependencyCoordinate: bind(
         engineWorkerOrdinaryOperations.package
           .matchPackageDependencyCoordinate,
@@ -1321,6 +1344,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryWorkspacePackageOccurrences: bind(
         engineWorkerOrdinaryOperations.package
           .queryWorkspacePackageOccurrences,
+      ),
+      realizeWorkspacePackageSet: bind(
+        engineWorkerOrdinaryOperations.package
+          .realizeWorkspacePackageSet,
       ),
       resolvePackageDependencyVersion: bind(
         engineWorkerOrdinaryOperations.package
