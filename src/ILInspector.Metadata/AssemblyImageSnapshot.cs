@@ -166,8 +166,7 @@ public sealed class AssemblyImageSnapshot
                 }
 
                 reservedBytes = length;
-                var bytes =
-                    GC.AllocateUninitializedArray<byte>((int)length);
+                var bytes = new byte[(int)length];
                 stream.ReadExactly(bytes);
                 ImmutableArray<byte> content =
                     ImmutableCollectionsMarshal.AsImmutableArray(bytes);

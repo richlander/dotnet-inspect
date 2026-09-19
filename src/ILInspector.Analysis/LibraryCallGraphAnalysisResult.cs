@@ -108,7 +108,7 @@ public sealed class LibraryCallGraphAnalysisResult
                 DeclaredMethods,
                 _moduleName);
 
-    internal IReadOnlyDictionary<int, MethodSignals> MethodSignals =>
+    public IReadOnlyDictionary<int, MethodSignals> MethodSignals =>
         _signals ??= MethodSignalAnalysis.Collect(
             PhysicalDirectCalls,
             _unsafeEvidence,

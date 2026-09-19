@@ -108,15 +108,15 @@ public sealed record CallSiteCostEvidence(
 
     public static bool TryCreate(
         DirectCall call,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         out CallSiteCostEvidence? evidence)
     {
         ArgumentNullException.ThrowIfNull(call);
-        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         if (!CallSiteSemanticsEvidence.TryResolveCallee(
                 call,
-                assembly,
+                analysis,
                 out MethodIdentity? callee)
             || callee is null)
         {
@@ -124,10 +124,10 @@ public sealed record CallSiteCostEvidence(
             return false;
         }
 
-        MethodSignals signals = assembly.Signals.GetValueOrDefault(
+        MethodSignals signals = analysis.Signals.GetValueOrDefault(
             callee.MetadataToken,
             MethodSignals.None);
-        assembly.LeverageByToken.TryGetValue(
+        analysis.LeverageByToken.TryGetValue(
             callee.MetadataToken,
             out MethodLeverage? leverage);
         if (!CallSiteCostFactProducer.IsHighValue(
@@ -167,9 +167,11 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
 
     public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
-        if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
+        if (context.Analysis is not { } analysis
+            || context.Imported.MetadataToken == 0)
             return [];
-        var callSites = assembly.InspectCallSites(context.Imported.MetadataToken);
+        var callSites =
+            analysis.InspectCallSites(context.Imported.MetadataToken);
         if (callSites.IsEmpty)
             return [];
 
@@ -179,7 +181,7 @@ sealed class CallSiteCostFactProducer : IResearchFactProducer
             var call = finding.Payload;
             if (CallSiteCostEvidence.TryCreate(
                     call,
-                    assembly,
+                    analysis,
                     out CallSiteCostEvidence? evidence)
                 && evidence is not null)
             {

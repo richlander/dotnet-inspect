@@ -103,6 +103,7 @@
     <Project Path="fixtures/queries/DotnetInspector.CloneSearchFixtures/DotnetInspector.CloneSearchFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.RestoredRidFixtures/DotnetInspector.RestoredRidFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />

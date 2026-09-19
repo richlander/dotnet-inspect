@@ -1834,7 +1834,7 @@ public static class ApiOutputFormatter
             options?.RenderOptions,
             sourceAssembly,
             request.RequiresResearchProjection && overloadIndex.HasValue
-                ? analysisInspection.ResearchContext
+                ? analysisInspection.ResearchAnalysis
                 : null))
         {
             if (code.Attributes is { Count: > 0 } attributes)

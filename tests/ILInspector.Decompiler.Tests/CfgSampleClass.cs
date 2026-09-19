@@ -3728,6 +3728,25 @@ public class CfgSampleClass
     public static System.Collections.Generic.IEnumerable<string> CachedStaticMethodGroup(System.Collections.Generic.IEnumerable<string> items)
         => System.Linq.Enumerable.Select(items, CacheMethodGroupIdentity);
 
+    // Explicit delegate construction has the same local ldftn/newobj shell but no
+    // <>O cache. It must stay explicit rather than acquiring cache provenance.
+    public static System.Collections.Generic.IEnumerable<string> ExplicitStaticMethodGroupArgument(System.Collections.Generic.IEnumerable<string> items)
+        => System.Linq.Enumerable.Select(items, new Func<string, string>(CacheMethodGroupIdentity));
+
+    public static string CachedStaticMethodGroupLocalFunction()
+    {
+        return Consume(CacheMethodGroupIdentity);
+
+        static string Consume(Func<string, string> selector) => selector("value");
+    }
+
+    public static string ExplicitStaticMethodGroupLocalFunction()
+    {
+        return Consume(new Func<string, string>(CacheMethodGroupIdentity));
+
+        static string Consume(Func<string, string> selector) => selector("value");
+    }
+
     // A same-assembly user extension method, called in instance form. csc lowers it
     // to the static call `ExtensionMethodSamples.Doubled(n)`; the [Extension] mark is
     // read from the same-assembly MethodDef, so it should render back as `n.Doubled()`.
