@@ -79,6 +79,36 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    // PR-fast: each selected member addresses one of the real partial type's documents.
+    [Theory]
+    [InlineData("ResolveTypeSource:1", "SourceLinkService.cs", false)]
+    [InlineData("ResolveTypeSource:1", "SourceLinkService.cs", true)]
+    [InlineData("VerifySourceContent:1", "SourceLinkService.SourceContent.cs", false)]
+    [InlineData("VerifySourceContent:1", "SourceLinkService.SourceContent.cs", true)]
+    public async Task MemberSourceLocationsPrint_SelectsExactRepositoryDocument(
+        string member,
+        string fileName,
+        bool preferRenderedUrls)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        var result = await RunCliAsync(
+            [
+                "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
+                member,
+                "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
+                "-S", "Source Locations", "--print", "--row", "first",
+                "--repo", repositoryRoot, "--bare", "--tips", "q",
+                .. preferRenderedUrls ? new[] { "--prefer-rendered-urls" } : [],
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            File.ReadAllText(Path.Combine(repositoryRoot, "src", "ILInspector.SourceLink", fileName))
+                .ReplaceLineEndings("\n"),
+            result.Output.ReplaceLineEndings("\n"));
+    }
+
     [Fact]
     public async Task TypeSourceFilesPrint_RouterPreservesRepoAtCliBoundaryWhileOffline()
     {
