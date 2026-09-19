@@ -1162,15 +1162,34 @@ public static class OutputFormatter
 
         if (options.Count)
         {
+            var ordered = ResolveCountMapSections(
+                pipeline,
+                options.IncludeSections,
+                options.FixedOverview);
+            if (packageAggregate)
+            {
+                var projection = CaptureLibraryCountProjection(
+                    inspections,
+                    topFieldsOnly,
+                    WriterOptions,
+                    options,
+                    packageAggregate: true,
+                    pipeline);
+                CountOutput.Write(
+                    projection,
+                    ordered,
+                    options.Format,
+                    options.NoHeader,
+                    options.OutputPath,
+                    options.Rows);
+                return true;
+            }
+
             var frameworkGroups = inspections
                 .GroupBy(
                     inspection => inspection.Tfm,
                     StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var ordered = ResolveCountMapSections(
-                pipeline,
-                options.IncludeSections,
-                options.FixedOverview);
             if (frameworkGroups.Length == 1)
             {
                 var projection = CaptureLibraryCountProjection(
@@ -1864,7 +1883,7 @@ public static class OutputFormatter
         };
     }
 
-    private static bool IsAggregateLibrarySection(
+    internal static bool IsAggregateLibrarySection(
         string section) =>
         section.Equals(
             IntegrationSectionNames.Opportunities,

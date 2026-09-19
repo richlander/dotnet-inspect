@@ -127,6 +127,24 @@ public sealed class InspectionPlanningTests
                 .GetSection(SectionNames.LibraryInfo)!
                 .Items
                 .Select(item => item.Name));
+        StructuralSchemaProjection documentProjection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate),
+                StructuralOutputShape.Document);
+        Assert.Equal(
+            [
+                "Library",
+                "TFM",
+                "Kind",
+                "Switch",
+                "API",
+            ],
+            documentProjection.Schema
+                .GetSection(SectionNames.Switches)!
+                .Items
+                .Select(item => item.Name));
         Assert.DoesNotContain(
             projection.Schema.SectionNames,
             MetadataSectionNames.IsMetadataSection);
@@ -175,6 +193,30 @@ public sealed class InspectionPlanningTests
             "--table",
             "--tips",
             "q");
+        var switches = await RunAppAsync(
+            "package",
+            target,
+            "--all-libraries",
+            "-D",
+            SectionNames.Switches,
+            "--schema",
+            "--tips",
+            "q");
+        var projectedSwitches = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.Switches,
+            "--columns",
+            "Library",
+            "--rows",
+            "1",
+            "--markdown",
+            "--tips",
+            "q");
 
         Assert.Equal(0, references.Exit);
         Assert.Equal(
@@ -199,6 +241,37 @@ public sealed class InspectionPlanningTests
         Assert.Empty(references.Error);
         Assert.Equal(references.Output, namedReferences.Output);
         Assert.Empty(namedReferences.Error);
+
+        Assert.Equal(0, switches.Exit);
+        Assert.Equal(
+            [
+                "Library column",
+                "TFM column",
+                "Kind column",
+                "Switch column",
+                "API column",
+            ],
+            switches.Output
+                .Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Skip(2)
+                .Select(line => string.Join(
+                    ' ',
+                    line.Split(
+                        '|',
+                        StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries))));
+        Assert.Empty(switches.Error);
+
+        Assert.Equal(0, projectedSwitches.Exit);
+        Assert.Contains(
+            "| Library | TFM |",
+            projectedSwitches.Output);
+        Assert.DoesNotContain(
+            "| Kind |",
+            projectedSwitches.Output);
+        Assert.Empty(projectedSwitches.Error);
 
         Assert.Equal(1, metadata.Exit);
         Assert.Empty(metadata.Output);

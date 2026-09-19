@@ -315,6 +315,7 @@ public partial class CommandExecutionTests
             var count = await RunAppAsync(
                 "package", packagePath,
                 "--all-libraries",
+                "--tfm", "all",
                 "-S", "Switches",
                 "--rows", "1",
                 "--count",
@@ -322,6 +323,7 @@ public partial class CommandExecutionTests
             var markdown = await RunAppAsync(
                 "package", packagePath,
                 "--all-libraries",
+                "--tfm", "all",
                 "-S", "Switches",
                 "--rows", "1",
                 "--markdown",
@@ -336,6 +338,7 @@ public partial class CommandExecutionTests
             var tsv = await RunAppAsync(
                 "package", packagePath,
                 "--all-libraries",
+                "--tfm", "all",
                 "-S", "Switches",
                 "--rows", "1",
                 "--tsv",

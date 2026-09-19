@@ -1119,28 +1119,31 @@ public partial class CommandExecutionTests
             Path.GetTempPath(),
             $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        var targetDir =
-            Path.Combine(
-                packageRoot,
-                "lib",
-                "net10.0");
-        Directory.CreateDirectory(targetDir);
         string fixture =
             typeof(
                 DotnetInspector.Fixtures
                     .AppContextSwitchFixture)
                 .Assembly
                 .Location;
-        File.Copy(
-            fixture,
-            Path.Combine(
-                targetDir,
-                "Switch.One.dll"));
-        File.Copy(
-            fixture,
-            Path.Combine(
-                targetDir,
-                "Switch.Two.dll"));
+        foreach (string tfm in new[] { "net8.0", "net10.0" })
+        {
+            string targetDir =
+                Path.Combine(
+                    packageRoot,
+                    "lib",
+                    tfm);
+            Directory.CreateDirectory(targetDir);
+            File.Copy(
+                fixture,
+                Path.Combine(
+                    targetDir,
+                    "Switch.One.dll"));
+            File.Copy(
+                fixture,
+                Path.Combine(
+                    targetDir,
+                    "Switch.Two.dll"));
+        }
 
         var packagePath =
             Path.Combine(

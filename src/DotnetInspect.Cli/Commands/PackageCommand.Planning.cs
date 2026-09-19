@@ -71,7 +71,11 @@ public partial class PackageCommand
 
             string[] items =
                 [.. section.Items.Select(item => item.Name)];
-            if (outputShape != StructuralOutputShape.Rows)
+            bool pooledDocumentSection =
+                outputShape == StructuralOutputShape.Document
+                && OutputFormatter.IsAggregateLibrarySection(name);
+            if (outputShape != StructuralOutputShape.Rows
+                && !pooledDocumentSection)
             {
                 if (items.Length == 0)
                     schema.AddSection(name);
