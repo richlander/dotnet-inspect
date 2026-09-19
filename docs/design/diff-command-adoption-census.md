@@ -96,6 +96,7 @@ through those owners.
 | Name-only | Direct ordered Type-name list from selected comparison subjects | The lowerer receives no `RowWindow`; name-only windowing is **unverified** | No Count or envelope integration; non-success emits the typed reason. |
 | Implementation Diff | `ImplementationDiffView` built by `DiffOutputFormatter` from general or Workspace comparison evidence and optional selected PDB-source content | General comparison emits C#, IL, normal-flow complexity, and optional PDB Source rows; each row carries human-readable fields and a machine-readable `Kind` descriptor when wired. The focused Workspace route emits C#, IL, endpoint, and type-forwarder rows. Table, TSV, and JSONL serialize the view through Markout with `RowWindow`; Markdown uses `RenderImplementationDiffView`, while mixed sections compose the same view into `DiffDocumentView`. | No public envelope or Count adapter. Failure evidence remains visible. Endpoint inspection failure and incomplete Workspace comparison produce nonzero exit; failed rows in the general Implementation view do not independently change the exit code. End-to-end `Kind` serialization is **unverified**. |
 | Post-success legend | `Hints.WriteDiffLegend` runs after the selected Diff route returns zero and `--legend` was explicit | Writes four fixed interpretation rows to stderr: added type, modified non-breaking, modified breaking, and removed type | Not a section, semantic row projection, Count input, or part of the selected result carrier. Non-success writes no legend. Successful legend output has no named Release gate. |
+| Post-success tips | `DiffOptionsParser.BuildTips` runs after a zero exit, then `Hints.WriteTips` lowers nonempty tips to stderr | Package and Platform tips offer all-types comparison after a Type filter, the current Type tree, and summary statistics as applicable. A local Library Diff with a Type filter currently emits an incomplete `diff --platform` all-types tip because it has no version range. | Default minimal tips are quieted for explicit or raw formats, quiet verbosity, discovery, selection, line clipping, `--info`, explicit quiet tips, non-success, or an empty tip set; detailed tips raise the shared row cap. The generic writer has a Release gate, but Diff-specific generation and suppression do not. |
 | Timeline Markdown and structured formats | `TimelineDocumentView` with Evaluation and Transition semantic rows; typed JSON preserves the same selected identities | Head, Tail, and Window compose in argument order before Markdown, table, TSV, JSONL, typed JSON, or Count. Explicit Lines clips rendered output and cannot reduce authorized payload-cell acquisition. | Count observes post-selection rows per selected section. Multi-section Count is an ordered map. Failure, subject absence, missing, and unevaluated remain distinct. No public envelope is adopted. |
 
 No Diff-owned tree model or tree lowerer is present in the current renderers.
@@ -129,6 +130,7 @@ History.
 | Selected-Library CLI and transport | `LibraryApiDiffCommandTests`, `LibraryApiDiffEnvelopeCommandTests` | Markdown and structured projections, filters, real `System.Text.Json` package evidence, Content JSON, envelope, compact JSON, modifier rejection, non-success, and no fabricated envelope |
 | General Diff routes | `DiffCommandTests`, `CommandExecutionTests`, `ResearchDiffTests` | API, Analysis, Implementation including normal-flow complexity, mixed sections, filters, Finding Transitions, package and local entrances, output composition, explicit Count rejection before acquisition, and command validation |
 | Diff discovery and schema | `CommandExecutionTests.Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles`, `Diff_SchemaRequiresDiscovery`, `Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions`, `Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition`, `Diff_ComputedCategoryPolesAreRejected` | Source-free authored catalog and category discovery, schema admission and command dependency, exact-only exclusion, computed-pole rejection, and selection failure before acquisition |
+| Post-success tips | `CommandLineTests.WriteTips_WithMinimalLevel_WritesTips` | Shared nonempty minimal-tip stderr writer only; Diff-specific generation, suppression, and local-source fallback are **unverified** |
 | Diff failure visibility | `CommandExecutionTests.Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes` | Malformed local metadata must return failure across Markdown, document JSON, Finding, Analysis, table, TSV, JSONL, and name-only projections; tracked by #7010 |
 | Diff PDB/source evidence | `SelectedSourceDiffTests`, `DiffCommandTests` | Changed, unchanged, reordered, moved, absent, HTTP, deadline, ambiguity, indexing, read, no-PDB, independent-lane labeling, and visible failure cases lowered into Implementation Diff rows |
 | Focused Workspace Implementation | `WorkspaceImplementationComparisonRunnerTests`, `WorkspaceImplementationComparisonQueryTests`, `SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges` | Direct and forwarded targets, exact identity, closed-world composition, C#/IL evidence, typed non-success, peer-section incompleteness, and query-plan exclusion |
@@ -156,6 +158,8 @@ gate in this census:
 - end-to-end JSON, JSONL, and TSV serialization of Implementation `Kind`;
 - the command-layer disposition of tree output outside discovery;
 - successful Diff `--legend` stderr output;
+- Diff-specific post-success tip generation, suppression, and local-source
+  fallback;
 - Timeline public envelope and Share behavior, which are not yet adopted;
 - Timeline source-evidence behavior;
 - Timeline structured or tabular output after real package acquisition; and
@@ -209,6 +213,10 @@ Release gate is claimed.
 
 The Round 7 production probe confirmed that `--legend` emits the four recorded
 stderr rows after successful Diff output; no Release gate is claimed.
+
+The Round 8 production probes confirmed the three Package/Platform tip families
+and the recorded incomplete local-Library all-types tip; no Diff-specific
+Release gate is claimed.
 
 ## Non-goals
 
