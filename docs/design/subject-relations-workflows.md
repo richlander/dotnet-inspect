@@ -437,7 +437,7 @@ that heterogeneous root set:
 dotnet-inspect depends \
   --project ./AppHost/AppHost.csproj --nuspec ./artifacts/App.nuspec \
   --package Aspire.Hosting.Redis@13.5.3 --tfm net8.0 \
-  -S "Dependency Graph,Dependencies,Failures" --depth 2
+  -S "Dependency Hierarchy,Dependencies,Failures" --depth 2
 
 # Target: retained operation with explicit section selection.
 dotnet-inspect depends \

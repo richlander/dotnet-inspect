@@ -24,7 +24,7 @@ public sealed record DependencyInspectionRootInput(
     DependencyInspectionRootKind Kind,
     InertString Input,
     DependencyInspectionRootState State,
-    DependencyGraphNodeIdentity? GraphIdentity,
+    DependencyGraphNodeIdentity? DependencyIdentity,
     DependencyInspectionTraversalCompletion Traversal);
 
 /// <summary>
@@ -143,14 +143,23 @@ public static class DependencyInspectionOperation
         DependencyGraphDocument graph = request.Plan.Traversal
             ? DetachGraph(request.Graph)
             : new DependencyGraphDocument([], [], [], [], []);
+        DependencyHierarchyDocument hierarchy = request.Plan.Traversal
+            ? DependencyHierarchyDocument.Create(graph)
+            : DependencyHierarchyDocument.Empty;
+        if (request.Plan.Traversal)
+            ValidateHierarchyRoots(roots, hierarchy);
         ImmutableArray<DependencyInspectionFailure> failures =
         [
             .. ProjectFailures(request, evidence)
                 .Select(DetachFailure),
         ];
         var content = new DependencyInspectionContent(
-            DetachSummary(ProjectSummary(request, evidence, roots, graph)),
-            graph,
+            DetachSummary(ProjectSummary(
+                request,
+                evidence,
+                roots,
+                hierarchy)),
+            hierarchy,
             roots,
             request.Plan.Declarations
                 ? ProjectDependencies(evidence)
@@ -165,6 +174,38 @@ public static class DependencyInspectionOperation
                 "asset-dependencies/share",
                 "Asset dependency inspection does not yet have a canonical Workspace Share projection."));
         return (inspection, evidenceDocument);
+    }
+
+    private static void ValidateHierarchyRoots(
+        ImmutableArray<DependencyInspectionRoot> roots,
+        DependencyHierarchyDocument hierarchy)
+    {
+        DependencyInspectionRoot[] expected =
+        [
+            .. roots
+                .Where(static root =>
+                    root.State == DependencyInspectionRootState.Admitted),
+        ];
+        if (expected.Length != hierarchy.Roots.Length)
+        {
+            throw new InvalidOperationException(
+                "Dependency hierarchy roots do not match the admitted explicit roots.");
+        }
+
+        for (int index = 0; index < expected.Length; index++)
+        {
+            DependencyInspectionRoot root = expected[index];
+            DependencyHierarchyRootOccurrence hierarchyRoot =
+                hierarchy.Roots[index];
+            DependencyGraphNodeIdentity graphIdentity =
+                hierarchy.BackingGraph.Nodes[hierarchyRoot.NodeId].Identity;
+            if (root.Identity != hierarchyRoot.RootOccurrence
+                || root.DependencyIdentity != graphIdentity)
+            {
+                throw new InvalidOperationException(
+                    "Dependency hierarchy roots do not match the admitted explicit roots.");
+            }
+        }
     }
 
     private static DependencyInspectionSummary DetachSummary(
@@ -416,7 +457,9 @@ public static class DependencyInspectionOperation
                         input.Kind,
                         input.Input,
                         input.State,
-                        input.GraphIdentity,
+                        request.Plan.Traversal
+                            ? input.DependencyIdentity
+                            : null,
                         request.Plan.Traversal
                             ? input.Traversal
                             : DependencyInspectionTraversalCompletion
@@ -455,7 +498,7 @@ public static class DependencyInspectionOperation
                         input.Kind,
                         input.Input,
                         input.State,
-                        GraphIdentity: null,
+                        DependencyIdentity: null,
                         request.Plan.Traversal
                             ? input.Traversal
                             : DependencyInspectionTraversalCompletion
@@ -508,7 +551,10 @@ public static class DependencyInspectionOperation
                     input.Kind,
                     input.Input,
                     input.State,
-                    input.GraphIdentity ?? GraphIdentity(packageRoot),
+                    request.Plan.Traversal
+                        ? input.DependencyIdentity
+                            ?? DependencyIdentity(packageRoot)
+                        : null,
                     request.Plan.Traversal
                         ? input.Traversal
                         : DependencyInspectionTraversalCompletion.NotRequested,
@@ -618,7 +664,7 @@ public static class DependencyInspectionOperation
         DependencyInspectionOperationRequest request,
         DependencyEvidenceProjection evidence,
         ImmutableArray<DependencyInspectionRoot> roots,
-        DependencyGraphDocument graph)
+        DependencyHierarchyDocument hierarchy)
     {
         int admitted = roots.Count(
             static root => root.State == DependencyInspectionRootState.Admitted);
@@ -649,8 +695,9 @@ public static class DependencyInspectionOperation
             request.Plan.Traversal
                 ? request.Plan.RequestedDepth
                 : null,
-            graph.Nodes.Length,
-            graph.Edges.Length,
+            hierarchy.Occurrences.Length,
+            hierarchy.BackingGraph.Nodes.Length,
+            hierarchy.BackingGraph.Edges.Length,
             AggregateEvidencePhase(
                 roots,
                 static root => root.DeclarationCompletion,
@@ -836,7 +883,7 @@ public static class DependencyInspectionOperation
                 "Unknown dependency selection status."),
         };
 
-    private static DependencyGraphNodeIdentity GraphIdentity(
+    private static DependencyGraphNodeIdentity DependencyIdentity(
         PackageDependencyEvidenceRoot root) =>
         root.Identity switch
         {

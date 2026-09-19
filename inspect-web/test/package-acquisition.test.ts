@@ -155,7 +155,7 @@ function packageInfo(): BrowserPackageInfoMeasurementInspection {
       packageVersion: "1.2.3",
       compressedPackageBytes: 4096,
       selectedTargetFramework: "net10.0",
-      availableTargetFrameworkCount: 2,
+      availableTargetFrameworks: ["net10.0", "net8.0"],
       selectedTargetFrameworkFolders: ["lib", "runtimes"],
       selectedLibraryPayloadBytes: 2048,
       selectedLibraryCount: 1,

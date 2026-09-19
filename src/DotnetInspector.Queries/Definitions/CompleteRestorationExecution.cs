@@ -305,6 +305,7 @@ public sealed record CompleteWorkspaceActivation
         CompleteRestorationIntentIdentity intent,
         CompleteRestorationRequestBasis request,
         InspectionWorkspaceIdentity workspace,
+        ImmutableArray<WorkspaceDeclarationContext> contexts,
         CompleteWorkspaceSnapshot snapshot,
         CompleteRestorationProjection projection)
     {
@@ -316,6 +317,26 @@ public sealed record CompleteWorkspaceActivation
             ?? throw new ArgumentNullException(nameof(snapshot));
         Projection = projection
             ?? throw new ArgumentNullException(nameof(projection));
+        if (contexts.IsDefault
+            || contexts.Length != snapshot.Contexts.Length
+            || contexts.Any(static context => context is null))
+        {
+            throw new ArgumentException(
+                "Activation contexts must match the prepared context receipts.",
+                nameof(contexts));
+        }
+        for (int index = 0; index < contexts.Length; index++)
+        {
+            if (!ReferenceEquals(
+                    contexts[index].Receipt,
+                    snapshot.Contexts[index]))
+            {
+                throw new ArgumentException(
+                    "Activation contexts must retain the exact prepared "
+                        + "context receipts.",
+                    nameof(contexts));
+            }
+        }
         if (snapshot.Definition.Workspace != workspace
             || snapshot.Scope.Revision.Workspace != workspace
             || snapshot.Navigation.State.Workspace != workspace)
@@ -325,6 +346,35 @@ public sealed record CompleteWorkspaceActivation
                     + "prepared Workspace.",
                 nameof(snapshot));
         }
+
+        Contexts = contexts;
+        CommittedScenarioDefinitionSet definitions = snapshot.Resolved switch
+        {
+            CompleteRestorationResolvedState.Version2 version2 =>
+                version2.Definitions,
+            CompleteRestorationResolvedState.Version3 version3 =>
+                version3.Definitions,
+            CompleteRestorationResolvedState.Version4 version4 =>
+                version4.Definitions,
+            _ => throw new InvalidOperationException(
+                "Unknown complete-restoration resolved state."),
+        };
+        if (definitions.Scenario.Context is { } selectedContext)
+        {
+            WorkspaceDefinition workspaceDefinition =
+                definitions.Workspace
+                ?? throw new InvalidOperationException(
+                    "A selected context requires a Workspace definition.");
+            int selectedIndex = workspaceDefinition.Contexts
+                .Select((context, index) => (context, index))
+                .Where(item => string.Equals(
+                    item.context.Name,
+                    selectedContext,
+                    StringComparison.Ordinal))
+                .Select(static item => item.index)
+                .Single();
+            SelectedContext = contexts[selectedIndex];
+        }
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -332,6 +382,15 @@ public sealed record CompleteWorkspaceActivation
     public CompleteRestorationRequestBasis Request { get; }
 
     public InspectionWorkspaceIdentity Workspace { get; }
+
+    /// <summary>
+    /// Live contexts retained only for the lifetime of the paired host
+    /// activation.
+    /// </summary>
+    public ImmutableArray<WorkspaceDeclarationContext> Contexts { get; }
+
+    /// <summary>The exact context selected by the restored scenario.</summary>
+    public WorkspaceDeclarationContext? SelectedContext { get; }
 
     public CompleteWorkspaceSnapshot Snapshot { get; }
 
@@ -823,6 +882,9 @@ public static class CompleteRestorationCoordinator
                 ImmutableArray.CreateBuilder<
                     WorkspaceDeclarationContextReceipt>(
                         plan.WorkspacePlan.Contexts.Length);
+            var contexts =
+                ImmutableArray.CreateBuilder<WorkspaceDeclarationContext>(
+                    plan.WorkspacePlan.Contexts.Length);
             var contextLoads =
                 ImmutableArray.CreateBuilder<
                     WorkspaceContextLoadOutcome.Loaded>(
@@ -840,6 +902,7 @@ public static class CompleteRestorationCoordinator
                         plan.WorkspacePlan.Contexts[index],
                         loadOptions,
                         token).ConfigureAwait(false);
+                contexts.Add(context);
                 contextReceipts.Add(context.Receipt);
                 if (CurrentnessFailure(authority) is { } contextStale)
                     return PreparationForUnavailable(contextStale);
@@ -1024,6 +1087,7 @@ public static class CompleteRestorationCoordinator
                 plan.Intent,
                 plan.Request,
                 workspace.Identity,
+                contexts.MoveToImmutable(),
                 snapshot,
                 projection);
             if (operation is not null)

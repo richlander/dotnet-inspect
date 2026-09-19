@@ -37,6 +37,10 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// Includes bounded focus-cycle witnesses over the same exact call relationships. Positive
 /// witnesses remain valid when the independent cycle census is incomplete.
 /// </param>
+/// <param name="SynchronousCompletions">
+/// Includes framework-authenticated synchronous task-completion observations
+/// joined to their exact physical <c>call.edge</c> Findings.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -52,7 +56,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     PrinterOptions? PrinterOptions = null,
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
     bool CallRelationships = false,
-    bool CallCycles = false);
+    bool CallCycles = false,
+    bool SynchronousCompletions = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -137,6 +142,14 @@ public sealed record AssemblyMemberCallCycleInspection(
     public bool IsComplete => Limits == AnnotatedCallGraphCycleLimit.None;
 }
 
+/// <summary>
+/// One exact physical relationship whose framework member synchronously
+/// observes task completion.
+/// </summary>
+public sealed record AssemblyMemberSynchronousCompletion(
+    int FactId,
+    SynchronousCompletionKind Kind);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
@@ -144,7 +157,9 @@ public sealed record AssemblyMemberProjection(
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
     AssemblyMemberCallRelationshipOverlay? CallRelationships = null,
-    AssemblyMemberCallCycleInspection? CallCycles = null);
+    AssemblyMemberCallCycleInspection? CallCycles = null,
+    IReadOnlyList<AssemblyMemberSynchronousCompletion>?
+        SynchronousCompletions = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -277,6 +292,13 @@ public static class AssemblyContextMemberProjectionQuery
         {
             throw new ArgumentException(
                 "Call cycles require exact call relationships.",
+                nameof(request));
+        }
+        if (request.SynchronousCompletions
+            && !request.CallRelationships)
+        {
+            throw new ArgumentException(
+                "Synchronous completions require exact call relationships.",
                 nameof(request));
         }
         if (request.FindingEvidence
@@ -417,13 +439,23 @@ public static class AssemblyContextMemberProjectionQuery
                         callRelationships,
                         relationshipOverlay)
                     : null;
+            IReadOnlyList<AssemblyMemberSynchronousCompletion>?
+                synchronousCompletions =
+                    request.SynchronousCompletions
+                        && callRelationships is not null
+                        && relationshipOverlay is not null
+                        ? ProjectSynchronousCompletions(
+                            callRelationships,
+                            relationshipOverlay)
+                        : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
                 findingEvidence,
                 destinations,
                 relationshipOverlay,
-                cycleInspection);
+                cycleInspection,
+                synchronousCompletions);
             resolver.ValidateForPublication();
             return result;
         }
@@ -977,6 +1009,51 @@ public static class AssemblyContextMemberProjectionQuery
                 targets));
         }
         return new(findings, limits);
+    }
+
+    static IReadOnlyList<AssemblyMemberSynchronousCompletion>
+        ProjectSynchronousCompletions(
+            CallRelationshipProjection relationships,
+            AssemblyMemberCallRelationshipOverlay relationshipOverlay)
+    {
+        if (relationships.Calls.Length
+            != relationshipOverlay.Relationships.Count)
+        {
+            throw new InvalidOperationException(
+                "Synchronous completion projection requires one relationship for every physical call.");
+        }
+
+        var factIdsByCall =
+            new Dictionary<(Guid ModuleVersionId, int CallerToken, int ILOffset, int OperandToken), int>();
+        for (int index = 0; index < relationships.Calls.Length; index++)
+        {
+            DirectCall call = relationships.Calls[index].Call;
+            factIdsByCall.Add(
+                (
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
+                    call.ILOffset,
+                    call.OperandToken),
+                relationshipOverlay.Relationships[index]
+                    .Occurrence.FactId);
+        }
+        return
+        [
+            .. SynchronousCompletionAnalysis.Inspect(
+                    relationships.Calls.Select(static call =>
+                        call.Call))
+                .Select(observation =>
+                {
+                    DirectCall call = observation.Call;
+                    return new AssemblyMemberSynchronousCompletion(
+                        factIdsByCall[(
+                            call.EvidenceMethod.ModuleVersionId,
+                            call.EvidenceMethod.MetadataToken,
+                            call.ILOffset,
+                            call.OperandToken)],
+                        observation.Kind);
+                }),
+        ];
     }
 
     static CallGraphNode? FindCallee(

@@ -577,6 +577,31 @@ first edge exists only in an attributed generated body has no declared-body
 source fact to anchor; the source projection omits that witness and reports
 `IncompleteCorrespondence` instead of failing the enclosing Finding census.
 
+The same operation can classify exact physical relationships that synchronously
+observe `Task` completion. Analysis authenticates only framework
+`Task.Wait(...)`, `Task<T>.Result`, and task-awaiter `GetResult()` members and
+matches their complete ordinary instance signatures, including exact parameter
+and return types, non-generic method arity, and default calling convention.
+Fixed framework signature types require trusted framework identity; generic
+result members preserve and match the open declaring-type parameter. Fixed
+types also retain their exact ECMA-335 primitive or value-type discriminator,
+so a same-name `CLASS`/`VALUETYPE` mismatch is not authenticated. It
+returns a typed operation kind; Research joins each positive observation to the
+existing physical `call.edge` fact. The classification needs no graph expansion,
+body reopening, ownership result, or inferred source text. It deliberately does
+not classify custom awaiters or `ValueTask`, and an empty result makes no claim
+that the member is free of blocking behavior. The viewer describes the proven
+structure as a synchronous completion operation that *may* block when the task
+is incomplete; actual blocking, duration, frequency, deadlock, and completion
+state require runtime or stronger flow evidence and are not asserted.
+[VSTHRD002](https://microsoft.github.io/vs-threading/analyzers/VSTHRD002.html)
+and
+[CA1849](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1849)
+recognize the same three Task structures as analyzer inputs. This projection
+uses that established structural boundary but deliberately reports evidence
+rather than a diagnostic: it does not apply source-level completion guards,
+async-context policy, or code-fix advice.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -588,6 +613,12 @@ Browser/Wasm transport alongside existing callee evidence.
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
 This adoption does not yet transport ownership witnesses, add a relationship
 table, or reuse the separately requested full member Call Graph surface.
+`MemberProjection_ProjectsSynchronousTaskCompletionOperations` and
+`MemberFindingCensus_ProjectsSynchronousTaskCompletionOperation` gate the
+framework identity, physical `call.edge` join, Browser/Wasm transport, and
+non-default detail. Compiler-generated async-body calls remain outside this
+declared-body source correspondence; their absence is not presented as a clean
+result.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
