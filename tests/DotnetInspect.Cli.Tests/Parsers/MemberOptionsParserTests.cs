@@ -944,15 +944,16 @@ public class MemberOptionsParserTests
         Assert.Contains(".ctor", options.MemberFilter);
     }
 
-    // ── Numeric member means limit ───────────────────────────────────────
+    // ── Numeric member selectors ─────────────────────────────────────────
 
     [Fact]
-    public async Task NumericPositionalMember_SetsLimit()
+    public async Task NumericPositionalMember_IsOrdinaryFilterInput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "5");
 
         Assert.Equal("JsonSerializer", options.TypeName);
-        Assert.Equal(5, options.Limit);
+        Assert.Contains("5", options.MemberFilter);
+        Assert.Null(options.Limit);
     }
 
     // ── Kind filter ──────────────────────────────────────────────────────
