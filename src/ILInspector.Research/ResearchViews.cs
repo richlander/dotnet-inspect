@@ -127,7 +127,13 @@ public static partial class ResearchViews
         /// Receipt for the one body Finding census successfully collected by
         /// this member operation, including a successful empty census.
         /// </summary>
-        FindingCensusReceipt? FactCensusReceipt = null);
+        FindingCensusReceipt? FactCensusReceipt = null,
+
+        /// <summary>
+        /// Product-issued C# node ids for classic awaits whose inline and
+        /// suspension/resume paths were proven by reconstruction.
+        /// </summary>
+        IReadOnlyList<int>? AwaitCompletionPathNodeIds = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -187,6 +193,7 @@ public static partial class ResearchViews
 
             AnnotatedSourceDocument? sourceDocument = null;
             IReadOnlyList<AnnotatedSourceFactIdentity>? sourceDocumentFactIdentities = null;
+            IReadOnlyList<int>? awaitCompletionPathNodeIds = null;
             DecompilerResult? sourceDocumentFailure = null;
             if (request.SourceDocument)
             {
@@ -220,6 +227,8 @@ public static partial class ResearchViews
                         request.PrinterOptions);
                     sourceDocumentFactIdentities =
                         sourceProjection.FactIdentities;
+                    awaitCompletionPathNodeIds =
+                        sourceProjection.AwaitCompletionPathNodeIds;
                     return sourceProjection.Document;
                 });
             }
@@ -321,7 +330,8 @@ public static partial class ResearchViews
                 sourceDocumentFailure,
                 imported.MetadataToken,
                 sourceDocumentFactIdentities,
-                factProjection.Receipt);
+                factProjection.Receipt,
+                awaitCompletionPathNodeIds);
         }
         catch (Exception ex)
         {
@@ -884,7 +894,13 @@ public static partial class ResearchViews
                 facts,
                 targets,
                 source),
-            factIdentities);
+            factIdentities,
+            [
+                .. csharpMap.Nodes
+                    .Where(static node =>
+                        node.ProvesClassicAwaitCompletionPaths)
+                    .Select(static node => node.Id),
+            ]);
 
         IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
         {
@@ -1074,7 +1090,8 @@ public static partial class ResearchViews
 
     sealed record AnnotatedSourceProjection(
         AnnotatedSourceDocument Document,
-        IReadOnlyList<AnnotatedSourceFactIdentity> FactIdentities);
+        IReadOnlyList<AnnotatedSourceFactIdentity> FactIdentities,
+        IReadOnlyList<int> AwaitCompletionPathNodeIds);
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
     // resolved annotations, and the IL instruction lines into one ordered
