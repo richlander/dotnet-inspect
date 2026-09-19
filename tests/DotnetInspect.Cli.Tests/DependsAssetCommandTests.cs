@@ -711,6 +711,48 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task EvidenceEnvelopeRejectsUnknownProjectionBeforeAcquisition()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-static-projection-");
+        string ordinary = Path.Combine(
+            directory.FullName,
+            "ordinary.txt");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            "No.Such.Package@1.0.0",
+            "-S",
+            DependsAssetSections.Roots,
+            "--table",
+            "--columns",
+            "NoSuchColumn",
+            "--out",
+            ordinary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "No columns matched projection: NoSuchColumn",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No.Such.Package",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(ordinary));
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
     public async Task EvidenceEnvelopeCountUsesOrdinaryOutputDestination()
     {
         using var directory =

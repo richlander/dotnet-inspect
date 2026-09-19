@@ -403,6 +403,18 @@ public partial class DependsCommand
                 "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
             return false;
         }
+        DocumentSchema projectionSchema =
+            options.Tabular && !options.Count
+                ? DependsAssetSections.CreateTableSchema()
+                : DependsAssetSections.CreateSchema();
+        if (!ProjectionDiagnostics.ValidateProjection(
+                projectionSchema,
+                candidateSections,
+                options.Fields,
+                options.Columns))
+        {
+            return false;
+        }
         if (!discoveryMode
             && options.Tabular
             && !options.Count
@@ -1923,15 +1935,6 @@ public partial class DependsCommand
                 "Projected JSON and JSONL columns cannot represent typed traversal failure detail; use unprojected --json.");
             return false;
         }
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                includeSections,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         DependsAssetView view = BuildAssetView(
             projection,
             includeSections,
@@ -2250,15 +2253,6 @@ public partial class DependsCommand
         ];
         if (ordered.Length == 0)
             ordered = [DependsAssetSections.DependencyHierarchy];
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                ordered,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         foreach (string section in ordered)
         {
             if (IsExactAssetRowSet(projection, section))
