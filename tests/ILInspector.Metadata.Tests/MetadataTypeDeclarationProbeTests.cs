@@ -344,6 +344,87 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Probe_ReportsTrailingTypeSpecificationDataAsMalformed()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle baseType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    "Base");
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(baseType) << 2);
+            signature.WriteByte(0x08); // trailing I4
+            TypeSpecificationHandle specification =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived",
+                specification);
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Derived")));
+
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+    }
+
+    [Fact]
+    public void Probe_ReportsTypeSpecificationNamedRootAsMalformed()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle baseType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    "Base");
+            var nestedSignature = new BlobBuilder();
+            nestedSignature.WriteByte(0x12); // CLASS
+            nestedSignature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(baseType) << 2);
+            TypeSpecificationHandle nested =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(nestedSignature));
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(nested) << 2) | 2);
+            TypeSpecificationHandle specification =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived",
+                specification);
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Derived")));
+
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+    }
+
+    [Fact]
     public void Probe_ReportsDefinitionKindRelationshipBudget()
     {
         int count = MetadataSafetyPolicy.MaxRelationshipNodes + 1;

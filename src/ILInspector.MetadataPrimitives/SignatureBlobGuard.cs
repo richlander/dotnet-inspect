@@ -76,7 +76,12 @@ public static class SignatureBlobGuard
         try
         {
             SignatureBlobGuardMeasurements measurements = default;
-            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements);
+            return !ExceedsDepth(
+                ref blob,
+                kind,
+                maxDepth,
+                ref measurements,
+                out _);
         }
         catch (BadImageFormatException)
         {
@@ -115,7 +120,12 @@ public static class SignatureBlobGuard
         measurements = default;
         try
         {
-            return !ExceedsDepth(ref blob, kind, maxDepth, ref measurements)
+            return !ExceedsDepth(
+                    ref blob,
+                    kind,
+                    maxDepth,
+                    ref measurements,
+                    out _)
                 && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
@@ -156,9 +166,12 @@ public static class SignatureBlobGuard
                     ref blob,
                     kind,
                     maxDepth,
-                    ref measurements))
+                    ref measurements,
+                    out bool depthBudgetExceeded))
             {
-                return CompleteValidationKind.DepthBudgetExceeded;
+                return depthBudgetExceeded
+                    ? CompleteValidationKind.DepthBudgetExceeded
+                    : CompleteValidationKind.Malformed;
             }
 
             return blob.RemainingBytes == 0
@@ -188,8 +201,10 @@ public static class SignatureBlobGuard
         ref BlobReader blob,
         Kind kind,
         int maxDepth,
-        ref SignatureBlobGuardMeasurements measurements)
+        ref SignatureBlobGuardMeasurements measurements,
+        out bool depthBudgetExceeded)
     {
+        depthBudgetExceeded = false;
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
         // Every Type work item consumes at least one blob byte, and count-driven pushes are bounded
@@ -211,7 +226,10 @@ public static class SignatureBlobGuard
             {
                 case Op.Type:
                     if (item.Depth > maxDepth)
+                    {
+                        depthBudgetExceeded = true;
                         return true;
+                    }
                     if (ReadType(
                             ref blob,
                             item.Depth,
@@ -222,7 +240,10 @@ public static class SignatureBlobGuard
 
                 case Op.MethodParameter:
                     if (item.Depth > maxDepth)
+                    {
+                        depthBudgetExceeded = true;
                         return true;
+                    }
                     if (ReadMethodParameter(
                             ref blob,
                             item,
@@ -232,7 +253,10 @@ public static class SignatureBlobGuard
                     break;
 
                 case Op.ArrayShape:
-                    if (SkipArrayShape(ref blob, ref remainingTypeNodes, ref measurements))
+                    if (SkipArrayShape(
+                            ref blob,
+                            ref remainingTypeNodes,
+                            ref measurements))
                         return true;
                     break;
             }
