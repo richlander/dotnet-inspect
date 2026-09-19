@@ -11,6 +11,25 @@ internal enum TypeSpecificationRootKind
     GenericMethodParameter,
 }
 
+internal abstract record TypeSpecificationRootReadResult
+{
+    private protected TypeSpecificationRootReadResult()
+    {
+    }
+
+    internal sealed record Read(TypeSpecificationRoot Root)
+        : TypeSpecificationRootReadResult;
+
+    internal sealed record BudgetExceeded(int Budget, string Detail)
+        : TypeSpecificationRootReadResult;
+
+    internal sealed record Malformed(string Detail)
+        : TypeSpecificationRootReadResult;
+
+    internal sealed record Unsupported(string Detail)
+        : TypeSpecificationRootReadResult;
+}
+
 internal readonly record struct TypeSpecificationRoot(
     TypeSpecificationRootKind Kind,
     EntityHandle Type,
@@ -25,7 +44,26 @@ internal readonly record struct TypeSpecificationRoot(
         TypeSpecificationHandle handle,
         out TypeSpecificationRoot root)
     {
+        TypeSpecificationRootReadResult result = Read(reader, handle);
+        if (result is TypeSpecificationRootReadResult.Read read)
+        {
+            root = read.Root;
+            return true;
+        }
+
         root = default;
+        return false;
+    }
+
+    internal static TypeSpecificationRootReadResult Read(
+        MetadataReader reader,
+        TypeSpecificationHandle handle)
+    {
+        TypeSpecificationRootReadResult? validationFailure =
+            TypeSpecificationShapeValidator.Validate(reader, handle);
+        if (validationFailure is not null)
+            return validationFailure;
+
         try
         {
             BlobHandle signature =
@@ -34,16 +72,7 @@ internal readonly record struct TypeSpecificationRoot(
             byte code = blob.ReadByte();
             bool isGenericInstantiation = code == 0x15; // GENERICINST
             if (isGenericInstantiation)
-            {
-                if (!TypeSpecificationShapeValidator.IsWellFormed(
-                        reader,
-                        handle))
-                {
-                    return false;
-                }
-
                 code = blob.ReadByte();
-            }
 
             if (code is 0x11 or 0x12) // VALUETYPE or CLASS
             {
@@ -58,16 +87,17 @@ internal readonly record struct TypeSpecificationRoot(
                     || (!isGenericInstantiation
                         && blob.RemainingBytes != 0))
                 {
-                    return false;
+                    return new TypeSpecificationRootReadResult.Malformed(
+                        "The TypeSpec root has an invalid named-type encoding.");
                 }
 
-                root = new TypeSpecificationRoot(
-                    TypeSpecificationRootKind.NamedType,
-                    type,
-                    code,
-                    genericArgumentCount,
-                    GenericParameterIndex: -1);
-                return true;
+                return new TypeSpecificationRootReadResult.Read(
+                    new TypeSpecificationRoot(
+                        TypeSpecificationRootKind.NamedType,
+                        type,
+                        code,
+                        genericArgumentCount,
+                        GenericParameterIndex: -1));
             }
 
             if (code is 0x13 or 0x1e) // VAR or MVAR
@@ -75,26 +105,31 @@ internal readonly record struct TypeSpecificationRoot(
                 int index = blob.ReadCompressedInteger();
                 if (index < 0
                     || blob.RemainingBytes != 0)
-                    return false;
+                {
+                    return new TypeSpecificationRootReadResult.Malformed(
+                        "The TypeSpec root has an invalid generic-parameter encoding.");
+                }
 
-                root = new TypeSpecificationRoot(
-                    code == 0x13
-                        ? TypeSpecificationRootKind.GenericTypeParameter
-                        : TypeSpecificationRootKind.GenericMethodParameter,
-                    default,
-                    RawTypeKind: 0,
-                    GenericArgumentCount: 0,
-                    index);
-                return true;
+                return new TypeSpecificationRootReadResult.Read(
+                    new TypeSpecificationRoot(
+                        code == 0x13
+                            ? TypeSpecificationRootKind.GenericTypeParameter
+                            : TypeSpecificationRootKind.GenericMethodParameter,
+                        default,
+                        RawTypeKind: 0,
+                        GenericArgumentCount: 0,
+                        index));
             }
 
-            return false;
+            return new TypeSpecificationRootReadResult.Unsupported(
+                "The TypeSpec root is not a named class or generic parameter.");
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException
+                or IndexOutOfRangeException)
         {
-            return false;
+            return new TypeSpecificationRootReadResult.Malformed(ex.Message);
         }
     }
 
@@ -106,7 +141,7 @@ internal readonly record struct TypeSpecificationRoot(
         internal static TypeSpecificationShapeValidator Instance { get; } =
             new();
 
-        internal static bool IsWellFormed(
+        internal static TypeSpecificationRootReadResult? Validate(
             MetadataReader reader,
             TypeSpecificationHandle root)
         {
@@ -133,7 +168,10 @@ internal readonly record struct TypeSpecificationRoot(
                             out ValidationState state))
                     {
                         if (state == ValidationState.Active)
-                            return false;
+                        {
+                            return new TypeSpecificationRootReadResult.Malformed(
+                                "The TypeSpec dependency graph contains a cycle.");
+                        }
                         continue;
                     }
 
@@ -143,24 +181,48 @@ internal readonly record struct TypeSpecificationRoot(
                     int blobLength =
                         reader.GetBlobReader(signature).Length;
                     if (states.Count >= TypeSpecGuard.MaxDepth
-                        || blobLength
-                            > TypeSpecGuard.MaxCumulativeBytes
-                                - cumulativeBytes)
+                        )
                     {
-                        return false;
+                        return new TypeSpecificationRootReadResult.BudgetExceeded(
+                            TypeSpecGuard.MaxDepth,
+                            "The TypeSpec dependency graph exceeded its "
+                                + "handle-count budget.");
+                    }
+                    if (blobLength
+                        > TypeSpecGuard.MaxCumulativeBytes
+                            - cumulativeBytes)
+                    {
+                        return new TypeSpecificationRootReadResult.BudgetExceeded(
+                            TypeSpecGuard.MaxCumulativeBytes,
+                            "The TypeSpec dependency graph exceeded its "
+                                + "cumulative-byte budget.");
                     }
 
                     states.Add(
                         frame.Handle,
                         ValidationState.Active);
                     cumulativeBytes += blobLength;
-                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                    SignatureBlobGuard.CompleteValidationKind validation =
+                        SignatureBlobGuard.ValidateComplete(
                             reader,
                             signature,
                             SignatureBlobGuard.Kind.TypeSpecification,
-                            MaxAuthenticationSignatureDepth))
+                            MaxAuthenticationSignatureDepth);
+                    if (validation
+                        == SignatureBlobGuard.CompleteValidationKind
+                            .DepthBudgetExceeded)
                     {
-                        return false;
+                        return new TypeSpecificationRootReadResult.BudgetExceeded(
+                            MaxAuthenticationSignatureDepth,
+                            "The TypeSpec signature exceeded its structural "
+                                + "depth budget.");
+                    }
+                    if (validation
+                        == SignatureBlobGuard.CompleteValidationKind.Malformed)
+                    {
+                        return new TypeSpecificationRootReadResult.Malformed(
+                            "The TypeSpec signature is incomplete or has "
+                                + "trailing data.");
                     }
 
                     var dependencies =
@@ -185,13 +247,15 @@ internal readonly record struct TypeSpecificationRoot(
                     }
                 }
 
-                return true;
+                return null;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
-                    or ArgumentOutOfRangeException)
+                    or ArgumentOutOfRangeException
+                    or IndexOutOfRangeException)
             {
-                return false;
+                return new TypeSpecificationRootReadResult.Malformed(
+                    ex.Message);
             }
         }
 
