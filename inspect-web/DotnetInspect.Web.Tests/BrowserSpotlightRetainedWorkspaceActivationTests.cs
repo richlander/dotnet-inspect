@@ -37,6 +37,7 @@ using ProjectionResult =
 
 namespace DotnetInspect.Web.Tests;
 
+[Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
 {
@@ -105,7 +106,14 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         Assert.Equal(
             curated.TraversalTargetPolicy,
             operation.Definition.Plan.TraversalTargetPolicy);
-        Assert.Equal(1, installation.Navigation.ActiveStateIndex);
+        NavigationConsumerPackageDescriptor navigationPackage =
+            Assert.Single(installation.Navigation.Snapshot.Packages);
+        Assert.Equal(
+            navigationPackage.Subject.Id,
+            installation.Navigation.Snapshot.ActivePackage);
+        Assert.Equal(
+            ExternalPackageId.ToLowerInvariant(),
+            navigationPackage.PackageId);
     }
 
     [Fact]
@@ -396,7 +404,6 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
     static async Task<CompleteRestorationExecutionOptions> OptionsAsync()
     {
         const string sourceUrl = "https://api.nuget.org/v3/index.json";
-        var store = new InMemoryPackageStore();
         byte[] sourcePackage = await File.ReadAllBytesAsync(
             Path.Combine(
                 FindRepositoryRoot(),
@@ -405,12 +412,13 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 "signatures",
                 "system.text.json.9.0.4.nupkg"),
             TestContext.Current.CancellationToken);
-        await store.CommitAsync(
-            "System.Text.Json",
-            "9.0.4",
-            NuGetCache.GetSourceKey(sourceUrl),
-            new MemoryStream(sourcePackage, writable: false),
-            TestContext.Current.CancellationToken);
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                "System.Text.Json",
+                "9.0.4",
+                sourcePackage,
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
         byte[] assembly = await File.ReadAllBytesAsync(
             Path.Combine(
                 AppContext.BaseDirectory,
@@ -419,14 +427,13 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 "package",
                 "System.Text.Json.dll"),
             TestContext.Current.CancellationToken);
-        await store.CommitAsync(
-            ExternalPackageId,
-            ExternalPackageVersion,
-            NuGetCache.GetSourceKey(sourceUrl),
-            new MemoryStream(
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                ExternalPackageId,
+                ExternalPackageVersion,
                 Archive(("lib/net11.0/System.Text.Json.dll", assembly)),
-                writable: false),
-            TestContext.Current.CancellationToken);
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
 
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         var available = new ViewFacetAvailabilitySnapshot(
@@ -443,7 +450,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                 SourceAuthorization =
                     new UniformPackageSourceAuthorization(
                         [new PackageSource("nuget.org", sourceUrl)]),
-                PackageStore = store,
+                PackageStore = BrowserPackageWorkspace.SessionPackageStore,
             },
             ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(1),
             Facets = facets,
