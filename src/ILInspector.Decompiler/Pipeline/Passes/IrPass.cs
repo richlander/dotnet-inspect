@@ -302,6 +302,8 @@ public static class IrPasses
         // it as an explicit residual before the printer can leak invalid
         // base(...)/this(...) text from a body statement.
         new ConstructorCallDiagnosticsPass(),
+        // Preserve the value-producing join before return sinking splits it.
+        new SingleCaseValueSwitchPass(),
         // Eliminate return-accumulator temporaries the compiler spilled across
         // an EH region or lock (try { V = e; } finally { } return V; back to
         // try { return e; }). Runs after structuring and the second inlining so
