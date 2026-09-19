@@ -153,9 +153,12 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     framework: null,
                     runtimeIdentifier: null),
-                compileTargetFramework: " ",
-                selectionTargetFramework: " ",
-                selectionRuntimeIdentifier: null);
+                compileTargetFramework: Framework,
+                selectionTargetFramework: Framework,
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
         PackageArtifactRootRequest extendedRequest =
             PackageArtifactRootRequest.Create(
                 new RealizedMemberCoordinate.Package(
@@ -166,7 +169,10 @@ public sealed class ArtifactRootCorrespondenceTests
                     runtimeIdentifier: null),
                 ExtendedFramework.ToUpperInvariant(),
                 ExtendedFramework.ToUpperInvariant(),
-                selectionRuntimeIdentifier: null);
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
                 Archive(
@@ -212,6 +218,42 @@ public sealed class ArtifactRootCorrespondenceTests
         Assert.True(extended.Matches(extendedRequest));
         AssertResourceFree(typeof(PackageArtifactRootRequest));
         Assert.Equal(0, content.AccessCount);
+    }
+
+    [Fact]
+    public void PackageArtifactRootRequest_DistinctTargetsDoNotImplyCompatibility()
+    {
+        PackageArtifactRootRequest selected =
+            PackageArtifactRootRequest.Create(
+                new RealizedMemberCoordinate.Package(
+                    "owner.default",
+                    "1.0.0",
+                    "tests",
+                    framework: null,
+                    runtimeIdentifier: null),
+                compileTargetFramework: "net10.0",
+                selectionTargetFramework: "net8.0",
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: true,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
+        PackageArtifactRootRequest absent =
+            PackageArtifactRootRequest.Create(
+                selected.Coordinate,
+                compileTargetFramework: "net10.0",
+                selectionTargetFramework: "net8.0",
+                selectionRuntimeIdentifier: null,
+                hasSelectedImplementationUniverse: false,
+                usesCompatibleImplementationSelection: false,
+                allowsCompatibleTargetSelection: false);
+
+        Assert.Equal("net10.0", selected.CompileTargetFramework);
+        Assert.Equal("net8.0", selected.SelectionTargetFramework);
+        Assert.True(selected.HasSelectedImplementationUniverse);
+        Assert.False(selected.AllowsCompatibleTargetSelection);
+        Assert.False(selected.UsesCompatibleImplementationSelection);
+        Assert.False(absent.HasSelectedImplementationUniverse);
+        Assert.NotEqual(selected, absent);
     }
 
     [Fact]
