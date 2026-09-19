@@ -21,7 +21,6 @@ public class InspectionResultView
     private readonly InspectionResult _data;
     private PackageInspectionText? _text;
     private readonly bool _includeTitleVersion;
-    private readonly RowWindow? _hierarchyRows;
     private PackageInspectionText Text => _text ??= new PackageInspectionText(_data);
 
     private delegate string? PackageInfoValueResolver(InspectionResultView view);
@@ -175,12 +174,10 @@ public class InspectionResultView
 
     public InspectionResultView(
         InspectionResult data,
-        bool includeTitleVersion = true,
-        RowWindow? hierarchyRows = null)
+        bool includeTitleVersion = true)
     {
         _data = data;
         _includeTitleVersion = includeTitleVersion;
-        _hierarchyRows = hierarchyRows;
     }
 
     /// <inheritdoc cref="PackageViewText"/>
@@ -239,13 +236,9 @@ public class InspectionResultView
             if (projection is null)
                 return null;
 
-            IReadOnlyList<DependencyHierarchyOccurrenceRow> rows =
-                _hierarchyRows is { IsUnlimited: false } window
-                    ? window.Apply(projection.HierarchyRows)
-                    : projection.HierarchyRows;
             return DependencyHierarchyOutputAdapter.ToGraph(
                 projection.Hierarchy,
-                rows,
+                projection.HierarchyRows,
                 markWindowedFragments: true);
         }
     }

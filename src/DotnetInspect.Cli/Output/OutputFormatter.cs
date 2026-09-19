@@ -444,8 +444,7 @@ public static class OutputFormatter
 
         var view = new InspectionResultView(
             result,
-            includeTitleVersion: false,
-            hierarchyRows: options.Rows);
+            includeTitleVersion: false);
         var writerOptions = BuildPackageDocumentWriterOptions(result, options, pipeline);
         if (options.Count)
         {
@@ -502,8 +501,7 @@ public static class OutputFormatter
         CountProjection projection = CountProjectionFormatter.Capture(
             new InspectionResultView(
                 result,
-                includeTitleVersion: false,
-                hierarchyRows: options.Rows),
+                includeTitleVersion: false),
             InspectionContext.Default,
             writerOptions);
         if (result.DependencyHierarchyProjection is { } hierarchy
@@ -549,8 +547,7 @@ public static class OutputFormatter
         var writerOpts = BuildWriterOptions(result, options, pipeline);
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(
-            result,
-            hierarchyRows: options.Rows);
+            result);
         WriteTable(Console.Out, showHeader,
             (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
             options.Rows);

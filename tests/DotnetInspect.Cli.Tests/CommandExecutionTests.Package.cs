@@ -1036,12 +1036,15 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         try
         {
+            string missingSource = Path.Combine(
+                tempDir,
+                "missing-source");
             var effective = await RunAppAsync(
                 "package", packagePath, "-D", "Dependency Hierarchy",
-                "--source", tempDir, "--tips", "q");
+                "--source", missingSource, "--tips", "q");
             var tree = await RunAppAsync(
                 "package", packagePath, "-D", "Dependency Hierarchy",
-                "--tree", "--source", tempDir, "--tips", "q");
+                "--tree", "--source", missingSource, "--tips", "q");
             var obsolete = await RunAppAsync(
                 "package", packagePath, "-D", "--dependencies", "--tips", "q");
             var schema = await RunAppAsync(
@@ -1241,6 +1244,15 @@ public partial class CommandExecutionTests
                 "package", packagePath, "-S", "Dependency Hierarchy",
                 "--tfm", "net9.0", "--source", tempDir,
                 "--json", "--rows", "2", "--tips", "q");
+            var plaintext = await RunAppAsync(
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tfm", "net9.0", "--source", tempDir,
+                "--plaintext", "--rows", "2..3", "--tips", "q");
+            var dependsPlaintext = await RunAppAsync(
+                "depends", "--package", packagePath,
+                "--tfm", "net9.0", "--source", tempDir,
+                "-S", "Dependency Hierarchy",
+                "--plaintext", "--rows", "2..3");
 
             Assert.Equal(0, table.Exit);
             Assert.Empty(table.Error);
@@ -1254,6 +1266,22 @@ public partial class CommandExecutionTests
                     .GetProperty("dependency_hierarchy")
                     .GetProperty("occurrences")
                     .GetArrayLength());
+            Assert.Equal(0, plaintext.Exit);
+            Assert.Empty(plaintext.Error);
+            Assert.Equal(0, dependsPlaintext.Exit);
+            Assert.Empty(dependsPlaintext.Error);
+            Assert.Equal(
+                2,
+                plaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Equal(
+                dependsPlaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length,
+                plaintext.Output.Split(
+                    "package-dependency",
+                    StringSplitOptions.None).Length);
         }
         finally
         {

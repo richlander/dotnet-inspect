@@ -80,7 +80,9 @@ public static class PackageSectionDescriptors
                 SourceAvailabilityQuery.Definition,
                 HasLibraries)
             .Add<Signature>()
-            .Add<DependencyHierarchy>()
+            // Effective discovery advertises the authored hierarchy schema without acquiring
+            // transitive dependency evidence; rendering remains gated by CanRender.
+            .Add<DependencyHierarchy>(static _ => true)
             .Add<Dependencies>()
             .Add<Vulnerabilities>()
             .Add<Manifest>()

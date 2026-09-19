@@ -1206,7 +1206,8 @@ public partial class PackageCommand
                     sourceQueryPlan);
             }
 
-            if (RequestsSelectedOrDiscoveredSection(
+            if (!effectiveDiscovery
+                && RequestsSelectedOrDiscoveredSection(
                     producerOptions,
                     PackageSections.DependencyHierarchy,
                     pipeline))
