@@ -383,6 +383,22 @@ public sealed class QueryOperationInfrastructureGateTests
     }
 
     [Fact]
+    public void DefaultRankingMustNameARankingOrder()
+    {
+        var vocabulary = new TestVocabulary
+        {
+            AdmitsRankingStages = true,
+            DeclaredDefaultRanking = TestVocabulary.SequenceOrder,
+        };
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => CreateOperation(vocabulary));
+
+        Assert.Contains("not a ranking order", failure.Message);
+        Assert.Equal(0, vocabulary.PlansCreated);
+    }
+
+    [Fact]
     public void RouteMustRepresentBindingWorkDimensions()
     {
         QueryOperationDefinition<TestPredicate, TestPlan> operation =

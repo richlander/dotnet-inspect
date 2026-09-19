@@ -80,6 +80,7 @@ public sealed class QueryOperationDefinition<TPredicate, TPlan>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         ArgumentNullException.ThrowIfNull(vocabulary);
+        ValidateDefaultRanking(vocabulary);
 
         IReadOnlyList<string> subjectRoleCopy =
             QueryOperationContract.CopyIdentities(
@@ -347,6 +348,34 @@ public sealed class QueryOperationDefinition<TPredicate, TPlan>
                     + $"value '{value}', which its binder rejects.",
                     parameterName);
             }
+        }
+    }
+
+    private static void ValidateDefaultRanking(
+        PortableQueryVocabulary<TPredicate, TPlan> vocabulary)
+    {
+        string? defaultRanking = vocabulary.DefaultRanking;
+        if (defaultRanking is null)
+        {
+            return;
+        }
+
+        if (!vocabulary.TryGetNamedOrder(
+                defaultRanking,
+                out PortableQueryOrderPurpose purpose))
+        {
+            throw new ArgumentException(
+                $"Vocabulary '{vocabulary.Identity}' declares unknown default "
+                + $"ranking '{defaultRanking}'.",
+                nameof(vocabulary));
+        }
+
+        if (purpose is not PortableQueryOrderPurpose.Ranking)
+        {
+            throw new ArgumentException(
+                $"Vocabulary '{vocabulary.Identity}' declares default ranking "
+                + $"'{defaultRanking}', which is not a ranking order.",
+                nameof(vocabulary));
         }
     }
 
