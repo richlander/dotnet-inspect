@@ -4525,8 +4525,34 @@ function stepMemberNav(delta: number, focusList: boolean) {
   if (entry) selectMemberNavEntry(entry, focusList);
 }
 
+function stepPackageFrameworkFocus(
+  delta: number,
+  eventTarget: EventTarget | null,
+) {
+  const target = eventTarget instanceof Element ? eventTarget : null;
+  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"]');
+  if (!list) return false;
+  const rows = [
+    ...list.querySelectorAll<HTMLElement>("[data-package-framework]"),
+  ];
+  if (!rows.length) return true;
+  const focused = target?.closest<HTMLElement>("[data-package-framework]");
+  const focusedIndex = focused ? rows.indexOf(focused) : -1;
+  const activeIndex = rows.findIndex(
+    row => row.getAttribute("aria-current") === "page");
+  const currentIndex = focusedIndex >= 0
+    ? focusedIndex
+    : Math.max(activeIndex, 0);
+  const nextIndex = Math.max(
+    0,
+    Math.min(rows.length - 1, currentIndex + delta));
+  rows[nextIndex]?.focus({ preventScroll: true });
+  return true;
+}
+
 // ↑/↓ always act on the visible nav list, whatever depth you are at.
-function stepNav(delta: number) {
+function stepNav(delta: number, eventTarget: EventTarget | null) {
+  if (stepPackageFrameworkFocus(delta, eventTarget)) return;
   if (navMode() === "member") stepMemberNav(delta, false);
   else stepTypeSelection(delta);
 }
@@ -17411,7 +17437,7 @@ keybindings.register({
     && !event.ctrlKey
     && !event.altKey,
   run: event => {
-    stepNav(event.key === "ArrowDown" ? 1 : -1);
+    stepNav(event.key === "ArrowDown" ? 1 : -1, event.target);
     return true;
   },
 });

@@ -36,13 +36,24 @@ export function bindPackageSelections(
   root: ParentNode,
   actions: PackageSelectionActions,
 ): void {
-  root.querySelectorAll<HTMLElement>("[data-package-framework]").forEach(button =>
+  const frameworkRows = [
+    ...root.querySelectorAll<HTMLElement>("[data-package-framework]"),
+  ];
+  frameworkRows.forEach(button =>
     button.addEventListener(
       "click",
       () => {
         const framework = button.dataset.packageFramework;
         if (framework) actions.onFrameworkSelect(framework, "navigation");
       }));
+  const frameworkList = root.querySelector<HTMLElement>(
+    '[data-nav-scope="frameworks"]');
+  frameworkList?.addEventListener("focus", () => {
+    const active = frameworkRows.find(
+      row => row.getAttribute("aria-current") === "page")
+      ?? frameworkRows[0];
+    active?.focus({ preventScroll: true });
+  });
   const framework = root.querySelector<HTMLSelectElement>("#framework");
   framework?.addEventListener(
     "change",

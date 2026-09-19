@@ -1173,6 +1173,40 @@ async function expectCoordinateLibrary(
   await expect(page.locator("#inspector-panel")).toContainText(`${selected.name}.dll`);
 }
 
+for (const width of [1280, 390]) {
+  test(`Package Framework keyboard navigation selects a TFM at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installPackageLoadingFacades(page);
+    await page.goto(frameworkRoot);
+    const current = page.locator('[data-package-framework="net10.0"]');
+    const next = page.locator('[data-package-framework="net9.0"]');
+    if (width === 390)
+      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
+    else
+      await current.focus();
+    await expect(current).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(next).toBeFocused();
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("html")).not.toHaveAttribute("data-package-query-pending");
+
+    await page.keyboard.press("ArrowUp");
+    await expect(current).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-query-pending",
+      JSON.stringify(["System.Text.Json", "10.0.0", "net9.0"]));
+    await expect(page.locator("#package-content-loading"))
+      .toHaveText("Loading net9.0 content…");
+
+    await releaseFacade(page, "finish-package-query");
+    await expect(next).toHaveAttribute("aria-current", "page");
+  });
+}
+
 for (const change of packageCoordinateChanges) {
   const nextLibrary = {
     ...library("replacement:other", other.name, 2),
@@ -4387,7 +4421,8 @@ for (const [width, selectedLibrary, activation] of [
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
     await expect(page.locator(width === 480
-      ? "#content-navigation-toggle" : ".package-framework-list")).toBeFocused();
+      ? "#content-navigation-toggle"
+      : '[data-package-framework][aria-current="page"]')).toBeFocused();
     const packageLocation = page.url();
     expect(packageLocation).not.toBe(libraryLocation);
 
@@ -4551,7 +4586,8 @@ for (const width of [1440, 800, 390]) {
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
       await page.getByRole("button", { name: "Frameworks", exact: true }).click();
-      await expect(page.locator(".package-framework-list")).toBeFocused();
+      await expect(page.locator('[data-package-framework][aria-current="page"]'))
+        .toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
     }
     await overview.locator('[data-lib-scope="asset:other"]').click();
@@ -4693,7 +4729,8 @@ for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"
 
     const frameworks = page.getByRole("button", { name: "Frameworks", exact: true });
     await frameworks.click();
-    await expect(page.locator(".package-framework-list")).toBeFocused();
+    await expect(page.locator('[data-package-framework][aria-current="page"]'))
+      .toBeFocused();
     const location = page.url();
     const historyLength = await page.evaluate(() => history.length);
     await page.getByRole("button", { name: "Show details", exact: true }).click();
