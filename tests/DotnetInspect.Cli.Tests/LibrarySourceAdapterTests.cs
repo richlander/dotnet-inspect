@@ -55,6 +55,40 @@ public class LibrarySourceAdapterTests
         Assert.Null(binding.PlatformAssembly);
     }
 
+    [Theory]
+    [InlineData("Contoso", false)]
+    [InlineData("Contoso@", true)]
+    public void PackageBindingPreservesVersionExpressionPresence(
+        string packageReference,
+        bool hasVersionExpression)
+    {
+        Assert.True(
+            LibrarySourceAdapter.TryDeclare(
+                assemblyName: null,
+                packageReference,
+                platformAssembly: null,
+                "source",
+                out SourceIntent intent,
+                out string? error),
+            error);
+
+        Assert.True(
+            LibrarySourceAdapter.TryBind(
+                new LibraryOptions
+                {
+                    SourceIntent = intent,
+                },
+                out LibrarySourceBinding? binding,
+                out error),
+            error);
+
+        Assert.Equal(
+            hasVersionExpression,
+            binding!.PackageTarget!.DeclaredVersionExpression
+                is not null);
+        Assert.Equal(string.Empty, binding.PackageTarget.Version);
+    }
+
     [Fact]
     public void LocalArchiveDeclarationPreservesPath()
     {
@@ -304,6 +338,46 @@ public class LibrarySourceAdapterTests
             handler.Requests,
             uri => uri.AbsolutePath.Contains(
                 "contoso.nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task
+        ExplicitEmptyPackageVersionDoesNotResolveLatest()
+    {
+        Assert.True(
+            LibrarySourceAdapter.TryDeclare(
+                assemblyName: null,
+                packagePath: "Contoso@",
+                platformAssembly: null,
+                "source",
+                out SourceIntent intent,
+                out string? error),
+            error);
+        Assert.True(
+            LibrarySourceAdapter.TryBind(
+                new LibraryOptions
+                {
+                    SourceIntent = intent,
+                },
+                out LibrarySourceBinding? binding,
+                out error),
+            error);
+
+        using var handler = new NotFoundPackageHandler();
+        using var client = new HttpClient(handler);
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPackageAsync(
+                client,
+                binding!.PackageTarget!,
+                sourceOptions: handler.SourceOptions);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains("cannot be empty", outcome.ErrorMessage);
+        Assert.DoesNotContain(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                "/contoso/index.json",
                 StringComparison.OrdinalIgnoreCase));
     }
 

@@ -156,7 +156,11 @@ internal static class LibrarySourceAdapter
                         PackageReference(package),
                         IsLocalFile: false,
                         package.PackageId,
-                        package.Version ?? string.Empty),
+                        package.Version ?? string.Empty)
+                    {
+                        DeclaredVersionExpression =
+                            package.Version,
+                    },
                     PlatformAssembly: null);
                 error = null;
                 return true;

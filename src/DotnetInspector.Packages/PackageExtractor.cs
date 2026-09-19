@@ -150,7 +150,15 @@ public sealed record PackageReferenceTarget(
     string OriginalArgument,
     bool IsLocalFile,
     string PackageName,
-    string Version);
+    string Version)
+{
+    /// <summary>
+    /// Exact declaration expression when available, including an explicit
+    /// empty expression. Null preserves the legacy <see cref="Version"/>
+    /// fallback.
+    /// </summary>
+    public string? DeclaredVersionExpression { get; init; }
+}
 
 /// <summary>
 /// A selected package version and the sources that reported that exact
@@ -312,6 +320,19 @@ public static class PackageExtractor
         bool includePrerelease = false)
     {
         ArgumentNullException.ThrowIfNull(target);
+        string? versionExpression =
+            target.DeclaredVersionExpression
+            ?? (target.Version.Length == 0
+                ? null
+                : target.Version);
+        if (!target.IsLocalFile
+            && target.DeclaredVersionExpression?.Length == 0)
+        {
+            return Task.FromResult(
+                PackageExtractionOutcome.Error(
+                    "Package version expression cannot be empty."));
+        }
+
         return ExtractPackageCoreAsync(
             client,
             target.OriginalArgument,
@@ -319,9 +340,9 @@ public static class PackageExtractor
             tempDirPrefix,
             sourceOptions,
             target.IsLocalFile
-                || target.Version.Length == 0
+                || versionExpression is null
                     ? null
-                    : target.Version,
+                    : versionExpression,
             forceLatest,
             includePrerelease,
             authoritySession: null,
