@@ -337,6 +337,10 @@ The registered adopter identities are:
 The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
 [adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
+Its baseline Content exposes `hierarchy`, whose roots and non-root
+relationship occurrences retain root-relative parent identity; canonical
+nodes and relationships remain backing evidence rather than the result row
+currency.
 An Outcome's Available, Rejected, or other case does not change `result_kind`;
 its own discriminator remains inside `content`. Another operation with a
 different content contract, such as Discover or semantic Count, needs its own
