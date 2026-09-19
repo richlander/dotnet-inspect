@@ -244,6 +244,16 @@ One correspondence request consumes:
 - one finite correspondence plan; and
 - zero or more contributions from host-authorized attestation capabilities.
 
+Operation eligibility is resolved before any attestation capability is invoked
+or contribution is enumerated. The completed authored-source result must have
+been issued by an authorized attestation-backed source capability and must
+carry its attestor-issued physical source-input identity. An ordinary PDB,
+Source Link, embedded-source, local-file, or repository result lacks that
+authority and makes physical correspondence `Unavailable`. Offered attestation
+contributions are not decoded, authenticated, or compared with an ineligible
+result. Their presence cannot turn missing applicable source evidence into
+`Rejected`.
+
 Contribution admission and aggregation are ordered:
 
 1. SourceHouse enumerates the complete bounded contribution set, decodes it,
@@ -274,10 +284,11 @@ Contribution admission and aggregation are ordered:
    request-bound association but disagree on raw span or syntax kind produce
    `Conflict`.
 
-This ordering defines outcome precedence after caller cancellation:
-`Incomplete`, `Failed`, `Rejected`, then `Unavailable`, `Conflict`, or `Exact`.
-The first three outcomes prevent aggregation; source order, capability order,
-and first success do not affect the result.
+After caller cancellation, operation eligibility is decided first. For an
+eligible request, contribution outcome precedence is `Incomplete`, `Failed`,
+`Rejected`, then `Unavailable`, `Conflict`, or `Exact`. The first three
+contribution outcomes prevent aggregation; source order, capability order, and
+first success do not affect the result.
 
 The selected assembly content reference supplies the Artifact identity and
 generation. SourceHouse inspects the same assembly bytes to validate the
@@ -542,6 +553,9 @@ The implementation must provide Release gates for:
 - a `#line` mapping into another real checksum-valid source document, including
   a byte-identical copy of the physical input, failing to authorize that
   destination declaration;
+- an ordinary identity-less PDB or Source Link result beside an otherwise
+  matching offered attestation short-circuiting to `Unavailable` without
+  invoking the attestation capability;
 - two byte-identical physical compilation inputs retaining distinct
   attestor-issued identities that cannot be reconstructed from their bytes,
   paths, PDB rows, encodings, or spans;
