@@ -126,7 +126,8 @@ public static class ApiMemberAccessors
         ApiMethodModifiers modifiers = implementation is not null
             ? ApiMethodModifiers.FromAttributes(
                 implementation.Attributes,
-                isExplicitImplementation)
+                isExplicitImplementation,
+                allowSpecialName: true)
             : new(
                 owner.IsStatic,
                 owner.IsVirtual,

@@ -508,6 +508,17 @@ public class FidelityCheckGeneratedFilterTests
             Assert.DoesNotContain(
                 selected,
                 target =>
+                    target.Type == "SpecialNameExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type
+                        == "RuntimeSpecialNameExplicitInterfaceFixture"
+                    && target.Method == "IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
                     target.Type == "MultipleMethodImplFixture"
                     && target.Method == "IContract.Run");
             Assert.DoesNotContain(
@@ -4355,6 +4366,24 @@ public class FidelityCheckGeneratedFilterTests
                 baseType,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(13));
+        TypeDefinitionHandle specialNameType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "SpecialNameExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(15));
+        TypeDefinitionHandle runtimeSpecialNameType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "RuntimeSpecialNameExplicitInterfaceFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(16));
         metadata.AddGenericParameter(
             genericContractType,
             GenericParameterAttributes.None,
@@ -4416,6 +4445,12 @@ public class FidelityCheckGeneratedFilterTests
         metadata.AddInterfaceImplementation(
             genericMismatchType,
             genericContractString);
+        metadata.AddInterfaceImplementation(
+            specialNameType,
+            contractType);
+        metadata.AddInterfaceImplementation(
+            runtimeSpecialNameType,
+            contractType);
 
         MethodDefinitionHandle declaration =
             metadata.AddMethodDefinition(
@@ -4461,6 +4496,26 @@ public class FidelityCheckGeneratedFilterTests
                 instanceVoidSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle specialNameBody =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Private
+                        | explicitImplementationAttributes
+                        | MethodAttributes.SpecialName,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("IContract.Run"),
+                    instanceVoidSignature,
+                    bodyOffset,
+                    MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle runtimeSpecialNameBody =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Private
+                        | explicitImplementationAttributes
+                        | MethodAttributes.RTSpecialName,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("IContract.Run"),
+                    instanceVoidSignature,
+                    bodyOffset,
+                    MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle malformedBody =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -4630,6 +4685,14 @@ public class FidelityCheckGeneratedFilterTests
             genericMemberRefBodyType,
             genericLocalBodyReference,
             baseDeclaration);
+        metadata.AddMethodImplementation(
+            specialNameType,
+            specialNameBody,
+            declaration);
+        metadata.AddMethodImplementation(
+            runtimeSpecialNameType,
+            runtimeSpecialNameBody,
+            declaration);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

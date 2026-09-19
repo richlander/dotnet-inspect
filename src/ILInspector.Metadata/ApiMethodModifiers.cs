@@ -12,17 +12,29 @@ internal readonly record struct ApiMethodModifiers(
 {
     internal static ApiMethodModifiers FromAttributes(
         MethodAttributes attributes,
-        bool isExplicitInterfaceImplementation)
+        bool isExplicitInterfaceImplementation,
+        bool allowSpecialName = false)
     {
         bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
         bool isFinal = (attributes & MethodAttributes.Final) != 0;
         bool isStatic = (attributes & MethodAttributes.Static) != 0;
-        bool isHideBySig =
-            (attributes & MethodAttributes.HideBySig) != 0;
         bool isOverride = isVirtual
             && !isNewSlot
             && !isExplicitInterfaceImplementation;
+        MethodAttributes nonAccess =
+            attributes & ~MethodAttributes.MemberAccessMask;
+        MethodAttributes explicitShape = isStatic
+            ? MethodAttributes.Static | MethodAttributes.HideBySig
+            : MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig;
+        bool explicitShapeIsRepresentable =
+            nonAccess == explicitShape
+            || allowSpecialName
+                && nonAccess
+                    == (explicitShape | MethodAttributes.SpecialName);
         return new(
             isStatic,
             isVirtual,
@@ -30,15 +42,7 @@ internal readonly record struct ApiMethodModifiers(
             isOverride,
             isOverride && isFinal,
             isExplicitInterfaceImplementation
-                ? isStatic
-                    ? isHideBySig
-                        && !isVirtual
-                        && !isNewSlot
-                        && !isFinal
-                    : isHideBySig
-                        && isVirtual
-                        && isNewSlot
-                        && isFinal
+                ? explicitShapeIsRepresentable
                 : !isFinal || isOverride);
     }
 }

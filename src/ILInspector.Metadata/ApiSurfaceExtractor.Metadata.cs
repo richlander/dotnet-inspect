@@ -1878,8 +1878,11 @@ public static partial class ApiSurfaceExtractor
             _ => "method",
         };
 
-    private static bool IsOperatorMethodName(string methodName) =>
-        methodName.StartsWith(
+    private static bool IsOperatorMethodName(string methodName)
+    {
+        int separator = methodName.LastIndexOf('.');
+        return methodName.AsSpan(separator + 1).StartsWith(
             "op_",
             StringComparison.Ordinal);
+    }
 }

@@ -1282,7 +1282,11 @@ public static partial class ApiSurfaceExtractor
                 var isOperator = IsOperatorMethodName(methodName);
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
-                    isExplicitInterfaceImplementation && !isFinalizer);
+                    isExplicitInterfaceImplementation && !isFinalizer,
+                    allowSpecialName: isOperator
+                        || IsCSharpAccessor(
+                            accessorMethods.GetValueOrDefault(
+                                methodHandle)));
 
                 var member = new ApiMember
                 {
