@@ -1098,16 +1098,23 @@ public class LibraryInspectionView
 internal static class LibraryViewText
 {
     [return: NotNullIfNotNull(nameof(value))]
-    public static string? Contain(string? value)
-    {
-        if (value is null)
-            return null;
+    public static string? Contain(string? value) =>
+        value is null
+            ? null
+            : CSharpIdentifier.ContainRenderedText(value);
 
-        string contained = CSharpIdentifier.ContainRenderedText(value);
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? ContainLiteralMarkup(string? value)
+    {
+        string? contained = Contain(value);
         // Nest literal Markout delimiters so formatters can distinguish them
         // from the outer code span owned by this view.
-        return contained.Contains("<code>", StringComparison.OrdinalIgnoreCase)
-            || contained.Contains("</code>", StringComparison.OrdinalIgnoreCase)
+        return contained?.Contains(
+                   "<code>",
+                   StringComparison.OrdinalIgnoreCase) == true
+            || contained?.Contains(
+                   "</code>",
+                   StringComparison.OrdinalIgnoreCase) == true
                 ? MarkoutInline.Code(contained)
                 : contained;
     }
@@ -2175,16 +2182,16 @@ public record IntegrationSignalRow(
 public class LibraryInfoSection
 {
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Architecture { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Architecture { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? AssemblyVersion { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     public int AsyncMethods { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Company { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Company { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Compilation { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Compilation { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Copyright { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Copyright { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     public int CustomAttributes { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
@@ -2192,36 +2199,36 @@ public class LibraryInfoSection
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? FileSize { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? FileSize { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? InformationalVersion { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? InformationalVersion { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     public int Integrations { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Methods { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Methods { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Modified { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Modified { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Name { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Name { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Product { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Product { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? PublicKeyToken { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? PublicKeyToken { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Reproducible { get; init; }
     public int Resources { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Signed { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Signed { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Source { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Source { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     public int Switches { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? TargetFramework { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? TargetFramework { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
     public int TypeForwarders { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
     public string? Types { get => field; init => field = LibraryViewText.Contain(value); }
     public int UnionTypes { get; init; }
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Version { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Version { get => field; init => field = LibraryViewText.ContainLiteralMarkup(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
