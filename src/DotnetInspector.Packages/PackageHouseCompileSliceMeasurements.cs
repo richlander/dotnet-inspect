@@ -488,7 +488,7 @@ public static class PackageHouseCompileSliceMeasurementProjection
                 measurements);
     }
 
-    private static ImmutableArray<string> SelectTargetFrameworkFolders(
+    internal static ImmutableArray<string> SelectTargetFrameworkFolders(
         IPackageContent content,
         string selectedTargetFramework)
     {
@@ -530,7 +530,7 @@ public static class PackageHouseCompileSliceMeasurementProjection
             .ToImmutableArray();
     }
 
-    private static bool TryGetArchiveLength(
+    internal static bool TryGetArchiveLength(
         IPackageContent content,
         out long length,
         out PackageHouseCompileSliceMeasurementUnavailableReason failure)
