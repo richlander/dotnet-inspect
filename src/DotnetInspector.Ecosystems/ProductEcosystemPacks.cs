@@ -252,6 +252,87 @@ internal static class ProductEcosystemPacks
         ],
         requireAllPacks: true);
 
+    internal static EcosystemDependencyRecognitionProfile
+        DependencyRecognitionProfile { get; } = new(
+            Registry.Packs,
+            [
+                Dependencies(
+                    EcosystemPackIds.Runtime,
+                    [
+                        PackageFamily("System"),
+                        AssemblyFamily("System"),
+                        AssemblyFamily("Microsoft.Win32"),
+                        AssemblyFamily("Microsoft.CSharp"),
+                        AssemblyFamily("Microsoft.VisualBasic"),
+                        ExactAssembly("mscorlib"),
+                        ExactAssembly("netstandard"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.MicrosoftExtensions,
+                    [
+                        PackageFamily("Microsoft.Extensions"),
+                        AssemblyFamily("Microsoft.Extensions"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.AspNetCore,
+                    [
+                        PackageFamily("Microsoft.AspNetCore"),
+                        AssemblyFamily("Microsoft.AspNetCore"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.Aspire,
+                    [
+                        PackageFamily("Aspire"),
+                        AssemblyFamily("Aspire"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.AI,
+                    [
+                        PackageFamily("Microsoft.Extensions.AI"),
+                        PackageFamily("Microsoft.Extensions.VectorData"),
+                        PackageFamily("Microsoft.Agents.AI"),
+                        PackageFamily("ModelContextProtocol"),
+                        AssemblyFamily("Microsoft.Extensions.AI"),
+                        AssemblyFamily("Microsoft.Extensions.VectorData"),
+                        AssemblyFamily("Microsoft.Agents.AI"),
+                        AssemblyFamily("ModelContextProtocol"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.Azure,
+                    [
+                        PackageFamily("Azure"),
+                        PackageFamily("Microsoft.Azure"),
+                        PackageFamily("Microsoft.Extensions.Azure"),
+                        PackageFamily("Aspire.Azure"),
+                        PackageFamily("Aspire.Hosting.Azure"),
+                        AssemblyFamily("Azure"),
+                        AssemblyFamily("Microsoft.Azure"),
+                        AssemblyFamily("Microsoft.Extensions.Azure"),
+                        AssemblyFamily("Aspire.Azure"),
+                        AssemblyFamily("Aspire.Hosting.Azure"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.Blazor,
+                    [
+                        PackageFamily("Microsoft.AspNetCore.Components"),
+                        PackageFamily("Microsoft.Authentication.WebAssembly"),
+                        AssemblyFamily("Microsoft.AspNetCore.Components"),
+                        AssemblyFamily("Microsoft.Authentication.WebAssembly"),
+                    ]),
+                Dependencies(
+                    EcosystemPackIds.Maui,
+                    [
+                        PackageFamily("Microsoft.Maui"),
+                        PackageFamily("CommunityToolkit.Maui"),
+                        PackageFamily(
+                            "Microsoft.AspNetCore.Components.WebView.Maui"),
+                        AssemblyFamily("Microsoft.Maui"),
+                        AssemblyFamily("CommunityToolkit.Maui"),
+                        AssemblyFamily(
+                            "Microsoft.AspNetCore.Components.WebView.Maui"),
+                    ]),
+            ]);
+
     private static EcosystemPackRegistration ProjectWorkspace(
         EcosystemPackRegistration pack,
         string lowerIdentity,
@@ -277,6 +358,20 @@ internal static class ProductEcosystemPacks
             summary,
             order,
             ProductDemoSourceBinding.Create(scenarioId, createRecords));
+
+    private static EcosystemDependencyProfileRegistration Dependencies(
+        EcosystemPackId ecosystem,
+        EcosystemDependencyAssociation[] associations) =>
+        new(ecosystem, associations);
+
+    private static EcosystemDependencyAssociation PackageFamily(string value) =>
+        EcosystemDependencyAssociation.PackageIdFamily(value);
+
+    private static EcosystemDependencyAssociation AssemblyFamily(string value) =>
+        EcosystemDependencyAssociation.AssemblyNameFamily(value);
+
+    private static EcosystemDependencyAssociation ExactAssembly(string value) =>
+        EcosystemDependencyAssociation.ExactAssemblyName(value);
 
     private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {

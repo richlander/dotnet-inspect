@@ -609,6 +609,16 @@ public static class SearchCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched dependency envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+        var outOption = SharedOptions.CreateOutputPathOption();
+#endif
 
         depthOption.Validators.Add(result =>
         {
@@ -634,6 +644,13 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
         dependsCommand.Options.Add(shareOption);
+#if DEBUG
+        dependsCommand.Options.Add(evidenceEnvelopeOption);
+        dependsCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(
+            dependsCommand,
+            outOption);
+#endif
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -673,10 +690,46 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
-            if (opts.IsEnvelopeOutput(result) && !typeMode)
+#if DEBUG
+            bool evidenceEnvelope =
+                result.GetResult(evidenceEnvelopeOption)
+                    is { Implicit: false };
+            if (evidenceEnvelope && typeMode)
+            {
+                result.AddError(
+                    "--evidence-envelope is supported only by asset-mode depends.");
+            }
+            if (evidenceEnvelope
+                && (result.GetResult(opts.Discover)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Schema)
+                    || result.GetValue(opts.Effective)))
+            {
+                result.AddError(
+                    "--evidence-envelope requires an asset dependency inspection, not discovery or schema output.");
+            }
+            if (result.GetResult(outOption) is { Implicit: false }
+                && !evidenceEnvelope)
+            {
+                result.AddError(
+                    "--out is supported by asset-mode depends only with --evidence-envelope.");
+            }
+#else
+            const bool evidenceEnvelope = false;
+#endif
+            if (opts.IsEnvelopeOutput(result)
+                && !typeMode
+                && !evidenceEnvelope)
             {
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
+            }
+            if (evidenceEnvelope
+                && !typeMode
+                && opts.IsEnvelopeOutput(result))
+            {
+                RejectAssetEnvelopeRowOption(opts.Rows, "--rows");
+                RejectAssetEnvelopeRowOption(opts.Limit, "-n");
             }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
@@ -745,6 +798,17 @@ public static class SearchCommandDefinitions
                 if (result.GetResult(option) is { Implicit: false })
                     result.AddError($"{name} is available only with a positional type.");
             }
+
+            void RejectAssetEnvelopeRowOption(
+                Option option,
+                string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {name} for asset dependency inspection.");
+                }
+            }
         });
 
         dependsCommand.SetAction(async (parseResult, ct) =>
@@ -763,6 +827,55 @@ public static class SearchCommandDefinitions
                         opts);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
+#if DEBUG
+            string? evidenceEnvelopePath = null;
+            string? outputPath = null;
+            if (parseResult.GetResult(evidenceEnvelopeOption)
+                is { Implicit: false })
+            {
+                string requestedEvidencePath =
+                    parseResult.GetValue(evidenceEnvelopeOption)!;
+                if (!EvidenceEnvelopeOutput.TryResolvePath(
+                        requestedEvidencePath,
+                        out evidenceEnvelopePath,
+                        out string? pathError))
+                {
+                    CommandError.Write(pathError!);
+                    return 1;
+                }
+
+                string? requestedOutputPath =
+                    parseResult.GetValue(outOption);
+                if (requestedOutputPath is not null)
+                {
+                    try
+                    {
+                        outputPath = Path.GetFullPath(requestedOutputPath);
+                    }
+                    catch (Exception exception)
+                        when (exception is ArgumentException
+                            or NotSupportedException
+                            or PathTooLongException)
+                    {
+                        CommandError.Write("--out requires a valid file path.");
+                        return 1;
+                    }
+
+                    if (string.Equals(
+                            evidenceEnvelopePath,
+                            outputPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        CommandError.Write(
+                            "--out and --evidence-envelope must name distinct files.");
+                        return 1;
+                    }
+                }
+            }
+#else
+            const string? evidenceEnvelopePath = null;
+            const string? outputPath = null;
+#endif
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
@@ -847,6 +960,10 @@ public static class SearchCommandDefinitions
                         : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
+                    EnvelopeOutput =
+                        parseResult.GetValue(opts.Envelope),
+                    EvidenceEnvelopePath = evidenceEnvelopePath,
+                    OutputPath = outputPath,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
