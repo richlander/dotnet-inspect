@@ -109,6 +109,14 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
     }),
     new FakeElement({ annotatedAction: "inspector-open", factId: "4" }),
     new FakeElement({ annotatedAction: "relationship-open", factId: "5" }),
+    new FakeElement({
+      annotatedAction: "relationship-occurrences-open",
+      factId: "5",
+    }),
+    new FakeElement({
+      annotatedAction: "relationship-presentation",
+      relationshipPresentation: "Diagram",
+    }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "All" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "4" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "CSharp" }),
@@ -154,6 +162,8 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
     },
     { kind: "inspector-open", factId: 4 },
     { kind: "relationship-open", factId: 5 },
+    { kind: "relationship-occurrences-open", factId: 5 },
+    { kind: "relationship-presentation", value: "Diagram" },
     { kind: "annotation-set", value: "All" },
     { kind: "finding-toggle", factId: 4 },
     { kind: "medium-toggle", medium: "CSharp" },
@@ -182,6 +192,11 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
     new FakeElement({ annotatedAction: "annotation-open", factId: "x" }),
     new FakeElement({ annotatedAction: "inspector-open" }),
     new FakeElement({ annotatedAction: "relationship-open" }),
+    new FakeElement({ annotatedAction: "relationship-occurrences-open" }),
+    new FakeElement({
+      annotatedAction: "relationship-presentation",
+      relationshipPresentation: "Graph",
+    }),
     new FakeElement({ annotatedAction: "annotation-set", annotatedSet: "Maybe" }),
     new FakeElement({ annotatedAction: "finding-toggle", factId: "-1" }),
     new FakeElement({ annotatedAction: "medium-toggle", medium: "Other" }),
@@ -875,6 +890,61 @@ test("the Relationships table preserves repeated physical calls and typed action
   assert.match(visibleCoordinates, /edge 7 · in loop · IL_0001/);
 });
 
+test("the Relationships diagram is opt-in and preserves a path to physical calls", () => {
+  const source = repeatedRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const tableSession =
+    openModalSession(model, createEmbeddedSession(model)).modal;
+  const diagramSession = {
+    ...tableSession,
+    relationshipPresentation: "Diagram" as const,
+  };
+  const table = renderAnnotatedSourceModal({
+    result: source,
+    session: tableSession,
+    escapeHtml,
+  });
+  const diagram = renderAnnotatedSourceModal({
+    result: source,
+    session: diagramSession,
+    escapeHtml,
+  });
+
+  assert.match(
+    table,
+    /id="annotated-relationships-table"[\s\S]*aria-pressed="true"/,
+  );
+  assert.match(table, /annotated-relationship-table/);
+  assert.doesNotMatch(table, /id="annotated-relationship-diagram"/);
+  assert.match(
+    diagram,
+    /id="annotated-relationships-diagram"[\s\S]*aria-pressed="true"/,
+  );
+  assert.match(diagram, /id="annotated-relationship-diagram"/);
+  assert.doesNotMatch(diagram, /annotated-relationship-table-wrap/);
+  assert.equal(
+    (diagram.match(/class="annotated-relationship-diagram-target"/g) ?? [])
+      .length,
+    1,
+  );
+  assert.match(diagram, />\s*2 call sites\s*<\/button>/);
+  assert.match(
+    diagram,
+    /data-annotated-action="relationship-occurrences-open"\s+data-fact-id="3"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="member"/,
+  );
+  assert.equal(
+    annotatedFocusSelector({
+      kind: "relationship-presentation",
+      value: "Diagram",
+    }),
+    "#annotated-relationships-diagram",
+  );
+});
+
 test("the Relationships table distinguishes available-empty from unavailable", () => {
   const available = modalHtml({
     ...result,
@@ -893,11 +963,13 @@ test("the Relationships table distinguishes available-empty from unavailable", (
     /No direct call relationships were projected for this exact body\./,
   );
   assert.doesNotMatch(available, /annotated-relationship-table"/);
+  assert.doesNotMatch(available, /annotated-relationship-presentations/);
   assert.match(
     unavailable,
     /Not projected by the current product query/,
   );
   assert.doesNotMatch(unavailable, /annotated-relationship-table"/);
+  assert.doesNotMatch(unavailable, /annotated-relationship-presentations/);
 });
 
 test("C# highlighting crosses product segments without changing source text", () => {
@@ -1664,6 +1736,18 @@ test("Annotated Source composition requires a concrete overload and validated se
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
+
+  const diagramRenderer =
+    /async function renderAnnotatedRelationshipDiagram\(\) \{([\s\S]*?)\n\}/
+      .exec(appSource)?.[1] ?? "";
+  assert.match(
+    diagramRenderer,
+    /createAnnotatedSourceViewerModel\(result\)[\s\S]*buildAnnotatedRelationshipGraphMermaid\(\s*model\.callRelationships\)/,
+  );
+  assert.doesNotMatch(
+    diagramRenderer,
+    /createCallGraphInspectionCoordinator|loadSelectedMemberCallGraph|callGraphInspection\./,
+  );
 });
 
 test("Annotated Source destination actions use typed graph routes and exact sections", () => {

@@ -35,6 +35,11 @@ import type {
   CSharpHighlightExclusion,
   CSharpRangeHighlighter,
 } from "./csharp-highlighting.ts";
+import {
+  annotatedRelationshipKindLabel,
+  annotatedRelationshipTargetLabel,
+  groupAnnotatedRelationships,
+} from "./graph-mermaid.ts";
 
 export type { AnnotatedSourceResult } from "./annotated-source-session.ts";
 
@@ -57,6 +62,8 @@ export type AnnotatedSourceAction =
   | { kind: "annotation-open"; opener: FindingDetailOpener }
   | { kind: "inspector-open"; factId: number }
   | { kind: "relationship-open"; factId: number }
+  | { kind: "relationship-occurrences-open"; factId: number }
+  | { kind: "relationship-presentation"; value: "Table" | "Diagram" }
   | { kind: "annotation-set"; value: "Default" | "All" | "Clear" }
   | { kind: "finding-toggle"; factId: number }
   | { kind: "medium-toggle"; medium: SourceMedium }
@@ -306,6 +313,8 @@ export function annotatedFocusSelector(
       return `#annotated-medium-${target.medium.toLowerCase()}`;
     case "coordinate-toggle":
       return "#annotated-coordinate-toggle";
+    case "relationship-presentation":
+      return `#annotated-relationships-${target.value.toLowerCase()}`;
     case "inspector":
       return `#annotated-inspector-${target.factId}`;
     case "relationship":
@@ -634,16 +643,37 @@ function renderFindingInspector(context: SourceRenderContext): string {
 function renderRelationships(context: SourceRenderContext): string {
   const { model, session, escapeHtml } = context;
   const availability = model.catalog.callRelationships;
+  const hasRelationships =
+    availability.available && model.callRelationships.length > 0;
   return `
     <section class="annotated-inspector-section annotated-relationships">
-      <p class="section-eyebrow">Relationships</p>
-      <h3>Direct calls</h3>
+      <div class="annotated-relationship-heading">
+        <div>
+          <p class="section-eyebrow">Relationships</p>
+          <h3>Direct calls</h3>
+        </div>
+        ${hasRelationships
+          ? `<div class="annotated-relationship-presentations"
+              role="group" aria-label="Relationship presentation">
+              ${(["Table", "Diagram"] as const).map(value => `
+                <button type="button"
+                  id="annotated-relationships-${value.toLowerCase()}"
+                  data-annotated-action="relationship-presentation"
+                  data-relationship-presentation="${value}"
+                  aria-pressed="${session.relationshipPresentation === value}">
+                  ${value}
+                </button>`).join("")}
+            </div>`
+          : ""}
+      </div>
       ${!availability.available
         ? `<p class="annotated-unavailable">${escapeHtml(
             capabilityReason(availability))}</p>`
         : model.callRelationships.length === 0
           ? `<p class="annotated-empty">No direct call relationships were projected for this exact body.</p>`
-          : `<div class="annotated-relationship-table-wrap">
+          : session.relationshipPresentation === "Diagram"
+            ? renderRelationshipDiagram(context)
+            : `<div class="annotated-relationship-table-wrap">
               <table class="annotated-relationship-table" aria-label="Direct call relationships">
                 <thead>
                   <tr>
@@ -654,7 +684,8 @@ function renderRelationships(context: SourceRenderContext): string {
                 </thead>
                 <tbody>
                   ${model.callRelationships.map((relationship, index) => {
-                    const targetLabel = callTargetLabel(relationship.target);
+                    const targetLabel =
+                      annotatedRelationshipTargetLabel(relationship.target);
                     const callDetails = [
                       `edge ${relationship.edgeRow}`,
                       relationship.inLoop ? "in loop" : null,
@@ -707,32 +738,63 @@ function renderRelationships(context: SourceRenderContext): string {
     </section>`;
 }
 
-function callTargetLabel(
-  target: AnnotatedSourceViewerModel["callRelationships"][number]["target"],
-): string {
-  const member = target.genericArity === 0
-    ? target.memberName
-    : `${target.memberName}\`${target.genericArity}`;
-  return `${target.typeFullName}.${member}(${target.parameterTypes.join(", ")})`;
+function renderRelationshipDiagram(context: SourceRenderContext): string {
+  const { model, escapeHtml } = context;
+  const edges = groupAnnotatedRelationships(model.callRelationships);
+  return `
+    <div id="annotated-relationship-diagram"
+      class="annotated-relationship-diagram"
+      aria-label="Current body direct call diagram"
+      aria-live="polite">
+      <p class="annotated-relationship-rendering">Rendering diagram\u2026</p>
+    </div>
+    <div class="annotated-relationship-diagram-targets"
+      aria-label="Diagram targets">
+      ${edges.map(edge => {
+        const targetLabel = annotatedRelationshipTargetLabel(edge.target);
+        const occurrenceLabel = edge.factIds.length === 1
+          ? "1 call site"
+          : `${edge.factIds.length} call sites`;
+        return `
+          <article class="annotated-relationship-diagram-target">
+            <div>
+              <strong>${escapeHtml(targetLabel)}</strong>
+              <small>${escapeHtml(edge.kinds
+                .map(annotatedRelationshipKindLabel)
+                .join(" / "))}
+                \u00b7 edge ${edge.edgeRow}${edge.inLoop ? " \u00b7 in loop" : ""}</small>
+            </div>
+            <div class="annotated-relationship-actions">
+              <button type="button"
+                data-annotated-action="relationship-occurrences-open"
+                data-fact-id="${edge.factIds[0]}"
+                aria-label="Show ${occurrenceLabel} for ${escapeHtml(targetLabel)}">
+                ${occurrenceLabel}
+              </button>
+              <button type="button"
+                data-annotated-action="relationship-destination-open"
+                data-relationship-index="${edge.relationshipIndex}"
+                data-destination="member"
+                aria-label="Open member overview for ${escapeHtml(targetLabel)}">
+                Member
+              </button>
+              <button type="button"
+                data-annotated-action="relationship-destination-open"
+                data-relationship-index="${edge.relationshipIndex}"
+                data-destination="source"
+                aria-label="Open source for ${escapeHtml(targetLabel)}">
+                Source
+              </button>
+            </div>
+          </article>`;
+      }).join("")}
+    </div>`;
 }
 
-function callKindLabel(value: string | number): string {
-  switch (value) {
-    case "Call":
-      return "Call";
-    case "CallVirtual":
-      return "Virtual call";
-    case "NewObject":
-      return "Object creation";
-    case "LoadFunction":
-      return "Function pointer";
-    case "LoadVirtualFunction":
-      return "Virtual function pointer";
-    case "CallIndirect":
-      return "Indirect call";
-    default:
-      return String(value);
-  }
+function callKindLabel(
+  value: AnnotatedSourceViewerModel["callRelationships"][number]["kind"],
+): string {
+  return annotatedRelationshipKindLabel(value);
 }
 
 function formatIlOffset(offset: number): string {
@@ -1117,6 +1179,18 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
     case "relationship-open": {
       const factId = dataInteger(element, "factId");
       return factId === null ? null : { kind: "relationship-open", factId };
+    }
+    case "relationship-occurrences-open": {
+      const factId = dataInteger(element, "factId");
+      return factId === null
+        ? null
+        : { kind: "relationship-occurrences-open", factId };
+    }
+    case "relationship-presentation": {
+      const value = element.dataset.relationshipPresentation;
+      return value === "Table" || value === "Diagram"
+        ? { kind: "relationship-presentation", value }
+        : null;
     }
     case "annotation-set": {
       const value = element.dataset.annotatedSet;

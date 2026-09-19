@@ -560,18 +560,32 @@ stable edge row, and occurrence-specific graph target. Browser validation
 requires exact coverage between those rows and the document's `call.edge`
 Findings; it never recovers identity from labels or source text.
 
-The Annotated Source modal consumes that sidecar as a **Relationships** edge
-table. It renders one row per physical call occurrence, so repeated source
-calls that share one stable logical edge remain separate rows. Each row exposes
-the typed call kind, loop state, stable edge row, the exact `call.edge`
-Finding opener, and explicitly named **Member** and **Source** actions over the
-typed target. Coordinate disclosure adds the method-relative IL offset. The
-table is independent of annotation membership: it is present whenever the
-relationship capability is available, while **All** remains the only way to
-draw relationship annotations at source locations. Available-empty means only
-that no direct relationships were projected for that exact body; unavailable
-retains its typed capability reason. The browser does not reacquire a graph,
-collapse physical occurrences, or reconstruct identity from presentation.
+The Annotated Source modal consumes that sidecar as a **Relationships**
+projection with **Table** and **Diagram** presentations. **Table** is the
+fresh-session default. It renders one row per physical call occurrence, so
+repeated source calls that share one stable logical edge remain separate rows.
+Each row exposes the typed call kind, loop state, stable edge row, the exact
+`call.edge` Finding opener, and explicitly named **Member** and **Source**
+actions over the typed target. Coordinate disclosure adds the method-relative
+IL offset.
+
+**Diagram** is an opt-in Browser lowering over those same validated rows. It
+renders the current body as the root and one visual edge per producer-issued
+stable edge row. Repeated physical occurrences may therefore share one visual
+edge, but the Browser retains every exact `factId`, discloses the occurrence
+count, and provides an explicit path back to the physical table rows. The
+diagram's companion targets retain the typed graph target and explicitly named
+**Member** and **Source** actions; SVG text and Mermaid node identifiers are
+presentation only and never become identity. Diagram activation performs no
+Call Graph query, Analysis acquisition, target-index build, or source open.
+
+Both presentations are independent of annotation membership: they are
+available whenever the relationship capability is available, while **All**
+remains the only way to draw relationship annotations at source locations.
+Available-empty means only that no direct relationships were projected for
+that exact body; unavailable retains its typed capability reason. The browser
+does not reacquire a graph, silently navigate from a visual edge or node,
+discard physical occurrences, or reconstruct identity from presentation.
 
 The Finding-census operation can also request focus-cycle inspection. It keeps
 the complete depth-one focus neighborhood required by the relationship

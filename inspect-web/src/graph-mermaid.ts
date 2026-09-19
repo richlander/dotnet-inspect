@@ -12,6 +12,10 @@ import {
   type DependencyGraphResult,
   type PackageIdentity,
 } from "./data.ts";
+import type {
+  BrowserAnnotatedSourceCallRelationship,
+  BrowserCallGraphTarget,
+} from "./facades/inspect-web-source.d.ts";
 
 export function resolveMermaidCssVariables(
   definition: string,
@@ -20,6 +24,123 @@ export function resolveMermaidCssVariables(
   return definition.replace(
     /var\((--[\w-]+)\)/g,
     (whole: string, name: string) => readProperty(name).trim() || whole);
+}
+
+export interface AnnotatedRelationshipGraphEdge {
+  edgeRow: number;
+  factIds: readonly number[];
+  relationshipIndex: number;
+  target: BrowserCallGraphTarget;
+  kinds: readonly BrowserAnnotatedSourceCallRelationship["kind"][];
+  inLoop: boolean;
+}
+
+export interface AnnotatedRelationshipGraph {
+  definition: string;
+  edges: readonly AnnotatedRelationshipGraphEdge[];
+}
+
+export function annotatedRelationshipTargetLabel(
+  target: BrowserCallGraphTarget,
+): string {
+  const member = target.genericArity === 0
+    ? target.memberName
+    : `${target.memberName}\`${target.genericArity}`;
+  return `${target.typeFullName}.${member}(${target.parameterTypes.join(", ")})`;
+}
+
+export function annotatedRelationshipKindLabel(
+  value: BrowserAnnotatedSourceCallRelationship["kind"],
+): string {
+  switch (value) {
+    case "Call":
+      return "Call";
+    case "CallVirtual":
+      return "Virtual call";
+    case "NewObject":
+      return "Object creation";
+    case "LoadFunction":
+      return "Function pointer";
+    case "LoadVirtualFunction":
+      return "Virtual function pointer";
+    case "CallIndirect":
+      return "Indirect call";
+    default:
+      return String(value);
+  }
+}
+
+export function groupAnnotatedRelationships(
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): readonly AnnotatedRelationshipGraphEdge[] {
+  const byEdgeRow = new Map<number, {
+    relationshipIndex: number;
+    relationship: BrowserAnnotatedSourceCallRelationship;
+    factIds: number[];
+    kinds: BrowserAnnotatedSourceCallRelationship["kind"][];
+    inLoop: boolean;
+  }>();
+  relationships.forEach((relationship, relationshipIndex) => {
+    const existing = byEdgeRow.get(relationship.edgeRow);
+    if (existing) {
+      existing.factIds.push(relationship.factId);
+      if (!existing.kinds.includes(relationship.kind)) {
+        existing.kinds.push(relationship.kind);
+      }
+      existing.inLoop ||= relationship.inLoop;
+      return;
+    }
+    byEdgeRow.set(relationship.edgeRow, {
+      relationshipIndex,
+      relationship,
+      factIds: [relationship.factId],
+      kinds: [relationship.kind],
+      inLoop: relationship.inLoop,
+    });
+  });
+  return [...byEdgeRow.entries()].map(([edgeRow, group]) => ({
+    edgeRow,
+    factIds: group.factIds,
+    relationshipIndex: group.relationshipIndex,
+    target: group.relationship.target,
+    kinds: group.kinds,
+    inLoop: group.inLoop,
+  }));
+}
+
+export function buildAnnotatedRelationshipGraphMermaid(
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): AnnotatedRelationshipGraph | null {
+  const edges = groupAnnotatedRelationships(relationships);
+  if (edges.length === 0) return null;
+
+  const lines = [
+    "flowchart TD",
+    '  ar0["Current body"]:::self',
+  ];
+  edges.forEach((edge, index) => {
+    const nodeId = `ar${index + 1}`;
+    const targetLabel = mermaidLabel(
+      annotatedRelationshipTargetLabel(edge.target));
+    const kindLabel = edge.kinds
+      .map(annotatedRelationshipKindLabel)
+      .join(" / ");
+    const occurrenceLabel = edge.factIds.length === 1
+      ? kindLabel
+      : `${kindLabel} \u00d7${edge.factIds.length}`;
+    const edgeLabel = mermaidLabel(
+      edge.inLoop ? `${occurrenceLabel} \u00b7 loop` : occurrenceLabel);
+    lines.push(`  ${nodeId}["${targetLabel}"]:::target`);
+    lines.push(`  ar0 -->|"${edgeLabel}"| ${nodeId}`);
+  });
+  lines.push(
+    "classDef self fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;",
+    "classDef target fill:var(--panel),stroke:var(--line-strong),color:var(--text);",
+  );
+  return {
+    definition: lines.join("\n"),
+    edges,
+  };
 }
 
 export interface CallGraphMermaidTarget {
