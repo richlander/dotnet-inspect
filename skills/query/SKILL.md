@@ -208,6 +208,10 @@ dnx dotnet-inspect -y -- package query Azure.Mcp \
   --where "tool=true"
 dnx dotnet-inspect -y -- package query 'Azure.Mcp*' \
   --where "tool-format=v2" --take 20 -n 5 --jsonl
+dnx dotnet-inspect -y -- package query wix \
+  --where "license=OSMF" --nuspec-only
+dnx dotnet-inspect -y -- package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
@@ -217,8 +221,13 @@ dnx dotnet-inspect -y -- package query 'Polly.*' \
 expressions. Independent terms are ANDed; the broad `tool=true` term identifies
 the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 `tool-format=v2` for settings-based format classification; those specific
-formats are ORed. Query rows represent individual packages, with exact versions
-and product-authored evidence. Dependency predicates inspect all nuspec groups
+formats are ORed. `license=any|MIT|OSMF` is nuspec-only: `any` tests declaration
+presence, `MIT` matches the exact SPDX expression, and `OSMF` matches the
+declared `OSMFEULA.*` basename without reading the file. Query rows represent
+individual packages with exact versions, semantic answers, and structured
+evidence. Queries retrieve values and counts; hosts render any explanatory
+text. Dependency predicates
+inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request

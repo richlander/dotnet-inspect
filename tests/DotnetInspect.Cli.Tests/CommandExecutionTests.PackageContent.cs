@@ -988,6 +988,107 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_LicenseFiles_ListsCountsAndPrintsDocuments()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicenseFiles",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">OSMFEULA.txt</license>",
+            extraFiles:
+            [
+                ("OSMFEULA.txt", "declared license"),
+                ("LICENSE.md", "conventional license"),
+                ("licenses/Dependency.txt", "dependency license"),
+                ("THIRD-PARTY-NOTICES.TXT", "not a license"),
+                ("content/driving-license.png", "not a document"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| LICENSE.md |", listOutput);
+            Assert.Contains("| OSMFEULA.txt |", listOutput);
+            Assert.Contains("| licenses/Dependency.txt |", listOutput);
+            Assert.DoesNotContain("THIRD-PARTY-NOTICES", listOutput);
+            Assert.DoesNotContain("driving-license.png", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("3\n", countOutput);
+            Assert.Empty(countError);
+
+            var (printExit, printOutput, printError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--print",
+                "--row",
+                "2",
+                "--bare");
+            Assert.Equal(0, printExit);
+            Assert.Equal("declared license", printOutput);
+            Assert.Empty(printError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LicenseFiles_HonorsLeadingCurrentDirectorySegment()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicensePath",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">./legal/TERMS.bin</license>",
+            extraFiles:
+            [
+                ("legal/TERMS.bin", "declared license"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| legal/TERMS.bin |", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("1\n", countOutput);
+            Assert.Empty(countError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_FilesNuspec_PrintRendersTheManifestDocument()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();

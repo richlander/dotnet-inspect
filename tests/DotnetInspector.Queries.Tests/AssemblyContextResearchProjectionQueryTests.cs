@@ -698,6 +698,92 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.NotNull(projection.CallRelationships);
     }
 
+    [Theory]
+    [InlineData(
+        "Wait",
+        SynchronousCompletionKind.TaskWait,
+        "Wait")]
+    [InlineData(
+        "Result",
+        SynchronousCompletionKind.TaskResult,
+        "get_Result")]
+    [InlineData(
+        "AwaiterResult",
+        SynchronousCompletionKind.TaskAwaiterGetResult,
+        "GetResult")]
+    [InlineData(
+        "ConfiguredAwaiterResult",
+        SynchronousCompletionKind.TaskAwaiterGetResult,
+        "GetResult")]
+    public async Task MemberProjection_ProjectsSynchronousTaskCompletionOperations(
+        string member,
+        SynchronousCompletionKind expectedKind,
+        string expectedTarget)
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                SynchronousCompletionRequest(image, member)));
+
+        AssemblyMemberSynchronousCompletion observation =
+            Assert.Single(
+                Assert.IsAssignableFrom<
+                    IReadOnlyList<AssemblyMemberSynchronousCompletion>>(
+                    projection.SynchronousCompletions));
+        Assert.Equal(expectedKind, observation.Kind);
+        AssemblyMemberCallRelationship relationship =
+            Assert.Single(
+                Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                        projection.CallRelationships)
+                    .Relationships,
+                candidate =>
+                    candidate.Occurrence.FactId
+                        == observation.FactId);
+        Assert.Equal(
+            expectedTarget,
+            relationship.Target.Member.Name);
+    }
+
+    [Fact]
+    public async Task MemberProjection_DoesNotClassifyACustomAwaiter()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                SynchronousCompletionRequest(
+                    image,
+                    "CustomAwaiterResult")));
+
+        Assert.Empty(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<AssemblyMemberSynchronousCompletion>>(
+                projection.SynchronousCompletions));
+        Assert.NotEmpty(
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                    projection.CallRelationships)
+                .Relationships);
+    }
+
     [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
@@ -813,6 +899,21 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.Contains(
             "exact call relationships",
             missingRelationships.Message,
+            StringComparison.Ordinal);
+
+        ArgumentException missingSynchronousRelationships =
+            Assert.Throws<ArgumentException>(() =>
+                AssemblyContextMemberProjectionQuery.Execute(
+                    group,
+                    InvocationRequest(
+                        nameof(ResearchProjectionProbe.InvokeLocal))
+                        with
+                        {
+                            SynchronousCompletions = true,
+                        }));
+        Assert.Contains(
+            "exact call relationships",
+            missingSynchronousRelationships.Message,
             StringComparison.Ordinal);
     }
 
@@ -1119,6 +1220,24 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             CallRelationships: true,
             CallCycles: true);
     }
+
+    static AssemblyContextMemberProjectionRequest
+        SynchronousCompletionRequest(
+            ImmutableArray<byte> image,
+            string member) =>
+        new(
+            "Target.SynchronousCompletionApi",
+            member,
+            MethodToken: MethodToken(
+                image,
+                "Target",
+                "SynchronousCompletionApi",
+                member),
+            SourceDocument: true,
+            FactRows: true,
+            InvocationDestinations: true,
+            CallRelationships: true,
+            SynchronousCompletions: true);
 
     static string NodeText(
         AnnotatedSourceDocument document,

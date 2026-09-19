@@ -3,6 +3,17 @@ using InertText;
 
 namespace DotnetInspector.Services;
 
+public enum PackageLicenseDeclarationKind
+{
+    Expression,
+    File,
+    Url,
+}
+
+public sealed record PackageLicenseDeclaration(
+    PackageLicenseDeclarationKind Kind,
+    string Value);
+
 /// <summary>
 /// All metadata parsed from a .nuspec file.
 /// </summary>
@@ -25,6 +36,7 @@ public class NuspecData
     public string? RepositoryCommit { get; set; }
     public string? License { get; set; }
     public string? LicenseUrl { get; set; }
+    public PackageLicenseDeclaration? LicenseDeclaration { get; set; }
     public List<string>? PackageTypes { get; set; }
     public bool IsToolPackage { get; set; }
     public string? IconFile { get; set; }
