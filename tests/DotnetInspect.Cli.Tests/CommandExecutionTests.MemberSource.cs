@@ -201,7 +201,7 @@ public partial class CommandExecutionTests
         }
     }
 
-    // PR-fast: the existing bounded local-PDB fixture, with no SourceLink map.
+    // Inherits Speed=Slow; run explicitly in the focused member-parts gate.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -236,7 +236,7 @@ public partial class CommandExecutionTests
             {
                 Assert.True(part.Exit == 0, part.Error);
                 Assert.Empty(part.Error);
-                Assert.Equal("public static int Overloaded(int value)", part.Output);
+                Assert.Equal("    public static int Overloaded(int value)", part.Output);
             }
         }
         finally

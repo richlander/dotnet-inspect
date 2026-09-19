@@ -83,6 +83,17 @@ metadata-only default, shared completed acquisition, exact selection, absent
 parts, checksum failure, and neighboring whole-document/decompiled behavior.
 Frontend cases gate selected rendering, Copy, and stale-result handling.
 
+The local-PDB/no-SourceLink checksum theory
+`Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText` inherits
+`Speed=Slow` from `CommandExecutionTests`. Daily Deep Inspect retains this
+coverage; member-parts changes also run it as a focused pre-merge gate rather
+than treating the PR-fast CLI selection as sufficient:
+
+```bash
+dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- \
+  --filter-method '*Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText'
+```
+
 The published `Markout@0.37.0` method
 `Markout.MarkoutWriter.WriteHeading(int, string)` motivates the first-line
 indentation correction. Its four XML-doc lines must retain equal indentation
