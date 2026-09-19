@@ -139,6 +139,37 @@ public static class WorkspaceMetadataEvidence
         SignatureDecodeRejectionKind? SignatureKind,
         InertString Kind);
 
+    public abstract class DefinitionKindFailure
+    {
+        private DefinitionKindFailure() { }
+
+        public sealed class BudgetExceeded(
+            long budget,
+            InertString detail) : DefinitionKindFailure
+        {
+            public long Budget { get; } = budget;
+            public InertString Detail { get; } = detail;
+        }
+
+        public sealed class Malformed(
+            int? subjectToken,
+            InertString detail,
+            NameFailure? nameFailure) : DefinitionKindFailure
+        {
+            public int? SubjectToken { get; } = subjectToken;
+            public InertString Detail { get; } = detail;
+            public NameFailure? NameFailure { get; } = nameFailure;
+        }
+
+        public sealed class Unsupported(
+            int? subjectToken,
+            InertString detail) : DefinitionKindFailure
+        {
+            public int? SubjectToken { get; } = subjectToken;
+            public InertString Detail { get; } = detail;
+        }
+    }
+
     public sealed record Definition(
         DefinitionKey Key,
         DefinitionAddress Address,
@@ -148,7 +179,9 @@ public static class WorkspaceMetadataEvidence
         MetadataTypeDefinitionKind Kind,
         bool IsInterface,
         bool IsValueType,
-        bool DeclaringAssemblyDefinesCoreLibraryRoot);
+        bool DeclaringAssemblyDefinesCoreLibraryRoot,
+        Failure? KindResolutionFailure,
+        AssemblyReferenceIdentity? KindResolutionDependencyAssembly);
 
     public sealed record Hop(
         Candidate SourceAssembly,
@@ -270,12 +303,17 @@ public static class WorkspaceMetadataEvidence
     {
         private Declaration() { }
         public sealed class Definition(
-            DefinitionToken token, MetadataTypeDefinitionKind kind, bool isInterface, bool isValueType) : Declaration
+            DefinitionToken token,
+            MetadataTypeDefinitionKind kind,
+            bool isInterface,
+            bool isValueType,
+            DefinitionKindFailure? kindFailure) : Declaration
         {
             public DefinitionToken Token { get; } = token;
             public MetadataTypeDefinitionKind Kind { get; } = kind;
             public bool IsInterface { get; } = isInterface;
             public bool IsValueType { get; } = isValueType;
+            public DefinitionKindFailure? KindFailure { get; } = kindFailure;
         }
         public sealed class Forwarder(ImmutableArray<ExportToken> declarations, AssemblyReferenceIdentity target) : Declaration
         {
@@ -323,6 +361,11 @@ public static class WorkspaceMetadataEvidence
         {
             public int Budget { get; } = budget;
             public InertString Detail { get; } = detail;
+        }
+        public sealed class DefinitionKindUnavailable(
+            DefinitionKindFailure failure) : Failure
+        {
+            public DefinitionKindFailure Failure { get; } = failure;
         }
         public sealed class ForwarderCycle : Failure;
         public sealed class HopBudgetExceeded(int budget) : Failure

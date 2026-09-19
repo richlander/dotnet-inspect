@@ -519,6 +519,30 @@ public sealed class InspectionDefinitionRegistry
                         StringComparer.Ordinal));
     }
 
+    internal static IReadOnlyDictionary<string, GroupNavigationSource>
+        ResolveGroupNavigationSources(
+            WorkspaceDefinition workspace,
+            InspectionDefinitionRecord? navigation,
+            NavigationTargetMatchMode targetMatchMode)
+    {
+        if (navigation is null)
+            return new ReadOnlyDictionary<string, GroupNavigationSource>(
+                new Dictionary<string, GroupNavigationSource>());
+
+        return new ReadOnlyDictionary<string, GroupNavigationSource>(
+            ResolveNavigationSources(workspace, navigation, targetMatchMode)
+                .Where(static pair =>
+                    pair.Value.EffectiveCoordinate is null
+                    && pair.Value.MemberIndex is null)
+                .ToDictionary(
+                    static pair => pair.Key,
+                    pair => new GroupNavigationSource(
+                        pair.Value.ContextIndex,
+                        workspace.Contexts[pair.Value.ContextIndex].Members.Count,
+                        pair.Value.RuntimeIdentifier),
+                    StringComparer.Ordinal));
+    }
+
     internal static IReadOnlyList<PackageNavigationSource>
         ResolvePackageNavigationSourcePositions(
             WorkspaceDefinition workspace,
@@ -1640,6 +1664,11 @@ internal sealed record PackageNavigationSource(
     int ContextIndex,
     int MemberIndex,
     DefinitionMemberCoordinate.PackageCoordinate EffectiveCoordinate);
+
+internal sealed record GroupNavigationSource(
+    int ContextIndex,
+    int MemberIndex,
+    string? RuntimeIdentifier);
 
 internal sealed record ScenarioRecordComposition(
     ScenarioDefinition Scenario,

@@ -349,9 +349,13 @@ public static class PackageManifestCorpusVerifier
             license is not null,
             licenseUrl,
             packageTypes,
-            packageTypes.Any(type => type.Equals(
-                "DotnetTool",
-                StringComparison.OrdinalIgnoreCase)),
+            packageTypes.Any(type =>
+                type.Equals(
+                    "DotnetTool",
+                    StringComparison.OrdinalIgnoreCase)
+                || type.Equals(
+                    "DotnetToolRidPackage",
+                    StringComparison.OrdinalIgnoreCase)),
             NullIfEmpty(reader.GetReadme()),
             dependencyGroups);
     }

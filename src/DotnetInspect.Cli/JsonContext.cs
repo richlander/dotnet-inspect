@@ -26,6 +26,7 @@ namespace DotnetInspect.Cli;
 [JsonSerializable(typeof(List<LibraryIntegrationSummaryJson>))]
 [JsonSerializable(typeof(List<VersionJson>))]
 [JsonSerializable(typeof(List<PackageTfmJson>))]
+[JsonSerializable(typeof(List<PackageLayoutFileJson>))]
 [JsonSerializable(typeof(List<VersionListingJson>))]
 [JsonSerializable(typeof(List<VersionFeedJson>))]
 [JsonSerializable(typeof(LibraryIntegrationSignalJson))]

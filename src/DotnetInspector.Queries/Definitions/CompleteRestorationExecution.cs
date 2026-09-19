@@ -19,6 +19,11 @@ public sealed record CompleteRestorationExecutionOptions
     public ApiSurfaceProjectionLimits PackageSurfaceLimits { get; init; } =
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
 
+    public bool CaptureInventory { get; init; }
+
+    public ApiSurfaceProjectionLimits PlatformSurfaceLimits { get; init; } =
+        NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
+
     public CompleteRestorationProjectionProvider Projection { get; init; } =
         CompleteRestorationProjections.Classify;
 }
@@ -262,7 +267,8 @@ public sealed record CompleteWorkspaceSnapshot
         WorkspaceScopeSnapshot scope,
         ImmutableArray<WorkspaceDeclarationContextReceipt> contexts,
         CompleteRestorationResolvedState resolved,
-        NavigationOperationInitialization navigation)
+        NavigationOperationInitialization navigation,
+        CompleteRestorationInventory? inventory)
     {
         Definition = definition
             ?? throw new ArgumentNullException(nameof(definition));
@@ -279,6 +285,7 @@ public sealed record CompleteWorkspaceSnapshot
         Resolved = resolved ?? throw new ArgumentNullException(nameof(resolved));
         Navigation = navigation
             ?? throw new ArgumentNullException(nameof(navigation));
+        Inventory = inventory;
     }
 
     public WorkspaceDefinitionSnapshot Definition { get; }
@@ -293,6 +300,9 @@ public sealed record CompleteWorkspaceSnapshot
     public CompleteRestorationResolvedState Resolved { get; }
 
     public NavigationOperationInitialization Navigation { get; }
+
+    /// <summary>Explicitly requested detached inventory, or null when omitted.</summary>
+    public CompleteRestorationInventory? Inventory { get; }
 }
 
 /// <summary>
@@ -852,10 +862,12 @@ public static class CompleteRestorationCoordinator
                             .RuntimeFailure));
             }
 
+            ImmutableArray<WorkspaceContextLoadOutcome.Loaded> loadedContexts =
+                contextLoads.MoveToImmutable();
             PackageNavigationRequestResolution packageRequests =
                 ResolvePackageNavigationRequests(
                     plan,
-                    contextLoads.MoveToImmutable());
+                    loadedContexts);
             if (packageRequests.Failure is not null)
             {
                 return new CompleteWorkspacePreparationResult.Failed(
@@ -973,12 +985,31 @@ public static class CompleteRestorationCoordinator
                                         + "different plan."));
             }
 
+            CompleteRestorationInventory? inventory = null;
+            if (options.CaptureInventory)
+            {
+                CompleteRestorationInventoryCapture captured =
+                    CompleteRestorationInventories.Capture(
+                        plan,
+                        loadedContexts,
+                        roots,
+                        packageRequests.Requests!,
+                        resolved.PackageEvaluations!,
+                        options.PlatformSurfaceLimits,
+                        token);
+                if (captured.Failure is { } inventoryFailure)
+                    return new CompleteWorkspacePreparationResult.Failed(
+                        inventoryFailure);
+                inventory = captured.Inventory;
+            }
+
             var snapshot = new CompleteWorkspaceSnapshot(
                 snapshotAvailable.Value.Definition,
                 snapshotAvailable.Value.Scope,
                 contextReceipts.MoveToImmutable(),
                 resolved.State!,
-                preparedNavigation.Initialization);
+                preparedNavigation.Initialization,
+                inventory);
             CompleteRestorationProjectionResult projectionResult =
                 options.Projection(
                     new CompleteRestorationProjectionRequest(

@@ -117,7 +117,7 @@ wildcard:
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Async*"
 dotnet-inspect library System.Text.Json -S @Performance
-dotnet-inspect library System.Text.Json -S References --tree --depth 2
+dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree --depth 2
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Audit
 dotnet-inspect package query Newtonsoft.Json -S @Query
@@ -131,10 +131,11 @@ Focused output renders the selected section without a compact identity row.
 Compact fields belong to `-v:q`; select the command's info section when identity,
 version, TFM, or source information is part of the question.
 
-`References` is a single evidence section with alternate projections. Its
-default projection is the flat direct-reference table. `--tree` requests the
-resolved transitive graph, and `--depth N` bounds it (`1` means direct
-references only). Omitting `--depth` traverses the complete resolvable graph.
+`References` is direct evidence and always renders a flat reference table.
+Selecting `Reference Hierarchy` authorizes resolved transitive traversal.
+`--depth N` bounds that hierarchy (`1` means direct references only), while
+`--tree` changes only its projection. Omitting `--depth` traverses the complete
+resolvable hierarchy.
 
 ### Bare `-S`
 

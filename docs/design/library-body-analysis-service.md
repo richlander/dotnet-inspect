@@ -24,6 +24,13 @@ Optimization Opportunities queries consume those focused types directly. One
 service invocation may still coordinate several producers over one body
 acquisition; that does not make their answers one semantic type.
 
+The third migration adds `LibraryLeverageAnalysisResult` for whole-library
+ranking and `LibraryCallGraphAnalysisResult` for detached call evidence, local
+graph derivation, and catalog participation. Library Top Leverage and member
+call-graph composition consume those focused types. The compatibility index
+delegates its leverage and local graph members to the same results; it no
+longer owns a second implementation.
+
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
@@ -126,6 +133,11 @@ lease, or service instance.
 Publishing an unrequested focused result must remain constant-cost over its
 already-produced input references. Result-local derived arrays are constructed
 only when a consumer accesses a result whose producer participated.
+Implementation-profile, call-graph, leverage, and optimization results share
+one lazy physical-call projection, method-signal derivation, declared-method
+map, and generated-framework classification internally. This keeps the result
+types semantically separate without repeating retained evidence or
+whole-library classification.
 
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
@@ -172,7 +184,7 @@ shared semantic input.
 | --- | --- | --- |
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
 | 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
-| 3 | Library Top Leverage and call-graph sections | Focused leverage and local call-graph results after their current index-local derivations receive an owner |
+| 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
 | 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
 
@@ -200,11 +212,25 @@ until the query's existing opt-in selects it. The compatibility index delegates
 its optimization members to the same focused result instead of maintaining a
 second implementation.
 
-`TopLeverage`, call trees, and other methods that still compute derived answers
-on `LibraryBodyIndex` move only after their focused owner identifies the exact
-inputs and result. Resource Triage follows issues #6730 and #6731 so the new
-ownership path reaches a section without returning through the old index
-shape.
+The third slice moves leverage ranking and local call-tree derivation from
+`LibraryBodyIndex` into their focused results. Catalog participants carry a
+`LibraryCallGraphAnalysisResult`, preserving the result receipt as the
+physical-artifact identity and evidence boundary. Member graph sessions retain
+focused call-graph and optimization results for graph construction and
+optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
+Markout lowering remain the structured and rendered output path; the slice
+changes evidence ownership, not output shape or host rendering.
+
+The pathological graph cases remain explicit: bodiless declarations may still
+be selected as roots, async and lifted calls retain physical evidence
+coordinates while ranking declared sources, same-module `ModuleRef` calls
+resolve locally, exact referenced versions constrain catalog edges, and cache
+release must preserve answers while retaining evidence-domain derivations.
+Their existing Release gates remain authoritative, supplemented by focused
+result parity, catalog, and cache-boundary gates.
+
+Resource Triage follows issues #6730 and #6731 so the new ownership path reaches
+a section without returning through the old index shape.
 
 Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
 Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
@@ -239,6 +265,17 @@ Other migrated sections use the same pattern:
 ```csharp
 LibrarySafetyAnalysisResult safety = context.BodyAnalysis().Safety;
 UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
+```
+
+Top Leverage and member graph composition now use separate focused results:
+
+```csharp
+TopLeverageResult leverage =
+    TopLeverageQuery.Execute(context.BodyAnalysis().Leverage);
+
+LibraryCallGraphAnalysisResult graph =
+    memberSession.AnalysisExecution.CallGraph;
+CallTreeNode callees = graph.BuildCallTree(methodToken);
 ```
 
 Inspect Web continues to receive owner-typed query exports. The browser host
@@ -304,7 +341,14 @@ The typed migrations are gated by
 `OptimizationOpportunitiesQuery_UsesFocusedBodyAnalysis`,
 `OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn`,
 `ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
-`MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`.
+`MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`. The leverage and
+call-graph migration adds
+`CompatibilityIndex_DelegatesCallGraphAndLeverageResults`,
+`ReleaseMethods_DropExactlyTheCachesTheyDocument`,
+`TopLeverageQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
+`TopLeverageQuery_MissingProducerRemainsTyped`,
+`MemberCallGraphSessionTests`, and the catalog call-graph and definition
+resolution suites.
 
 ## Non-claims
 

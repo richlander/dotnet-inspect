@@ -221,20 +221,68 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void TypeSpecificationDepthBudgetRemainsTypedForDeclarationKind()
+    {
+        byte[] image = BuildDeeplyNestedTypeSpecificationBase(
+            TypeSpecificationRoot.MaxAuthenticationSignatureDepth);
+        using var pe = Reader(image);
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+                MetadataTypeDeclarationProbe.Probe(
+                    pe.GetMetadataReader(),
+                    Name("Derived")));
+        var exceeded = Assert.IsType<
+            MetadataTypeDefinitionKindFailure.BudgetExceeded>(
+                unavailable.Failure);
+
+        Assert.Equal(
+            TypeSpecificationRoot.MaxAuthenticationSignatureDepth,
+            exceeded.Budget);
+    }
+
+    [Fact]
     public void CyclicTypeSpecificationBaseFailsClosed()
     {
         byte[] image = BuildCyclicTypeSpecificationBase();
         using var pe = Reader(image);
 
-        TypeDeclarationResult.Defined declaration =
-            Assert.IsType<TypeDeclarationResult.Defined>(
+        TypeDeclarationResult.DefinitionKindUnavailable declaration =
+            Assert.IsType<
+                TypeDeclarationResult.DefinitionKindUnavailable>(
                 MetadataTypeDeclarationProbe.Probe(
                     pe.GetMetadataReader(),
                     Name("Derived")));
 
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            declaration.Failure);
+    }
+
+    [Fact]
+    public void LocalDefinitionKindFailurePreservesResolvedIdentity()
+    {
+        byte[] image = BuildCyclicTypeSpecificationBase();
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeResolutionRequest request = Request(source, "Derived");
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new MappingPolicy(),
+            [source],
+            [request]);
+
+        ResolvedTypeDefinition definition =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(request)).Definition;
+        var unavailable = Assert.IsType<
+            TypeResolutionFailure.DefinitionKindUnavailable>(
+                definition.KindResolutionFailure);
+
         Assert.Equal(
             MetadataTypeDefinitionKind.Unknown,
-            declaration.Kind);
+            definition.Kind);
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+        Assert.NotEqual(0, definition.Address.Definition.Value);
     }
 
     [Fact]

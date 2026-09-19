@@ -38,6 +38,10 @@ dotnet-inspect Microsoft.Extensions.AI@9.9.1 -v:q
 dotnet-inspect Markout@0.33.0 -v:q
 ```
 
+```bash
+dotnet-inspect dotnet-inspect.any@0.25.0 -v:q
+```
+
 ## 1. View package metadata
 
 > Goal: See package summary with author, license, and build date.
@@ -80,6 +84,25 @@ Source
 
 ```expect-not
 Tips:
+```
+
+### 1c. Aggregate tool payload
+
+> Goal: Measure every Library in the selected declared-tool slice.
+
+```bash
+dotnet-inspect package dotnet-inspect.any@0.25.0 -S "Package Info"
+```
+
+```expect
+# dotnet-inspect.any
+## Package Info
+Type | Tool
+Selected TFM | net10.0
+Selected-TFM Folders | tools
+TFMs | net10.0
+Selected-TFM Size
+Selected-TFM Library Count
 ```
 
 ## 2. View dependencies and their hierarchy
