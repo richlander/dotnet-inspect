@@ -845,6 +845,7 @@ public sealed class InstalledImplementationPlatformSource
                 frameworks.Add(
                     new InstalledImplementationFramework(
                         name,
+                        PopulationFamily(name),
                         selectedFramework.Version,
                         snapshot.RuntimeConfigurationDigest,
                         snapshot.DependencyManifestDigest));
@@ -1439,6 +1440,16 @@ public sealed class InstalledImplementationPlatformSource
                 AspNetCoreName,
             _ => throw new ArgumentOutOfRangeException(nameof(family)),
         };
+
+    private static PlatformFamily? PopulationFamily(
+        PlatformFrameworkName name)
+    {
+        if (name.Equals(DotNetRuntimeName))
+            return PlatformFamily.DotNetRuntime;
+        if (name.Equals(AspNetCoreName))
+            return PlatformFamily.AspNetCore;
+        return null;
+    }
 
     private sealed class InstalledImplementationLibraryComparer :
         IComparer<InstalledImplementationLibrary>
