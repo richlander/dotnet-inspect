@@ -505,7 +505,7 @@ public static partial class SourceExports
     }
 
     private sealed record MemberSourceProjection(
-        ResearchViews.MemberProjectionResult Projection,
+        MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
         InertString Provenance,
         string? ContextLimitation,

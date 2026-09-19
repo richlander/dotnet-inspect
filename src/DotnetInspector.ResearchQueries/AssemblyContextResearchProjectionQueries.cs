@@ -163,7 +163,7 @@ public sealed record AssemblyMemberAwaitCompletionPath(int NodeId);
 
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
-    ResearchViews.MemberProjectionResult Projection,
+    MemberProjectionResult Projection,
     MemberProjectionContextLimitation? ContextLimitation,
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
@@ -385,9 +385,9 @@ public static class AssemblyContextMemberProjectionQuery
                 throw new InvalidOperationException(
                     "Call relationship projection produced no callee topology.");
             }
-            ResearchViews.MemberProjectionResult projection =
-                ResearchViews.ProjectMember(
-                    new ResearchViews.MemberProjectionRequest(
+            MemberProjectionResult projection =
+                MemberProjectionProducer.Produce(
+                    new MemberProjectionRequest(
                         source,
                         request.Type,
                         request.Member,
@@ -499,7 +499,7 @@ public static class AssemblyContextMemberProjectionQuery
 
     static IReadOnlyList<AssemblyMemberFindingEvidence> ProjectFindingEvidence(
         MetadataSource source,
-        ResearchViews.MemberProjectionResult projection,
+        MemberProjectionResult projection,
         ResearchAssemblyContext assembly,
         PrinterOptions? printerOptions)
     {
@@ -517,7 +517,7 @@ public static class AssemblyContextMemberProjectionQuery
         var calleeProjections =
             new Dictionary<MethodIdentity, CalleeSourceProjection>();
         var result = new List<AssemblyMemberFindingEvidence>();
-        foreach (ResearchViews.FactRow fact in facts)
+        foreach (FactRow fact in facts)
         {
             if (fact.Id is not (
                     "cost.callee"
@@ -732,9 +732,9 @@ public static class AssemblyContextMemberProjectionQuery
         if (cache.TryGetValue(callee, out CalleeSourceProjection? existing))
             return existing;
 
-        ResearchViews.MemberProjectionResult projected =
-            ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+        MemberProjectionResult projected =
+            MemberProjectionProducer.Produce(
+                new MemberProjectionRequest(
                     source,
                     callee.DeclaringType.ToQualifiedDisplayString(),
                     callee.Name,
@@ -1087,7 +1087,7 @@ public static class AssemblyContextMemberProjectionQuery
 
     static IReadOnlyList<AssemblyMemberAwaitCompletionPath>
         ProjectAwaitCompletionPaths(
-            ResearchViews.MemberProjectionResult projection,
+            MemberProjectionResult projection,
             AnnotatedSourceDocument document)
     {
         return

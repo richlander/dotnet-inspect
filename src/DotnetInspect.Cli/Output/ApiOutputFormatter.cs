@@ -1825,7 +1825,10 @@ public static class ApiOutputFormatter
             pdbPath,
             options?.IncludeAll ?? false,
             options?.RenderOptions,
-            sourceAssembly))
+            sourceAssembly,
+            request.RequiresResearchProjection && overloadIndex.HasValue
+                ? analysisInspection.ResearchContext
+                : null))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -1899,8 +1902,8 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
-    static FactRow ToFactRow(
-        ILInspector.Research.ResearchViews.FactRow fact)
+    static DotnetInspect.Cli.Views.FactRow ToFactRow(
+        ILInspector.Research.FactRow fact)
         => new(
             fact.Member,
             fact.ILOffset is { } offset

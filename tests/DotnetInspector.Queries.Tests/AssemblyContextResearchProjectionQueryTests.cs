@@ -444,9 +444,9 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                         CallRelationships = true,
                     }));
 
-        ResearchViews.FactRow[] relationshipRows =
+        FactRow[] relationshipRows =
         [
-            .. Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+            .. Assert.IsAssignableFrom<IReadOnlyList<FactRow>>(
                     projection.Projection.Facts)
                 .Where(row =>
                     row.Id
@@ -512,7 +512,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         int[] sourceFactIds =
         [
             .. Assert.IsAssignableFrom<
-                    IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                    IReadOnlyList<AnnotatedSourceFactIdentity>>(
                     projection.Projection.SourceDocumentFactIdentities)
                 .Select(identity => identity.FactId),
         ];

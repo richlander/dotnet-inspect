@@ -442,9 +442,9 @@ public sealed record BrowserMemberFindingCensus
 
     internal static BrowserMemberFindingCensus Create(
         FindingCensusReceipt? receipt,
-        IReadOnlyList<ResearchViews.FactRow>? facts,
+        IReadOnlyList<FactRow>? facts,
         AnnotatedSourceDocument document,
-        IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>? sourceFactIdentities,
+        IReadOnlyList<AnnotatedSourceFactIdentity>? sourceFactIdentities,
         InertString provenance,
         string? contextLimitation,
         BrowserAnnotatedSourceInvocationDestination[]?
@@ -496,7 +496,7 @@ public sealed record BrowserMemberFindingCensus
         var projectedFacts = new BrowserMemberFindingFact[facts.Count];
         for (int index = 0; index < facts.Count; index++)
         {
-            ResearchViews.FactRow fact = facts[index];
+            FactRow fact = facts[index];
             bool hasReceipt = fact.CensusReceipt is not null;
             bool hasKey = fact.InstanceKey is not null;
             if (hasReceipt != hasKey)
@@ -544,7 +544,7 @@ public sealed record BrowserMemberFindingCensus
             new BrowserSourceFactInstance[sourceFactIdentities.Count];
         for (int index = 0; index < sourceFactIdentities.Count; index++)
         {
-            ResearchViews.AnnotatedSourceFactIdentity identity =
+            AnnotatedSourceFactIdentity identity =
                 sourceFactIdentities[index];
             if (identity.CensusReceipt != censusReceipt)
             {
