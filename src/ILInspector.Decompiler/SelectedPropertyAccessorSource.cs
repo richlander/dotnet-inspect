@@ -88,14 +88,20 @@ public sealed class SelectedPropertyAccessorSource
             int token = MetadataTokens.GetToken(methodHandle);
             List<string> returnAttributes = [];
             List<string> valueAttributes = [];
+            bool hasImplicitValueName = getter;
             foreach (var parameterHandle in definition.GetParameters())
             {
                 var parameter = reader.GetParameter(parameterHandle);
                 if (parameter.SequenceNumber == 0)
                     returnAttributes = AttributeReader.RenderParameterAttributes(reader, parameterHandle);
                 else if (!getter && parameter.SequenceNumber == 1)
+                {
+                    hasImplicitValueName = reader.GetString(parameter.Name) == "value";
                     valueAttributes = AttributeReader.RenderParameterAttributes(reader, parameterHandle);
+                }
             }
+            if (!hasImplicitValueName)
+                return null;
             var selectedProperty = new ApiMember
             {
                 Name = name,

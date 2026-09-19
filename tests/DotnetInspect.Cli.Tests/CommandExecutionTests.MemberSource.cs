@@ -1256,12 +1256,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains(
-            "+public readonly int get_Value()",
-            output);
-        Assert.DoesNotContain(
-            "+public int get_Value()",
-            output);
+        Assert.Contains("PDB comparison and Decompiled comparison are identical.", output);
+        Assert.DoesNotContain("get_Value(", output);
     }
 
     [Theory]

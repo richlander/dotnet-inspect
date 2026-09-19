@@ -171,8 +171,10 @@ also retains method form here: existing body projection can spell that storage
 as a property access, and changing only the envelope would introduce recursion.
 Backing-storage recovery and indexer parameter coordination require separate
 body/binding work. This slice does not rewrite body text to compensate.
-An incompatible implicit setter parameter binding is a visible composition
-failure, not an invented name substitution.
+An unnamed or differently named setter parameter retains method form, rather
+than inventing an implicit `value` binding. If body projection subsequently
+changes a supported accessor's parameter bindings, composition fails visibly
+instead of substituting text.
 
 The single adoption slice covers CLI Decompiled Source, Annotated Source and
 overlays, and the shared member-source producer used by Source Diff and
@@ -190,6 +192,8 @@ gates the CSharp formatter's existing physical-modifier obligation. The CLI
 `MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;
 the four-view real-library case is `Speed=Slow` (measured above two seconds)
 and runs in daily Deep Inspect plus this slice's focused pre-merge gate.
+`Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` also retains
+the unnamed setter control in its lowered method form.
 
 ## Address: identity, not an ordinal
 
