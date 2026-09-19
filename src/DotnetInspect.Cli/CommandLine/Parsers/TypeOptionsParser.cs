@@ -323,18 +323,25 @@ public static class TypeOptionsParser
             }
         }
 
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         bool selectsTypeListingRows =
-            IsTypeListingRowSelection(
+            !selectsCloneCandidateRows
+            && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
-        RowSelectionIntent<string>? typeListingRowSelection = null;
-        if (selectsTypeListingRows
+        RowSelectionIntent<string>? semanticRowSelection = null;
+        if ((selectsCloneCandidateRows || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
-                    "Type",
-                    out typeListingRowSelection,
+                    selectsCloneCandidateRows
+                        ? "Clone Candidates"
+                        : "Type",
+                    out semanticRowSelection,
                     out string? rowSelectionError))
         {
             return new VersionError(rowSelectionError!);
@@ -453,7 +460,9 @@ public static class TypeOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             TypeFilter = typeFilter,
-            TypeListingRowSelection = typeListingRowSelection,
+            TypeListingRowSelection = selectsTypeListingRows
+                ? semanticRowSelection
+                : null,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             Limit = memberLimit,
@@ -495,8 +504,13 @@ public static class TypeOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
             Rows = selectsTypeListingRows
+                || semanticRowSelection is not null
                 ? null
                 : opts.ParseRows(parseResult),
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? semanticRowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

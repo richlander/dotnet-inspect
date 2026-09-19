@@ -562,6 +562,20 @@ public static class InspectionCommandDefinitions
             {
                 select = [.. select ?? [], SectionNames.CloneCandidates];
             }
+            RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+            if (CloneCandidateRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Clone Candidates",
+                        out cloneCandidateRowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
@@ -643,7 +657,11 @@ public static class InspectionCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                Rows = cloneCandidateRowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
+                CloneCandidateRowSelection =
+                    cloneCandidateRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -655,6 +673,28 @@ public static class InspectionCommandDefinitions
 
             return await LibraryCommand.ExecuteAsync(options);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return assemblyCommand;
     }

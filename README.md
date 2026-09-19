@@ -981,6 +981,10 @@ dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
   -S "Clone Candidates" \
   --where "Breadth=Self" \
   --where "Discovery=All"
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 2
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 1 --tail --count
 dotnet-inspect type -Q "Clone Candidates"
 ```
 
@@ -989,7 +993,11 @@ dotnet-inspect type -Q "Clone Candidates"
 selected exact library as its finite Workspace participant snapshot and
 discloses that scope in tabular diagnostics and structured coverage. It does
 not infer registered-ecosystem membership or silently narrow the requested
-breadth.
+breadth. `-n`, `--tail`, and strict `--rows` windows select complete ranked
+candidate pairs consistently across Markdown, tables, TSV, JSONL, projected
+JSON, complete JSON, and `--count`. Coverage and the work receipt remain
+complete evidence, so structured `receipt.returned_pairs` can exceed the
+selected `rows` length.
 
 Rows are retrieval candidates, not checked clone relations. They retain rank,
 both exact method endpoints, the 0-10,000 total and component scores, and the
