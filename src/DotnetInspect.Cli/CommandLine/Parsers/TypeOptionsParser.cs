@@ -393,7 +393,8 @@ public static class TypeOptionsParser
                 sourceInputs,
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
-                tryQualifiedTypeName: true);
+                tryQualifiedTypeName: true,
+                parseResult.GetValue(args.FrameworkOption));
             source = sourceSelection.Source;
         }
 

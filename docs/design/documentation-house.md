@@ -186,6 +186,14 @@ undocumented rather than failing otherwise valid reference subjects. Deferred
 type/member discovery preserves an explicitly selected framework family and
 version by resolving the type and owning assembly from that exact catalog, so
 reopening cannot combine a requested target with the current catalog's Library.
+Mixed reference and implementation search results may acquire the requested
+pack, but they do not issue the selected Library: versioned deferred routing
+projects the exact `PlatformTypeCatalog` definition or forwarder candidate
+after acquisition.
+Direct type and member source selection uses that same requested catalog
+before applying current-runtime core-library heuristics; when the requested
+catalog is not local, source selection defers to acquisition rather than
+substituting a current-runtime Library.
 The resolved platform source retains the actual reference-pack TFM, including
 legacy `netcoreapp*` directory identities, rather than reconstructing it from
 the display version. The netstandard path, for which PlatformHouse defines no

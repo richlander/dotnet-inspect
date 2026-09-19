@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -170,6 +171,12 @@ internal static class TypeFindIfMissResolver
             normalizedQuery,
             logger,
             httpClient);
+        if (!string.IsNullOrWhiteSpace(frameworkSpec))
+        {
+            return ResolveTargetCatalog(
+                query!,
+                frameworkSpec);
+        }
 
             var exactMatches = results
                 .Select(r => new TypeFindResult
@@ -212,6 +219,78 @@ internal static class TypeFindIfMissResolver
             0 => TypeFindIfMissResult.None(query!),
             1 => TypeFindIfMissResult.Found(query!, candidateMatches[0]),
             _ => TypeFindIfMissResult.Ambiguous(query!, candidateMatches)
+        };
+    }
+
+    private static TypeFindIfMissResult ResolveTargetCatalog(
+        string query,
+        string frameworkSpec)
+    {
+        PlatformTypeLookupOutcome lookup =
+            PlatformResolver.LookupTypeInFramework(
+                query,
+                frameworkSpec);
+        return lookup switch
+        {
+            PlatformTypeLookupOutcome.Resolved resolved =>
+                TypeFindIfMissResult.Found(
+                    query,
+                    CreateTargetCatalogMatch(
+                        query,
+                        resolved.Candidate)),
+            PlatformTypeLookupOutcome.Ambiguous ambiguous =>
+                TypeFindIfMissResult.Ambiguous(
+                    query,
+                    [
+                        .. ambiguous.Candidates.Select(
+                            candidate =>
+                                CreateTargetCatalogMatch(
+                                    query,
+                                    candidate)),
+                    ]),
+            PlatformTypeLookupOutcome.Missing =>
+                TypeFindIfMissResult.None(query),
+            PlatformTypeLookupOutcome.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"Platform type lookup failed "
+                        + $"({rejected.Failure.Kind}): "
+                        + rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown platform type lookup outcome."),
+        };
+    }
+
+    private static TypeFindResult CreateTargetCatalogMatch(
+        string query,
+        PlatformTypeLookupCandidate candidate)
+    {
+        if (candidate.Assembly.Provenance
+            is not AssemblyResolutionProvenance.PlatformAsset platform)
+        {
+            throw new InvalidOperationException(
+                "The target catalog returned a non-platform assembly.");
+        }
+
+        string fullName =
+            MetadataTypeNameFormatter.FormatGenericTypeName(
+                candidate.Type.ToMetadataFullName());
+        string typeName =
+            MetadataTypeNameFormatter.FormatGenericTypeName(
+                candidate.Type.Segments.Length == 1
+                    ? candidate.Type.Segments[0]
+                    : string.Join(
+                        ".",
+                        candidate.Type.Segments));
+        return new TypeFindResult
+        {
+            Pattern = query,
+            Match = TypeFindMatchKind.Direct,
+            Type = typeName,
+            Namespace = candidate.Type.Namespace,
+            FullName = fullName,
+            Library = candidate.Assembly.Identity.Name,
+            Source = platform.Framework,
+            SourceVersion = platform.FrameworkVersion,
         };
     }
 

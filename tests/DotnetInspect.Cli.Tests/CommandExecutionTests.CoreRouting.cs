@@ -930,6 +930,55 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_VersionedPlatformTarget_UsesTargetCatalogLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.AppDomain",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains("System.Runtime.Extensions.dll", output);
+    }
+
+    [Fact]
+    public async Task Member_VersionedCoreType_UsesReferenceDocumentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.String",
+            "--framework",
+            "runtime@10.0.10",
+            "-S",
+            "Methods",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Using platform ref library: runtime 10.0.10",
+            error);
+        Assert.Contains(
+            "Extracting API from: System.Runtime.dll",
+            error);
+        Assert.Contains(
+            "Represents text as a sequence of UTF-16 code units.",
+            output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(
