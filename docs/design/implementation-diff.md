@@ -274,7 +274,13 @@ recoverable per-method Analysis failure (surfaced as a receipt diagnostic)
 leaves a profile missing without distinguishing it from a genuine
 addition/removal, so any diagnostic on either endpoint makes the whole
 comparison unavailable rather than reporting a possibly-spurious
-Added/Removed row. The explicit CLI Implementation Diff section renders only
+Added/Removed row. Each retained change also carries the full paired
+`MethodImplementationProfile` (old/new, when available) behind its narrow
+complexity number - the same instruction, branch, switch, loop,
+exception-region, call, allocation, and async/state-machine facts Analysis
+already collects per method - so later comparison-population or clustering
+work can build directly on this paired evidence instead of re-deriving
+correspondence. The explicit CLI Implementation Diff section renders only
 non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
 computed complexity lane rather than resetting it to unavailable. Ranking,
