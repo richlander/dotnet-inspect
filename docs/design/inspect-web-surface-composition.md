@@ -776,24 +776,25 @@ Overview identity.
 
 ```text
 Overview                                      type and member totals
-Version · Framework                         (Package only)
+Version                                     (Package only)
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
 package@version                                    active framework
 ```
 
-The quiet header preserves the current subject's type and member totals. Existing
-Package Version and Framework controls occupy one compact row; Library Overview
-does not gain coordinate controls. One independently scrolling content region
-starts with a larger icon and readable name, the surface's single visible
-level-one heading. Both subjects reuse the package's existing icon selection and
-fallback. Library retains its own name, asset path and full assembly identity.
-The identity is part of the full-width content, not a new inset card.
+The quiet header preserves the current subject's type and member totals. The
+Package Version control occupies one compact row; the Package navigation pane
+owns TFM selection, and Library Overview does not gain coordinate controls.
+One independently scrolling content region starts with a larger icon and
+readable name, the surface's single visible level-one heading. Both subjects
+reuse the package's existing icon selection and fallback. Library retains its
+own name, asset path and full assembly identity. The identity is part of the
+full-width content, not a new inset card.
 
 When the product classifies the package/platform target relation as
 incompatible, Package Overview renders one warning immediately below the
-Version and Framework controls:
+Version control:
 
 > This package is incompatible with the Workspace platform. Some operations may
 > be blocked, and some results may be incorrect.
@@ -843,9 +844,10 @@ Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM or
-version keeps the package shell, inspected target, navigation, and data bar
-visible, whether the target is cached or needs acquisition. Only the
+Overview presents the already-loaded package. Changing its selected TFM from
+the Package navigation pane or its version from the working surface keeps the
+package shell, inspected target, navigation, and data bar visible, whether the
+target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
 or expose the previous coordinate's results as the requested coordinate.

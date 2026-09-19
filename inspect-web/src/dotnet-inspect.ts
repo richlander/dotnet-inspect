@@ -3230,10 +3230,12 @@ function closeSpotlight() {
 }
 
 const packageControls = createPackageControls({
-  selectFramework: framework =>
+  selectFramework: framework => {
+    if (contentFrameUsesPush()) contentFramePane = "detail";
     observeAsync(
       switchPackageFramework(framework),
-      "Switching the package framework"),
+      "Switching the package framework");
+  },
   selectVersion: version => {
     if (state.package?.isRuntimePack)
       observeAsync(
@@ -4768,10 +4770,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && navigationSequence.isCurrent(packageContentLoadingSequence);
   const packageLoadingHadFocus =
     focusedElement?.id === "package-content-loading";
+  const packageFrameworkHadFocus =
+    focusedElement?.dataset.packageFramework !== undefined;
   const packageLoadingControl = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingControl
-    : focusedElement?.id;
+    : packageFrameworkHadFocus
+      ? "package-framework"
+      : focusedElement?.id;
+  const packageLoadingFramework = packageLoadingHadFocus
+    ? focusedElement?.dataset.packageLoadingFramework
+    : focusedElement?.dataset.packageFramework;
   const packageControlHadFocus = packageLoadingControl === "framework"
+    || packageLoadingControl === "package-framework"
     || packageLoadingControl === "package-version";
   const packageRetryHadFocus = loadingPackageContent
     && focusedElement?.id === "retry-notice";
@@ -5032,7 +5042,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Libraries"
+      ? "Frameworks"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
     apiWorkingSurface
@@ -5125,7 +5135,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
             : ""}
           <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryCompareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
-              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "framework"}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
+              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "package-framework"}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
           </article>
         </section>
@@ -5180,9 +5190,16 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
   } else if (packageRetryHadFocus || packageControlHadFocus) {
-    document.querySelector<HTMLElement>(
-      loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
-      ?.focus({ preventScroll: true });
+    const packageControl = loadingPackageContent
+      ? document.querySelector<HTMLElement>("#package-content-loading")
+      : packageLoadingControl === "package-framework"
+        ? contentFrameMedia.matches
+          ? document.querySelector<HTMLElement>("#content-navigation-toggle")
+          : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
+              .find(button =>
+                button.dataset.packageFramework === packageLoadingFramework)
+        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`);
+    packageControl?.focus({ preventScroll: true });
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -5336,9 +5353,10 @@ function renderNavPane(
 ) {
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
+    const pkg = currentPackage();
     return renderPackageNav({
-      libraries: packageLibraries(),
-      selectedLibrary: selectedLibrary()?.id ?? "",
+      frameworks: pkg.frameworks,
+      activeFramework: pkg.activeFramework,
       escapeHtml,
     });
   }
@@ -5609,7 +5627,7 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageCoordinateFields() {
+function packageVersionField() {
   if (state.rootKind === "platform") return "";
   const pkg = currentPackage();
   return `<label class="version-select">
@@ -5617,13 +5635,22 @@ function packageCoordinateFields() {
     <select id="package-version">
       ${versionOptionsHtml(pkg)}
     </select>
-  </label>
-  <label class="framework-select">
+  </label>`;
+}
+
+function packageFrameworkField() {
+  if (state.rootKind === "platform") return "";
+  const pkg = currentPackage();
+  return `<label class="framework-select">
     <span>Framework</span>
     <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
       ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
     </select>
   </label>`;
+}
+
+function packageCoordinateFields() {
+  return `${packageVersionField()}${packageFrameworkField()}`;
 }
 
 function renderPackageView() {
@@ -5750,7 +5777,7 @@ function renderPackageDependenciesSurface(content: string, status: string) {
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
     <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
+      <div class="package-coordinate-fields">${packageVersionField()}</div>
     </section>
     <div class="package-dependencies-scroll">
       ${content}
@@ -6970,7 +6997,7 @@ function renderPackageOverview() {
     activeFramework: pkg.activeFramework,
     totalTypes: pkg.totalTypes,
     totalMembers: pkg.totalMembers,
-    coordinateFieldsHtml: packageCoordinateFields(),
+    coordinateFieldsHtml: packageVersionField(),
     contentHtml,
     escapeHtml,
   });

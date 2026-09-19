@@ -533,8 +533,10 @@ for (const [subject, width] of [
         ]);
       await page.getByRole("combobox", { name: "Version", exact: true }).selectOption("9.0.0");
       await expect(page.locator("#package-version")).toHaveValue("9.0.0");
-      await page.getByRole("combobox", { name: "Framework", exact: true }).selectOption("net10.0-windows10.0.19041.0");
-      await expect(page.locator("#framework")).toHaveValue("net10.0-windows10.0.19041.0");
+      await expect(page.getByRole("combobox", { name: "Framework", exact: true }))
+        .toHaveCount(0);
+      await expect(page.locator('[data-package-framework="net10.0"]'))
+        .toHaveAttribute("aria-current", "page");
     } else {
       await expect(page.locator(".overview-controls")).toHaveCount(0);
       await expect(page.locator(".overview-identity-detail")).toHaveText([
@@ -584,8 +586,8 @@ for (const [subject, width] of [
       const toggle = await box(page, "#content-navigation-toggle");
       expect(toggle.y).toBeGreaterThanOrEqual(header.y);
       expect(toggle.y + toggle.height).toBeLessThanOrEqual(header.y + header.height);
-      await page.getByRole("button", { name: subject === "package" ? "Libraries" : "Types", exact: true }).click();
-      await expect(page.locator(subject === "package" ? ".library-subject-list" : ".type-list")).toBeFocused();
+      await page.getByRole("button", { name: subject === "package" ? "Frameworks" : "Types", exact: true }).click();
+      await expect(page.locator(subject === "package" ? ".package-framework-list" : ".type-list")).toBeFocused();
       await expect(page.locator(".detail-pane")).toBeHidden();
     }
   });
@@ -1806,7 +1808,9 @@ test("the inspected target occupies the second row and package selectors stay in
   await expect(page.locator(".titlebar #package-version")).toHaveCount(0);
   await expect(page.locator(".titlebar #framework")).toHaveCount(0);
   await expect(page.locator(".detail-scroll #package-version")).toBeVisible();
-  await expect(page.locator(".detail-scroll #framework")).toBeVisible();
+  await expect(page.locator(".detail-scroll #framework")).toHaveCount(0);
+  await expect(page.locator('[data-package-framework="net10.0"]'))
+    .toHaveAttribute("aria-current", "page");
   await expect(page.locator("#go-home")).toHaveCount(0);
 
   const packageIcon = await box(page, ".subject-icon");

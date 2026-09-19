@@ -30,6 +30,13 @@ export function bindPackageSelections(
   root: ParentNode,
   actions: PackageSelectionActions,
 ): void {
+  root.querySelectorAll<HTMLElement>("[data-package-framework]").forEach(button =>
+    button.addEventListener(
+      "click",
+      () => {
+        const framework = button.dataset.packageFramework;
+        if (framework) actions.onFrameworkSelect(framework);
+      }));
   const framework = root.querySelector<HTMLSelectElement>("#framework");
   framework?.addEventListener(
     "change",
