@@ -337,6 +337,181 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void FamilyDefaultReceipt_UsesTypedStagesInsteadOfPlanOrder()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        var plan = new PlatformSourcePlan(
+            PlatformSourcePlanIdentity.Create("reversed-plan"),
+            PlatformSourcePolicyGeneration.Create("generation"),
+            [
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.TargetDiscovery,
+                    PlatformSourceSelectionMode.Aggregation,
+                    [package, installed]),
+            ]);
+        PlatformHouseRequest request = Request(demand, plan);
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            Framework(),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        var discovery = new PlatformSourceContribution.TargetDiscovery(
+            installed,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("installed-generation"),
+            [target]);
+        var selected = new PlatformSourceSettlement(
+            discovery,
+            PlatformSourceSettlementDisposition.Selected);
+
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            new PlatformTargetSettlement.Selected(
+                demand,
+                target,
+                [discovery]),
+            [selected],
+            Consumed(),
+            termination: new PlatformHouseTermination.Unavailable(
+                PlatformHouseTerminalEvidenceIdentity.Create("unavailable")));
+
+        Assert.Same(target, receipt.TargetSettlement.SettledTarget);
+        Assert.Same(selected, Assert.Single(receipt.SourceSettlements));
+    }
+
+    [Fact]
+    public void FamilyDefaultFallback_RequiresTypedPreferredAbsence()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        PlatformHouseRequest request = Request(
+            demand,
+            TargetDiscoveryPlan(package, installed));
+        var belowFloor = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.0"));
+        var eligibleInstalled = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            Framework(),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        var fallbackTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.12"));
+        var preferredAbsence =
+            new PlatformSourceContribution.TargetDiscovery(
+                installed,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("installed-generation"),
+                [belowFloor]);
+        var preferredMatch =
+            new PlatformSourceContribution.TargetDiscovery(
+                installed,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("installed-match"),
+                [eligibleInstalled]);
+        var fallback = new PlatformSourceContribution.TargetDiscovery(
+            package,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("package-generation"),
+            [fallbackTarget]);
+        var selectedTarget = new PlatformTargetSettlement.Selected(
+            demand,
+            fallbackTarget,
+            [fallback]);
+        var selectedFallback = new PlatformSourceSettlement(
+            fallback,
+            PlatformSourceSettlementDisposition.Selected);
+
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            selectedTarget,
+            [
+                new PlatformSourceSettlement(
+                    preferredAbsence,
+                    PlatformSourceSettlementDisposition.OutcomeRelevant),
+                selectedFallback,
+            ],
+            Consumed(),
+            termination: new PlatformHouseTermination.Unavailable(
+                PlatformHouseTerminalEvidenceIdentity.Create("unavailable")));
+
+        Assert.Same(fallbackTarget, receipt.TargetSettlement.SettledTarget);
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                request.Snapshot,
+                selectedTarget,
+                [
+                    new PlatformSourceSettlement(
+                        preferredMatch,
+                        PlatformSourceSettlementDisposition.OutcomeRelevant),
+                    selectedFallback,
+                ],
+                Consumed(),
+                termination: new PlatformHouseTermination.Unavailable(
+                    PlatformHouseTerminalEvidenceIdentity.Create(
+                        "preferred-match"))));
+    }
+
+    [Fact]
+    public void TargetDiscoveryRejection_PreservesDemandMismatchEvidence()
+    {
+        PlatformSourceCapabilityIdentity invoked =
+            PlatformSourceCapabilityIdentity.Create("invoked-source");
+        PlatformSourceCapabilityIdentity demanded =
+            PlatformSourceCapabilityIdentity.Create("demanded-source");
+        var demand = new PlatformTargetDemand.Selecting(
+            PlatformFamily.DotNetRuntime,
+            Framework(),
+            new PlatformVersionSelectionDemand.Requirement(
+                PlatformVersionRequirementIdentity.Create("net11-stable")),
+            [demanded],
+            new PlatformTargetDiscoveryBudget(4, 8));
+        PlatformHouseRequest request = Request(
+            demand,
+            TargetDiscoveryPlan(invoked, demanded));
+
+        var rejection = new PlatformSourceContribution.Rejected(
+            PlatformSourceFacet.TargetDiscovery,
+            invoked,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("invoked-generation"),
+            exactTarget: null);
+        var rejectionSettlement = new PlatformSourceSettlement(
+            rejection,
+            PlatformSourceSettlementDisposition.OutcomeRelevant);
+        var rejectedReceipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            new PlatformTargetSettlement.Unsettled(demand),
+            [rejectionSettlement],
+            Consumed(),
+            termination: new PlatformHouseTermination.Rejected(
+                new PlatformHouseRejection.OwnerEvidence(
+                    PlatformHouseRejectionKind.InvalidSourcePlan,
+                    PlatformHouseTerminalEvidenceIdentity.Create(
+                        "demand-mismatch"))));
+
+        Assert.Same(
+            rejection,
+            Assert.Single(rejectedReceipt.SourceSettlements).Contribution);
+        Assert.Throws<ArgumentException>(
+            () => new PlatformSourceContribution.TargetDiscovery(
+                invoked,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("invalid-success"),
+                []));
+    }
+
+    [Fact]
     public void SourcePlan_SnapshotsExplicitFacetPolicy()
     {
         PlatformSourceCapabilityIdentity first =

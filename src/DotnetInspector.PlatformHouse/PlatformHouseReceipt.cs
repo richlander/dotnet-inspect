@@ -746,7 +746,9 @@ public sealed class PlatformHouseReceipt
             }
             if (contribution.Facet == PlatformSourceFacet.TargetDiscovery
                 && !request.Target.AuthorizesDiscoveryCapability(
-                    contribution.Capability))
+                    contribution.Capability)
+                && contribution.Kind
+                    != PlatformSourceContributionKind.Rejected)
             {
                 throw new ArgumentException(
                     "A target-discovery contribution is not authorized by the selecting demand.",
@@ -784,12 +786,25 @@ public sealed class PlatformHouseReceipt
         }
         if (selectedDiscoveries.Length != 0)
         {
-            ValidateSuccessfulFacetPolicy(
-                PlatformSourceFacet.TargetDiscovery,
-                selectedDiscoveries,
-                sourceSnapshot,
-                request.Sources,
-                nameof(targetSettlement));
+            if (request.Target
+                is PlatformTargetDemand.FamilyDefault familyDefault)
+            {
+                ValidateFamilyDefaultTargetPolicy(
+                    familyDefault,
+                    targetSettlement.SettledTarget!,
+                    selectedDiscoveries,
+                    sourceSnapshot,
+                    nameof(targetSettlement));
+            }
+            else
+            {
+                ValidateSuccessfulFacetPolicy(
+                    PlatformSourceFacet.TargetDiscovery,
+                    selectedDiscoveries,
+                    sourceSnapshot,
+                    request.Sources,
+                    nameof(targetSettlement));
+            }
         }
 
         if (completion is not null)
@@ -862,6 +877,180 @@ public sealed class PlatformHouseReceipt
                 nameof(consumed));
         }
     }
+
+    static void ValidateFamilyDefaultTargetPolicy(
+        PlatformTargetDemand.FamilyDefault demand,
+        PlatformFamilyTarget target,
+        IReadOnlyList<PlatformSourceSettlement> selected,
+        IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+        string parameterName)
+    {
+        PlatformTargetDiscoveryStage selectedStage =
+            demand.Policy.StageFor(
+                selected[0].Contribution.Capability)
+            ?? throw new ArgumentException(
+                "Selected target evidence is outside the family-default stages.",
+                parameterName);
+        if (selected.Any(
+            settlement => !ReferenceEquals(
+                demand.Policy.StageFor(
+                    settlement.Contribution.Capability),
+                selectedStage)))
+        {
+            throw new ArgumentException(
+                "One family-default target settlement cannot select contributions from different stages.",
+                parameterName);
+        }
+
+        if (ReferenceEquals(selectedStage, demand.Policy.Preferred))
+        {
+            ValidateSelectedFamilyDefaultStage(
+                selectedStage,
+                target,
+                selected,
+                sourceSettlements,
+                parameterName);
+            if (sourceSettlements.Any(
+                settlement => settlement.Contribution.Facet
+                        == PlatformSourceFacet.TargetDiscovery
+                    && demand.Policy.Fallback.Contains(
+                        settlement.Contribution.Capability)))
+            {
+                throw new ArgumentException(
+                    "Fallback discovery cannot contribute when the preferred stage selects a target.",
+                    parameterName);
+            }
+            return;
+        }
+
+        if (!ReferenceEquals(selectedStage, demand.Policy.Fallback))
+        {
+            throw new ArgumentException(
+                "Selected target evidence is outside the family-default stages.",
+                parameterName);
+        }
+
+        if (demand.Policy.Preferred is { } preferred)
+        {
+            foreach (PlatformSourceCapabilityIdentity capability
+                in preferred.Capabilities)
+            {
+                PlatformSourceSettlement prior =
+                    RequireSingleFamilyDefaultContribution(
+                        capability,
+                        sourceSettlements,
+                        parameterName);
+                if (prior.Disposition
+                        != PlatformSourceSettlementDisposition.OutcomeRelevant
+                    || !IsAuthoritativePreferredAbsence(
+                        demand,
+                        prior.Contribution))
+                {
+                    throw new ArgumentException(
+                        "Fallback selection requires authoritative absence from every preferred capability.",
+                        parameterName);
+                }
+            }
+        }
+
+        ValidateSelectedFamilyDefaultStage(
+            selectedStage,
+            target,
+            selected,
+            sourceSettlements,
+            parameterName);
+    }
+
+    static void ValidateSelectedFamilyDefaultStage(
+        PlatformTargetDiscoveryStage stage,
+        PlatformFamilyTarget target,
+        IReadOnlyList<PlatformSourceSettlement> selected,
+        IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+        string parameterName)
+    {
+        foreach (PlatformSourceCapabilityIdentity capability
+            in stage.Capabilities)
+        {
+            PlatformSourceSettlement retained =
+                RequireSingleFamilyDefaultContribution(
+                    capability,
+                    sourceSettlements,
+                    parameterName);
+            bool isSelected = selected.Contains(retained);
+            if (isSelected)
+            {
+                if (retained.Disposition
+                        != PlatformSourceSettlementDisposition.Selected
+                    || retained.Contribution
+                        is not PlatformSourceContribution.TargetDiscovery
+                            discovery
+                    || !discovery.Candidates.Contains(target))
+                {
+                    throw new ArgumentException(
+                        "Selected stage evidence must be a completed inventory that offered the exact target.",
+                        parameterName);
+                }
+                continue;
+            }
+
+            bool retainedInventory =
+                retained.Contribution
+                    is PlatformSourceContribution.TargetDiscovery
+                && retained.Disposition
+                    is PlatformSourceSettlementDisposition.Shadowed
+                        or PlatformSourceSettlementDisposition.OutcomeRelevant;
+            bool retainedAbsence =
+                retained.Contribution
+                    is PlatformSourceContribution.Unavailable
+                    {
+                        Reason: PlatformSourceUnavailabilityKind.Absent,
+                    }
+                && retained.Disposition
+                    == PlatformSourceSettlementDisposition.OutcomeRelevant;
+            if (!retainedInventory && !retainedAbsence)
+            {
+                throw new ArgumentException(
+                    "Target selection requires conclusive evidence from every capability in its stage.",
+                    parameterName);
+            }
+        }
+    }
+
+    static PlatformSourceSettlement
+        RequireSingleFamilyDefaultContribution(
+            PlatformSourceCapabilityIdentity capability,
+            IReadOnlyList<PlatformSourceSettlement> sourceSettlements,
+            string parameterName)
+    {
+        PlatformSourceSettlement[] matches = [.. sourceSettlements.Where(
+            settlement =>
+                settlement.Contribution.Facet
+                    == PlatformSourceFacet.TargetDiscovery
+                && ReferenceEquals(
+                    settlement.Contribution.Capability,
+                    capability))];
+        if (matches.Length != 1)
+        {
+            throw new ArgumentException(
+                "Family-default settlement requires one retained contribution from every executed stage capability.",
+                parameterName);
+        }
+        return matches[0];
+    }
+
+    static bool IsAuthoritativePreferredAbsence(
+        PlatformTargetDemand.FamilyDefault demand,
+        PlatformSourceContribution contribution) =>
+        contribution is PlatformSourceContribution.Unavailable
+        {
+            Reason: PlatformSourceUnavailabilityKind.Absent,
+        }
+        || contribution
+            is PlatformSourceContribution.TargetDiscovery discovery
+            && !discovery.Candidates.Any(
+                candidate => demand.IsEligibleSelection(
+                    contribution.Capability,
+                    candidate));
 
     static void ValidateCompletionSourcePolicy(
         PlatformHouseCompletion completion,

@@ -57,12 +57,6 @@ public abstract class PlatformSourceContribution
                     "Target discovery requires a selecting target demand.",
                     nameof(request));
             }
-            if (!request.Target.AuthorizesDiscoveryCapability(capability))
-            {
-                throw new ArgumentException(
-                    "The target-discovery capability is not authorized by the demand.",
-                    nameof(capability));
-            }
             if (exactTarget is not null)
             {
                 throw new ArgumentException(
@@ -117,6 +111,12 @@ public abstract class PlatformSourceContribution
                 exactTarget: null)
         {
             ArgumentNullException.ThrowIfNull(candidates);
+            if (!request.Target.AuthorizesDiscoveryCapability(capability))
+            {
+                throw new ArgumentException(
+                    "The target-discovery capability is not authorized by the demand.",
+                    nameof(capability));
+            }
             PlatformFamilyTarget[] snapshot = [.. candidates];
             var seen = new HashSet<PlatformFamilyTarget>();
             for (int index = 0; index < snapshot.Length; index++)
