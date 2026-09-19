@@ -503,8 +503,8 @@ public static partial class PackageQuery
     private static readonly ImmutableArray<string> EqualityOperator =
         [PortableQueryModel.TextOf(PortableQueryOperator.Equal)];
 
-    /// <summary>The complete ordered Package Query vocabulary.</summary>
-    public static ImmutableArray<PackageQueryTermDescriptor> Terms { get; } =
+    private static readonly ImmutableArray<PackageQueryTermDescriptor>
+        DeclaredTerms =
     [
         new(
             PackageTermKey,
@@ -748,8 +748,12 @@ public static partial class PackageQuery
         },
     ];
 
+    /// <summary>The complete ordered Package Query vocabulary.</summary>
+    public static ImmutableArray<PackageQueryTermDescriptor> Terms =>
+        OperationRegistration.TermDescriptors;
+
     static readonly IReadOnlyDictionary<string, PackageQueryTermDescriptor>
-        TermsByKey = Terms.ToDictionary(
+        TermsByKey = DeclaredTerms.ToDictionary(
             descriptor => descriptor.Key,
             StringComparer.Ordinal);
 
@@ -833,9 +837,7 @@ public static partial class PackageQuery
         }
 
         PortableQueryResolution<PackageQueryPlan> resolution =
-            PortableQueryResolver.Resolve(
-                Vocabulary.Identity,
-                Vocabulary,
+            OperationRegistration.Route.Resolve(
                 intent,
                 cancellationToken);
         if (!resolution.IsResolved)
@@ -1100,7 +1102,7 @@ public static partial class PackageQuery
         @operator == PortableQueryOperator.Equal
         && value.Equals("true", StringComparison.OrdinalIgnoreCase)
             ? PortableQueryBinding<PackageQueryPredicate>.Bound(
-                $"{Terms.Single(term => term.Key == KeyOf(kind)).Key}:true",
+                $"{Descriptor(KeyOf(kind)).Key}:true",
                 new(kind, Flag: true))
             : PortableQueryBinding<PackageQueryPredicate>.Rejected;
 

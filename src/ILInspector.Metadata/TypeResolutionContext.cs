@@ -1767,7 +1767,7 @@ public sealed class TypeResolutionContext : IDisposable
                         resolved.Definition.Type,
                         out TypeDeclarationResult? declaration)
                     || declaration is not TypeDeclarationResult.Defined
-                        { KindDependency: { } dependency })
+                    { KindDependency: { } dependency })
                 {
                     continue;
                 }
@@ -2292,6 +2292,38 @@ public sealed class TypeResolutionContext : IDisposable
 
                 switch (declaration)
                 {
+                    case TypeDeclarationResult.DefinitionKindUnavailable
+                        unavailable:
+                        {
+                            AssemblyInventorySnapshot unavailableInventory =
+                                _inventories[current.Id];
+                            var unavailableKey = new ResolvedTypeDefinitionKey(
+                                _acquisition.CatalogId,
+                                _generation,
+                                current.Id,
+                                unavailable.Definition);
+                            var unavailableAddress =
+                                new MetadataTypeDefinitionAddress(
+                                unavailableInventory.ModuleVersionId,
+                                unavailable.Definition);
+                            return Completed(
+                                new TypeResolutionOutcome.Resolved(
+                                    new ResolvedTypeDefinition(
+                                        unavailableKey,
+                                        unavailableAddress,
+                                        current,
+                                        occurrence,
+                                        request.Type,
+                                        MetadataTypeDefinitionKind.Unknown,
+                                        unavailable
+                                            .DeclaringAssemblyDefinesCoreLibraryRoot,
+                                        unavailable.GenericParameterCount,
+                                        new TypeResolutionFailure
+                                            .DefinitionKindUnavailable(
+                                                unavailable.Failure)),
+                                    hops.ToImmutable()));
+                        }
+
                     case TypeDeclarationResult.Defined defined:
                         AssemblyInventorySnapshot inventory =
                             _inventories[current.Id];

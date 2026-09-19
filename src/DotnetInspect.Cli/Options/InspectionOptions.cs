@@ -190,6 +190,11 @@ public record InspectionOptions : IProjectionOptions
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
 
     /// <summary>
+    /// Semantic row selection for one package layout's scoped file paths.
+    /// </summary>
+    public RowSelectionIntent<string>? PackageLayoutRowSelection { get; init; }
+
+    /// <summary>
     /// Semantic row selection for one package's target-framework listing.
     /// </summary>
     public RowSelectionIntent<string>? PackageTfmRowSelection { get; init; }

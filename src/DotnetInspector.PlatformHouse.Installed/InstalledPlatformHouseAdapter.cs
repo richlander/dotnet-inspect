@@ -121,20 +121,46 @@ public sealed class InstalledPlatformHouseAdapter
         ArgumentNullException.ThrowIfNull(request);
         InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
             ownerOutcome;
-        if (request.Target is not PlatformTargetDemand.Selecting selecting)
+        PlatformFamily family;
+        PlatformTargetDiscoveryBudget discoveryWork;
+        InstalledReferenceDiscoveryScope scope;
+        bool demandAuthorizes;
+        switch (request.Target)
         {
-            throw new ArgumentException(
-                "Installed target discovery requires a selecting House target.",
-                nameof(request));
+            case PlatformTargetDemand.Selecting selecting:
+                family = selecting.Family;
+                discoveryWork = selecting.Work;
+                scope = new InstalledReferenceDiscoveryScope.ExactFramework(
+                    selecting.TargetFramework);
+                demandAuthorizes = selecting.DiscoveryCapabilities.Any(
+                    capability => ReferenceEquals(
+                        capability,
+                        Capabilities.TargetDiscovery));
+                break;
+            case PlatformTargetDemand.FamilyDefault familyDefault
+                when familyDefault.Policy.Preferred?.Capabilities.Any(
+                    capability => ReferenceEquals(
+                        capability,
+                        Capabilities.TargetDiscovery)) == true:
+                family = familyDefault.Family;
+                discoveryWork = familyDefault.Work;
+                scope = new InstalledReferenceDiscoveryScope.AllFrameworks();
+                demandAuthorizes = true;
+                break;
+            case PlatformTargetDemand.FamilyDefault:
+                return RejectDiscovery(
+                    request,
+                    "Installed family-default discovery requires the preferred all-framework stage.");
+            default:
+                throw new ArgumentException(
+                    "Installed target discovery requires a selecting House target.",
+                    nameof(request));
         }
 
         if (!request.Sources.Authorizes(
                 PlatformSourceFacet.TargetDiscovery,
                 Capabilities.TargetDiscovery)
-            || !selecting.DiscoveryCapabilities.Any(
-                capability => ReferenceEquals(
-                    capability,
-                    Capabilities.TargetDiscovery)))
+            || !demandAuthorizes)
         {
             return RejectDiscovery(
                 request,
@@ -156,11 +182,10 @@ public sealed class InstalledPlatformHouseAdapter
         {
             ownerOutcome = _referenceSource.Discover(
                 new InstalledReferenceDiscoveryRequest(
-                    MapFamily(selecting.Family),
-                    new InstalledReferenceDiscoveryScope.ExactFramework(
-                        selecting.TargetFramework),
+                    MapFamily(family),
+                    scope,
                     Math.Min(
-                        selecting.Work.MaxCandidates,
+                        discoveryWork.MaxCandidates,
                         request.Work.MaxTargetCandidates)),
                 budgetCancellation.Token);
         }

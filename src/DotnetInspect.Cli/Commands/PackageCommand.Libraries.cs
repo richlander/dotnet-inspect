@@ -206,12 +206,11 @@ public partial class PackageCommand
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
         }
-
-        if (!LibraryCommand.ValidateReferenceTreeCount(
-                libraryOptions.Tree,
-                libraryOptions.Count,
-                libraryOptions.IncludeSections))
+        if (libraryOptions.IncludeSections?.Contains(
+                SectionNames.ReferenceHierarchy) == true)
         {
+            CommandError.Write(
+                "Reference Hierarchy requires one exact library. Use --library <assembly>.");
             return 1;
         }
 
@@ -249,13 +248,6 @@ public partial class PackageCommand
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
         List<HostQueryDemand> commandQueryDemand = [];
-        if (libraryOptions.CollectReferenceTree)
-        {
-            commandQueryDemand.Add(
-                new HostQueryDemand(
-                    "reference tree",
-                    AssemblyReferencesQuery.Definition));
-        }
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
             && libraryOptions.PerformanceTriage.HasCandidateFilters)

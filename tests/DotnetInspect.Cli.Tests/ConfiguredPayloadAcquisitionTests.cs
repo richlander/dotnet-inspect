@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
@@ -861,7 +862,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 PackageInfoMeasurementStatus.Measured,
                 measurements.Status);
             Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-            Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+            Assert.Equal(
+                "net11.0",
+                measurements.SelectedTargetFramework!.ToString());
             Assert.Equal(
                 ["net11.0", "net8.0"],
                 measurements.AvailableTargetFrameworks!
@@ -916,6 +919,292 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             DesktopPackageExtractor.Cleanup(result.TempDir);
         }
+    }
+
+    [Fact]
+    public async Task PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm()
+    {
+        string id = $"Pinned.ToolMeasurements.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ("tools/net10.0/any/Alpha.dll", new byte[11]),
+            ("tools/net10.0/any/Beta.dll", new byte[17]),
+            ("tools/net10.0/any/fr/Alpha.resources.dll", new byte[19]),
+            (
+                "tools/net10.0/any/runtimes/linux-x64/native/Native.dll",
+                new byte[23]),
+            ("tools/net8.0/any/Alpha.dll", new byte[29]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        for (int run = 0; run < 2; run++)
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tfm", "all", "--tips", "q"]);
+
+            Assert.True(exit == 0, $"Exit {exit}: {error}");
+            Assert.Contains("| Type | Tool |", output);
+            Assert.Contains("| Selected TFM | net10.0 |", output);
+            Assert.Contains("| Selected-TFM Folders | tools |", output);
+            Assert.Contains("| TFMs | net10.0, net8.0 |", output);
+            Assert.Contains("| Selected-TFM Size | 28 B |", output);
+            Assert.Contains("| Selected-TFM Library Count | 2 |", output);
+            Assert.DoesNotContain("| Selected-TFM Status |", output);
+            Assert.Empty(error);
+        }
+
+        Assert.Equal(
+            2,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_DeclaredToolJsonRetainsMeasuredAndNoApplicableOutcomes()
+    {
+        string id = $"Pinned.ToolMeasurementJson.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ("tools/net10.0/any/Alpha.dll", new byte[11]),
+            ("tools/net10.0/any/Beta.dll", new byte[17]),
+            ("tools/net8.0/any/Alpha.dll", new byte[29]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (measuredExit, measuredOutput, measuredError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--json", "--tips", "q"]);
+
+        Assert.True(
+            measuredExit == 0,
+            $"Exit {measuredExit}: {measuredError}");
+        using (JsonDocument document = JsonDocument.Parse(measuredOutput))
+        {
+            JsonElement measurements = document.RootElement.GetProperty(
+                "package_info_measurements");
+            Assert.Equal(
+                "Measured",
+                measurements.GetProperty("status").GetString());
+            Assert.Equal(
+                archive.LongLength,
+                measurements.GetProperty(
+                    "compressed_package_bytes").GetInt64());
+            Assert.Equal(
+                "net10.0",
+                measurements.GetProperty(
+                    "selected_target_framework").GetString());
+            Assert.Equal(
+                ["net10.0", "net8.0"],
+                measurements.GetProperty(
+                        "available_target_frameworks")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Equal(
+                ["tools"],
+                measurements.GetProperty(
+                        "selected_target_framework_folders")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Equal(
+                28,
+                measurements.GetProperty(
+                    "selected_library_payload_bytes").GetInt64());
+            Assert.Equal(
+                2,
+                measurements.GetProperty(
+                    "selected_library_count").GetInt32());
+            Assert.False(measurements.TryGetProperty("detail", out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "unavailable_reason",
+                    out _));
+        }
+        Assert.Empty(measuredError);
+
+        var (noApplicableExit, noApplicableOutput, noApplicableError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tfm", "net6.0",
+                    "--json", "--tips", "q"]);
+
+        Assert.True(
+            noApplicableExit == 0,
+            $"Exit {noApplicableExit}: {noApplicableError}");
+        using (JsonDocument document = JsonDocument.Parse(
+            noApplicableOutput))
+        {
+            JsonElement measurements = document.RootElement.GetProperty(
+                "package_info_measurements");
+            Assert.Equal(
+                "NoApplicableSlice",
+                measurements.GetProperty("status").GetString());
+            Assert.Equal(
+                ["net10.0", "net8.0"],
+                measurements.GetProperty(
+                        "available_target_frameworks")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Contains(
+                "no applicable tool slice",
+                measurements.GetProperty("detail").GetString(),
+                StringComparison.OrdinalIgnoreCase);
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_target_framework",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_library_payload_bytes",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_library_count",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "unavailable_reason",
+                    out _));
+        }
+        Assert.Empty(noApplicableError);
+    }
+
+    [Fact]
+    public async Task PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs()
+    {
+        const string UnsafeFramework = "net10.0\u202EHOSTILE";
+        string id = $"Pinned.ToolFrameworkContainment.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ($"tools/{UnsafeFramework}/any/Tool.dll", new byte[11]),
+            ("tools/net8.0/any/Legacy.dll", new byte[7]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (markoutExit, markoutOutput, markoutError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(
+            markoutExit == 0,
+            $"Exit {markoutExit}: {markoutError}");
+        Assert.Contains(
+            @"| Selected TFM | net10.0\u202EHOSTILE |",
+            markoutOutput);
+        Assert.DoesNotContain('\u202E', markoutOutput);
+        Assert.Empty(markoutError);
+
+        var (jsonExit, jsonOutput, jsonError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--json", "--tips", "q"]);
+
+        Assert.True(jsonExit == 0, $"Exit {jsonExit}: {jsonError}");
+        using JsonDocument document = JsonDocument.Parse(jsonOutput);
+        Assert.Equal(
+            @"net10.0\u202EHOSTILE",
+            document.RootElement
+                .GetProperty("package_info_measurements")
+                .GetProperty("selected_target_framework")
+                .GetString());
+        Assert.DoesNotContain('\u202E', jsonOutput);
+        Assert.Empty(jsonError);
+    }
+
+    [Fact]
+    public async Task PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements()
+    {
+        string id = $"Pinned.ToolShape.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: null,
+            ("tools/net10.0/any/Shape.dll", new byte[11]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Type | Tool |", output);
+        Assert.DoesNotContain("| Selected TFM |", output);
+        Assert.DoesNotContain("| Selected-TFM Size |", output);
+        Assert.DoesNotContain("| Selected-TFM Library Count |", output);
+        Assert.Contains("| Selected-TFM Status |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task PackageCommand_WrapperDeclarationDoesNotAuthorizePayloadMeasurements()
+    {
+        string wrapperId = $"Pinned.ToolWrapper.{Guid.NewGuid():N}";
+        string payloadId = $"{wrapperId}.Payload";
+        string source = Path.Combine(_root, "tool-wrapper-feed");
+        Directory.CreateDirectory(source);
+        byte[] settings = Encoding.UTF8.GetBytes($"""
+            <DotNetCliTool Version="2">
+              <Commands>
+                <Command Name="wrapped" EntryPoint="Payload.dll" Runner="dotnet" />
+              </Commands>
+              <RuntimeIdentifierPackages>
+                <RuntimeIdentifierPackage RuntimeIdentifier="any" Id="{payloadId}" />
+              </RuntimeIdentifierPackages>
+            </DotNetCliTool>
+            """);
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{wrapperId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreateToolPackage(
+                wrapperId,
+                packageType: "DotnetTool",
+                ("tools/net10.0/any/DotnetToolSettings.xml", settings)));
+        File.WriteAllBytes(
+            Path.Combine(
+                source,
+                $"{payloadId.ToLowerInvariant()}.{Version}.nupkg"),
+            CreateToolPackage(
+                payloadId,
+                packageType: null,
+                ("tools/net10.0/any/Payload.dll", new byte[31])));
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", $"{wrapperId}@{Version}", "--source", source,
+                "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Type | Tool v2 |", output);
+        Assert.DoesNotContain("| Selected TFM |", output);
+        Assert.DoesNotContain("| Selected-TFM Size |", output);
+        Assert.DoesNotContain("| Selected-TFM Library Count |", output);
+        Assert.Contains("| Selected-TFM Status |", output);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -1147,6 +1436,41 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     using Stream entry = archive.CreateEntry(path).Open();
                     entry.Write(content);
                 }
+            }
+        }
+        return buffer.ToArray();
+    }
+
+    private static byte[] CreateToolPackage(
+        string id,
+        string? packageType,
+        params (string Path, byte[] Content)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            string packageTypes = packageType is not null
+                ? $"""
+                      <packageTypes>
+                        <packageType name="{packageType}" />
+                      </packageTypes>
+                  """
+                : "";
+            WriteEntry(archive, $"{id}.nuspec", $"""
+                <package><metadata>
+                  <id>{id}</id><version>{Version}</version>
+                  <authors>Payload tests</authors>
+                  <description>Tool measurement fixture</description>
+                {packageTypes}
+                </metadata></package>
+                """);
+            foreach ((string path, byte[] content) in entries)
+            {
+                using Stream stream = archive.CreateEntry(path).Open();
+                stream.Write(content);
             }
         }
         return buffer.ToArray();

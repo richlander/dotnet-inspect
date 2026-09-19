@@ -238,7 +238,9 @@ public sealed partial class BrowserEngineBoundaryTests
         PackageInfoMeasurements measurements = realization.PackageInfo.Content;
         Assert.Equal(PackageInfoMeasurementStatus.Measured, measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-        Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+        Assert.Equal(
+            "net11.0",
+            measurements.SelectedTargetFramework!.ToString());
         IReadOnlyList<InertString> folders =
             measurements.SelectedTargetFrameworkFolders
             ?? throw new InvalidOperationException(
@@ -511,7 +513,10 @@ public sealed partial class BrowserEngineBoundaryTests
                     SettlementPackageId,
                     SettlementStableVersion,
                     compressedPackageBytes: 4096,
-                    selectedTargetFramework: "net8.0",
+                    selectedTargetFramework:
+                        InertString.FromEncoded(
+                            TextPolicy.Field,
+                            "net8.0"),
                     availableTargetFrameworks:
                     [
                         InertString.FromEncoded(TextPolicy.Field, "net8.0"),

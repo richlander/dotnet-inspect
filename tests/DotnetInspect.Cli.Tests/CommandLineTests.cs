@@ -742,10 +742,10 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void LibraryCommand_WithReferenceTreeDepth_ParsesCorrectly()
+    public void LibraryCommand_WithReferenceHierarchyDepth_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
-            ["library", "MyLib.dll", "-S", "References", "--tree", "--depth", "2"]);
+            ["library", "MyLib.dll", "-S", "Reference Hierarchy", "--tree", "--depth", "2"]);
 
         Assert.Empty(result.Errors);
     }

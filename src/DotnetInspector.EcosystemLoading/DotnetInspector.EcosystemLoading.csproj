@@ -16,8 +16,10 @@
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
     <ProjectReference Include="../DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj" />
+    <ProjectReference Include="../Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />
     <ProjectReference Include="../Inspector.Resources/Inspector.Resources.csproj" />
   </ItemGroup>
 

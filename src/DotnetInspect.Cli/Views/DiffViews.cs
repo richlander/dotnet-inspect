@@ -366,20 +366,23 @@ public record ImplementationDiffRow(
     [property: MarkoutIgnore, JsonIgnore] InertString MechanismText,
     [property: MarkoutIgnore, JsonIgnore] InertString DifferenceText,
     [property: MarkoutIgnore, JsonIgnore] InertString ChangeText,
-    [property: MarkoutIgnore, JsonIgnore] InertString EvidenceText)
+    [property: MarkoutIgnore, JsonIgnore] InertString EvidenceText,
+    [property: MarkoutIgnore, JsonIgnore] InertString KindText)
 {
     public ImplementationDiffRow(
         string member,
         string mechanism,
         string difference,
         string change,
-        string evidence)
+        string evidence,
+        string kind = "")
         : this(
             DiffViewText.Field(member),
             DiffViewText.Field(mechanism),
             DiffViewText.Field(difference),
             DiffViewText.Field(change),
-            DiffViewText.Field(evidence))
+            DiffViewText.Field(evidence),
+            DiffViewText.Field(kind))
     {
     }
 
@@ -388,6 +391,13 @@ public record ImplementationDiffRow(
     public string Difference => DifferenceText.ToString();
     public string Change => ChangeText.ToString();
     public string Evidence => EvidenceText.ToString();
+
+    /// <summary>
+    /// Machine-readable <see cref="Inspector.Findings.FindingDescriptor.Id"/> for this row's
+    /// mechanism (e.g. <c>analysis.complexity.normal-flow</c>), for facet-style querying. Empty
+    /// when the row's mechanism has no descriptor wired yet.
+    /// </summary>
+    public string Kind => KindText.ToString();
 }
 
 [MarkoutSerializable]

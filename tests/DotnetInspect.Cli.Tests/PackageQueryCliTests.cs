@@ -43,21 +43,35 @@ public class PackageQueryCliTests
     [Fact]
     public void DiscoveryValues_ExposeTheProductTermVocabulary()
     {
+        PackageQueryRegisteredTerm[] registeredInspectionTerms =
+        [
+            .. PackageQuery.RegisteredTerms.Where(term =>
+                term.Descriptor.Role
+                    == PackageQueryTermRole.Inspection),
+        ];
         Assert.Equal(
-            [
-                PackageQuery.DependenciesTermKey,
-                PackageQuery.DependencyTargetTermKey,
-                PackageQuery.DependsTermKey,
-                PackageQuery.DependsEcosystemTermKey,
-                PackageQuery.LicenseTermKey,
-                PackageQuery.DownloadsTermKey,
-                PackageQuery.ReadmeTermKey,
-                PackageQuery.ToolTermKey,
-                PackageQuery.ToolFormatTermKey,
-                PackageQuery.ReferencesTermKey,
-                PackageQuery.SkillTermKey,
-            ],
+            registeredInspectionTerms.Select(term =>
+                term.Descriptor.Key),
             PackageQueryOptions.QueryKeys.Select(key => key.Name));
+        Assert.Contains(
+            registeredInspectionTerms,
+            term => term.Descriptor.Key
+                == PackageQuery.ReferencesTermKey);
+        Assert.Equal(
+            registeredInspectionTerms.Length,
+            PackageQueryOptions.QueryKeys.Length);
+        for (int index = 0;
+             index < registeredInspectionTerms.Length;
+             index++)
+        {
+            Assert.Equal(
+                registeredInspectionTerms[index].Operators.Select(
+                    @operator =>
+                        @operator == PortableQueryOperator.Equal
+                            ? "="
+                            : throw new InvalidOperationException()),
+                PackageQueryOptions.QueryKeys[index].Comparisons);
+        }
         Assert.Equal(
             ["v1", "v2"],
             PackageQueryOptions.QueryKeys.Single(key =>
@@ -96,6 +110,57 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void CliLowering_ProducesTheRegisteredCanonicalIntent()
+    {
+        RowSelectionIntent<string> selection =
+            RowSelectionIntent<string>.Create(
+            [
+                RowSelectionIntentOperation<string>.Head(3),
+            ]);
+
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["license=MIT"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: selection,
+                includePrerelease: true,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryIntent expected = PortableQueryIntent.Create(
+            [
+                new(
+                    PackageQuery.LicenseTermKey,
+                    PortableQueryOperator.Equal,
+                    "MIT"),
+                new(
+                    PackageQuery.PrefixTermKey,
+                    PortableQueryOperator.Equal,
+                    "Contoso."),
+                new(
+                    PackageQuery.PrereleaseTermKey,
+                    PortableQueryOperator.Equal,
+                    "include"),
+            ],
+            [
+                new("candidates", 200),
+                new("matches", 3),
+            ],
+            [PortableQueryStage.Head(3)],
+            []);
+        Assert.Equal(
+            PortableQueryPayloadCodec.Encode(
+                expected,
+                TestContext.Current.CancellationToken),
+            PortableQueryPayloadCodec.Encode(
+                options!.Plan.Intent,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -145,18 +145,27 @@ public sealed class PdbLocalScopePass : IIrPass
         if (lastBlock <= firstBlock || lastStatement is null)
             return;
 
-        var consumedBlockOffsets = blocks
-            .Skip(firstBlock + 1)
-            .Take(lastBlock - firstBlock)
-            .Select(block => block.StartOffset)
-            .ToHashSet();
-        if (ReferenceOwnership.CollectBranchTargets(function).Overlaps(consumedBlockOffsets))
-            return;
+        var branchTargets = ReferenceOwnership.CollectBranchTargets(function);
+        var retainedLabels = new Dictionary<int, LabelAnchor>();
+        for (int blockIndex = firstBlock + 1; blockIndex <= lastBlock; blockIndex++)
+        {
+            if (!branchTargets.Contains(blocks[blockIndex].StartOffset))
+                continue;
+            var anchor = new LabelAnchor { RetainsPdbLocalScope = true };
+            anchor.SetSourceOffset(blocks[blockIndex].StartOffset);
+            retainedLabels.Add(blockIndex, anchor);
+        }
 
         var range = new List<IrNode>();
         range.AddRange(declarationBlock.Children.Skip(declaration.ChildIndex));
         for (int blockIndex = firstBlock + 1; blockIndex < lastBlock; blockIndex++)
+        {
+            if (retainedLabels.TryGetValue(blockIndex, out LabelAnchor? anchor))
+                range.Add(anchor);
             range.AddRange(blocks[blockIndex].Children);
+        }
+        if (retainedLabels.TryGetValue(lastBlock, out LabelAnchor? rangeLastAnchor))
+            range.Add(rangeLastAnchor);
         range.AddRange(blocks[lastBlock].Children.Take(lastStatement.ChildIndex + 1));
         if (!CanRetainRange(function, index, sameName, range))
             return;
@@ -174,10 +183,14 @@ public sealed class PdbLocalScopePass : IIrPass
             lexical.Add(firstStatements[position]);
         for (int blockIndex = firstBlock + 1; blockIndex < lastBlock; blockIndex++)
         {
+            if (retainedLabels.TryGetValue(blockIndex, out LabelAnchor? anchor))
+                lexical.Add(anchor);
             foreach (IrNode statement in statementsByBlock[blockIndex - firstBlock])
                 lexical.Add(statement);
         }
         var lastStatements = statementsByBlock[^1];
+        if (retainedLabels.TryGetValue(lastBlock, out LabelAnchor? lexicalLastAnchor))
+            lexical.Add(lexicalLastAnchor);
         for (int position = 0; position <= lastPosition; position++)
             lexical.Add(lastStatements[position]);
 

@@ -300,18 +300,26 @@ public sealed class BrowserPackageQueryOperationsTests
         BrowserPackageQueryCatalog catalog =
             BrowserPackageQueryOperations.Catalog();
 
-        var expectedPresets = PackageQuery.Terms
-            .Where(term => term.Role == PackageQueryTermRole.Inspection)
-            .SelectMany(term => term.Options.Select(option => (term, option)))
+        var expectedPresets = PackageQuery.RegisteredTerms
+            .Where(term =>
+                term.Descriptor.Role
+                    == PackageQueryTermRole.Inspection)
+            .SelectMany(term =>
+                term.Descriptor.Options.Select(option =>
+                    (term, option)))
             .ToArray();
         Assert.Equal(expectedPresets.Length, catalog.Presets.Length);
         for (int index = 0; index < catalog.Presets.Length; index++)
         {
-            (PackageQueryTermDescriptor term,
+            (PackageQueryRegisteredTerm registered,
                 PackageQueryTermOptionDescriptor option) = expectedPresets[index];
+            PackageQueryTermDescriptor term = registered.Descriptor;
             BrowserPackageQueryPresetDescriptor actual = catalog.Presets[index];
             Assert.Equal(term.Key, actual.Key);
-            Assert.Equal("eq", actual.Operator);
+            Assert.Equal(
+                PortableQueryModel.TextOf(
+                    Assert.Single(registered.Operators)),
+                actual.Operator);
             Assert.Equal(option.Value, actual.Value);
             Assert.Equal(option.Label, actual.Label);
             Assert.Equal(option.Summary, actual.Summary);
@@ -328,22 +336,29 @@ public sealed class BrowserPackageQueryOperationsTests
                 actual.Tier);
         }
 
-        PackageQueryTermDescriptor[] expectedTerms =
+        PackageQueryRegisteredTerm[] expectedTerms =
         [
-            .. PackageQuery.Terms.Where(term =>
-                term.Role == PackageQueryTermRole.Inspection
-                && term.ControlKind == PackageQueryTermControlKind.Input),
+            .. PackageQuery.RegisteredTerms.Where(term =>
+                term.Descriptor.Role
+                    == PackageQueryTermRole.Inspection
+                && term.Descriptor.ControlKind
+                    == PackageQueryTermControlKind.Input),
         ];
         Assert.Equal(expectedTerms.Length, catalog.Terms.Length);
         for (int index = 0; index < expectedTerms.Length; index++)
         {
-            PackageQueryTermDescriptor expected = expectedTerms[index];
+            PackageQueryRegisteredTerm registered = expectedTerms[index];
+            PackageQueryTermDescriptor expected =
+                registered.Descriptor;
             BrowserPackageQueryTermDescriptor actual = catalog.Terms[index];
             Assert.Equal(expected.Key, actual.Key);
             Assert.Equal(expected.Label, actual.Label);
             Assert.Equal(expected.Summary, actual.Summary);
             Assert.Equal(expected.Weight, actual.Weight);
-            Assert.Equal(expected.Operators, actual.Operators);
+            Assert.Equal(
+                registered.Operators.Select(
+                    PortableQueryModel.TextOf),
+                actual.Operators);
             Assert.Equal(expected.ValueKind, actual.ValueKind);
             Assert.Equal(expected.ExampleValue, actual.Example);
             Assert.Equal(BrowserTier(expected.Tier), actual.Tier);
@@ -402,6 +417,52 @@ public sealed class BrowserPackageQueryOperationsTests
 
         Assert.Same(term, Assert.Single(accepted.Plan.Terms));
         Assert.True(accepted.Plan.RequiresPackageContent);
+    }
+
+    [Fact]
+    public void BrowserLowering_ProducesTheRegisteredCanonicalIntent()
+    {
+        var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            BrowserPackageQueryOperations.Plan(
+                "Contoso.*",
+                [
+                    new PortableQueryTerm(
+                        PackageQuery.LicenseTermKey,
+                        PortableQueryOperator.Equal,
+                        "MIT"),
+                ],
+                maximumCandidates: 200,
+                maximumMatches: 3,
+                includePrerelease: true));
+
+        PortableQueryIntent expected = PortableQueryIntent.Create(
+            [
+                new(
+                    PackageQuery.LicenseTermKey,
+                    PortableQueryOperator.Equal,
+                    "MIT"),
+                new(
+                    PackageQuery.PrefixTermKey,
+                    PortableQueryOperator.Equal,
+                    "Contoso."),
+                new(
+                    PackageQuery.PrereleaseTermKey,
+                    PortableQueryOperator.Equal,
+                    "include"),
+            ],
+            [
+                new("candidates", 200),
+                new("matches", 3),
+            ],
+            [PortableQueryStage.Head(3)],
+            []);
+        Assert.Equal(
+            PortableQueryPayloadCodec.Encode(
+                expected,
+                TestContext.Current.CancellationToken),
+            PortableQueryPayloadCodec.Encode(
+                accepted.Plan.Intent,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]

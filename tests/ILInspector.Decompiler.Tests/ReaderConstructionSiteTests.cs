@@ -218,6 +218,11 @@ public sealed class ReaderConstructionSiteTests
                  "The discovery overload. Defers to GrantIfEntitled, so identity "
                  + "follows the reference's provenance and a planted sibling "
                  + "reached by resolution gets nothing."),
+            ["Pipeline.MetadataSource.OpenWithSuppliedPortablePdb(ResolvedAssemblyReference, ImmutableArray`1<Byte>, IAssemblyBindingPolicy, MetadataContext, CancellationToken)"] =
+                (TrustRole.ObtainsReader,
+                 "Obtains the assembly reader through the resolved-reference "
+                 + "OpenCore path. Identity remains governed by that reference's "
+                 + "provenance; the supplied PDB cannot mint assembly identity."),
             ["Pipeline.MetadataSource.OpenFromPrefetchedImage(String, ImmutableArray`1<Byte>, String, IAssemblyReferenceResolver, MetadataContext)"] =
                 (TrustRole.ObtainsReader | TrustRole.GrantsIdentity,
                  "Designation by path plus caller-supplied bytes; its one product "

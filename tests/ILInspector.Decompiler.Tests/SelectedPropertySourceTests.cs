@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
@@ -164,6 +168,238 @@ public sealed class SelectedPropertySourceTests
         var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
         Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
         Assert.Contains(expected, result.Text);
+    }
+
+    [Theory]
+    [InlineData("SelectedAutoPropertySamples", "Count", "public int Count { get; }")]
+    [InlineData("SelectedAutoPropertySamples", "SharedCount", "public static int SharedCount { get; }")]
+    [InlineData("SelectedAutoPropertySamples", "Limit", "public virtual int Limit { get; }")]
+    [InlineData("SelectedAutoPropertySamples", "event", "public int @event { get; }")]
+    [InlineData("DerivedAutoPropertySamples", "Limit", "public override int Limit { get; }")]
+    [InlineData("GenericAutoPropertySamples`1", "Item", "public T? Item { get; }")]
+    [InlineData("GenericAutoPropertySamples`1", "SharedCount", "public static int SharedCount { get; }")]
+    [InlineData("StructAutoPropertySamples", "Count", "public readonly int Count { get; }")]
+    public void GetterOnlyAutoPropertyPreservesBackingStorage(
+        string typeName, string propertyName, string expected)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path,
+                $"ILInspector.Decompiler.Fixtures.{typeName}", propertyName, "get");
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains(expected, result.Text);
+            Assert.DoesNotContain("=>", result.Text);
+            string listing = MemberBodyProducer.Project(type, path, pdbPath: null).Output!;
+            var compilation = AssertCompiles(listing, path);
+            var projectedType = Assert.IsAssignableFrom<INamedTypeSymbol>(
+                compilation.Assembly.GetTypeByMetadataName(type.FullName));
+            var property = Assert.IsAssignableFrom<IPropertySymbol>(
+                Assert.Single(projectedType.GetMembers(propertyName)));
+            Assert.NotNull(property.GetMethod);
+            Assert.Null(property.SetMethod);
+            var storage = Assert.Single(projectedType.GetMembers().OfType<IFieldSymbol>());
+            Assert.Same(property, storage.AssociatedSymbol);
+            Assert.True(storage.IsReadOnly);
+            Assert.Equal(property.IsStatic, storage.IsStatic);
+        }
+    }
+
+    [Theory]
+    [InlineData("MutableCount", "get")]
+    [InlineData("MutableCount", "set")]
+    [InlineData("InitialCount", "get")]
+    [InlineData("InitialCount", "set")]
+    [InlineData("ComputedCount", "get")]
+    [InlineData("DescribedCount", "get")]
+    [InlineData("DebugCount", "get")]
+    public void UnsupportedBackingStorageRetainsMethodForm(string propertyName, string role)
+    {
+        string path = FixturePath(false);
+        var (type, accessor) = Select(path,
+            "ILInspector.Decompiler.Fixtures.SelectedAutoPropertySamples", propertyName, role);
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains($"{role}_{propertyName}(", result.Text);
+        Assert.DoesNotContain("{ get; }", result.Text);
+    }
+
+    [Fact]
+    public void AutomaticGetterRetainsAccessorAttributes()
+    {
+        string path = FixturePath(false);
+        var (type, accessor) = Select(path,
+            "ILInspector.Decompiler.Fixtures.SelectedAutoPropertySamples", "Label", "get");
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("[DebuggerStepThrough]", result.Text);
+        Assert.Contains("MaybeNull", result.Text);
+        Assert.Contains("get;", result.Text);
+        Assert.DoesNotContain("return this.", result.Text);
+        AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!, path);
+    }
+
+    [Fact]
+    public void ExplicitAutomaticGetterKeepsItsInterfaceBinding()
+    {
+        string path = FixturePath(false);
+        var type = Extract(path, "ILInspector.Decompiler.Fixtures.ExplicitAutoPropertySamples");
+        var property = Assert.Single(type.Members, member =>
+            member.Kind == "property" && member.GetterToken is not null);
+        var accessor = Assert.Single(ApiMemberAccessors.Create(property, type));
+        type.Members = [accessor];
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("int IAutoPropertySample.Count { get; }", result.Text);
+        var compilation = AssertCompiles(
+            MemberBodyProducer.Project(type, path, pdbPath: null).Output!, path);
+        var projectedType = Assert.IsAssignableFrom<INamedTypeSymbol>(
+            compilation.Assembly.GetTypeByMetadataName(type.FullName));
+        var projectedProperty = Assert.Single(projectedType.GetMembers().OfType<IPropertySymbol>());
+        Assert.Single(projectedProperty.ExplicitInterfaceImplementations);
+        Assert.Null(projectedProperty.SetMethod);
+    }
+
+    [Theory]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, false, false)]
+    [InlineData(false, false, false, true)]
+    [InlineData(false, true, true, true)]
+    public void AutomaticGetterRequiresItsOwnReadonlyGenericStorage(
+        bool foreignInstantiation, bool readonlyStorage, bool expectedAutomatic, bool sameNameNeighbor)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"selected-storage-{Guid.NewGuid():N}.dll");
+        try
+        {
+            var assembly = new PersistedAssemblyBuilder(new AssemblyName("SelectedStorage"), typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule("SelectedStorage");
+            var declaringType = module.DefineType("SelectedStorage", TypeAttributes.Public);
+            var parameter = declaringType.DefineGenericParameters("T")[0];
+            var marker = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
+            if (sameNameNeighbor)
+            {
+                var otherField = declaringType.DefineField(
+                    "<Count>k__BackingField", typeof(long), FieldAttributes.Private | FieldAttributes.Static
+                        | (readonlyStorage ? 0 : FieldAttributes.InitOnly));
+                otherField.SetCustomAttribute(marker);
+            }
+            var field = declaringType.DefineField(
+                "<Count>k__BackingField", typeof(int), FieldAttributes.Private | FieldAttributes.Static
+                    | (readonlyStorage ? FieldAttributes.InitOnly : 0));
+            field.SetCustomAttribute(marker);
+            var getter = declaringType.DefineMethod(
+                "get_Count", MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig, typeof(int), Type.EmptyTypes);
+            getter.SetCustomAttribute(marker);
+            var body = getter.GetILGenerator();
+            body.Emit(OpCodes.Ldsfld, TypeBuilder.GetField(
+                declaringType.MakeGenericType(foreignInstantiation ? typeof(int) : parameter), field));
+            body.Emit(OpCodes.Ret);
+            declaringType.DefineProperty("Count", PropertyAttributes.None, typeof(int), Type.EmptyTypes)
+                .SetGetMethod(getter);
+            declaringType.CreateType();
+            assembly.Save(path);
+
+            var type = Extract(path, "SelectedStorage");
+            var property = Assert.Single(type.Members, member => member.Kind == "property");
+            var accessor = Assert.Single(ApiMemberAccessors.Create(property, type));
+            type.Members = [accessor];
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Equal(expectedAutomatic, result.Text!.Contains("{ get; }", StringComparison.Ordinal));
+            if (expectedAutomatic)
+                AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!);
+            else
+                Assert.Contains("get_Count()", result.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public void AutomaticGetterDeclinesModifiedStorage(bool required, bool nested)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"modified-storage-{Guid.NewGuid():N}.dll");
+        try
+        {
+            var assembly = new PersistedAssemblyBuilder(new AssemblyName("ModifiedStorage"), typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule("ModifiedStorage");
+            var declaringType = module.DefineType("ModifiedStorage", TypeAttributes.Public);
+            Type storageType = nested ? typeof(int[]) : typeof(int);
+            Type modifier = required ? typeof(System.Runtime.CompilerServices.IsVolatile)
+                : typeof(System.Runtime.CompilerServices.IsConst);
+            var field = declaringType.DefineField(
+                "<Count>k__BackingField", storageType,
+                required ? [modifier] : null, required ? null : [modifier],
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
+            var marker = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
+            field.SetCustomAttribute(marker);
+            var getter = declaringType.DefineMethod(
+                "get_Count", MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig, storageType, Type.EmptyTypes);
+            getter.SetCustomAttribute(marker);
+            getter.GetILGenerator().Emit(OpCodes.Ldsfld, field);
+            getter.GetILGenerator().Emit(OpCodes.Ret);
+            declaringType.DefineProperty("Count", PropertyAttributes.None, storageType, Type.EmptyTypes)
+                .SetGetMethod(getter);
+            declaringType.CreateType();
+            assembly.Save(path);
+
+            if (nested)
+            {
+                // Reflection.Emit exposes top-level modifiers; place this one on the array element.
+                byte[] image = File.ReadAllBytes(path);
+                using var pe = new PEReader(new MemoryStream(image));
+                var reader = pe.GetMetadataReader();
+                var signatureHandle = reader.GetFieldDefinition(Assert.Single(reader.FieldDefinitions)).Signature;
+                byte[] signature = reader.GetBlobBytes(signatureHandle);
+                Assert.Equal((byte)SignatureTypeCode.SZArray, signature[^2]);
+                Assert.Equal((byte)SignatureTypeCode.Int32, signature[^1]);
+                int offset = pe.PEHeaders.MetadataStartOffset
+                    + reader.GetHeapMetadataOffset(HeapIndex.Blob) + MetadataTokens.GetHeapOffset(signatureHandle);
+                Assert.Equal(signature.Length, image[offset]);
+                image[offset + 2] = (byte)SignatureTypeCode.SZArray;
+                signature.AsSpan(1, signature.Length - 3).CopyTo(image.AsSpan(offset + 3));
+                File.WriteAllBytes(path, image);
+            }
+
+            var type = Extract(path, "ModifiedStorage");
+            var property = Assert.Single(type.Members, member => member.Kind == "property");
+            var accessor = Assert.Single(ApiMemberAccessors.Create(property, type));
+            type.Members = [accessor];
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains("get_Count()", result.Text);
+            Assert.DoesNotContain("{ get; }", result.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void RuntimeNullabilityAttributeRecoversItsAutoProperty()
+    {
+        string path = typeof(int).Assembly.Location;
+        var (type, accessor) = Select(path,
+            "System.Diagnostics.CodeAnalysis.NotNullIfNotNullAttribute", "ParameterName", "get");
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("public string ParameterName { get; }", result.Text);
+        Assert.DoesNotContain("this.ParameterName", result.Text);
+        AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!);
     }
 
     [Theory]

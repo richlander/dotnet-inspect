@@ -30,7 +30,7 @@ public static class CatalogDirectCallerQuery
         ArgumentNullException.ThrowIfNull(sources);
 
         MethodIdentity? targetMethod =
-            target.Index.DeclaredMethods.FirstOrDefault(
+            target.CallGraph.DeclaredMethods.FirstOrDefault(
                 method => method.MetadataToken == targetMethodToken);
         if (targetMethod is null)
             return [];
@@ -47,7 +47,7 @@ public static class CatalogDirectCallerQuery
         foreach (CatalogCallGraphParticipant source in sourceArray)
         {
             ArgumentNullException.ThrowIfNull(source);
-            foreach (DirectCall call in source.Index.DirectCalls)
+            foreach (DirectCall call in source.CallGraph.DirectCalls)
             {
                 if (!string.Equals(
                         call.Callee.Name,

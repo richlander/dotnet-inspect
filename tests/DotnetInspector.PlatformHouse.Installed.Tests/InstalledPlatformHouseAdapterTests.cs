@@ -38,6 +38,41 @@ public sealed class InstalledPlatformHouseAdapterTests
     }
 
     [Fact]
+    public void
+        DiscoverTargets_FamilyDefaultUsesAllFrameworksAndPreparesAssociations()
+    {
+        using var hive = new TestHive();
+        hive.CreateReferencePack("10.0.12", "net10.0");
+        hive.CreateReferencePack("11.0.0-rc.1", "net11.0");
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformHouseRequest request = FamilyDefaultRequest(
+            adapter,
+            TestContext.Current.CancellationToken);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledReferenceTargetInventory>.Succeeded>(
+                    adapter.DiscoverTargets(request));
+        var attempt =
+            Assert.IsType<PlatformTargetDiscoveryAttempt.Succeeded>(
+                InstalledPlatformTargetDiscovery.PrepareAttempt(
+                    succeeded));
+
+        Assert.Equal(
+            ["10.0.12", "11.0.0-rc.1"],
+            attempt.Candidates.Select(
+                candidate => candidate.Target.Version.Value));
+        Assert.All(
+            attempt.Candidates,
+            candidate => Assert.IsType<
+                PlatformTargetDiscoveryCandidate<
+                    InstalledReferenceTarget>>(candidate));
+        Assert.Same(
+            adapter.Capabilities.TargetDiscovery,
+            InstalledPlatformTargetDiscovery.CreateSource(adapter).Capability);
+    }
+
+    [Fact]
     public void DiscoverTargets_RejectsUnauthorizedCapabilityBeforeSourceWork()
     {
         using var hive = new TestHive();
@@ -300,6 +335,44 @@ public sealed class InstalledPlatformHouseAdapterTests
                     ? [authorized]
                     : [.. sourceCapabilities]),
             work ?? Work(),
+            cancellationToken);
+    }
+
+    static PlatformHouseRequest FamilyDefaultRequest(
+        InstalledPlatformHouseAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        PlatformSourceCapabilityIdentity fallback =
+            PlatformSourceCapabilityIdentity.Create("package-fallback");
+        var preferred = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.AllFrameworks(),
+            [adapter.Capabilities.TargetDiscovery]);
+        var fallbackStage = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                PlatformTargetFramework.Parse("net10.0")),
+            [fallback]);
+        return new(
+            PlatformHouseRequestIdentity.Create("family-default-discover"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred,
+                    fallbackStage),
+                new PlatformTargetDiscoveryBudget(8, 16)),
+            Origin(),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            Plan(
+                PlatformSourceFacet.TargetDiscovery,
+                adapter.Capabilities.TargetDiscovery,
+                fallback),
+            Work(),
             cancellationToken);
     }
 
