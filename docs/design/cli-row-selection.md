@@ -732,9 +732,31 @@ $ dotnet-inspect graph integrations \
 Error: Integration graph row selection stage 1 requires edge 3, but only 2 edges are available.
 ```
 
-`graph libraries` remains outside this declaration because its selected
-sections are independent row sets with different schemas. It retains its
-legacy `--rows` contract and uses the rendered-line fallback for `-n`.
+The default `graph libraries` call-site view and exact
+`-S "Call Sites"` selection declare one semantic row per complete
+`AssemblyPairCallUseOccurrence` in the owner-issued query order. Selection
+runs after both local libraries resolve, bidirectional pair inspection
+completes, and an optional Direct Use Cluster narrows the occurrence vector.
+Count, Markdown, plaintext, table, TSV, JSONL, and JSON then consume the same
+selected physical call-site identities. Retained incomplete-evidence
+diagnostics remain visible and preserve their nonzero exit.
+
+```console
+$ dotnet-inspect graph libraries \
+    --library ./Consumer.dll \
+    --library ./Provider.dll \
+    -n 1 --tail --jsonl
+```
+
+What to notice: the final physical call site is selected before JSONL
+lowering. Strict Window failure withholds the complete command output, while
+explicit `--lines` continues to select rendered text.
+
+Bare `-S`, summary sections, Direct Use Clusters, Public Root Paths, wildcard
+or category selection, and every multi-section view remain outside this
+declaration because they expose independent row sets with different schemas.
+They retain the legacy `--rows` contract and use rendered-line fallback for
+bare `-n`.
 
 ## Type catalog adoption
 
@@ -1369,7 +1391,8 @@ The Integration graph adoption is enforced by:
 | --- | --- |
 | `InspectionGraphCommandTests.OutputModes_UseTheSameWindowedLogicalEdges` and `SemanticTail_SelectsTheSameLogicalEdgeAcrossFormats` | Legacy direct callers retain row-window behavior, while semantic Tail selects one edge identity before Markdown, table, JSON, JSONL, or Count lowering. |
 | `InspectionGraphCommandTests.SemanticUnavailableWindow_WithholdsGraph` and `VisibleGraphFailure_PreservesOutputAndNonzeroExit` | One strict unavailable Window emits no partial graph; successful semantic selection preserves retained graph failures and their nonzero exit. |
-| `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, `LibrariesCommand_RetainsLegacyWindowValidation`, `LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation; `graph libraries` remains outside the declaration, infers Lines for `-n`, and retains legacy Window validation. |
+| `InspectionGraphCommandTests.IntegrationsCommand_AcceptsSemanticOpenWindows`, `IntegrationsCommand_RejectsLegacyCountRows`, `IntegrationsCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `IntegrationsCommand_LinesRejectJsonBeforeRequiredInputs` | Integration graph accepts shared prefix/suffix Window, explicit Head, and bare Head as semantic requests, rejects the retired legacy count form of `--rows`, and rejects explicit complete-JSON line clipping before package validation. |
+| `InspectionGraphCommandTests.LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats`, `LibrariesCommand_StrictUnavailableWindowWithholdsOutput`, `LibrariesCommand_RejectsLegacyCountRows`, `LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs`, and `LibrariesCommand_SummarySectionRetainsRenderedLineFallback` | The default and exact Call Sites views select the same physical occurrence before every row lowering, reject legacy numeric `--rows`, withhold output for unavailable strict Window, and permit semantic Head with complete JSON; independent summary and multi-section views remain on rendered-line fallback. |
 
 The Type catalog adoption is enforced by:
 
