@@ -3414,14 +3414,23 @@ public class OutputFormatterTests
             () => OutputFormatter.WriteLibraryResults(inspections, options, pipeline));
 
         Assert.Empty(markdownError);
-        Assert.StartsWith("# Test\n\n## Libraries\n", markdown);
+        Assert.StartsWith(
+            "# Test\n\n## Library Info: Test.dll (net9.0)\n",
+            markdown);
+        Assert.DoesNotContain("## Libraries", markdown);
         Assert.Single(
             markdown.ReplaceLineEndings("\n").Split('\n'),
             line => line.StartsWith("# ", StringComparison.Ordinal));
-        Assert.Contains("### Test.dll (net9.0)", markdown);
-        Assert.Contains("### Test.dll (net8.0)", markdown);
-        Assert.Equal(2, markdown.Split("#### Library Info", StringSplitOptions.None).Length - 1);
-        Assert.Equal(2, markdown.Split("#### Signals", StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            markdown.Split(
+                "## Library Info: Test.dll (net",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            markdown.Split(
+                "## Signals: Test.dll (net",
+                StringSplitOptions.None).Length - 1);
 
         var quietOptions = options with
         {
@@ -3645,8 +3654,9 @@ public class OutputFormatterTests
         Assert.Equal(
             2,
             columns.ReplaceLineEndings("\n").Split('\n')
-                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
-        Assert.Equal(2, columns.Split("#### Signals", StringSplitOptions.None).Length - 1);
+                .Count(line => line.StartsWith(
+                    "## Signals: Test.dll (net",
+                    StringComparison.Ordinal)));
 
         var fieldOptions = columnOptions with
         {
@@ -3662,7 +3672,9 @@ public class OutputFormatterTests
         Assert.Equal(
             2,
             fields.ReplaceLineEndings("\n").Split('\n')
-                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+                .Count(line => line.StartsWith(
+                    "## Library Info: Test.dll (net",
+                    StringComparison.Ordinal)));
 
         var plainOptions = columnOptions with
         {
@@ -3740,22 +3752,29 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ShiftMarkdownHeadingLevels_LeavesFencedPayloadHeadings()
+    public void QualifyMarkdownSectionHeadings_LeavesFencedPayloadHeadings()
     {
         const string markdown = """
             # Document
 
             ## Section
 
+            ### Detail
+
             ```text
             # Payload heading
             ```
             """;
 
-        var shifted = OutputFormatter.ShiftMarkdownHeadingLevels(markdown, 2);
+        var qualified = OutputFormatter.QualifyMarkdownSectionHeadings(
+            markdown,
+            "Test.dll (net9.0)");
 
-        Assert.StartsWith("### Document\n\n#### Section", shifted);
-        Assert.Contains("```text\n# Payload heading\n```", shifted);
+        Assert.StartsWith(
+            "# Document\n\n## Section: Test.dll (net9.0)",
+            qualified);
+        Assert.Contains("### Detail", qualified);
+        Assert.Contains("```text\n# Payload heading\n```", qualified);
     }
 
     [Fact]
@@ -3779,7 +3798,18 @@ public class OutputFormatterTests
         Assert.Empty(error);
         Assert.DoesNotContain("\n## FORGED", output);
         Assert.StartsWith("# Aggregate&lt;tag&gt;&amp; ## FORGED\n", output);
-        Assert.Contains("### Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)", output);
+        string[] signalHeadings =
+        [
+            .. output.ReplaceLineEndings("\n")
+                .Split('\n')
+                .Where(line => line.StartsWith(
+                    "## Signals:",
+                    StringComparison.Ordinal)),
+        ];
+        Assert.Equal(2, signalHeadings.Length);
+        Assert.Equal(
+            "## Signals: Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)",
+            signalHeadings[0]);
         Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n'),
             line => line.StartsWith("# ", StringComparison.Ordinal));

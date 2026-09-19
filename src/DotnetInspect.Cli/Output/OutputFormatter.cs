@@ -1007,8 +1007,7 @@ public static class OutputFormatter
                     {
                         RenderMarkdownHeading(
                             1,
-                            LibraryViewText.Contain(documentTitle) ?? string.Empty),
-                        RenderMarkdownHeading(2, "Libraries")
+                            LibraryViewText.Contain(documentTitle) ?? string.Empty)
                     };
                     documents.AddRange(inspections.Select(inspection =>
                     {
@@ -1016,12 +1015,8 @@ public static class OutputFormatter
                         var title = LibraryViewText.DocumentTitle(inspection);
                         var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
                             auditView, inspection, WriterOptions(inspection), pipeline, options.Rows));
-                        body = ShiftMarkdownHeadingLevels(body, 2);
-                        var heading = RenderMarkdownHeading(3, title);
-                        return body.Length == 0
-                            ? heading
-                            : heading + "\n\n" + body;
-                    }));
+                        return QualifyMarkdownSectionHeadings(body, title);
+                    }).Where(document => document.Length > 0));
                     var markdown = string.Join("\n\n", documents);
                     WriteLfLine(output, markdown);
                 }
@@ -1114,11 +1109,16 @@ public static class OutputFormatter
             : plainText;
     }
 
-    internal static string ShiftMarkdownHeadingLevels(string markdown, int offset)
+    internal static string QualifyMarkdownSectionHeadings(
+        string markdown,
+        string producerLibrary)
     {
-        if (offset == 0 || markdown.Length == 0)
+        if (markdown.Length == 0)
             return markdown;
 
+        string containedProducer = RenderMarkdownHeading(
+            2,
+            producerLibrary)["## ".Length..];
         var newline = MarkdownScan.DetectNewline(markdown);
         var lines = markdown.ReplaceLineEndings("\n").Split('\n');
         var inCodeFence = false;
@@ -1133,15 +1133,13 @@ public static class OutputFormatter
             if (inCodeFence)
                 continue;
 
-            var level = 0;
-            while (level < lines[i].Length && level < 6 && lines[i][level] == '#')
-                level++;
-
-            if (level == 0 || level >= lines[i].Length || lines[i][level] != ' ')
+            if (!lines[i].StartsWith("## ", StringComparison.Ordinal)
+                || lines[i].StartsWith("### ", StringComparison.Ordinal))
+            {
                 continue;
+            }
 
-            var shiftedLevel = Math.Clamp(level + offset, 1, 6);
-            lines[i] = new string('#', shiftedLevel) + lines[i][level..];
+            lines[i] += ": " + containedProducer;
         }
 
         return string.Join(newline, lines);

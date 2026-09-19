@@ -98,13 +98,15 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, markdown.Exit);
             Assert.StartsWith(
-                "# Test.LibraryFiles\n\n## Libraries\n",
+                "# Test.LibraryFiles\n\n"
+                + "## Library Info: lib/net10.0/Latest.One.dll (net10.0)\n",
+                markdown.Output);
+            Assert.DoesNotContain("## Libraries", markdown.Output);
+            Assert.Contains(
+                "## Library Info: lib/net10.0/Latest.One.dll (net10.0)",
                 markdown.Output);
             Assert.Contains(
-                "### lib/net10.0/Latest.One.dll (net10.0)",
-                markdown.Output);
-            Assert.Contains(
-                "### lib/net10.0/Latest.Two.dll (net10.0)",
+                "## Library Info: lib/net10.0/Latest.Two.dll (net10.0)",
                 markdown.Output);
             Assert.DoesNotContain("Older.dll", markdown.Output);
             Assert.Empty(markdown.Error);
@@ -344,7 +346,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, result.Exit);
             Assert.Contains(
-                "### lib/net8.0/Readable.dll (net8.0)",
+                "## Library Info: lib/net8.0/Readable.dll (net8.0)",
                 result.Output);
             Assert.Contains(
                 "Could not select library descriptor for "
