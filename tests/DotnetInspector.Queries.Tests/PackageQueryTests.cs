@@ -166,6 +166,7 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
+                PackageQueryTermRole.Inspection,
             ],
             PackageQuery.Terms.Select(term => term.Role));
         Assert.Equal(

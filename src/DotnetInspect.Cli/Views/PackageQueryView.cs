@@ -114,6 +114,11 @@ public sealed class PackageQueryRow
                 $"Package type: {Property("package-type")}",
             PackageQuery.ToolFormatTermKey =>
                 $".NET tool settings version: {Property("settings-version")}",
+            PackageQuery.ReferencesTermKey =>
+                FormatSummary(
+                    "assembly reference",
+                    "assembly references",
+                    evidence.Summary),
             PackageQuery.SkillTermKey =>
                 FormatSummary("skill document", "skill documents", evidence.Summary),
             _ => evidence.Id,
