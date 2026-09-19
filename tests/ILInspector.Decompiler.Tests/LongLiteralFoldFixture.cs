@@ -1,12 +1,13 @@
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Long-constant shapes for the opt-in
+/// Long-constant shapes for the
 /// <see cref="ILInspector.Decompiler.Pipeline.PrinterOptions.PreferLongLiteralSuffix"/>
-/// style lens (#3347). The lens folds the IR shape
+/// spelling choice (#3347, #7763). The user-facing product default folds the IR shape
 /// <c>Convert(→Int64, Int32 Constant)</c> — what csc's <c>ldc.i4(.s) N; conv.i8</c>
-/// imports as — into the idiomatic <c>NL</c> literal, and must leave a genuine
-/// <c>ldc.i8</c> (a bare <c>Int64</c> constant, no <c>Convert</c> over it) alone.
+/// imports as — and the <c>conv.u8</c> zero-extension boundary into idiomatic
+/// <c>NL</c> literals. It must leave a genuine <c>ldc.i8</c> (a bare
+/// <c>Int64</c> constant, no <c>Convert</c> over it) alone.
 ///
 /// <para>The split between the IL encodings is a property of csc's own literal
 /// emission, not of the decompiler: csc uses <c>ldc.i4</c>+<c>conv.i8</c> for
@@ -24,7 +25,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public static class LongLiteralFoldFixture
 {
-    // --- conv.i8 sources: the lens folds these ---
+    // --- conv.i8 sources: the suffix spelling folds these ---
 
     // The reference witness's shape (CfgSampleClass.InlineArraySpanTernaryConditionValue),
     // reduced: two `ldc.i4.s N; conv.i8` arms feeding an `add`, which is what keeps the
@@ -59,7 +60,7 @@ public static class LongLiteralFoldFixture
     // The largest long constant csc still encodes as `ldc.i4`.
     public static long IntMaxValue() => int.MaxValue;
 
-    // --- non-conv.i8 sources: the lens must leave these exactly as they are ---
+    // --- the conv.u8 boundary: suffix and cast are both faithful ---
 
     // One past int.MaxValue: csc encodes the bits as int.MinValue and applies
     // conv.u8, so the printer must retain the zero-extended positive value.
@@ -73,6 +74,8 @@ public static class LongLiteralFoldFixture
     // Argument position with an adversarial overload: the emitted spelling must
     // retain long typing instead of rebinding the call to Consume(uint).
     public static long JustPastIntMaxValueArgument() => Consume(2147483648L);
+
+    // --- genuine ldc.i8 sources: both spellings leave these exactly as they are ---
 
     // A comfortably large `ldc.i8`, the issue's own example.
     public static long LargeReturn() => 5_000_000_000L;

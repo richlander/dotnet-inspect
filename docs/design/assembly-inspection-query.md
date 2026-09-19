@@ -1905,8 +1905,9 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    path is the smallest (single assembly, no package fan-out) — and confirm the CLI loses its
    `System.Reflection.Metadata` / `PortableExecutable` usings for that path.
 6. **Method-body seam.** Apply the same query → session → producer → final-shape pattern one
-   level down. `ILOffsetProjectionProducer` establishes it for coordinates; migrate
-   `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
+   level down. `ILOffsetProjectionProducer` establishes it for coordinates;
+   `MemberProjectionProducer` now owns member Research composition, with
+   `MemberCodeProvider` and the L1 member queries invoking it directly (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
 During the current migration, provenance breadth is resolved by
