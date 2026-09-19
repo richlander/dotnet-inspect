@@ -67,6 +67,7 @@
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V1\DotnetInspector.SourceDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.SourceDiff.V2\DotnetInspector.SourceDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.RestoredProjectFixtures\DotnetInspector.RestoredProjectFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.RestoredRidFixtures\DotnetInspector.RestoredRidFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\src\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\..\fixtures\shared\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />

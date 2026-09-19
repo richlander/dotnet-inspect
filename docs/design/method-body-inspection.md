@@ -82,7 +82,7 @@ session is disposed, while copied body data remains safe to retain.
 `MemberProjectionProducer` applies that pattern to member inspection:
 
 - top-level `MemberProjectionRequest` and `MemberProjectionResult` contracts
-  carry already-open Metadata, optional Analysis context, and selected
+  carry already-open Metadata, optional focused Analysis input, and selected
   projection capabilities;
 - the producer owns method import, one Finding census, overlays, portable
   source, tracing, and projection-specific failure shaping;
@@ -92,9 +92,15 @@ session is disposed, while copied body data remains safe to retain.
   the CLI unions `ResearchFactRegistry` requirements into its existing Analysis
   execution, while the pathless Workspace query supplies its immutable-image
   context; and
-- `ResearchAssemblyContext` remains a transitional input until every member
-  fact family has an exact focused Analysis result. The producer does not
-  replace that boundary with a universal Research result bag.
+- `MemberProjectionAnalysisInput` joins the exact allocation, safety,
+  call-graph, and leverage results issued by one Analysis execution. CLI and
+  Workspace/L1 composition supply it, so the producer never reopens Analysis.
+
+`ResearchAssemblyContext` is no longer a member-projection input. The
+Workspace/L1 query retains it only for residual query-owned callee evidence
+that still uses the compatibility index. The focused member input is not a
+universal Research result bag: its constructor names the four result families
+used by the default registry and requires one shared execution receipt.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
