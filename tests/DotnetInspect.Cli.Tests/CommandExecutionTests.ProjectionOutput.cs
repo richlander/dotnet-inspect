@@ -1792,6 +1792,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectedJsonRoutingAudit_MultiPackageRootsFailBeforeOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiRootProjection",
+            "README.md",
+            "# Test package",
+            extraFiles: [("lib/net8.0/Test.dll", "test")]);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package files",
+                "--roots", "--json", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --roots",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ProjectedJsonRoutingAudit_ProjectHonorsProjection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(

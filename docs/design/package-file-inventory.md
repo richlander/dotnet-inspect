@@ -45,11 +45,12 @@ neither full-path selection nor root projection hides it.
 `Package files` rows. It requires exactly that section and is mutually exclusive
 with `--value`, `--urls`, `--paths`, `--print`, and `--count`.
 
-Each selected entry contributes its first package-path segment. The projection
-returns the first spelling of each root in deterministic selected-entry order,
-with case-insensitive de-duplication. This is a matching-entry root inventory,
-not a content-bearing-root claim: a root represented only by a matching `_._`
-entry remains present.
+Each selected entry beneath a top-level package folder contributes that folder's
+first path segment. A root-level file has no folder root and does not contribute
+a value. The projection returns the first spelling of each folder root in
+deterministic selected-entry order, with case-insensitive de-duplication. This
+is a matching-entry root inventory, not a content-bearing-root claim: a root
+represented only by a matching `_._` entry remains present.
 
 Plain output emits one root per line. JSON and JSONL use the existing structured
 shape-projection rows, retaining row number, section identity, value, and path.

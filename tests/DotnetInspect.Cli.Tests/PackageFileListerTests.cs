@@ -178,7 +178,7 @@ public class PackageFileListerTests
     }
 
     [Fact]
-    public void ProjectRoots_PreservesOrderAndFirstSpelling()
+    public void ProjectRoots_PreservesOrderAndFirstSpellingAndOmitsRootFiles()
     {
         List<PackageFile> files =
         [
