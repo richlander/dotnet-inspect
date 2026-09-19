@@ -23,12 +23,14 @@ internal static partial class WorkflowContract
     private static readonly string[] InspectWebDotnetJobs =
     [
         "inspect-web-platform",
+        "inspect-web-frontend",
         "inspect-web-facades",
         "inspect-web-multi-facade",
         "inspect-web-managed-bridge",
         "inspect-web-ts-jsexport",
         "inspect-web-managed-tests",
         "inspect-web-msdl-tests",
+        "inspect-web-browser",
         "inspect-web-published",
         "inspect-web-published-api",
     ];

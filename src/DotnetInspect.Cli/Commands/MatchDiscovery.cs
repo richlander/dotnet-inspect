@@ -1,9 +1,11 @@
 using CSharpText;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
@@ -54,11 +56,19 @@ internal static class MatchDiscovery
             return 1;
         }
 
-        if (options.Top is <= 0)
+        RowSelectionIntent<string>? rowSelection = options.RowSelection;
+        if (rowSelection is null && options.Top is int top)
         {
-            CommandError.Write("--top must be greater than zero.");
-            return 1;
+            if (top <= 0)
+            {
+                CommandError.Write("--top must be greater than zero.");
+                return 1;
+            }
+
+            rowSelection = RowSelectionIntent<string>.Create(
+                [RowSelectionIntentOperation<string>.Top(top)]);
         }
+        options = options with { RowSelection = rowSelection };
 
         if (options.MaximumResults is <= 0)
         {
@@ -327,22 +337,56 @@ internal static class MatchDiscovery
             AssemblyContextStructuralCloneRetrievalResult result =
                 AssemblyContextStructuralCloneRetrievalQuery.Execute(input);
 
+            IReadOnlyList<StructuralCloneRetrievalCandidate> selectedCandidates =
+                result is AssemblyContextStructuralCloneRetrievalResult.Available available
+                    ? available.Retrieval.Candidates
+                    : [];
+            bool completed =
+                result is AssemblyContextStructuralCloneRetrievalResult.Available
+                {
+                    Retrieval.Disposition:
+                        StructuralCloneRetrievalDisposition.Completed,
+                };
+            if (completed
+                && !CliSemanticRowSelection.TrySelectRanked(
+                    options.RowSelection,
+                    selectedCandidates,
+                    Comparer<StructuralCloneRetrievalCandidate>.Create(
+                        static (left, right) => left.Rank.CompareTo(right.Rank)),
+                    "Match candidates",
+                    failure =>
+                        $"Match candidate row selection stage "
+                            + $"{failure.Failure.StageNumber} requires row "
+                            + $"{failure.Failure.RequiredPosition}, but only "
+                            + $"{failure.Failure.AvailableCount} ranked candidates "
+                            + "are available.",
+                    out selectedCandidates))
+            {
+                return 1;
+            }
+
             var view = MatchDiscoveryFormatter.BuildView(
                 new MatchDiscoveryRequest(
                     resolvedSeed.Display!,
                     scopeDisplay!,
                     tokensIndexCallerImage ? null : candidateAddress.Library,
                     limits,
-                    options.Top,
                     disclosePackageReplay ? candidateAddress.Package : null,
                     disclosePackageReplay ? candidateAddress.Tfm : null,
                     candidateAddress.Library,
                     replaySources,
                     IncludeAll: options.IncludeAll),
                 result,
-                MatchDiscoveryNames.Build(namesSurface, candidateImage));
+                MatchDiscoveryNames.Build(namesSurface, candidateImage),
+                selectedCandidates);
 
-            if (options.JsonOutput)
+            if (options.Count
+                && view.Document.Disposition
+                    == nameof(StructuralCloneRetrievalDisposition.Completed))
+            {
+                CountOutput.WriteCount(selectedCandidates.Count);
+            }
+            else if (options.JsonOutput)
             {
                 JsonOutputHelper.Write(
                     view.Document,
