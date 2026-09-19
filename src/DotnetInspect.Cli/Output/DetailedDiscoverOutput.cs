@@ -232,7 +232,7 @@ internal static class DetailedDiscoverOutput
 
 [JsonSerializable(typeof(List<DetailedDiscoveryRow>))]
 [JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 internal partial class DetailedDiscoveryJsonContext
     : JsonSerializerContext
 {

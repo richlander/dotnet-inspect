@@ -15,7 +15,18 @@ public record DiscoveryRow(string Name, string Kind);
 public sealed record DetailedDiscoveryRow(
     string Name,
     string Kind,
-    [property: MarkoutJoin(", ")] List<string> Formats);
+    List<string> Formats)
+{
+    public string Name { get; init; } =
+        LibraryViewText.Contain(Name);
+
+    public string Kind { get; init; } =
+        LibraryViewText.Contain(Kind);
+
+    [MarkoutJoin(", ")]
+    public List<string> Formats { get; init; } =
+        [.. Formats.Select(format => LibraryViewText.Contain(format))];
+}
 
 /// <summary>
 /// List view for discovery results. Rendered as a compact table, markdown table, or JSON array.
