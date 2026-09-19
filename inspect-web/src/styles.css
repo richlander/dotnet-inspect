@@ -4317,6 +4317,26 @@ button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspect
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-unsafety { border-left-color: var(--red, #d97070); }
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-semantics { border-left-color: var(--blue); }
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-lifetime { border-left-color: var(--purple); }
+.annotated-relationships h3 { margin-top: 2px; }
+.annotated-relationship-table-wrap { margin-top: 10px; overflow-x: auto; }
+.annotated-relationship-table { width: 100%; min-width: 330px; border-collapse: collapse; font: 10px/1.4 var(--mono); }
+.annotated-relationship-table th { padding: 0 6px 6px; color: var(--dim); font-weight: 500; text-align: left; text-transform: uppercase; }
+.annotated-relationship-table th:first-child,
+.annotated-relationship-table td:first-child { padding-left: 0; }
+.annotated-relationship-table th:last-child,
+.annotated-relationship-table td:last-child { padding-right: 0; }
+.annotated-relationship-table td { padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+.annotated-relationship-site { width: 100%; display: grid; gap: 3px; padding: 6px; border-radius: 3px; text-align: left; }
+.annotated-relationship-site strong,
+.annotated-relationship-target strong { color: var(--text); }
+.annotated-relationship-site small,
+.annotated-relationship-target small { color: var(--dim); font: 10px/1.4 var(--mono); }
+.annotated-relationship-target { max-width: 150px; overflow-wrap: anywhere; }
+.annotated-relationship-target strong,
+.annotated-relationship-target small { display: block; }
+.annotated-relationship-actions { display: grid; gap: 5px; }
+.annotated-relationship-actions button { padding: 4px 6px; border-radius: 3px; color: var(--text); font: 10px var(--mono); }
+.annotated-relationship-actions button:first-child { border-color: var(--accent); }
 
 .annotated-detail { z-index: 2; padding: 14px; overflow: auto; border-top: 1px solid var(--line); background: var(--panel-raised); box-shadow: 0 -12px 36px var(--shadow-drawer-color); }
 .annotated-modal > .annotated-detail { position: absolute; top: 58px; right: 0; bottom: 0; width: min(480px, 100%); border-top: 0; border-left: 1px solid var(--line-strong); box-shadow: -16px 0 40px var(--shadow-drawer-color); }

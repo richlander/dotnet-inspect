@@ -943,7 +943,7 @@ public class DependencyGraphServiceTests : IDisposable
             $"https://other.example.test/{suffix}/v3/index.json",
             $"https://other-content.example.test/{suffix}/flat/",
             packageId,
-            isToolPackage: true);
+            packageType: "DotnetTool");
         using var httpClient = new HttpClient(handler);
         var logger = new VerboseLogger(enabled: false);
 
@@ -957,6 +957,39 @@ public class DependencyGraphServiceTests : IDisposable
 
         Assert.IsType<PackageDependencyGraphResult.Error>(result);
         Assert.Contains(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.RidTool.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            $"https://content.example.test/{suffix}/flat/",
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId,
+            packageType: "DotnetToolRidPackage");
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                $"{packageId}@1.0.0",
+                requestedTfm: null,
+                new NuGetSourceOptions { Sources = [serviceIndex] },
+                logger);
+
+        Assert.IsType<PackageDependencyGraphResult.Empty>(result);
+        Assert.DoesNotContain(
             handler.Requests,
             uri => uri.AbsolutePath.EndsWith(
                 ".nupkg",
@@ -1397,7 +1430,7 @@ public class DependencyGraphServiceTests : IDisposable
         string otherServiceIndex,
         string otherFlatContainer,
         string packageId,
-        bool isToolPackage = false,
+        string? packageType = null,
         IReadOnlyList<string>? reportingVersions = null,
         string manifestVersion = "1.0.0",
         string dependenciesXml = "") : HttpMessageHandler
@@ -1459,7 +1492,7 @@ public class DependencyGraphServiceTests : IDisposable
                       <metadata>
                         <id>{{packageId}}</id>
                         <version>{{manifestVersion}}</version>
-                        {{(isToolPackage ? "<packageTypes><packageType name=\"DotnetTool\" /></packageTypes>" : "")}}
+                      {{(packageType is not null ? $"<packageTypes><packageType name=\"{packageType}\" /></packageTypes>" : "")}}
                         {{dependenciesXml}}
                       </metadata>
                     </package>
