@@ -100,7 +100,7 @@ public static class LibraryCallUseCommand
             return 1;
         }
 
-        if (options.Cluster is not null
+        if (options.QueryPlan.Cluster is not null
             && options.Discover is not null)
         {
             CommandError.Write(
@@ -152,7 +152,7 @@ public static class LibraryCallUseCommand
         bool requiresPublicRootPaths =
             selectedNameSet.Contains(PublicRootPathsSection);
         if (requiresPublicRootPaths
-            && options.Cluster is null)
+            && options.QueryPlan.Cluster is null)
         {
             CommandError.Write(
                 "'Public Root Paths' requires exactly one "
@@ -244,7 +244,7 @@ public static class LibraryCallUseCommand
                         group.Participants[0].Assembly,
                         group.Participants[1].Assembly);
                     bool requiresClusters =
-                        options.Cluster is not null
+                        options.QueryPlan.Cluster is not null
                         || selectedNameSet.Contains(
                             DirectUseClustersSection);
                     allClusters = requiresClusters
@@ -253,11 +253,12 @@ public static class LibraryCallUseCommand
                         : new(result, []);
                     selectedResult = result;
                     selectedClusters = allClusters;
-                    if (options.Cluster is int clusterOrdinal)
+                    if (options.QueryPlan.Cluster is int clusterOrdinal)
                     {
                         AssemblyPairDirectUseClusterProjection? selected =
-                            allClusters.ScopeToObservedCluster(
-                                clusterOrdinal);
+                            GraphLibrariesQuery.Apply(
+                                options.QueryPlan,
+                                allClusters);
                         if (selected is null)
                         {
                             unavailableCluster = clusterOrdinal;

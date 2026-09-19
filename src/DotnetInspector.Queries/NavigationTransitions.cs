@@ -411,7 +411,7 @@ public static class NavigationTransitions
             projection.Token(),
             next.Intent,
             association,
-            next.Installed);
+            next.Current);
         next = next with
         {
             Projection = projection.Freeze(),
@@ -466,9 +466,9 @@ public static class NavigationTransitions
         var projection = new NavigationConsumerProjection(next.Projection);
         string id = projection.Token();
         var identity = new NavigationRequest(state.Id, id, NavigationOperationKind.Lens);
-        NavigationConsumerRequest consumerRequest = projection.Request(next.Installed, request.Subject, request);
+        NavigationConsumerRequest consumerRequest = projection.Request(next.Current, request.Subject, request);
         next = next with { Projection = projection.Freeze() };
-        if (request.Subject.Workspace.Identity != state.Workspace || request.Subject != next.Installed.ActiveSubject)
+        if (request.Subject.Workspace.Identity != state.Workspace || request.Subject != next.Current.ActiveSubject)
         {
             return CurrentResult(state, next, identity, new(
                 NavigationOutcomeKind.Rejected,
@@ -479,7 +479,7 @@ public static class NavigationTransitions
         var action = new NavigationAction(
             state.Id, next.Consumer.Generation, id, next.Consumer.ActiveSubject.Id, NavigationOperationKind.Lens);
         return IssueExplicit(state, next, identity,
-            new(action, next.Installed.ActiveSubject, request.Subject, request, Advertised: false));
+            new(action, next.Current.ActiveSubject, request.Subject, request, Advertised: false));
     }
 
     /// <summary>
@@ -534,7 +534,7 @@ public static class NavigationTransitions
         }
 
         NavigationPackageDescriptor? package =
-            state.InstalledSnapshot.Packages.FirstOrDefault(
+            state.CurrentSnapshot.Packages.FirstOrDefault(
                 candidate =>
                     ReferenceEquals(
                         candidate.Occurrence,
@@ -568,7 +568,7 @@ public static class NavigationTransitions
             NavigationOperationKind.RetainedType);
         var target = new NavigationActionTarget(
             action,
-            state.InstalledSnapshot.ActiveSubject,
+            state.CurrentSnapshot.ActiveSubject,
             subject,
             Lens: null,
             Advertised: false);
@@ -591,14 +591,14 @@ public static class NavigationTransitions
             NextIntent = checked(state.NextIntent + 1),
             Explicit = null,
             Effect = null,
-            ConsumerInstallation = null,
+            ConsumerPosting = null,
         };
 
     static NavigationTransition IssueExplicit(
         NavigationState state, NavigationStateData next, NavigationRequest identity, NavigationActionTarget target)
     {
         var projection = new NavigationConsumerProjection(next.Projection);
-        NavigationConsumerRequest request = projection.Request(next.Installed, target.Subject, target.Lens);
+        NavigationConsumerRequest request = projection.Request(next.Current, target.Subject, target.Lens);
         string attempt = projection.Token();
         next = next with { Projection = projection.Freeze() };
         WorkspacePackageOccurrence? occurrence =
@@ -610,7 +610,7 @@ public static class NavigationTransitions
                 NavigationOperationKind.RetainedType =>
                     ((StructuralSubjectIdentity.TypeSubject)target.Subject)
                         .Library.Package.Occurrence,
-                _ => next.Installed.ActiveOccurrence,
+                _ => next.Current.ActiveOccurrence,
             };
         var work = new NavigationEvaluationRequest(identity, attempt, next, occurrence, target, request);
         return new(state, next with { Explicit = work }, identity, work);
@@ -672,7 +672,7 @@ public static class NavigationTransitions
             string attempt = projection.Token();
             next = next with { Projection = projection.Freeze() };
             var work = new NavigationEvaluationRequest(
-                request, attempt, next, next.Installed.ActiveOccurrence, null, null);
+                request, attempt, next, next.Current.ActiveOccurrence, null, null);
             return new(state, next with { MaintenanceAttempt = work }, request, work);
         }
         if (!next.Synchronization.IsEmpty)
@@ -734,7 +734,7 @@ public static class NavigationTransitions
         if (!ReferenceEquals(request, maintenance ? next.MaintenanceAttempt : next.Explicit))
             return new(state, next, rejection: NavigationCompletionRejection.StaleAttempt);
         if (maintenance && (request.Intent != next.Intent
-            || !ReferenceEquals(request.Basis, next.Installed)
+            || !ReferenceEquals(request.Basis, next.Current)
             || request.Publication != state.Publication
             || next.Explicit is not null || next.Effect is not null))
         {
@@ -743,14 +743,14 @@ public static class NavigationTransitions
         next = maintenance
             ? next with { MaintenanceAttempt = null, Maintenance = next.Maintenance.RemoveAt(0) }
             : next with { Explicit = null };
-        if (!NavigationWorkspaceSnapshotEquality.Equals(next.Installed, evaluation.Snapshot))
+        if (!NavigationWorkspaceSnapshotEquality.Equals(next.Current, evaluation.Snapshot))
         {
             var projection = new NavigationConsumerProjection(next.Projection);
             (NavigationConsumerSnapshot consumer, Dictionary<string, NavigationActionTarget> actions) =
                 projection.Build(evaluation.Snapshot, state.Id);
             next = next with
             {
-                Installed = evaluation.Snapshot,
+                Current = evaluation.Snapshot,
                 Consumer = consumer,
                 Projection = projection.Freeze(),
                 Actions = actions.ToImmutableDictionary(),
@@ -823,7 +823,7 @@ public static class NavigationTransitions
 
         bool semanticChange =
             !NavigationWorkspaceSnapshotEquality.Equals(
-                next.Installed,
+                next.Current,
                 evaluation.Snapshot)
             || next.Scope != evaluation.Scope;
         var projection = new NavigationConsumerProjection(next.Projection);
@@ -850,7 +850,7 @@ public static class NavigationTransitions
         }
         next = next with
         {
-            Installed = evaluation.Snapshot,
+            Current = evaluation.Snapshot,
             Consumer = consumer,
             Scope = evaluation.Scope,
             Projection = projection.Freeze(),
@@ -930,28 +930,28 @@ public static class NavigationTransitions
         && authority.Session == state.Id && authority.Revision == state.Data.Revision
         && authority.Intent == state.Data.Intent;
 
-    public static NavigationTransition RecordConsumerInstallation(NavigationState state, NavigationEffectAuthority authority) =>
+    public static NavigationTransition RecordConsumerPosting(NavigationState state, NavigationEffectAuthority authority) =>
         ValidateAuthority(state, authority)
-            ? new(state, state.Data with { ConsumerInstallation = authority }, authorityResult: NavigationAuthorityResult.Accepted)
+            ? new(state, state.Data with { ConsumerPosting = authority }, authorityResult: NavigationAuthorityResult.Accepted)
             : new(state, state.Data, authorityResult: NavigationAuthorityResult.InvalidAuthority);
 
     public static NavigationTransition Acknowledge(NavigationState state, NavigationEffectAuthority authority)
     {
         if (!ValidateAuthority(state, authority))
             return new(state, state.Data, authorityResult: NavigationAuthorityResult.InvalidAuthority);
-        if (state.Data.ConsumerInstallation != authority)
-            return new(state, state.Data, authorityResult: NavigationAuthorityResult.InstallationRequired);
+        if (state.Data.ConsumerPosting != authority)
+            return new(state, state.Data, authorityResult: NavigationAuthorityResult.PostingRequired);
         return new(state, state.Data with
         {
             Acknowledged = state.Publication,
             Effect = null,
-            ConsumerInstallation = null,
+            ConsumerPosting = null,
         }, authorityResult: NavigationAuthorityResult.Accepted);
     }
 
     public static NavigationTransition Abandon(NavigationState state, NavigationEffectAuthority authority) =>
         ValidateAuthority(state, authority)
-            ? new(state, state.Data with { Effect = null, ConsumerInstallation = null },
+            ? new(state, state.Data with { Effect = null, ConsumerPosting = null },
                 authorityResult: NavigationAuthorityResult.Accepted)
             : new(state, state.Data, authorityResult: NavigationAuthorityResult.InvalidAuthority);
 
@@ -975,7 +975,7 @@ public static class NavigationTransitions
             next = next with { Consumer = consumer, Actions = actions.ToImmutableDictionary(), ActionsNeedRenewal = false };
         }
         var authority = new NavigationEffectAuthority(previous.Id, next.Revision, next.Intent, projection.Token());
-        next = next with { Effect = authority, ConsumerInstallation = null, Projection = projection.Freeze() };
+        next = next with { Effect = authority, ConsumerPosting = null, Projection = projection.Freeze() };
         var consumerResult = new NavigationConsumerResult(
             request.Operation, request.Id, next.Consumer, outcome, Disposition(next), authority);
         return new(previous, next, request, result: new(consumerResult,
@@ -1025,7 +1025,7 @@ public static class NavigationTransitions
             return NavigationRejectionKind.StaleGeneration;
         if (!state.Data.Actions.TryGetValue(action.Id, out target))
             return NavigationRejectionKind.UnknownAction;
-        if (action.Source != target.Action.Source || target.Source != state.InstalledSnapshot.ActiveSubject)
+        if (action.Source != target.Action.Source || target.Source != state.CurrentSnapshot.ActiveSubject)
             return NavigationRejectionKind.SourceMismatch;
         if (action != target.Action)
             return NavigationRejectionKind.InvalidAction;
@@ -1034,7 +1034,7 @@ public static class NavigationTransitions
         if (action.Kind == NavigationOperationKind.RetainedType
             && (target.Subject
                     is not StructuralSubjectIdentity.TypeSubject type
-                || !state.InstalledSnapshot.Packages.Any(
+                || !state.CurrentSnapshot.Packages.Any(
                     candidate =>
                         ReferenceEquals(
                             candidate.Occurrence,
@@ -1045,7 +1045,7 @@ public static class NavigationTransitions
             return NavigationRejectionKind.ForeignOccurrence;
         }
         if (action.Kind == NavigationOperationKind.DescendantLens
-            && !NavigationDescendantLensEvaluation.IsEligibleDescendant(state.InstalledSnapshot, target.Source, target.Subject))
+            && !NavigationDescendantLensEvaluation.IsEligibleDescendant(state.CurrentSnapshot, target.Source, target.Subject))
             return NavigationRejectionKind.NonDescendant;
         return null;
     }

@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Options;
@@ -7,7 +8,8 @@ namespace DotnetInspect.Cli.Options;
 public sealed record LibraryCallUseOptions : IProjectionOptions
 {
     public string[] Libraries { get; init; } = [];
-    public int? Cluster { get; init; }
+    public required GraphLibrariesQueryPlan QueryPlan { get; init; }
+    public int? Cluster => QueryPlan.Cluster;
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
     public bool Count { get; init; }
     public RowSelectionIntent<string>? RowSelection { get; init; }
