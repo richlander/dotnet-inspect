@@ -58,6 +58,13 @@ public partial class PackageCommand
         if (!packageLibraryMode)
             options = NormalizeDependencyProjection(options);
 
+        if (options.Roots && options.Discover is not null)
+        {
+            CommandError.Write(
+                "--roots cannot be combined with -D/--discover.");
+            return 1;
+        }
+
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
         {

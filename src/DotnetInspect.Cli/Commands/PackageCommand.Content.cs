@@ -561,7 +561,7 @@ public partial class PackageCommand
 
     private static bool HasTargetFrameworkFileFilter(
         InspectionOptions options)
-        => !string.IsNullOrWhiteSpace(options.Tfm)
+        => options.Tfm is not null
             && !options.Tfm.Equals(
                 "all",
                 StringComparison.OrdinalIgnoreCase);

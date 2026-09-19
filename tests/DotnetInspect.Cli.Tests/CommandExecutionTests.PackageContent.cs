@@ -778,6 +778,12 @@ public partial class CommandExecutionTests
             "--tfm", "net8.0/hostile",
             "-S", "Package files",
             "--paths");
+        var whitespaceTarget = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--tfm", " ",
+            "-S", "Package files",
+            "--paths");
         var wrongSection = await RunAppAsync(
             "--offline",
             "package", "Package.That.Must.Not.Resolve",
@@ -794,6 +800,13 @@ public partial class CommandExecutionTests
         Assert.Empty(invalidTarget.Output);
         Assert.Contains("Invalid --tfm value", invalidTarget.Error);
         Assert.DoesNotContain("Package.That.Must.Not.Resolve", invalidTarget.Error);
+
+        Assert.Equal(1, whitespaceTarget.Exit);
+        Assert.Empty(whitespaceTarget.Output);
+        Assert.Contains("Invalid --tfm value", whitespaceTarget.Error);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            whitespaceTarget.Error);
 
         Assert.Equal(1, wrongSection.Exit);
         Assert.Empty(wrongSection.Output);
