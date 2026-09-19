@@ -364,8 +364,9 @@ On adopted semantic routes, `--rows` is a strict one-based inclusive window:
 shortening the result. `-n` and `--rows` are ordered stages, so argument order
 is observable. `--head` and `--tail` modify `-n`, not the range.
 
-Legacy `--rows` composes with an inferred or explicit rendered-line `-n` in
-argument order.
+Legacy `--rows` composes with an inferred or explicit rendered-line `-n`, but
+not in argument order: the command-owned row window runs before outer line
+clipping.
 
 Member `Call Graph` is the current exception: its legacy command-owned
 `--rows` window clamps an unavailable end to the available edges. It produces
