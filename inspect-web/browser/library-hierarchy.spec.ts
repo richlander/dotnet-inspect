@@ -1103,10 +1103,13 @@ async function selectPackageCoordinate(
   value: string,
 ) {
   const control = packageCoordinateControl(page, change, value);
-  if (change.name === "TFM" && !await control.isVisible()) {
-    await page.getByRole(
+  if (change.name === "TFM") {
+    const navigationToggle = page.getByRole(
       "button",
-      { name: "Frameworks", exact: true }).click();
+      { name: "Frameworks", exact: true });
+    await expect.poll(async () =>
+      await control.isVisible() || await navigationToggle.isVisible()).toBe(true);
+    if (!await control.isVisible()) await navigationToggle.click();
   }
   await control.focus();
   if (change.name === "TFM")
@@ -1404,8 +1407,15 @@ for (const change of packageCoordinateChanges) {
         await expect(page.locator(".query-notice").filter({ hasText: "No compile Libraries." })).toBeVisible();
       }
       await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-      await expect(selector).toHaveValue(change.selected);
-      await expect(selector).toBeFocused();
+      if (change.name === "TFM") {
+        const framework = packageCoordinateControl(
+          page, change, change.selected);
+        await expect(framework).toHaveAttribute("aria-current", "page");
+        await expect(framework).toBeFocused();
+      } else {
+        await expect(selector).toHaveValue(change.selected);
+        await expect(selector).toBeFocused();
+      }
       await expect(page.locator(".loading-screen")).toHaveCount(0);
     });
   }
@@ -4827,7 +4837,7 @@ test("a single-library package retains a distinct Library level", async ({ page 
     totalMembers: 1,
   });
   await page.goto(root);
-  const button = page.locator('.package-library-nav [data-lib-scope="asset:core"]');
+  const button = page.locator('.library-list [data-lib-scope="asset:core"]');
   await button.focus();
   await page.keyboard.press("Enter");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");

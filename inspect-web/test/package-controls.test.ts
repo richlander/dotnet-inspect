@@ -83,7 +83,8 @@ test("package selection bindings map Package content controls without eager disp
   bindPackageSelections(
     fakeDom.parentNode(root),
     {
-      onFrameworkSelect: value => calls.push(`framework:${value}`),
+      onFrameworkSelect: (value, source) =>
+        calls.push(`framework:${value}:${source}`),
       onVersionSelect: value => calls.push(`version:${value}`),
     });
 
@@ -92,14 +93,14 @@ test("package selection bindings map Package content controls without eager disp
   framework.value = "net10.0";
   framework.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
   ]);
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
     "version:10.0.1",
   ]);
 });
@@ -126,7 +127,8 @@ test("package controls connect selection events to their typed options", () => {
   version.value = "10.0.0";
   const calls: string[] = [];
   const packageControls = createPackageControls({
-    selectFramework: value => calls.push(`framework:${value}`),
+    selectFramework: (value, source) =>
+      calls.push(`framework:${value}:${source}`),
     selectVersion: value => calls.push(`version:${value}`),
   });
 
@@ -139,8 +141,8 @@ test("package controls connect selection events to their typed options", () => {
   version.value = "10.0.1";
   version.dispatch("change");
   assert.deepEqual(calls, [
-    "framework:net9.0",
-    "framework:net10.0",
+    "framework:net9.0:navigation",
+    "framework:net10.0:legacy",
     "version:10.0.1",
   ]);
 });

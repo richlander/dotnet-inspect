@@ -17,12 +17,18 @@ export interface ParsedPackageQuery {
 }
 
 interface PackageControlsOptions {
-  selectFramework: (framework: string) => void;
+  selectFramework: (
+    framework: string,
+    source: "navigation" | "legacy",
+  ) => void;
   selectVersion: (version: string) => void;
 }
 
 export interface PackageSelectionActions {
-  onFrameworkSelect: (framework: string) => void;
+  onFrameworkSelect: (
+    framework: string,
+    source: "navigation" | "legacy",
+  ) => void;
   onVersionSelect: (version: string) => void;
 }
 
@@ -35,12 +41,12 @@ export function bindPackageSelections(
       "click",
       () => {
         const framework = button.dataset.packageFramework;
-        if (framework) actions.onFrameworkSelect(framework);
+        if (framework) actions.onFrameworkSelect(framework, "navigation");
       }));
   const framework = root.querySelector<HTMLSelectElement>("#framework");
   framework?.addEventListener(
     "change",
-    () => actions.onFrameworkSelect(framework.value));
+    () => actions.onFrameworkSelect(framework.value, "legacy"));
   const version = root.querySelector<HTMLSelectElement>("#package-version");
   version?.addEventListener(
     "change",

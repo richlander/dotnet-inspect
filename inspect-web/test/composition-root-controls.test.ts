@@ -395,7 +395,7 @@ test("typed package controls own framework and version selection bindings", () =
     ?? "";
   assert.match(
     packageControlsCreation,
-    /selectFramework: framework => \{[\s\S]*contentFrameUsesPush\(\)[\s\S]*contentFramePane = "detail"[\s\S]*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\);[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
+    /selectFramework: \(framework, source\) => \{[\s\S]*contentFrameUsesPush\(\)[\s\S]*contentFramePane = "detail"[\s\S]*observeAsync\(\s*switchPackageFramework\(\s*framework,\s*source === "legacy" \? "framework" : "package-framework"\),\s*"Switching the package framework"\);[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
     packageControlsSource,
     /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);

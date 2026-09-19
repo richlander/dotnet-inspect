@@ -2534,6 +2534,9 @@ const navigationHistory = createNavigationHistory({
 });
 const innerNavigationSequence = createNavigationSequence();
 let packageContentLoadingSequence: number | null = null;
+type PackageLoadingFocusControl =
+  "package-version" | "package-framework" | "framework";
+let packageContentLoadingFocusControl: PackageLoadingFocusControl | null = null;
 const navigationSequence = {
   begin(): number {
     if (packageContentLoadingSequence !== null
@@ -2541,6 +2544,7 @@ const navigationSequence = {
       state.loading = false;
     }
     packageContentLoadingSequence = null;
+    packageContentLoadingFocusControl = null;
     cancelPendingWorkspaceConstruction();
     settleInterruptedPlatformStatus(state);
     return innerNavigationSequence.begin();
@@ -3230,10 +3234,12 @@ function closeSpotlight() {
 }
 
 const packageControls = createPackageControls({
-  selectFramework: framework => {
+  selectFramework: (framework, source) => {
     if (contentFrameUsesPush()) contentFramePane = "detail";
     observeAsync(
-      switchPackageFramework(framework),
+      switchPackageFramework(
+        framework,
+        source === "legacy" ? "framework" : "package-framework"),
       "Switching the package framework");
   },
   selectVersion: version => {
@@ -5135,7 +5141,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
             : ""}
           <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryCompareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
-              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "package-framework"}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
+              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
           </article>
         </section>
@@ -5190,15 +5196,20 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
   } else if (packageRetryHadFocus || packageControlHadFocus) {
+    const packageFrameworkControl = () =>
+      contentFrameMedia.matches
+        ? document.querySelector<HTMLElement>("#content-navigation-toggle")
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
+            .find(button =>
+              button.dataset.packageFramework === packageLoadingFramework);
     const packageControl = loadingPackageContent
       ? document.querySelector<HTMLElement>("#package-content-loading")
       : packageLoadingControl === "package-framework"
-        ? contentFrameMedia.matches
-          ? document.querySelector<HTMLElement>("#content-navigation-toggle")
-          : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
-              .find(button =>
-                button.dataset.packageFramework === packageLoadingFramework)
-        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`);
+        ? packageFrameworkControl()
+        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`)
+          ?? (packageLoadingControl === "framework"
+            ? packageFrameworkControl()
+            : null);
     packageControl?.focus({ preventScroll: true });
   }
   if (scopeBarOwnsFocus) {
@@ -9673,10 +9684,14 @@ async function switchPackageVersion(newVersion: string) {
     ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
+    loadingFocusControl: "package-version",
   });
 }
 
-async function switchPackageFramework(newFramework: string) {
+async function switchPackageFramework(
+  newFramework: string,
+  loadingFocusControl: PackageLoadingFocusControl = "package-framework",
+) {
   const pkg = state.package;
   if (!pkg || pkg.isRuntimePack) return;
   if (!newFramework
@@ -9690,6 +9705,7 @@ async function switchPackageFramework(newFramework: string) {
       ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
+      loadingFocusControl,
     });
 }
 
@@ -15323,6 +15339,7 @@ interface LoadPackageOptions {
   rootRequest?: string;
   background?: boolean;
   loadingPresentation?: "content";
+  loadingFocusControl?: PackageLoadingFocusControl;
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
@@ -15363,6 +15380,12 @@ async function loadPackage(
       options.loadingPresentation === "content" && prevPackage
         ? navigationSeq
         : null;
+    packageContentLoadingFocusControl = packageContentLoadingSequence === null
+      ? null
+      : options.loadingFocusControl
+        ?? (version.toLowerCase() === prevPackage?.version.toLowerCase()
+          ? "package-framework"
+          : "package-version");
     state.loading = true;
     state.error = "";
     if (!options.retainFailureDetail) state.errorDetail = "";
