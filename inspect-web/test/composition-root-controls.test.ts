@@ -560,7 +560,10 @@ test("typed package view owns package navigation bindings", () => {
     /if \(!library\) return;[\s\S]*if \(!selectLibrarySubject\(library\)\) return;[\s\S]*if \(kind\) \{\s*state\.atLibraryRoot = false;\s*state\.kindFilter = kind;/);
   assert.match(
     appSource,
-    /function selectLibrarySubject\(key: string,[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+    /function selectLibrarySubject\([\s\S]*preserveLens\?: boolean[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(!options\.preserveLens\) state\.libraryLens = "overview";[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+  assert.match(
+    appSource,
+    /function bindLibrarySubjectNavEvents\(\) \{[\s\S]*selectAggregateLibrarySubject\(\{ preserveLens: true \}\)[\s\S]*selectLibrarySubject\(id, \{ preserveLens: true \}\)/);
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
