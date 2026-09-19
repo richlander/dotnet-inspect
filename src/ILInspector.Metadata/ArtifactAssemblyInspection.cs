@@ -10,7 +10,7 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class ArtifactAssemblyInspection
 {
-    public static unsafe ArtifactAssemblyProjectionOutcome Project(
+    public static ArtifactAssemblyProjectionOutcome Project(
         scoped ArtifactAdmissionContentView view,
         CancellationToken cancellationToken = default)
     {
@@ -18,50 +18,64 @@ public static class ArtifactAssemblyInspection
         if (view.Content.IsEmpty)
             return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
 
-        // The pin, reader and every image-local value end before the owner
-        // callback returns; the retained image is not copied.
-        fixed (byte* content = view.Content)
+        ArtifactGenerationIdentity generation = view.Generation;
+        ArtifactIdentity artifact = view.Artifact;
+        return view.UseReadStream(
+            content => Project(
+                content,
+                generation,
+                artifact,
+                cancellationToken));
+    }
+
+    private static ArtifactAssemblyProjectionOutcome Project(
+        Stream content,
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        CancellationToken cancellationToken)
+    {
+        using var peReader = new PEReader(content);
+        try
         {
-            using var peReader = new PEReader(content, view.Content.Length);
-            try
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                if (!MetadataFormatAdmission.AdmitImage(peReader))
-                {
-                    if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
-                        return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
-                    return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
-                }
-                MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-                if (!reader.IsAssembly)
-                    return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
-
-                AssemblyReferenceIdentity identity =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-                if (string.IsNullOrWhiteSpace(identity.Name))
+                if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
                     return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
-                Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
-                if (mvid == Guid.Empty)
-                    return RejectProjection(ArtifactAssemblyProjectionFailureKind.EmptyModuleVersionId);
+                return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
+            }
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+            if (!reader.IsAssembly)
+                return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
 
-                cancellationToken.ThrowIfCancellationRequested();
-                return new ArtifactAssemblyProjectionOutcome.Projected(
-                    new ArtifactAssemblyProjection(
-                        new AssemblyProjectionRegistration(view.Generation, view.Artifact, mvid),
-                        identity));
-            }
-            catch (UnsupportedMetadataFormatException)
-            {
-                return RejectProjection(ArtifactAssemblyProjectionFailureKind.UnsupportedWindowsMetadata);
-            }
-            catch (Exception exception) when (
-                exception is BadImageFormatException or OverflowException)
-            {
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            if (string.IsNullOrWhiteSpace(identity.Name))
                 return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
-            }
+            Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (mvid == Guid.Empty)
+                return RejectProjection(ArtifactAssemblyProjectionFailureKind.EmptyModuleVersionId);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return new ArtifactAssemblyProjectionOutcome.Projected(
+                new ArtifactAssemblyProjection(
+                    new AssemblyProjectionRegistration(
+                        generation,
+                        artifact,
+                        mvid),
+                    identity));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return RejectProjection(ArtifactAssemblyProjectionFailureKind.UnsupportedWindowsMetadata);
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException or OverflowException)
+        {
+            return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
         }
     }
 
-    public static unsafe ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
+    public static ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
         scoped ArtifactQueryContentView view,
         ArtifactAssemblyProjection projection,
         Func<AssemblyInspectionSession, CancellationToken, TResult> producer,
@@ -77,50 +91,61 @@ public static class ArtifactAssemblyInspection
         if (view.Content.IsEmpty)
             return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
 
-        fixed (byte* content = view.Content)
+        return view.UseReadStream(
+            content => Execute(
+                content,
+                projection,
+                producer,
+                cancellationToken));
+    }
+
+    private static ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
+        Stream content,
+        ArtifactAssemblyProjection projection,
+        Func<AssemblyInspectionSession, CancellationToken, TResult> producer,
+        CancellationToken cancellationToken)
+    {
+        using var peReader = new PEReader(content);
+        try
         {
-            using var peReader = new PEReader(content, view.Content.Length);
-            try
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                if (!MetadataFormatAdmission.AdmitImage(peReader))
-                {
-                    if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
-                        return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
-                    return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
-                }
-                MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-                if (!reader.IsAssembly)
-                    return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
-
-                AssemblyReferenceIdentity identity =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-                if (string.IsNullOrWhiteSpace(identity.Name))
+                if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
                     return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
-                if (!identity.IsEquivalentTo(projection.Identity))
-                    return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.AssemblyIdentityMismatch);
-                Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
-                if (mvid == Guid.Empty)
-                    return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.EmptyModuleVersionId);
-                if (mvid != projection.Registration.ModuleVersionId)
-                    return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.ModuleVersionIdMismatch);
+                return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
             }
-            catch (UnsupportedMetadataFormatException)
-            {
-                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.UnsupportedWindowsMetadata);
-            }
-            catch (Exception exception) when (
-                exception is BadImageFormatException or OverflowException)
-            {
-                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
-            }
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+            if (!reader.IsAssembly)
+                return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
 
-            cancellationToken.ThrowIfCancellationRequested();
-            using AssemblyInspectionSession session =
-                AssemblyInspectionSession.Borrow(peReader);
-            TResult result = producer(session, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            return new ArtifactAssemblyQueryOutcome<TResult>.Validated(result);
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            if (string.IsNullOrWhiteSpace(identity.Name))
+                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
+            if (!identity.IsEquivalentTo(projection.Identity))
+                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.AssemblyIdentityMismatch);
+            Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (mvid == Guid.Empty)
+                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.EmptyModuleVersionId);
+            if (mvid != projection.Registration.ModuleVersionId)
+                return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.ModuleVersionIdMismatch);
         }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.UnsupportedWindowsMetadata);
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException or OverflowException)
+        {
+            return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(peReader);
+        TResult result = producer(session, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new ArtifactAssemblyQueryOutcome<TResult>.Validated(result);
     }
 
     private static ArtifactAssemblyProjectionOutcome.Rejected RejectProjection(
