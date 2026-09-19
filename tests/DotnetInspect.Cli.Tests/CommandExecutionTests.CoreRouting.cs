@@ -1107,7 +1107,6 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--shape")]
     [InlineData("--tree")]
     public async Task Router_DeferredExactTypePreservesTypeOnlyOutput(
         string outputOption)
@@ -1246,7 +1245,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-m",
             "Add",
-            "--shape",
+            "--tree",
             "--tips",
             "q"
         ];
@@ -1543,7 +1542,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    public async Task Router_DeferredExactTypePreservesNumericMemberFilter()
     {
         const string target =
             "System.Collections.Immutable.ImmutableArray<T>.Builder";
@@ -1563,8 +1562,11 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
-        Assert.Equal("1", deferred.Output.Trim());
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "No members matched filter '1'",
+            deferred.Error);
     }
 
     [Theory]
@@ -1874,7 +1876,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--shape", "--tips", "q");
+            typeName, "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(

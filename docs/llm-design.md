@@ -46,7 +46,7 @@ Agents should prefer built-in query and limiter options over shell pipes:
 For compact type overviews and overload counts, prefer type shape:
 
 ```bash
-dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --shape
+dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --tree
 ```
 
 Use `member -m Name` when you need a specific overload inventory, docs, SourceLink file/line locations, decompiled/lowered C#, PDB-mapped source, or IL. Use `-S "Member Index"` for a terse selector index with interactive `Name:N` selectors, durable `Name~digest` selectors, and the printed `Canonical Signature` used to compute each digest:

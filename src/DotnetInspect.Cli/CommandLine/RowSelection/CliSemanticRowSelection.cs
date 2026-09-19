@@ -66,6 +66,77 @@ internal static class CliSemanticRowSelection
         return false;
     }
 
+    public static bool TrySelectRanked<T>(
+        RowSelectionIntent<string>? intent,
+        IReadOnlyList<T> rows,
+        IComparer<T> ranking,
+        string sequenceName,
+        Func<RowsCohortSemanticFailure<string>, string> formatFailure,
+        out IReadOnlyList<T> selected)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(ranking);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sequenceName);
+        ArgumentNullException.ThrowIfNull(formatFailure);
+
+        if (intent is not { Operations.Count: > 0 })
+        {
+            selected = rows;
+            return true;
+        }
+
+        var stages =
+            new RowSelectionStage<string>[intent.Operations.Count];
+        for (int index = 0; index < intent.Operations.Count; index++)
+        {
+            RowSelectionIntentOperation<string> operation =
+                intent.Operations[index];
+            stages[index] =
+                operation.Kind switch
+                {
+                    RowSelectionStageKind.Head =>
+                        RowSelectionStage<string>.Head(operation.Count),
+                    RowSelectionStageKind.Tail =>
+                        RowSelectionStage<string>.Tail(operation.Count),
+                    RowSelectionStageKind.Window =>
+                        RowSelectionStage<string>.Window(
+                            operation.Start,
+                            operation.End),
+                    RowSelectionStageKind.Top
+                        when !operation.HasRankingOrderOperand =>
+                        RowSelectionStage<string>.Top(
+                            operation.Count,
+                            sequenceName),
+                    RowSelectionStageKind.Top =>
+                        throw new InvalidOperationException(
+                            "An intrinsically ranked sequence cannot apply "
+                                + "an explicit ranking operand."),
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported semantic row-selection operation "
+                            + $"'{operation.Kind}'."),
+                };
+        }
+
+        RowsCohortResult<string, T> result =
+            RowsCohortExecutor.Apply(
+                [
+                    RowsCohortSequence<string, T>.Create(
+                        sequenceName,
+                        rows),
+                ],
+                RowSelectionPlan<string>.Create(stages),
+                _ => ranking);
+        if (result.IsSuccess)
+        {
+            selected = result.RowSets[0].Values;
+            return true;
+        }
+
+        CommandError.Write(formatFailure(result.Failure!));
+        selected = Array.Empty<T>();
+        return false;
+    }
+
     public static bool TrySelectPreservingContext<T>(
         RowSelectionIntent<string>? intent,
         IReadOnlyList<T> events,

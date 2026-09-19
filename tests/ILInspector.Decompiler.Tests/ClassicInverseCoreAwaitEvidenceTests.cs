@@ -60,6 +60,29 @@ public sealed partial class ClassicInverseCoreTests
         Assert.Contains("exact proven pattern members", failure, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void ClassicInverseAwaitRejectsUnprovenOutput()
+    {
+        using RequestScope scope = OpenRequest("AwaitValue");
+        var (_, candidate, shell) = Candidate(scope.Request);
+        ClassicInverseClaim claim = Assert.Single(candidate.Claims,
+            claim => claim.Rule == ClassicInverseRealizationRule.AwaitResult);
+        var original = Assert.IsType<AwaitExpression>(claim.Output);
+        IrExpression operand = (IrExpression)Assert.Single(original.DetachChildren());
+        var replacement = new AwaitExpression(
+            operand,
+            original.ResultType,
+            original.ResultIsDynamic,
+            original.ConsumedMemberRefs);
+
+        Assert.False(ClassicInverseRealizationRules.Verify(
+            claim with { Output = replacement }, candidate, shell,
+            candidate.Claims.ToDictionary(item => item.Source),
+            candidate.Claims.ToDictionary(item => item.Output),
+            new ClassicInverseBudget(), out string failure));
+        Assert.Contains("proven classic await expression", failure, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("AwaitUnsafeProperty")]
     [InlineData("AwaitPointerReceiver")]
