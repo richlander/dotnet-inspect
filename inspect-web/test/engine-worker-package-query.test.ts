@@ -95,14 +95,27 @@ const matchEvent: Extract<
     packageId: "Contoso.Library",
     version: "1.2.3",
     tier: "Nuspec",
+    answers: [{
+      id: "license",
+      value: "MIT",
+      term: {
+        key: "license",
+        operator: "eq",
+        value: "MIT",
+      },
+    }],
     evidence: [{
       id: "description",
-      text: "matched package description",
       scope: "Package",
       summary: {
         count: 2,
         preview: ["first", "second"],
       },
+      properties: [{
+        name: "value",
+        value: "matched package description",
+      }],
+      number: null,
       term: null,
     }],
     totalDownloads: 42,
@@ -352,13 +365,18 @@ function semanticInspected(): BrowserPackageQueryResult {
           packageId: "contoso.library",
           tier: "Assembly",
           evidence: [{
-            id: "library-literal",
-            text: "lib/net10.0/Contoso.Library.dll",
+            id: "selected-assembly",
             scope: "Package",
             summary: {
               count: 1,
               preview: ["Method 0x06000001, IL_0004"],
             },
+            properties: [
+              { name: "path", value: "lib/net10.0/Contoso.Library.dll" },
+              { name: "literal-use-count", value: "1" },
+              { name: "unevaluated-sibling-count", value: "0" },
+            ],
+            number: null,
             term: null,
           }],
           rootRequest: "opaque-semantic-root",

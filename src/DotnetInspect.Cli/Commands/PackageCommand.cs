@@ -1071,6 +1071,12 @@ public partial class PackageCommand
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
+                string? declaredLicense = nuspec?.LicenseDeclaration is
+                    {
+                        Kind: PackageLicenseDeclarationKind.File,
+                    } license
+                        ? license.Value
+                        : null;
                 bool unaryPayload = RequiresUnaryPackageContent(options);
                 PackageFileContentSet content = ReadPackageFileContents(
                     extractPath,
@@ -1078,6 +1084,7 @@ public partial class PackageCommand
                     packageVersion,
                     packageReadme,
                     nuspec?.ReadmeFile,
+                    declaredLicense,
                     options,
                     suppressUnaryPayloadRead: unaryPayload);
                 if (unaryPayload
@@ -1089,6 +1096,7 @@ public partial class PackageCommand
                         packageVersion,
                         packageReadme,
                         nuspec?.ReadmeFile,
+                        declaredLicense,
                         options,
                         suppressUnaryPayloadRead: true,
                         selectedFile.Path);

@@ -270,6 +270,11 @@ const result: AnnotatedSourceResult = {
       limits: [],
       findings: [],
     },
+    synchronousCompletions: {
+      available: false,
+      unavailableReason: "NotProjected",
+      observations: [],
+    },
   },
   findingEvidenceDocuments: [{
     id: 0,

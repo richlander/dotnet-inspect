@@ -540,6 +540,7 @@ public partial class SectionPipelineTests
                 new PackageFile("ref/net8.0/Test.dll", 1),
                 new PackageFile("runtimes/win-x64/native/Test.dll", 1),
                 new PackageFile("Test.nuspec", 1),
+                new PackageFile("LICENSE", 1, IsLicense: true),
                 new PackageFile("skills/demo/SKILL.md", 1)
             ],
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
