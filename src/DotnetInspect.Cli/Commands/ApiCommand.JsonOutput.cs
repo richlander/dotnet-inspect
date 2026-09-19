@@ -178,6 +178,26 @@ public partial class ApiCommand
            && sections.Contains(SectionNames.Facts)
            && HasOnlyExplicitFactsSelectors(options);
 
+    private static bool IsCallersJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.Callers)
+           && HasOnlyExplicitCallersSelectors(options);
+
+    private static bool HasOnlyExplicitCallersSelectors(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.Callers)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitCallersSelector);
+
+    private static bool IsExplicitCallersSelector(string selector)
+        => selector.Equals(
+            SectionNames.Callers,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool IsInvalidFactsJsonSelection(ApiOptions options)
         => options.JsonOutput
            && !options.Count
