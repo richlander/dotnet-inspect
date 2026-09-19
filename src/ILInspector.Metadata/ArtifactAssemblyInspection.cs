@@ -18,7 +18,22 @@ public static class ArtifactAssemblyInspection
         if (view.Content.IsEmpty)
             return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
 
-        using Stream content = view.OpenRead();
+        ArtifactGenerationIdentity generation = view.Generation;
+        ArtifactIdentity artifact = view.Artifact;
+        return view.UseReadStream(
+            content => Project(
+                content,
+                generation,
+                artifact,
+                cancellationToken));
+    }
+
+    private static ArtifactAssemblyProjectionOutcome Project(
+        Stream content,
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        CancellationToken cancellationToken)
+    {
         using var peReader = new PEReader(content);
         try
         {
@@ -43,7 +58,10 @@ public static class ArtifactAssemblyInspection
             cancellationToken.ThrowIfCancellationRequested();
             return new ArtifactAssemblyProjectionOutcome.Projected(
                 new ArtifactAssemblyProjection(
-                    new AssemblyProjectionRegistration(view.Generation, view.Artifact, mvid),
+                    new AssemblyProjectionRegistration(
+                        generation,
+                        artifact,
+                        mvid),
                     identity));
         }
         catch (UnsupportedMetadataFormatException)
@@ -73,7 +91,20 @@ public static class ArtifactAssemblyInspection
         if (view.Content.IsEmpty)
             return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
 
-        using Stream content = view.OpenRead();
+        return view.UseReadStream(
+            content => Execute(
+                content,
+                projection,
+                producer,
+                cancellationToken));
+    }
+
+    private static ArtifactAssemblyQueryOutcome<TResult> Execute<TResult>(
+        Stream content,
+        ArtifactAssemblyProjection projection,
+        Func<AssemblyInspectionSession, CancellationToken, TResult> producer,
+        CancellationToken cancellationToken)
+    {
         using var peReader = new PEReader(content);
         try
         {

@@ -707,7 +707,17 @@ public readonly ref struct LibraryContentView
 
     public LibraryContentReference Reference { get; }
     public ReadOnlySpan<byte> Content => _content.Content;
-    public Stream OpenRead() => _content.OpenRead();
+
+    /// <summary>
+    /// Uses a zero-copy seekable stream only for the synchronous callback.
+    /// </summary>
+    /// <remarks>
+    /// The stream is disposed and drops the retained image before this method
+    /// returns. The callback result must be detached or independently owned.
+    /// </remarks>
+    public TResult UseReadStream<TResult>(
+        Func<Stream, TResult> callback) =>
+        _content.UseReadStream(callback);
 }
 
 /// <summary>

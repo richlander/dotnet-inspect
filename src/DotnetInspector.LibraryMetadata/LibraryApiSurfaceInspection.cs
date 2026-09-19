@@ -151,7 +151,21 @@ public static class LibraryApiSurfaceInspection
         if (view.Content.IsEmpty)
             return Failed(LibraryApiSurfaceInspectionFailureKind.MalformedMetadata);
 
-        using Stream content = view.OpenRead();
+        LibraryContentReference reference = view.Reference;
+        return view.UseReadStream(
+            content => Inspect(
+                content,
+                reference,
+                request,
+                cancellationToken));
+    }
+
+    private static LibraryApiSurfaceInspectionOutcome Inspect(
+        Stream content,
+        LibraryContentReference reference,
+        LibraryApiSurfaceInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
         using var peReader = new PEReader(content);
         try
         {
@@ -173,7 +187,7 @@ public static class LibraryApiSurfaceInspection
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             ManagedMetadataIdentity.Assembly? expectedIdentity =
-                view.Reference.AssemblyIdentity;
+                reference.AssemblyIdentity;
             if (expectedIdentity is null
                 || !identity.IsEquivalentTo(expectedIdentity.Identity))
             {
@@ -212,7 +226,7 @@ public static class LibraryApiSurfaceInspection
                 (ApiSurfaceExtractionResult.Extracted)extraction;
             return new LibraryApiSurfaceInspectionOutcome.Completed(
                 new LibraryApiSurfaceCorrespondence(
-                    view.Reference,
+                    reference,
                     moduleVersionId,
                     extracted.Surface,
                     request.Scope,
