@@ -29,6 +29,17 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
                 InstalledReferenceRealization>.Succeeded>(
                     await adapter.RealizeReferenceAsync(request));
         PlatformHouseConsumedWork consumed = Consumed(reference);
+        PlatformHouseCandidateIdentity candidate =
+            PlatformHouseCandidateIdentity.Create("installed-candidate");
+        var attempt = Assert.IsType<
+            PlatformAssemblyReferenceSourceAttempt.Succeeded>(
+                InstalledPlatformAssemblyReferenceResolver.PrepareAttempt(
+                    request,
+                    reference,
+                    candidate));
+
+        Assert.Same(candidate, attempt.Candidate);
+        Assert.Same(reference.Contribution, attempt.Contribution);
 
         var completed = Assert.IsType<
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
@@ -152,6 +163,10 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
         var terminal = Assert.IsType<
             InstalledPlatformHouseResult<
                 InstalledReferenceRealization>.NotSucceeded>(result);
+        var attempt = Assert.IsType<
+            PlatformAssemblyReferenceSourceAttempt.NotSucceeded>(
+                InstalledPlatformAssemblyReferenceResolver.PrepareAttempt(
+                    terminal));
 
         PlatformHouseOutcome<AssemblyBindingDecision> outcome =
             await InstalledPlatformAssemblyReferenceResolver.ResolveAsync(
@@ -162,6 +177,12 @@ public sealed class InstalledPlatformAssemblyReferenceResolverTests
         Assert.Equal(
             ExpectedDiagnostic(terminalCase),
             terminal.Diagnostic.Kind);
+        Assert.Same(terminal.Contribution, attempt.Contribution);
+        Assert.Equal(
+            terminalCase == InstalledSourceTerminalCase.Rejected
+                ? PlatformHouseRejectionKind.InvalidOwnerResult
+                : null,
+            attempt.RejectionKind);
         PlatformSourceSettlement settlement =
             Assert.Single(outcome.Receipt.SourceSettlements);
         Assert.Same(terminal.Contribution, settlement.Contribution);

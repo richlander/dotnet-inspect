@@ -5,7 +5,7 @@ Which interfaces does List\<T\> implement?
 ## Optimal Path (Expert, Markdown)
 
 ```bash
-dotnet-inspect type "List<T>" --platform System.Collections --shape
+dotnet-inspect type "List<T>" --platform System.Collections --tree
 ```
 
 ## Optimal Path (Expert, JSON)

@@ -57,6 +57,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             synchronousCompletions = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -91,6 +96,8 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 callRelationships,
                 synchronousCompletions);
         }
+        if (awaitCompletionPaths is not null)
+            ValidateAwaitCompletionPaths(document, awaitCompletionPaths);
 
         var targetedFacts = new bool[document.Facts.Count];
         foreach (AnnotatedSourceTarget target in document.Targets)
@@ -170,6 +177,15 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     Available: true,
                     UnavailableReason: null,
                     Observations: synchronousCompletions),
+            awaitCompletionPaths is null
+                ? new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                    Available: false,
+                    awaitCompletionPathsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: awaitCompletionPaths),
             projectedDestinations);
     }
 
@@ -334,6 +350,42 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             {
                 throw new ArgumentException(
                     $"Synchronous completion observation {index} has invalid or duplicate relationship evidence.",
+                    nameof(observations));
+            }
+        }
+
+    }
+
+    private static void ValidateAwaitCompletionPaths(
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceAwaitCompletionPath[] observations)
+    {
+        var observedNodeIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceAwaitCompletionPath observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Await completion-path observation {index} is null.",
+                        nameof(observations));
+            if (observation.NodeId < 0
+                || observation.NodeId >= document.Nodes.Count
+                || !observedNodeIds.Add(observation.NodeId))
+            {
+                throw new ArgumentException(
+                    $"Await completion-path observation {index} does not name a unique document node.",
+                    nameof(observations));
+            }
+
+            AnnotatedSourceNode node = document.Nodes[observation.NodeId];
+            if (node.Medium != SourceLineKind.CSharp
+                || !string.Equals(
+                    node.Kind,
+                    AnnotatedSourceNodeKinds.AwaitExpression,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"Await completion-path observation {index} does not name a C# AwaitExpression node.",
                     nameof(observations));
             }
         }

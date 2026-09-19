@@ -318,6 +318,48 @@ test("viewer model rejects synchronous completion without relationship evidence"
   );
 });
 
+test("viewer model retains classic await completion paths by exact node", () => {
+  const awaitDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "AwaitExpression" }
+        : node),
+  };
+  const model = createAnnotatedSourceViewerModel({
+    ...sampleResult(awaitDocument),
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      awaitCompletionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{ nodeId: 1 }],
+      },
+    },
+  });
+
+  assert.equal(
+    model.awaitCompletionPathsByNodeId.get(1)?.nodeId,
+    1);
+});
+
+test("viewer model rejects await completion paths on non-await nodes", () => {
+  assert.throws(
+    () => createAnnotatedSourceViewerModel({
+      ...sampleResult(),
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        awaitCompletionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{ nodeId: 1 }],
+        },
+      },
+    }),
+    /C# AwaitExpression node/,
+  );
+});
+
 test("viewer model rejects call relationships without exact occurrence evidence", () => {
   assert.throws(
     () => createAnnotatedSourceViewerModel({

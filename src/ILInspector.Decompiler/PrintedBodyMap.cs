@@ -32,6 +32,12 @@ public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent
 {
     /// <summary>Product-owned IL provenance retained by this rendered C# node.</summary>
     public AnnotatedSourceNodeProvenance? Provenance { get; init; }
+
+    /// <summary>
+    /// Whether the classic async inverse proved the inline and
+    /// suspension/resume paths represented by this exact await node.
+    /// </summary>
+    public bool ProvesClassicAwaitCompletionPaths { get; init; }
 }
 
 /// <summary>
@@ -425,6 +431,23 @@ public sealed record PrintedBodyMap
             }
             nodeIds[node] = id;
             contributors[id].Add(node);
+        }
+
+        for (int id = 0; id < contributors.Count; id++)
+        {
+            AwaitExpression[] awaits =
+            [
+                .. contributors[id].OfType<AwaitExpression>(),
+            ];
+            if (awaits.Length > 0
+                && awaits.All(static awaitExpression =>
+                    awaitExpression.ProvesClassicCompletionPaths))
+            {
+                nodes[id] = nodes[id] with
+                {
+                    ProvesClassicAwaitCompletionPaths = true,
+                };
+            }
         }
 
         if (includeNodeProvenance)

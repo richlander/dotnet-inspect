@@ -28,7 +28,7 @@ List JsonSerializer members in a compact one-per-line format.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -m 3 --no-headers
+dotnet-inspect type System.Text.Json JsonSerializer --table -n 3 --no-headers
 ```
 
 ```expect
@@ -43,7 +43,7 @@ Tips:
 ### 1b. With header
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --table -m 3
+dotnet-inspect type System.Text.Json JsonSerializer --table -n 4
 ```
 
 ```expect
