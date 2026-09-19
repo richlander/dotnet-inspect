@@ -140,6 +140,57 @@ unsafe" is answerable cheaply, before any IR import — and those same
 offset-keyed facts are what Research joins onto a body to answer "which
 *regions*."
 
+## Selected property accessor source
+
+The Decompiler body-composition boundary owns the selected-accessor envelope:
+when the selected MethodDef belongs to a non-indexed property and its body can
+retain its existing bindings inside an accessor, compose that body with a
+property declaration. Metadata's PropertyDef/MethodSemantics association is
+the authority, not the method's display name. CSharp still owns declaration
+spelling, and CSharpText owns expression/block layout.
+
+The real motivating witness is .NET 11 RC1
+`System.Data.SqlTypes.SqlBytes.get_MaxLength`: the faithful switch-expression
+body should appear as `public long MaxLength => ...`, not as a `get_MaxLength`
+method. This is declaration recovery, not a new body raise or an IL-fidelity
+improvement. Existing whole-property composition and CSharp's typed
+property/accessor bodies provide the analogous implementation boundaries.
+
+Only the selected getter, setter, or init body participates. Selection and
+native evidence remain addressed by the original MethodDef. The property
+envelope uses that accessor's physical accessibility and modifiers, not its
+sibling's aggregate accessibility. Thus selecting a private setter produces
+a private setter-only property, not an incomplete `public` property with an
+illegal lone `private set`. This intentionally presents one accessor, not the
+entire original property. Attributes on the accessor remain on the accessor;
+they must not migrate to its enclosing property.
+
+Genuine accessor-like methods, actual indexers, and event accessors retain their
+existing representation. A property with its own compiler backing storage
+also retains method form here: existing body projection can spell that storage
+as a property access, and changing only the envelope would introduce recursion.
+Backing-storage recovery and indexer parameter coordination require separate
+body/binding work. This slice does not rewrite body text to compensate.
+An incompatible implicit setter parameter binding is a visible composition
+failure, not an invented name substitution.
+
+The single adoption slice covers CLI Decompiled Source, Annotated Source and
+overlays, and the shared member-source producer used by Source Diff and
+Browser/Wasm. It replaces the producer's separate explicit-property envelope
+with the same composition boundary; no second host property formatter is
+introduced. Body-level structural and native evidence remains useful but does
+not establish declaration correctness: the gates must also observe the actual
+selected-member source and compile product-composed artifacts.
+
+`SelectedPropertySourceTests` is the PR-fast Release gate for the real
+`SqlBytes` witness, get/set/init selection, physical modifiers, attribute
+attachment, product-composed source compilation, and the decline boundaries.
+`CSharpDeclarationWriterTests.ExplicitPropertyDeclaration_PreservesReadonlyModifier`
+gates the CSharp formatter's existing physical-modifier obligation. The CLI
+`MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;
+the four-view real-library case is `Speed=Slow` (measured above two seconds)
+and runs in daily Deep Inspect plus this slice's focused pre-merge gate.
+
 ## Address: identity, not an ordinal
 
 Every experience addresses a member, and the substrate replaces the positional

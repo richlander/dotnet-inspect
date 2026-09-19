@@ -6,6 +6,27 @@ namespace ILInspector.CSharp.Tests;
 public sealed class CSharpDeclarationWriterTests
 {
     [Fact]
+    public void ExplicitPropertyDeclaration_PreservesReadonlyModifier()
+    {
+        var type = new ApiType { Name = "Counter", Kind = "struct" };
+        var member = new ApiMember
+        {
+            Name = "ICounter.Count",
+            Kind = "explicit-interface-implementation",
+            IsReadOnly = true,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "ICounter.Count",
+                ReturnType = "int",
+                Accessors = [new ApiAccessor { Kind = "get" }],
+            },
+        };
+
+        Assert.Equal("readonly int ICounter.Count { get; }",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    [Fact]
     public void TypeDeclaration_PreservesRecordModifiers()
     {
         var abstractType = new ApiType

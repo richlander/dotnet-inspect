@@ -1265,6 +1265,8 @@ internal static class CSharpDeclarationWriter
             // and their safety modifier.
             if (member.IsStatic)
                 modifiers.Add("static");
+            if (member.IsReadOnly)
+                modifiers.Add("readonly");
         }
 
         if (safety.Modifier is { } safetyModifier)
