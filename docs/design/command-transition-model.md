@@ -1321,16 +1321,25 @@ requires an explicit `--assembly-wide`. Both scopes are evaluated in the image
 that defines the seed, so widening the scope can never search strictly less than
 narrowing it did.
 
-Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
-while `--max-results` and `--max-methods` move the product retrieval limits.
+Candidate-row selection and product limits stay orthogonal. `--top` is semantic
+Top over the Analysis-issued structural-similarity ranking; `-n`, `--tail`, and
+strict `--rows` windows select from the same completed ranked candidate vector.
+`--max-results` and `--max-methods` instead move product retrieval limits.
 When discovery required `--all` to resolve a non-public seed, the disclosed
 pairwise address retains `--all`; the stateless transition must be able to
 resolve the same seed before it can consume the candidate token
 (`Similar_NonPublicSeedDisclosureRetainsAll`).
-Structured output retains every candidate, per-method outcome, blocker, and
-receipt regardless of `--top`, so a text-shaping flag can never silently discard
-evidence. The per-method outcomes are what make the receipt's aggregate counts
-attributable: a count of skipped methods that names no method is not evidence.
+Markdown, table, TSV, JSONL, and structured JSON consume the same selected
+candidate identities, and `--count` observes that selected vector. Structured
+JSON retains complete per-method outcomes, blockers, and the query-issued
+receipt because those are retrieval evidence rather than candidate rows. Its
+`row_selection` object records the available and selected candidate counts, so
+the receipt's `returned_candidates` may truthfully exceed the length of the
+selected `candidates` array. The per-method outcomes are what make the receipt's
+aggregate counts attributable: a count of skipped methods that names no method
+is not evidence. A retrieval that rejects, fails, or reaches a product limit
+remains the visible nonzero result; candidate selection cannot replace that
+failure with an unavailable-row diagnostic.
 
 The disclosure follows the rendering rather than the format's convenience.
 Markdown carries it as a paragraph and structured output as a field, but table,
