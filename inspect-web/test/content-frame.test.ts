@@ -35,11 +35,11 @@ class FakeElement {
 }
 
 test("the content navigation bar exposes one local pane switch", () => {
-  const html = renderContentNavigationBar("Members");
+  const html = renderContentNavigationBar("Frameworks");
 
   assert.match(html, /id="content-navigation-toggle"/);
   assert.match(html, /aria-controls="content-navigation-pane"/);
-  assert.match(html, /<span>Members<\/span>/);
+  assert.match(html, /<span>Frameworks<\/span>/);
   assert.doesNotMatch(html, /dialog|modal/);
 });
 

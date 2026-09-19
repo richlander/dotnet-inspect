@@ -254,8 +254,8 @@ public static class AnnotatedMemberDocumentQuery
             return Failure(mappingFailure);
         }
 
-        var sourceProjection = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+        var sourceProjection = MemberProjectionProducer.Produce(
+            new MemberProjectionRequest(
                 input.Source,
                 projection.Focus.Member.DeclaringType
                     .ToQualifiedDisplayString(),

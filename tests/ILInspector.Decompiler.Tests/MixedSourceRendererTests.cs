@@ -19,7 +19,7 @@ public class MixedSourceRendererTests
 
     static DecompilerResult RenderMixed(
         MetadataSource source, string type, string method, AnnotationStage stage = AnnotationStage.Raised)
-        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        => ResearchViews.ProjectMember(new MemberProjectionRequest(
             source, type, method, AnnotatedSource: true, AnnotatedStage: stage)).AnnotatedSource!;
 
     [Fact]
@@ -274,7 +274,7 @@ public class MixedPreambleTests
     static string Render(Type type)
     {
         var source = MetadataSource.Open(type.Assembly.Location);
-        var result = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var result = ResearchViews.ProjectMember(new MemberProjectionRequest(
             source, type.FullName!, ".ctor", AnnotatedSource: true)).AnnotatedSource;
         Assert.NotNull(result?.Output);
         return result!.Output!;

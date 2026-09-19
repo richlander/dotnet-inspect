@@ -549,7 +549,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchConstructorFixture).FullName!,
             ".ctor",
@@ -584,12 +584,12 @@ public class ResearchFactRegistryTests
         Assert.NotNull(selection);
 
         using var source = MetadataSource.Open(path);
-        var byName = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var byName = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchConstructorFixture).FullName!,
             ".ctor",
             AnnotatedSource: true));
-        var byToken = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var byToken = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchConstructorFixture).FullName!,
             ".ctor",
@@ -610,7 +610,7 @@ public class ResearchFactRegistryTests
     {
         using var source = MetadataSource.Open(typeof(ResearchInitializerOnlyFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchInitializerOnlyFixture).FullName!,
             ".ctor",
@@ -641,7 +641,7 @@ public class ResearchFactRegistryTests
             DiagnosticIds.ContextUnavailable,
             "overlay context unavailable");
 
-        var result = ResearchViews.RunProjection(
+        var result = MemberProjectionProducer.RunProjection(
             () => failure,
             emptyOutputIsFailure: true);
 
@@ -653,7 +653,7 @@ public class ResearchFactRegistryTests
     [Fact]
     public void RunProjection_AllowsEmptyBodyOnlyCSharp()
     {
-        var result = ResearchViews.RunProjection(
+        var result = MemberProjectionProducer.RunProjection(
             () => DecompilerResult.Success(""),
             emptyOutputIsFailure: false);
 
@@ -726,7 +726,7 @@ public class ResearchFactRegistryTests
             overloadIndex: 0,
             publicOnly: false);
 
-        var stream = ResearchViews.CorrelateMixedSource(
+        var stream = MemberProjectionProducer.CorrelateMixedSource(
             imported,
             output,
             printedRanges,
@@ -739,7 +739,7 @@ public class ResearchFactRegistryTests
         Assert.DoesNotContain("test.portable", ilLine.Text);
         Assert.DoesNotContain("not-in-text", ilLine.Text);
 
-        string rendered = ResearchViews.RenderMixedStream(
+        string rendered = MemberProjectionProducer.RenderMixedStream(
             stream,
             AnnotationGestureSelector.SideOnly);
         string label = AnnotationText.Format(marker);
@@ -771,7 +771,7 @@ public class ResearchFactRegistryTests
 
         Assert.Equal(
             expected,
-            ResearchViews.RenderMixedStream(stream, AnnotationGestureSelector.SideOnly));
+            MemberProjectionProducer.RenderMixedStream(stream, AnnotationGestureSelector.SideOnly));
     }
 
     [Fact]
@@ -781,7 +781,7 @@ public class ResearchFactRegistryTests
         var producer = new CountingProducer();
         var registry = new ResearchFactRegistry(producer);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -1191,7 +1191,7 @@ public class ResearchFactRegistryTests
             nameof(ResearchFixture.CallsStackallocCallee),
             nameof(ResearchFixture.StackallocCallee));
 
-        ResearchViews.FactRow row = Assert.Single(
+        FactRow row = Assert.Single(
             ResearchViews.CollectFactRows(
                 source,
                 typeof(ResearchFixture).FullName!,
@@ -1223,7 +1223,7 @@ public class ResearchFactRegistryTests
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
 
-        ResearchViews.FactRow row = Assert.Single(
+        FactRow row = Assert.Single(
             ResearchViews.CollectFactRows(
                 source,
                 typeof(ResearchFixture).FullName!,
@@ -1253,7 +1253,7 @@ public class ResearchFactRegistryTests
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
 
-        ResearchViews.FactRow row = Assert.Single(
+        FactRow row = Assert.Single(
             ResearchViews.CollectFactRows(
                 source,
                 typeof(ResearchFixture).FullName!,
@@ -1295,19 +1295,19 @@ public class ResearchFactRegistryTests
 
     static DecompilerResult RenderAnnotatedSource(
         MetadataSource source, string type, string method, ResearchFactRegistry? registry = null)
-        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        => MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source, type, method, AnnotatedSource: true, Registry: registry)).AnnotatedSource!;
 
     static DecompilerResult RenderCostOverlay(MetadataSource source, string type, string method)
         => RenderCostOverlayWithHeaderFacts(source, type, method).Body;
 
-    static ResearchViews.CostOverlayResult RenderCostOverlayWithHeaderFacts(
+    static CostOverlayResult RenderCostOverlayWithHeaderFacts(
         MetadataSource source, string type, string method)
-        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        => MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source, type, method, CostOverlay: true)).CostOverlay!;
 
     static DecompilerResult RenderSemanticsOverlay(MetadataSource source, string type, string method)
-        => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        => MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source, type, method, SemanticsOverlay: true)).SemanticsOverlay!;
 
     sealed class TestProducer(

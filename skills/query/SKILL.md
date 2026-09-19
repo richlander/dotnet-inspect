@@ -221,6 +221,8 @@ dnx dotnet-inspect -y -- package query 'Azure.*' \
 dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
   --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
   --take 20 -n 5
+dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -230,15 +232,18 @@ the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 formats are ORed. `license=any|MIT|OSMF` is nuspec-only: `any` tests declaration
 presence, `MIT` matches the exact SPDX expression, and `OSMF` matches the
 declared `OSMFEULA.*` basename without reading the file. Query rows represent
-individual packages with exact versions, semantic answers, and structured
-evidence. Queries retrieve values and counts; hosts render any explanatory
-text. Dependency predicates
-inspect all nuspec groups
+individual packages with exact versions and semantic answers. Structured
+evidence remains available in unprojected JSON and the inspection envelope.
+Queries retrieve values and counts; hosts render any explanatory text.
+Dependency predicates inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request
 traversal. `dependencies=cross-prefix` matches a direct declaration whose first
 dot-delimited package-ID segment differs from the package's own segment.
+`depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
+registered exact packages and package prefixes for one canonical ecosystem;
+repeat it to require every named ecosystem.
 `references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
 assemblies from every target-framework group, matches `AssemblyRef` simple
 names case-insensitively, and reports framework/path evidence without resolving
@@ -387,9 +392,9 @@ an empty edge table only when the requested start is beyond the available rows.
 `timeline`, `match --similar`, `package query`, package activity, package
 `--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
 Integration graph edges, selected package file/SourceLink inventories,
-selected Project document inventories, and explicit-source Type catalogs have
-semantic adoption in their supported modes. Partially adopted modes fall back
-to rendered lines.
+selected Project document inventories, explicit-source Type catalogs, and
+exact Member `Callers` have semantic adoption in their supported modes.
+Partially adopted modes fall back to rendered lines.
 
 Where a route supports it, `--count` is a terminal projection over the selected
 semantic rows. On sectioned output, select one concrete table for a scalar

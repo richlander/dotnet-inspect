@@ -1831,7 +1831,10 @@ public static class ApiOutputFormatter
             pdbPath,
             options?.IncludeAll ?? false,
             options?.RenderOptions,
-            sourceAssembly))
+            sourceAssembly,
+            request.RequiresResearchProjection && overloadIndex.HasValue
+                ? analysisInspection.ResearchContext
+                : null))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -1905,8 +1908,8 @@ public static class ApiOutputFormatter
             view.MemberCode = memberCode;
     }
 
-    static FactRow ToFactRow(
-        ILInspector.Research.ResearchViews.FactRow fact)
+    static DotnetInspect.Cli.Views.FactRow ToFactRow(
+        ILInspector.Research.FactRow fact)
         => new(
             fact.Member,
             fact.ILOffset is { } offset
@@ -1995,7 +1998,8 @@ public static class ApiOutputFormatter
                 code.MethodGenericParameters,
                 decompiledResult,
                 preferExpressionBodied: true,
-                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
+                propertySource: code.PropertySource);
             hasCode = true;
         }
 
@@ -2009,7 +2013,9 @@ public static class ApiOutputFormatter
                 annotatedResult,
                 requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
                 includeCustomAttributes: true,
-                declarationTrailingComment: BuildTasteAnnotation(annotatedResult.Decisions));
+                declarationTrailingComment: BuildTasteAnnotation(annotatedResult.Decisions),
+                propertySource: code.PropertySource,
+                accessorAttributes: code.AccessorAttributes);
             hasCode = true;
         }
 
@@ -2022,7 +2028,8 @@ public static class ApiOutputFormatter
                 code.MethodGenericParameters,
                 costOverlayResult,
                 leadingBodyComments: code.CostOverlayHeaderComments,
-                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
+                propertySource: code.PropertySource);
             hasCode = true;
         }
 
@@ -2034,7 +2041,8 @@ public static class ApiOutputFormatter
                 member,
                 code.MethodGenericParameters,
                 semanticsOverlayResult,
-                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier);
+                requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
+                propertySource: code.PropertySource);
             hasCode = true;
         }
 
@@ -3138,7 +3146,9 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
         bool includeCustomAttributes = false,
-        string? declarationTrailingComment = null)
+        string? declarationTrailingComment = null,
+        Decompiler.SelectedPropertyAccessorSource? propertySource = null,
+        IReadOnlyList<string>? accessorAttributes = null)
     {
         if (!result.Succeeded)
             return new CodeSection("csharp", DiagnosticComment(result));
@@ -3156,7 +3166,9 @@ public static class ApiOutputFormatter
                     leadingBodyComments,
                     requiresAsyncBodyModifier,
                     includeCustomAttributes,
-                    declarationTrailingComment));
+                    declarationTrailingComment,
+                    propertySource,
+                    accessorAttributes));
         }
         catch (Exception ex)
         {
@@ -3175,7 +3187,9 @@ public static class ApiOutputFormatter
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
         bool includeCustomAttributes = false,
-        string? declarationTrailingComment = null)
+        string? declarationTrailingComment = null,
+        Decompiler.SelectedPropertyAccessorSource? propertySource = null,
+        IReadOnlyList<string>? accessorAttributes = null)
     {
         var lowered = result.Output
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
@@ -3191,6 +3205,17 @@ public static class ApiOutputFormatter
             // not silently re-inject the compiler's mandatory base.Finalize().
             SuppressDestructorSyntax = member.IsFinalizer && !result.BodyIsDestructor
         };
+        if (propertySource is not null)
+        {
+            return propertySource.Format(
+                type,
+                bodyShape,
+                result.BodyIsSingleExpressionBody,
+                preferExpressionBodied,
+                accessorAttributes,
+                leadingBodyComments,
+                declarationTrailingComment);
+        }
         var formatter = includeCustomAttributes ? AnnotatedCSharpFormatter : DefaultCSharpFormatter;
         var declaration = formatter.FormatMemberWithBody(
             type,

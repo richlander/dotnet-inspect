@@ -29,6 +29,43 @@ public static partial class PackageQuery
         int? maximumMatches = DefaultMaximumMatches,
         bool includePrerelease = false,
         RowSelectionIntent<string>? rowSelection = null)
+        => PlanInputCore(
+            text,
+            terms,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease,
+            rowSelection,
+            ecosystemMemberships: null);
+
+    public static PackageQueryPlanResult PlanInput(
+        string text,
+        PackageQueryEcosystemMembershipCatalog ecosystemMemberships,
+        IReadOnlyCollection<PortableQueryTerm>? terms = null,
+        int maximumCandidates = DefaultMaximumCandidates,
+        int? maximumMatches = DefaultMaximumMatches,
+        bool includePrerelease = false,
+        RowSelectionIntent<string>? rowSelection = null)
+    {
+        ArgumentNullException.ThrowIfNull(ecosystemMemberships);
+        return PlanInputCore(
+            text,
+            terms,
+            maximumCandidates,
+            maximumMatches,
+            includePrerelease,
+            rowSelection,
+            ecosystemMemberships);
+    }
+
+    private static PackageQueryPlanResult PlanInputCore(
+        string text,
+        IReadOnlyCollection<PortableQueryTerm>? terms,
+        int maximumCandidates,
+        int? maximumMatches,
+        bool includePrerelease,
+        RowSelectionIntent<string>? rowSelection,
+        PackageQueryEcosystemMembershipCatalog? ecosystemMemberships)
     {
         ArgumentNullException.ThrowIfNull(text);
 
@@ -108,7 +145,9 @@ public static partial class PackageQuery
             bounds,
             ToPortableStages(rowSelection),
             []);
-        return ResolveIntent(intent);
+        return ecosystemMemberships is null
+            ? ResolveIntent(intent)
+            : ResolveIntent(intent, ecosystemMemberships);
     }
 
     private static IReadOnlyList<PortableQueryStage> ToPortableStages(
