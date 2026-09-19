@@ -588,6 +588,105 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Layout_FalseJsonDoesNotOverrideEnvironmentTable()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var fallback = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "--json=false",
+                "-n",
+                "1",
+                "--tips",
+                "q");
+            var legacyRows = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                "--json=false",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, fallback.Exit);
+            Assert.Empty(fallback.Error);
+            Assert.Single(
+                fallback.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(1, legacyRows.Exit);
+            Assert.Empty(legacyRows.Output);
+            Assert.Contains(
+                "Package 'package.that.must.not.resolve'",
+                legacyRows.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                legacyRows.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table=false")]
+    [InlineData("--tsv=false")]
+    public async Task Layout_FalseTabularFormatRetainsSemanticRows(
+        string formatOption)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                null);
+
+            var (exit, output, error) = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                formatOption,
+                "--rows",
+                "1");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Package.That.Must.Not.Resolve",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
     public async Task Package_UnselectedModeRetainsRenderedLineFallback()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
