@@ -237,6 +237,54 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     [Fact]
+    public void StateMachineRelationshipIndex_InvalidHandlesAreTyped()
+    {
+        using FileStream stream =
+            File.OpenRead(typeof(Fixtures).Assembly.Location);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(reader);
+        StateMachineRelationshipIndex failedIndex =
+            StateMachineRelationshipIndex.Create(
+                reader,
+                relationshipBudget: 1);
+        int methodRows =
+            reader.GetTableRowCount(TableIndex.MethodDef);
+        int typeRows =
+            reader.GetTableRowCount(TableIndex.TypeDef);
+
+        StateMachineRelationshipResult[] results =
+        [
+            index.GetByKickoff(default),
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(
+                    methodRows + 1)),
+            index.GetByImplementation(default),
+            index.GetByImplementation(
+                MetadataTokens.MethodDefinitionHandle(
+                    methodRows + 1)),
+            index.GetByStateMachine(default),
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(
+                    typeRows + 1)),
+            failedIndex.GetByKickoff(default),
+            failedIndex.GetByImplementation(default),
+            failedIndex.GetByStateMachine(default),
+        ];
+
+        Assert.All(results, result =>
+        {
+            var rejected =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    result);
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.InvalidHandle,
+                rejected.Failure.Kind);
+        });
+    }
+
+    [Fact]
     public void StateMachineRelationshipIndex_PropagatesTypedBudgetFailure()
     {
         using FileStream stream =
@@ -1024,7 +1072,7 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
-        StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode()
+        StateMachineRelationshipIndex_ReportsEncodedTypeNameBudgetBeforeDecode()
     {
         using var image = new LoadedImage(
             BuildClaimImage(
@@ -1043,10 +1091,115 @@ public sealed class StateMachineRelationshipIndexTests
                     MetadataTokens.MethodDefinitionHandle(1)));
 
         Assert.Equal(
-            StateMachineRelationshipFailureKind.Malformed,
+            StateMachineRelationshipFailureKind.BudgetExceeded,
             result.Failure.Kind);
         Assert.Equal(
             "The state-machine type name exceeds its encoded byte budget.",
+            result.Failure.Detail);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_RetainsMalformedTruncatedOversizedName()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                truncatedOversizedClaimValue: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine attribute value is malformed.",
+            result.Failure.Detail);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ReportsTypeNameCharacterBudget()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName: new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters
+                        + 1)));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine type name exceeds its character budget.",
+            result.Failure.Detail);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ReportsTypeNameParseNodeBudget()
+    {
+        string serializedTypeName =
+            string.Join(
+                '+',
+                Enumerable.Repeat(
+                    "N",
+                    MetadataSafetyPolicy.MaxRelationshipNodes
+                        + 1));
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName: serializedTypeName));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine type name exceeds its parse node budget.",
+            result.Failure.Detail);
+    }
+
+    [Fact]
+    public void StateMachineRelationshipIndex_RetainsMalformedTypeName()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                serializedTypeName: "N.Invalid["));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine type name is malformed.",
             result.Failure.Detail);
     }
 
@@ -2625,7 +2778,8 @@ public sealed class StateMachineRelationshipIndexTests
         byte[]? assemblyPublicKey = null,
         string? assemblyCulture = null,
         GuidHandle? moduleVersionId = null,
-        bool largeGuidHeap = false)
+        bool largeGuidHeap = false,
+        bool truncatedOversizedClaimValue = false)
     {
         var metadata = new MetadataBuilder();
         if (largeGuidHeap)
@@ -2879,7 +3033,15 @@ public sealed class StateMachineRelationshipIndexTests
             }
             var value = new BlobBuilder();
             value.WriteUInt16(1);
-            value.WriteSerializedString(serializedTypeName);
+            if (truncatedOversizedClaimValue)
+            {
+                value.WriteCompressedInteger(
+                    MetadataTypeNameBudget.MaxEncodedBytes + 1);
+            }
+            else
+            {
+                value.WriteSerializedString(serializedTypeName);
+            }
             value.WriteUInt16(0);
             metadata.AddCustomAttribute(
                 owner,
