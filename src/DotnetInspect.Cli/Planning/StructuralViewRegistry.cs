@@ -573,7 +573,7 @@ public static class StructuralViewRegistry
         string target = tokens[0];
         string[] memberSelectors =
             GetOptionValues(tokens, "-m", "--member");
-        var (memberFilter, memberLimit) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(memberSelectors);
         bool hasBodyKindFilter =
             BodyKindQueryOptions.TryExtract(
@@ -746,14 +746,6 @@ public static class StructuralViewRegistry
                     StructuralViewIdentity.MemberTarget,
                     memberCatalog));
         }
-        else if (memberLimit is not null)
-        {
-            routes.Add(
-                Route(
-                    StructuralViewIdentity.MemberType,
-                    InspectionCatalogIdentity.ApiMember));
-        }
-
         StructuralCatalogAlternatives alternatives = CreateAlternatives(routes, request);
         return memberError is null
             ? alternatives
@@ -1808,7 +1800,7 @@ public static class StructuralViewRegistry
     {
         string[] members =
             GetOptionValues(tokens, "-m", "--member");
-        var (memberFilter, _) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(members);
         if (memberFilter.Count == 0)
             return InspectionCatalogIdentity.ApiMember;

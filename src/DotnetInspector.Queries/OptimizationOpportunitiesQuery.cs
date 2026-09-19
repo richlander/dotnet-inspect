@@ -11,8 +11,8 @@ public abstract record OptimizationOpportunitiesResult
     }
 
     /// <summary>
-    /// Raw optimization opportunities, generated-framework type evidence, and any
-    /// per-method diagnostics reported by the analysis.
+    /// Completed optimization opportunities, generated-framework type
+    /// evidence, and any per-method diagnostics reported by Analysis.
     /// </summary>
     public sealed record Available(
         ImmutableArray<OptimizationOpportunity> Opportunities,
@@ -28,27 +28,37 @@ public abstract record OptimizationOpportunitiesResult
     public sealed record Failed(Exception Error) : OptimizationOpportunitiesResult;
 }
 
-/// <summary>Reads optimization evidence from an already-acquired whole-assembly body index.</summary>
+/// <summary>
+/// Reads completed optimization evidence from an already-produced focused
+/// Analysis result.
+/// </summary>
 public static class OptimizationOpportunitiesQuery
 {
     public static InspectionQuery<OptimizationOpportunitiesResult> Definition { get; } =
         new("Optimization opportunities", InspectionCost.Unbounded);
 
     public static OptimizationOpportunitiesResult Execute(
-        LibraryBodyIndex index,
+        LibraryOptimizationAnalysisResult analysis,
         bool includeAllocationFanout)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         try
         {
+            if (!analysis.WasRequested)
+            {
+                throw new InvalidOperationException(
+                    "Optimization opportunities were not requested for this "
+                    + "Analysis execution.");
+            }
+
             return new OptimizationOpportunitiesResult.Available(
-                index.OptimizationOpportunities,
+                analysis.Opportunities,
                 includeAllocationFanout
-                    ? index.AllocationFanoutOpportunities
+                    ? analysis.AllocationFanoutOpportunities
                     : [],
-                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
-                index.Diagnostics);
+                analysis.GeneratedFrameworkTypes,
+                analysis.Receipt.Diagnostics);
         }
         catch (Exception ex)
         {
