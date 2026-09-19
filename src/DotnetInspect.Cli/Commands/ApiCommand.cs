@@ -1451,7 +1451,8 @@ public partial class ApiCommand
         CancellationToken cancellationToken = default)
         => await TryAcquirePdbPathCoreAsync(
             dllPath,
-            sourceAssembly: null,
+            initialSourceAssembly: null,
+            acquisitionSourceAssembly: null,
             options,
             logger,
             httpClient,
@@ -1468,7 +1469,32 @@ public partial class ApiCommand
         string? fallbackPackageVersion = null)
         => await TryAcquirePdbPathCoreAsync(
             dllPath,
-            sourceAssembly,
+            initialSourceAssembly: sourceAssembly,
+            acquisitionSourceAssembly: sourceAssembly,
+            options,
+            logger,
+            httpClient,
+            cancellationToken,
+            fallbackPackageName,
+            fallbackPackageVersion).ConfigureAwait(false);
+
+    /// <summary>
+    /// Reads embedded or adjacent PDB evidence from the selected path, then uses the selected
+    /// supplier only when external PDB acquisition is required.
+    /// </summary>
+    internal static async Task<string?> TryAcquirePdbPathFromSelectedPathAsync(
+        string dllPath,
+        ResolvedAssemblyReference acquisitionSourceAssembly,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        CancellationToken cancellationToken = default,
+        string? fallbackPackageName = null,
+        string? fallbackPackageVersion = null)
+        => await TryAcquirePdbPathCoreAsync(
+            dllPath,
+            initialSourceAssembly: null,
+            acquisitionSourceAssembly,
             options,
             logger,
             httpClient,
@@ -1478,7 +1504,8 @@ public partial class ApiCommand
 
     static async Task<string?> TryAcquirePdbPathCoreAsync(
         string dllPath,
-        ResolvedAssemblyReference? sourceAssembly,
+        ResolvedAssemblyReference? initialSourceAssembly,
+        ResolvedAssemblyReference? acquisitionSourceAssembly,
         ApiOptions options,
         VerboseLogger logger,
         HttpClient httpClient,
@@ -1489,9 +1516,9 @@ public partial class ApiCommand
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var service = sourceAssembly is null
+            using var service = initialSourceAssembly is null
                 ? SourceLinkService.Open(dllPath, logger.Log)
-                : SourceLinkService.Open(sourceAssembly, logger.Log);
+                : SourceLinkService.Open(initialSourceAssembly, logger.Log);
             var context = service.Context;
             if (context.NeedsPdb)
             {
@@ -1500,7 +1527,7 @@ public partial class ApiCommand
                     : (null, null);
                 pkgName = fallbackPackageName ?? pkgName;
                 pkgVersion = fallbackPackageVersion ?? pkgVersion;
-                if (sourceAssembly is null)
+                if (acquisitionSourceAssembly is null)
                 {
                     await SourceEnricher.AcquirePdbAsync(
                         context,
@@ -1518,7 +1545,7 @@ public partial class ApiCommand
                 {
                     await SourceEnricher.AcquirePdbAsync(
                         context,
-                        sourceAssembly,
+                        acquisitionSourceAssembly,
                         httpClient,
                         logger.Log,
                         sourceOptions: options.SourceOptions,
@@ -1533,7 +1560,7 @@ public partial class ApiCommand
         {
             throw;
         }
-        catch when (sourceAssembly is null)
+        catch when (acquisitionSourceAssembly is null)
         {
             return null;
         }
