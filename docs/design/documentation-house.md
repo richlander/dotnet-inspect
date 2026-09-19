@@ -193,7 +193,9 @@ after acquisition.
 Direct type and member source selection uses that same requested catalog
 before applying current-runtime core-library heuristics; when the requested
 catalog is not local, source selection defers to acquisition rather than
-substituting a current-runtime Library.
+substituting a current-runtime Library. Best-effort type-prefix browsing is
+likewise constrained to an explicit target, so an exact miss cannot become a
+success-shaped browse result from the current runtime.
 The resolved platform source retains the actual reference-pack TFM, including
 legacy `netcoreapp*` directory identities, rather than reconstructing it from
 the display version. The netstandard path, for which PlatformHouse defines no

@@ -979,6 +979,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_VersionedPlatformMiss_DoesNotBrowseCurrentCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.TimeProvider",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("Showing best-effort platform prefix", error);
+        Assert.DoesNotContain("runtime 11", error);
+        Assert.DoesNotContain("# System.TimeProvider", output);
+    }
+
+    [Fact]
+    public async Task Type_VersionedPlatformPrefixBrowse_UsesRequestedCatalog()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Time",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "Resolved from installed packs: runtime 3.1.0",
+            error);
+        Assert.DoesNotContain("runtime 11", error);
+        Assert.Contains("System.TimeSpan", output);
+        Assert.DoesNotContain("System.TimeProvider", output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(

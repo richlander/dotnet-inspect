@@ -1835,7 +1835,10 @@ public static class TypeCommand
         var findOptions = new FindOptions
         {
             Pattern = pattern,
-            PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+            PlatformFrameworks =
+                string.IsNullOrWhiteSpace(options.PlatformFramework)
+                    ? CommandLineBuilder.PlatformFrameworkNames
+                    : [options.PlatformFramework],
             IncludeAll = options.IncludeAll,
             Limit = options.Limit,
             SourceOptions = options.SourceOptions
