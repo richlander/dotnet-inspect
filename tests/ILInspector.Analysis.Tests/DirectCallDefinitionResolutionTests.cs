@@ -109,7 +109,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                                 StringComparison.Ordinal));
 
         Assert.Equal(
-            local.Participant.Index.ModuleIdentity.AssemblyIdentity,
+            local.Participant.CallGraph.ModuleIdentity.AssemblyIdentity,
             local.Definition.Assembly);
         Assert.NotEqual(
             typeof(System.Buffers.ArrayPool<>)
@@ -322,7 +322,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             ],
         });
 
-        Assert.Single(participant.Participant.Index.DirectCalls);
+        Assert.Single(participant.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
             Assert.Single(Resolve(participant).Results));
     }
@@ -436,7 +436,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             MethodSpecSignature = signature,
         });
 
-        Assert.Single(participant.Participant.Index.DirectCalls);
+        Assert.Single(participant.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Resolved>(
             Assert.Single(Resolve(participant).Results));
     }
@@ -469,8 +469,8 @@ public sealed partial class DirectCallDefinitionResolutionTests
             MethodSpecSignature = signature,
         });
 
-        Assert.Empty(participant.Participant.Index.DirectCalls);
-        Assert.NotEmpty(participant.Participant.Index.Diagnostics);
+        Assert.Empty(participant.Participant.CallGraph.DirectCalls);
+        Assert.NotEmpty(participant.Participant.CallGraph.Diagnostics);
         Assert.Empty(Resolve(participant).Results);
     }
 
@@ -513,7 +513,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             MethodSpecSignature = [0x0A, 0x01, 0x12, 0x0C],
         });
 
-        Assert.Single(participant.Participant.Index.DirectCalls);
+        Assert.Single(participant.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
             Assert.Single(Resolve(participant).Results));
     }
@@ -552,7 +552,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             PopCallReturn = true,
         });
 
-        Assert.Single(participant.Participant.Index.DirectCalls);
+        Assert.Single(participant.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
             Assert.Single(Resolve(participant).Results));
     }
@@ -688,7 +688,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 CallArgumentKinds = [SyntheticStackValue.Int32],
             });
 
-        Assert.Single(matchingCandidate.Participant.Index.DirectCalls);
+        Assert.Single(matchingCandidate.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
             Assert.Single(Resolve(matchingCandidate).Results));
 
@@ -705,7 +705,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 CallerMethodGenericParameterRows = 2,
                 CallArgumentKinds = [SyntheticStackValue.Int32],
             });
-        Assert.Single(absentOverload.Participant.Index.DirectCalls);
+        Assert.Single(absentOverload.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unsupported>(
             Assert.Single(Resolve(absentOverload).Results));
 
@@ -722,7 +722,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 CallerMethodGenericParameterRows = 2,
                 CallArgumentKinds = [SyntheticStackValue.Int32],
             });
-        Assert.Single(validAbsentOverload.Participant.Index.DirectCalls);
+        Assert.Single(validAbsentOverload.Participant.CallGraph.DirectCalls);
         Assert.IsType<DirectCallDefinitionResolution.Unmatched>(
             Assert.Single(Resolve(validAbsentOverload).Results));
     }
@@ -1471,7 +1471,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                         first.Policy,
                         [
                             new(
-                                first.Participant.Index,
+                                first.Participant.CallGraph,
                                 second.Participant.Assembly),
                         ],
                         cancellationToken:
@@ -1495,7 +1495,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
                 DirectCallDefinitionResolutionOutcome.Rejected>(
                     DirectCallDefinitionResolver.Resolve(
                         first.Policy,
-                        [new(first.Participant.Index, descriptor)],
+                        [new(first.Participant.CallGraph, descriptor)],
                         cancellationToken:
                             TestContext.Current.CancellationToken))
                 .Kind);
