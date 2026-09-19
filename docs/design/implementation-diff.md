@@ -248,6 +248,46 @@ alignment; `AnnotationGestureTests.
 AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
 alignment in the reusable renderer.
 
+### Normal-flow complexity comparison
+
+Analysis owns `MethodImplementationProfile.NormalFlowCyclomaticComplexity`.
+It measures the ordinary-flow compiled IL graph as
+`1 + conditional branches - switches + switch targets`; exception dispatch and
+cleanup edges remain separate exception-region evidence. This is not a
+source-level C# cyclomatic-complexity value and does not imply a quality score.
+
+`ImplementationComplexityService` accepts the focused profile results from both
+Implementation Diff endpoints and pairs those observations by the existing
+stable member identity plus physical evidence-method identity. The typed result retains
+unchanged, changed, added, removed, and incomplete observations, including
+old/new values and completeness flags. If either endpoint did not request
+profiles, or requested them over a scoped (not whole-assembly) method-evidence
+population, the complexity lane is unavailable rather than silently treated as
+a complete comparison. Assemblies present on only one side of a multi-assembly
+comparison contribute Added/Removed rows for their own members rather than
+being dropped. When a logical member owns more than one physical evidence
+method - most commonly multiple lambda/state-machine bodies - the generated
+name's ordinal is not a stable cross-version correspondence key (it shifts
+when lambdas are inserted, removed, or reordered), so those observations report
+Incomplete instead of a possibly-wrong Changed/Added/Removed pairing. A
+recoverable per-method Analysis failure (surfaced as a receipt diagnostic)
+leaves a profile missing without distinguishing it from a genuine
+addition/removal, so any diagnostic on either endpoint makes the whole
+comparison unavailable rather than reporting a possibly-spurious
+Added/Removed row. The explicit CLI Implementation Diff section renders only
+non-unchanged complexity observations alongside its existing C#, IL, and PDB
+Source evidence lanes; broad PDB-source enrichment preserves an already
+computed complexity lane rather than resetting it to unavailable. Ranking,
+clustering, and quality shades remain later consumers.
+
+Each Implementation Diff row carries a `Kind` facet alongside its human-readable
+`Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id
+(e.g. `analysis.complexity.normal-flow` for Complexity rows, or the C#/IL
+mechanism's own `ResearchChange.Descriptor.Id` such as `csharp.line`/`il.op`)
+for facet-style querying in JSON/JSONL/TSV output, independent of the display
+text. Rows without a wired descriptor (currently PDB Source) leave `Kind`
+empty rather than guessing one.
+
 ### PDB-source convergence
 
 `member -S "Source Diff"` is the PDB Source → After reviewer lens. It compares

@@ -3145,6 +3145,58 @@ preservation are modeled separately by
 [Inspect Web Retained Workspace
 Realization](models/inspect-web-retained-workspace-realization/README.md).
 
+### Complete-restoration inventory
+
+Complete restoration may explicitly capture a detached inventory from its
+exact prepared candidate. This is supporting Definitions evidence for
+[#7776](https://github.com/richlander/dotnet-inspect/issues/7776), consumed by
+the Browser presentation successor
+[#7708](https://github.com/richlander/dotnet-inspect/issues/7708).
+
+Inventory capture is opt-in. Omission is distinct from a requested empty
+inventory, and does not run Platform API-surface projection. Capture preserves
+every direct Package and supported pinned Platform Navigation coordinate,
+including inactive coordinates, in Navigation order with its exact context
+association. It does not change subject focus, selected context, or the
+canonical packet.
+
+Package evidence retains the resolved coordinate, complete compile/framework
+selection, copied entry manifest, asset-to-assembly association, and existing
+bounded API-surface outcomes. Platform evidence retains the exact synthesized
+member's realized libraries and its separately bounded API-surface outcomes.
+Existing query owners retain truncation, rejection, and failure meaning;
+unavailable manifest or source association fails capture visibly rather than
+substituting an empty inventory.
+
+The captured inventory remains consumable after the paired realization closes.
+Detached assembly subjects and source/selection values identify evidence; they
+do not grant artifact acquisition or operation authority. Live Package
+bindings, participants, binding policies, and stream-opening descriptors remain
+construction inputs rather than inventory fields.
+
+The real scenario is `System.Text.Json@9.0.4/net10.0` beside
+`:Platform@10.0.10`, with the Package focused and a Package-only `net9.0`
+neighbor. The shared Release gates in `CompleteRestorationExecutionTests` are
+`Inventory_PackageFactsRemainUsableAfterClose` (formats 2, 3, and 4),
+`Inventory_MixedContextPreservesInactivePlatform` (both context orders),
+`Inventory_PlatformOnlyIsExplicitAndBounded`, and
+`Inventory_RegistrationOnlyIsCapturedEmpty`. They cover exact
+framework/document/type inventory after close, inactive Platform preservation,
+default omission, and explicit surface truncation.
+`Inventory_MissingManifestFailsOnlyRequestedCapture` covers the visible typed
+failure and unpublished-candidate cleanup with a real Package store lacking the
+optional entry-manifest capability; ordinary restoration still succeeds.
+
+This is an intermediate result of the existing Workspace construction
+operation, not a new completed inspection operation or rendering domain.
+Both CLI and Browser callers can request the same evidence. The user approved
+Browser-only production adoption for this inventory on 2026-09-19: the API
+remains host-neutral, while CLI behavior and restoration defaults stay
+unchanged. Browser projection and Package admission remain with #7708; final
+complete Save/Open adoption remains #7709 within the six-successor #7031
+recovery plan. Including this supporting prerequisite, that plan has seven
+implementation steps. No history or activation-lifecycle contract changes here.
+
 ### Files and bundles
 
 Each definition record serializes to a standalone `.json` file (including a

@@ -211,7 +211,7 @@ public static class ResourceEffectResolver
             in directCalls.Population)
         {
             foreach (AnalysisDiagnostic diagnostic
-                in participant.Index.Diagnostics)
+                in participant.CallGraph.Diagnostics)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 populationIncomplete = true;
@@ -1715,14 +1715,14 @@ public static class ResourceEffectResolver
                 in participants)
             {
                 AppendHash(ParticipantKey(participant));
-                AppendHash(participant.Index.DeclaredMethods.Length.ToString(
+                AppendHash(participant.CallGraph.DeclaredMethods.Length.ToString(
                     CultureInfo.InvariantCulture));
-                AppendHash(participant.Index.DirectCalls.Length.ToString(
+                AppendHash(participant.CallGraph.DirectCalls.Length.ToString(
                     CultureInfo.InvariantCulture));
-                AppendHash(participant.Index.Diagnostics.Length.ToString(
+                AppendHash(participant.CallGraph.Diagnostics.Length.ToString(
                     CultureInfo.InvariantCulture));
                 foreach (AnalysisDiagnostic diagnostic
-                    in participant.Index.Diagnostics.OrderBy(
+                    in participant.CallGraph.Diagnostics.OrderBy(
                         diagnostic => diagnostic.MethodToken))
                 {
                     AppendHash(diagnostic.MethodToken.ToString(
@@ -1772,7 +1772,7 @@ public static class ResourceEffectResolver
             AppendAssembly(value, participant.Assembly.Identity);
             Append(
                 value,
-                participant.Index.ModuleIdentity.ModuleVersionId);
+                participant.CallGraph.ModuleIdentity.ModuleVersionId);
             return value.ToString();
         }
 

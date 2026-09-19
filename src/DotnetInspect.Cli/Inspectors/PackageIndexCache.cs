@@ -137,13 +137,13 @@ internal abstract record PackageIndexProduction
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v18";
-    internal const string Projection = "package-index-projection-v18";
-    private const int FormatVersion = 18;
+    internal const string Category = "pkg-index-v19";
+    internal const string Projection = "package-index-projection-v19";
+    private const int FormatVersion = 19;
     private const int CompletionMarker = unchecked((int)0x434F4D50);
     private const int EndMarker = unchecked((int)0x454E4421);
     private const int MaxCollectionCount = 1_000_000;
-    private static readonly byte[] Magic = "PKGIDX18"u8.ToArray();
+    private static readonly byte[] Magic = "PKGIDX19"u8.ToArray();
     private static readonly UTF8Encoding StrictUtf8 =
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 

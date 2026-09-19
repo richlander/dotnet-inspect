@@ -175,7 +175,8 @@ System.Runtime
 > Goal: See full transitive dependency graph for a library.
 
 ```bash
-dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 -S References --tree --depth 3 -n 25 --lines
+dotnet-inspect library --package Microsoft.Extensions.AI@9.9.1 \
+  -S "Reference Hierarchy" --tree --depth 3 -n 25 --lines
 ```
 
 ```expect

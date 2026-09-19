@@ -26,14 +26,19 @@ internal sealed class TestHive : IDisposable
             "installed");
 
     internal string CreateReferencePack()
+        => CreateReferencePack("11.0.0", "net11.0");
+
+    internal string CreateReferencePack(
+        string version,
+        string targetFramework)
     {
         string directory = Path.Combine(
             Root,
             "packs",
             "Microsoft.NETCore.App.Ref",
-            "11.0.0",
+            version,
             "ref",
-            "net11.0");
+            targetFramework);
         Directory.CreateDirectory(directory);
         return directory;
     }

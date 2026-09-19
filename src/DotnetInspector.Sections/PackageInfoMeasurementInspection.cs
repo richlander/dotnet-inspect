@@ -11,6 +11,7 @@ public enum PackageInfoMeasurementStatus
     Measured,
     SelectedEmpty,
     NoCompileSlices,
+    NoToolSlices,
     NoApplicableSlice,
     InvalidSelection,
     HouseFailure,
@@ -18,8 +19,8 @@ public enum PackageInfoMeasurementStatus
 }
 
 /// <summary>
-/// Host-neutral Package Info measurements from one PackageHouse compile
-/// realization.
+/// Host-neutral Package Info measurements from one retained package
+/// generation.
 /// </summary>
 public sealed record PackageInfoMeasurements
 {
@@ -41,7 +42,11 @@ public sealed record PackageInfoMeasurements
                 ?? throw new ArgumentNullException(nameof(evidence)),
             evidence.Realization.Acquisition.Candidate.Coordinate.Version,
             compressedPackageBytes,
-            selectedTargetFramework,
+            selectedTargetFramework is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    selectedTargetFramework),
             availableTargetFrameworks,
             selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
@@ -53,13 +58,46 @@ public sealed record PackageInfoMeasurements
             ?? throw new ArgumentNullException(nameof(evidence));
     }
 
+    internal PackageInfoMeasurements(
+        PackageToolSliceMeasurementOutcome evidence,
+        PackageInfoMeasurementStatus status,
+        long? compressedPackageBytes,
+        string? selectedTargetFramework,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
+        IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
+        long? selectedLibraryPayloadBytes,
+        int? selectedLibraryCount,
+        InertString? detail,
+        PackageHouseCompileSliceMeasurementUnavailableReason?
+            unavailableReason)
+        : this(
+            status,
+            evidence?.Evidence.Coordinate.PackageId
+                ?? throw new ArgumentNullException(nameof(evidence)),
+            evidence.Evidence.Coordinate.Version,
+            compressedPackageBytes,
+            selectedTargetFramework is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    selectedTargetFramework),
+            availableTargetFrameworks,
+            selectedTargetFrameworkFolders,
+            selectedLibraryPayloadBytes,
+            selectedLibraryCount,
+            detail,
+            unavailableReason)
+    {
+        ToolEvidence = evidence;
+    }
+
     [JsonConstructor]
     public PackageInfoMeasurements(
         PackageInfoMeasurementStatus status,
         string packageId,
         string packageVersion,
         long? compressedPackageBytes,
-        string? selectedTargetFramework,
+        InertString? selectedTargetFramework,
         IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
@@ -108,7 +146,7 @@ public sealed record PackageInfoMeasurements
     private static void ValidateShape(
         PackageInfoMeasurementStatus status,
         long? compressedPackageBytes,
-        string? selectedTargetFramework,
+        InertString? selectedTargetFramework,
         IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
@@ -131,13 +169,13 @@ public sealed record PackageInfoMeasurements
                 .Count() == availableTargetFrameworks.Count;
         bool hasSelectedMeasurements =
             compressedPackageBytes.HasValue
-            && !string.IsNullOrWhiteSpace(selectedTargetFramework)
+            && selectedTargetFramework is not null
+            && !string.IsNullOrWhiteSpace(
+                selectedTargetFramework.ToString())
             && hasValidAvailableTargetFrameworks
             && availableTargetFrameworks!.Any(framework =>
                 framework.ToString().Equals(
-                    new InertString(
-                        TextPolicy.Field,
-                        selectedTargetFramework).ToString(),
+                    selectedTargetFramework.ToString(),
                     StringComparison.OrdinalIgnoreCase))
             && selectedTargetFrameworkFolders is not null
             && selectedTargetFrameworkFolders.All(
@@ -197,6 +235,12 @@ public sealed record PackageInfoMeasurements
                     "An unavailable Package Info outcome requires its typed reason and coherent package measurements.");
             }
         }
+        else if (status == PackageInfoMeasurementStatus.NoToolSlices
+            && availableTargetFrameworks?.Count != 0)
+        {
+            throw new ArgumentException(
+                "A no-tool-slices outcome requires an empty target-framework inventory.");
+        }
         else if (!compressedPackageBytes.HasValue
             || !hasValidAvailableTargetFrameworks
             || unavailableReason is not null)
@@ -214,7 +258,7 @@ public sealed record PackageInfoMeasurements
 
     public long? CompressedPackageBytes { get; }
 
-    public string? SelectedTargetFramework { get; }
+    public InertString? SelectedTargetFramework { get; }
 
     public IReadOnlyList<InertString>? AvailableTargetFrameworks { get; }
 
@@ -235,15 +279,23 @@ public sealed record PackageInfoMeasurements
             or PackageInfoMeasurementStatus.SelectedEmpty;
 
     /// <summary>
-    /// The resource-free owner evidence retaining the exact acquisition
-    /// generation and compile-selection receipt.
+    /// The PackageHouse evidence retaining the exact acquisition generation
+    /// and compile-selection receipt.
     /// </summary>
     [JsonIgnore]
     public PackageHouseCompileSliceMeasurementOutcome? Evidence { get; }
 
+    /// <summary>
+    /// The resource-free declared-tool evidence retaining the exact acquired
+    /// content generation.
+    /// </summary>
+    [JsonIgnore]
+    public PackageToolSliceMeasurementOutcome? ToolEvidence { get; }
+
     [JsonIgnore]
     public PackageContentGenerationIdentity? Generation =>
-        Evidence?.Realization.Acquisition.Generation;
+        Evidence?.Realization.Acquisition.Generation
+        ?? ToolEvidence?.Evidence.Generation;
 
     [JsonIgnore]
     public PackageCompileAssetSelectionReceipt? SelectionReceipt =>
@@ -251,8 +303,8 @@ public sealed record PackageInfoMeasurements
 }
 
 /// <summary>
-/// Projects PackageHouse compile measurements through the shared inspection
-/// envelope boundary.
+/// Projects compile or declared-tool measurements through the shared
+/// inspection envelope boundary.
 /// </summary>
 public static class PackageInfoMeasurementInspection
 {
@@ -280,6 +332,51 @@ public static class PackageInfoMeasurementInspection
                     content.Status == PackageInfoMeasurementStatus.HouseFailure
                         ? InspectionDiagnosticSeverity.Error
                         : InspectionDiagnosticSeverity.Warning,
+                    detail,
+                    Field(
+                        $"{content.PackageId}@{content.PackageVersion}")));
+        }
+
+        return new(
+            content,
+            new InspectionShare.NonProjectable(
+                "package-info-measurements/share",
+                "Package Info measurements do not yet have a canonical Workspace Share projection."),
+            diagnostics.ToImmutable());
+    }
+
+    /// <summary>
+    /// Projects one nuspec-declared DotnetTool payload through the shared
+    /// Package Info envelope.
+    /// </summary>
+    public static InspectionEnvelope<PackageInfoMeasurements>
+        ProjectDeclaredTool(
+            PackageHouseSettlement.Acquired settlement,
+            PackageToolDeclarationEvidence declaration,
+            string? requestedTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        ArgumentNullException.ThrowIfNull(declaration);
+        PackageToolSliceMeasurementOutcome outcome =
+            PackageToolSliceMeasurementProjection.Project(
+                settlement.Payload,
+                declaration,
+                requestedTargetFramework);
+        PackageInfoMeasurements content = CreateContent(outcome);
+        var diagnostics = ImmutableArray.CreateBuilder<InspectionDiagnostic>();
+        diagnostics.AddRange(
+            settlement.Result.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>()
+                .Select(value => new InspectionDiagnostic(
+                    "package-info-measurements.source-failure",
+                    InspectionDiagnosticSeverity.Warning,
+                    value.Failure.Message)));
+        if (content.Detail is { } detail)
+        {
+            diagnostics.Add(
+                new InspectionDiagnostic(
+                    $"package-info-measurements.{StatusCode(content.Status)}",
+                    InspectionDiagnosticSeverity.Warning,
                     detail,
                     Field(
                         $"{content.PackageId}@{content.PackageVersion}")));
@@ -360,6 +457,61 @@ public static class PackageInfoMeasurementInspection
                 "Unknown PackageHouse compile measurement outcome."),
         };
 
+    private static PackageInfoMeasurements CreateContent(
+        PackageToolSliceMeasurementOutcome outcome) =>
+        outcome switch
+        {
+            PackageToolSliceMeasurementOutcome.Measured measured =>
+                Selected(
+                    outcome,
+                    PackageInfoMeasurementStatus.Measured,
+                    measured.Measurements),
+            PackageToolSliceMeasurementOutcome.SelectedEmpty empty =>
+                Selected(
+                    outcome,
+                    PackageInfoMeasurementStatus.SelectedEmpty,
+                    empty.Measurements),
+            PackageToolSliceMeasurementOutcome.NoToolSlices noSlices =>
+                PackageOnly(
+                    outcome,
+                    PackageInfoMeasurementStatus.NoToolSlices,
+                    noSlices.Measurements,
+                    Field(
+                        "The package contains no tool target-framework Library slice.")),
+            PackageToolSliceMeasurementOutcome.NoApplicableSlice
+                noApplicable =>
+                PackageOnly(
+                    outcome,
+                    PackageInfoMeasurementStatus.NoApplicableSlice,
+                    noApplicable.Measurements,
+                    Field(
+                        "The requested target framework has no applicable tool slice.")),
+            PackageToolSliceMeasurementOutcome.InvalidSelection invalid =>
+                PackageOnly(
+                    outcome,
+                    PackageInfoMeasurementStatus.InvalidSelection,
+                    invalid.Measurements,
+                    Field(invalid.Reason)),
+            PackageToolSliceMeasurementOutcome.Unavailable unavailable =>
+                new(
+                    outcome,
+                    PackageInfoMeasurementStatus.Unavailable,
+                    unavailable.PackageMeasurements?.CompressedPackageBytes,
+                    selectedTargetFramework: null,
+                    unavailable.PackageMeasurements
+                        ?.AvailableTargetFrameworks
+                        .Select(static framework =>
+                            new InertString(TextPolicy.Field, framework))
+                        .ToArray(),
+                    selectedTargetFrameworkFolders: null,
+                    selectedLibraryPayloadBytes: null,
+                    selectedLibraryCount: null,
+                    UnavailableDetail(unavailable),
+                    Map(unavailable.Reason)),
+            _ => throw new InvalidOperationException(
+                "Unknown tool-slice measurement outcome."),
+        };
+
     private static PackageInfoMeasurements Selected(
         PackageHouseCompileSliceMeasurementOutcome outcome,
         PackageInfoMeasurementStatus status,
@@ -386,6 +538,48 @@ public static class PackageInfoMeasurementInspection
         PackageHouseCompileSliceMeasurementOutcome outcome,
         PackageInfoMeasurementStatus status,
         PackageHouseCompilePackageMeasurements measurements,
+        InertString detail) =>
+        new(
+            outcome,
+            status,
+            measurements.CompressedPackageBytes,
+            selectedTargetFramework: null,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
+            selectedTargetFrameworkFolders: null,
+            selectedLibraryPayloadBytes: null,
+            selectedLibraryCount: null,
+            detail,
+            unavailableReason: null);
+
+    private static PackageInfoMeasurements Selected(
+        PackageToolSliceMeasurementOutcome outcome,
+        PackageInfoMeasurementStatus status,
+        PackageToolSliceMeasurements measurements) =>
+        new(
+            outcome,
+            status,
+            measurements.CompressedPackageBytes,
+            measurements.SelectedTargetFramework,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
+            measurements.SelectedTargetFrameworkFolders
+                .Select(static folder =>
+                    new InertString(TextPolicy.Field, folder))
+                .ToArray(),
+            measurements.SelectedLibraryPayloadBytes,
+            measurements.SelectedLibraryCount,
+            detail: null,
+            unavailableReason: null);
+
+    private static PackageInfoMeasurements PackageOnly(
+        PackageToolSliceMeasurementOutcome outcome,
+        PackageInfoMeasurementStatus status,
+        PackageToolPackageMeasurements measurements,
         InertString detail) =>
         new(
             outcome,
@@ -439,11 +633,67 @@ public static class PackageInfoMeasurementInspection
             _ => "Package Info measurements are unavailable.",
         });
 
+    private static InertString UnavailableDetail(
+        PackageToolSliceMeasurementOutcome.Unavailable unavailable) =>
+        Field(unavailable.Reason switch
+        {
+            PackageToolSliceMeasurementUnavailableReason.ArchiveUnavailable =>
+                "The retained package archive is unavailable.",
+            PackageToolSliceMeasurementUnavailableReason
+                .ArchiveLengthUnavailable =>
+                "The retained package archive length is unavailable.",
+            PackageToolSliceMeasurementUnavailableReason
+                .EntryManifestUnavailable =>
+                "The retained package entry manifest is unavailable.",
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedEntryUnavailable =>
+                $"Selected package entry '{unavailable.SelectedEntry}' is unavailable.",
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedEntryLengthInvalid =>
+                $"Selected package entry '{unavailable.SelectedEntry}' has an invalid length.",
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedPayloadBytesOverflow =>
+                "The selected package payload byte total overflowed.",
+            _ => "Package Info measurements are unavailable.",
+        });
+
+    private static PackageHouseCompileSliceMeasurementUnavailableReason Map(
+        PackageToolSliceMeasurementUnavailableReason reason) =>
+        reason switch
+        {
+            PackageToolSliceMeasurementUnavailableReason.ArchiveUnavailable =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .ArchiveUnavailable,
+            PackageToolSliceMeasurementUnavailableReason
+                .ArchiveLengthUnavailable =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .ArchiveLengthUnavailable,
+            PackageToolSliceMeasurementUnavailableReason
+                .EntryManifestUnavailable =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .EntryManifestUnavailable,
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedEntryUnavailable =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .SelectedEntryUnavailable,
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedEntryLengthInvalid =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .SelectedEntryLengthInvalid,
+            PackageToolSliceMeasurementUnavailableReason
+                .SelectedPayloadBytesOverflow =>
+                PackageHouseCompileSliceMeasurementUnavailableReason
+                    .SelectedPayloadBytesOverflow,
+            _ => throw new ArgumentOutOfRangeException(nameof(reason)),
+        };
+
     private static string StatusCode(PackageInfoMeasurementStatus status) =>
         status switch
         {
             PackageInfoMeasurementStatus.NoCompileSlices =>
                 "no-compile-slices",
+            PackageInfoMeasurementStatus.NoToolSlices =>
+                "no-tool-slices",
             PackageInfoMeasurementStatus.NoApplicableSlice =>
                 "no-applicable-slice",
             PackageInfoMeasurementStatus.InvalidSelection =>
