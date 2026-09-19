@@ -12,13 +12,13 @@ public class AnnotatedSourceDocumentProjectionTests
     public void ProjectionIsOptInAndFactsAgreeAcrossMedia()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var absent = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var absent = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt)));
         Assert.Null(absent.SourceDocument);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -64,7 +64,7 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Equal(box.SourceOffset, boxIl.IlOffset);
         Assert.Contains(Lines(document), line => line.Il && line.Text == Selected(document, boxIl));
 
-        var expected = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+        var expected = Assert.IsAssignableFrom<IReadOnlyList<FactRow>>(
                 projection.Facts)
             .Where(row => row.InstanceKey is not null)
             .Select(row => row.InstanceKey!.Value)
@@ -105,8 +105,8 @@ public class AnnotatedSourceDocumentProjectionTests
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(
+            new MemberProjectionRequest(
                 source,
                 typeof(ResearchFixture).FullName!,
                 nameof(ResearchFixture.BoxInt),
@@ -115,10 +115,10 @@ public class AnnotatedSourceDocumentProjectionTests
                 SourceDocument: true));
 
         Assert.Equal(1, producer.ProduceCount);
-        var rows = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+        var rows = Assert.IsAssignableFrom<IReadOnlyList<FactRow>>(
             projection.Facts);
         var identities = Assert.IsAssignableFrom<
-            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+            IReadOnlyList<AnnotatedSourceFactIdentity>>(
                 projection.SourceDocumentFactIdentities);
         FindingCensusReceipt receipt = Assert.Single(
             rows.Select(row => Assert.IsType<FindingCensusReceipt>(
@@ -142,8 +142,8 @@ public class AnnotatedSourceDocumentProjectionTests
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(
+            new MemberProjectionRequest(
                 source,
                 typeof(ResearchFixture).FullName!,
                 nameof(ResearchFixture.BoxInt),
@@ -156,7 +156,7 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Empty(Assert.IsType<AnnotatedSourceDocument>(
             projection.SourceDocument).Facts);
         Assert.Empty(Assert.IsAssignableFrom<
-            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+            IReadOnlyList<AnnotatedSourceFactIdentity>>(
                 projection.SourceDocumentFactIdentities));
     }
 
@@ -184,8 +184,8 @@ public class AnnotatedSourceDocumentProjectionTests
 
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(
+            new MemberProjectionRequest(
                 source,
                 typeof(ResearchFixture).FullName!,
                 nameof(ResearchFixture.BoxInt),
@@ -202,10 +202,10 @@ public class AnnotatedSourceDocumentProjectionTests
                     projection.SourceDocumentFailure.Diagnostics));
         var document = Assert.IsType<AnnotatedSourceDocument>(
             projection.SourceDocument);
-        var rows = Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+        var rows = Assert.IsAssignableFrom<IReadOnlyList<FactRow>>(
             projection.Facts);
         var identities = Assert.IsAssignableFrom<
-            IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+            IReadOnlyList<AnnotatedSourceFactIdentity>>(
                 projection.SourceDocumentFactIdentities);
 
         Assert.Equal(2, rows.Count);
@@ -298,10 +298,10 @@ public class AnnotatedSourceDocumentProjectionTests
             Detail: "kept");
         var registry = new ResearchFactRegistry(new MarkerProducer(marker));
 
-        ResearchViews.MemberProjectionResult Project(bool sourceDocument)
+        MemberProjectionResult Project(bool sourceDocument)
         {
             using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            return MemberProjectionProducer.Produce(new MemberProjectionRequest(
                 source,
                 typeof(AnnotatedTasteFixture).FullName!,
                 nameof(AnnotatedTasteFixture.GuardBothVariable),
@@ -335,10 +335,10 @@ public class AnnotatedSourceDocumentProjectionTests
     [Fact]
     public void AskingForTheDocumentLeavesEveryOtherProjectionIdentical()
     {
-        ResearchViews.MemberProjectionResult Project(bool sourceDocument)
+        MemberProjectionResult Project(bool sourceDocument)
         {
             using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            return MemberProjectionProducer.Produce(new MemberProjectionRequest(
                 source,
                 typeof(AnnotatedTasteFixture).FullName!,
                 nameof(AnnotatedTasteFixture.AllocateAndRead),
@@ -468,7 +468,7 @@ public class AnnotatedSourceDocumentProjectionTests
                 new AnnotationDescriptor($"test.offset.{line.Offset}", AnnotationCategory.Cost, "offset marker"),
                 line.Offset))
             .ToArray();
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
             nameof(AnnotatedTasteFixture.GuardBothVariable),
@@ -506,7 +506,7 @@ public class AnnotatedSourceDocumentProjectionTests
             new AnnotationDescriptor("test.unplaced", AnnotationCategory.Cost, "unplaced marker"),
             SourceOffset: -1);
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -526,7 +526,7 @@ public class AnnotatedSourceDocumentProjectionTests
     public void MemberHeaderFactsCarryHeaderOriginAndTargetNothing()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.HighLoopLeverageCallee),
@@ -542,12 +542,12 @@ public class AnnotatedSourceDocumentProjectionTests
         Assert.Empty(Targets(document, fact));
         Assert.DoesNotContain(
             Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                 projection.SourceDocumentFactIdentities),
             identity => identity.FactId == fact.Id);
 
-        ResearchViews.FactRow row = Assert.Single(
-            Assert.IsAssignableFrom<IReadOnlyList<ResearchViews.FactRow>>(
+        FactRow row = Assert.Single(
+            Assert.IsAssignableFrom<IReadOnlyList<FactRow>>(
                 projection.Facts),
             candidate => candidate.Id == "cost.method");
         Assert.Null(row.CensusReceipt);
@@ -558,7 +558,7 @@ public class AnnotatedSourceDocumentProjectionTests
     public void MalformedFactTextRemainsReplayable()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -633,7 +633,7 @@ public class AnnotatedSourceDocumentProjectionTests
     public void ConstructorChainOnlyBodyKeepsIlAndFacts()
     {
         using var source = MetadataSource.Open(typeof(ResearchAllocatingConstructorFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchAllocatingConstructorFixture).FullName!,
             ".ctor",
@@ -655,16 +655,16 @@ public class AnnotatedSourceDocumentProjectionTests
         var failure = DecompilerResult.Failure("test.failure", "printer failed");
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => ResearchViews.RequireSuccessfulDocumentOutput(failure));
+            () => MemberProjectionProducer.RequireSuccessfulDocumentOutput(failure));
 
         Assert.Contains("test.failure: printer failed", exception.Message, StringComparison.Ordinal);
-        Assert.Equal("", ResearchViews.RequireSuccessfulDocumentOutput(DecompilerResult.Success("")));
+        Assert.Equal("", MemberProjectionProducer.RequireSuccessfulDocumentOutput(DecompilerResult.Success("")));
     }
 
     [Fact]
     public void DocumentFailureIsIsolatedForSiblingProjections()
     {
-        var (document, failure) = ResearchViews.CaptureSourceDocument(
+        var (document, failure) = MemberProjectionProducer.CaptureSourceDocument(
             () => throw new InvalidOperationException("document failed"));
 
         Assert.Null(document);
@@ -681,7 +681,7 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         using var source = MetadataSource.Open(typeof(Action<>).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(Action<>).FullName!,
             nameof(Action<int>.Invoke),
@@ -702,7 +702,7 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -723,7 +723,7 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
 
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -744,7 +744,7 @@ public class AnnotatedSourceDocumentProjectionTests
     public void SilentConstructorProloguePrecedesTheFirstPrintedStatement()
     {
         using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchConstructorFixture).FullName!,
             ".ctor",
@@ -762,7 +762,7 @@ public class AnnotatedSourceDocumentProjectionTests
     static AnnotatedSourceDocument Document(string method, PrinterOptions? options)
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
             method,
@@ -774,7 +774,7 @@ public class AnnotatedSourceDocumentProjectionTests
     static AnnotatedSourceDocument LoopDocument()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.AllocInLoopCallee),
@@ -824,11 +824,11 @@ public class AnnotatedSourceDocumentProjectionTests
 
     static FindingInstanceKey[] InstanceKeys(
         AnnotatedSourceDocument document,
-        IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>? identities,
+        IReadOnlyList<AnnotatedSourceFactIdentity>? identities,
         SourceLineKind medium)
     {
         var byFact = Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                 identities)
             .ToDictionary(identity => identity.FactId);
         return
@@ -842,8 +842,8 @@ public class AnnotatedSourceDocumentProjectionTests
         ];
     }
 
-    static ResearchViews.FactRow[] WithoutIdentity(
-        IReadOnlyList<ResearchViews.FactRow>? facts)
+    static FactRow[] WithoutIdentity(
+        IReadOnlyList<FactRow>? facts)
         => facts is null
             ? []
             :

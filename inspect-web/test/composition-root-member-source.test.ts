@@ -307,7 +307,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDeclaration\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*request\.typeIdentity,\s*request\.member,\s*request\.selectorKey,\s*request\.metadataToken\)\s*:\s*inspectMemberDeclaration\(/);
   assert.match(
     coordinator,
-    /inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
   assert.match(
     coordinator,
     /inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
@@ -322,7 +322,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload\)/);
   assert.match(
     documentationLoader,
-    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
     /memberDetailInspection\.loadDeclaration\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*isRuntimePack: pkg\.isRuntimePack,\s*platformPack: pkg\.isRuntimePack\s*\?\s*platformPackForAssembly\(type\.assembly, type\.platformPack\) \?\? ""\s*:\s*"",\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: overload\.name,\s*selectorKey: overload\.graphSelectorKey,\s*metadataToken:\s*overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,\s*implementationMember: Boolean\(overload\.graphOnly\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
@@ -795,7 +795,7 @@ test("decompiled source discloses the PDB-source limitation", () => {
     /renderSourceResult[\s\S]*pdbSourceLimitationHtml\(source\)/);
   assert.match(
     appSource,
-    /case "ready":\s*return renderSourceResult\(\{\s*source: state\.memberSource\.source,/);
+    /source: source\.source,\s*text: memberSourceText\(source, selectedPart\),/);
 });
 
 test("history never applies a selection to another coordinate", () => {

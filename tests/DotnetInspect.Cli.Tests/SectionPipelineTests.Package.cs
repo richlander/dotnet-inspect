@@ -82,7 +82,11 @@ public partial class SectionPipelineTests
             ],
             categories[SectionCategoryNames.Package]);
         Assert.Equal(
-            [PackageSections.Dependencies, PackageSections.RuntimeDependencies],
+            [
+                PackageSections.DependencyHierarchy,
+                PackageSections.Dependencies,
+                PackageSections.RuntimeDependencies,
+            ],
             categories[SectionCategoryNames.Dependencies]);
         Assert.Equal(
             [
@@ -222,7 +226,7 @@ public partial class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(22, pipeline.AllSectionNames.Length);
+        Assert.Equal(23, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -242,6 +246,7 @@ public partial class SectionPipelineTests
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Package license files", names);
         Assert.Contains("Statistics", names);
+        Assert.Contains(PackageSections.DependencyHierarchy, names);
         Assert.Contains("Dependencies", names);
         Assert.Contains("Package files", names);
         Assert.Contains("Package skill files", names);
@@ -539,7 +544,9 @@ public partial class SectionPipelineTests
             LibraryFiles = ["lib/net8.0/test.dll"],
             Files = [new PackageFile("lib/net8.0/test.dll", 1234)],
             SignatureResult = new DotnetInspector.Services.SignatureVerificationResult { RepositoryVerified = true, Repository = "nuget.org" },
-            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")]
+            AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
+            DependencyHierarchyProjection =
+                CreateEmptyDependencyHierarchyProjection(),
         };
 
         // At Detailed with all default-renderable data populated, Unbounded-cost sections stay
@@ -550,6 +557,7 @@ public partial class SectionPipelineTests
         Assert.NotNull(include);
         Assert.DoesNotContain("Package files", include);
         Assert.DoesNotContain("SourceLink: Files", include);
+        Assert.DoesNotContain(PackageSections.DependencyHierarchy, include);
     }
 
     [Fact]

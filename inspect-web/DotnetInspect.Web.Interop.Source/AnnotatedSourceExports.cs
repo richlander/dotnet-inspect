@@ -76,7 +76,11 @@ public static partial class SourceExports
             awaitCompletionPaths:
                 source.AwaitCompletionPaths,
             awaitCompletionPathsUnavailableReason:
-                source.AwaitCompletionPathsUnavailableReason);
+                source.AwaitCompletionPathsUnavailableReason,
+            allocationExceptionPaths:
+                source.AllocationExceptionPaths,
+            allocationExceptionPathsUnavailableReason:
+                source.AllocationExceptionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -132,7 +136,9 @@ public static partial class SourceExports
             source.SynchronousCompletions,
             source.SynchronousCompletionsUnavailableReason,
             source.AwaitCompletionPaths,
-            source.AwaitCompletionPathsUnavailableReason);
+            source.AwaitCompletionPathsUnavailableReason,
+            source.AllocationExceptionPaths,
+            source.AllocationExceptionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -185,7 +191,8 @@ public static partial class SourceExports
                         CallRelationships: factRows,
                         CallCycles: factRows,
                         SynchronousCompletions: factRows,
-                        AwaitCompletionPaths: factRows))),
+                        AwaitCompletionPaths: factRows,
+                        AllocationExceptionPaths: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -341,6 +348,20 @@ public static partial class SourceExports
                         observation.NodeId)),
             ];
         }
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null;
+        if (projection.AllocationExceptionPaths
+            is { } projectedAllocationExceptionPaths)
+        {
+            allocationExceptionPaths =
+            [
+                .. projectedAllocationExceptionPaths.Select(observation =>
+                    new BrowserAnnotatedSourceAllocationExceptionPath(
+                        observation.FactId,
+                        ProjectAllocationExceptionPathKind(
+                            observation.Kind))),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -379,7 +400,13 @@ public static partial class SourceExports
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             awaitCompletionPaths,
-            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            allocationExceptionPaths,
+            allocationExceptionPaths is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
     }
 
     static string FullyQualifiedMemberName(Analysis.MethodIdentity member)
@@ -469,6 +496,17 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static BrowserAllocationExceptionPathKind ProjectAllocationExceptionPathKind(
+        AllocationExceptionPathKind kind) =>
+        kind switch
+        {
+            AllocationExceptionPathKind.ThrownValue =>
+                BrowserAllocationExceptionPathKind.ThrownValue,
+            AllocationExceptionPathKind.ExceptionHandler =>
+                BrowserAllocationExceptionPathKind.ExceptionHandler,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     static IEnumerable<BrowserAnnotatedSourceCallCycleLimit> CycleLimits(
         AnnotatedCallGraphCycleLimit limits)
     {
@@ -505,7 +543,7 @@ public static partial class SourceExports
     }
 
     private sealed record MemberSourceProjection(
-        ResearchViews.MemberProjectionResult Projection,
+        MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
         InertString Provenance,
         string? ContextLimitation,
@@ -529,5 +567,9 @@ public static partial class SourceExports
         BrowserAnnotatedSourceAwaitCompletionPath[]?
             AwaitCompletionPaths,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            AwaitCompletionPathsUnavailableReason);
+            AwaitCompletionPathsUnavailableReason,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            AllocationExceptionPaths,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            AllocationExceptionPathsUnavailableReason);
 }

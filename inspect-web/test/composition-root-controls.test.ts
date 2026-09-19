@@ -395,13 +395,16 @@ test("typed package controls own framework and version selection bindings", () =
     ?? "";
   assert.match(
     packageControlsCreation,
-    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\),[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
+    /selectFramework: \(framework, source\) => \{[\s\S]*contentFrameUsesPush\(\)[\s\S]*contentFramePane = "detail"[\s\S]*observeAsync\(\s*switchPackageFramework\(\s*framework,\s*source === "legacy" \? "framework" : "package-framework"\),\s*"Switching the package framework"\);[\s\S]*selectVersion: version => \{[\s\S]*state\.package\?\.isRuntimePack[\s\S]*observeAsync\(\s*switchPlatformVersion\(version\),\s*"Switching the platform version"\);[\s\S]*else\s*observeAsync\(\s*switchPackageVersion\(version\),\s*"Switching the package version"\)/);
   assert.match(
     packageControlsSource,
-    /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
+    /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateFields\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
+    /function packageCoordinateFields\(\) \{\s*return `\$\{packageVersionField\(\)\}\$\{packageFrameworkField\(\)\}`;\s*\}/);
+  assert.match(
+    appSource,
+    /function packageVersionField\(\)[\s\S]*id="package-version"[\s\S]*function packageFrameworkField\(\)[\s\S]*id="framework"/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -1104,7 +1107,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: \(\) => \{[\s\S]*state\.memberSource\.status === "ready"[\s\S]*void copyText\(state\.memberSource\.source\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\([\s\S]*memberSourcePartSelector\.current\(signature, source\)[\s\S]*"source copied"[\s\S]*onMemberSourcePartSelect: part => \{[\s\S]*memberSourcePartSelector\.select\(signature, source, part\)[\s\S]*render\(\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);

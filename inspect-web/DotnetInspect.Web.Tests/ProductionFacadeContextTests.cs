@@ -75,6 +75,7 @@ public sealed class ProductionFacadeContextTests
             "PrefetchPlatformPacks",
             "QueryLibraryApi",
             "QueryMemberDocumentation",
+            "QueryPlatformMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
             "QueryPackagePruning",
@@ -190,10 +191,10 @@ public sealed class ProductionFacadeContextTests
                 actual[assembly]);
         }
 
-        // 80 operations, and no operation name in two modules: a move that forgot to delete its
+        // 81 operations, and no operation name in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(80, everyExport.Length);
+        Assert.Equal(81, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());
@@ -276,6 +277,7 @@ public sealed class ProductionFacadeContextTests
         {
             Collect(derived, sharedContractTypes);
         }
+
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;
@@ -329,6 +331,35 @@ public sealed class ProductionFacadeContextTests
         Assert.True(
             assemblyLocalWireTypes > 0,
             "No assembly-local wire type was discovered.");
+    }
+
+    [Fact]
+    public void ProductionSourceFacade_SeparatesMemberPartsFromFlatSource()
+    {
+        string declarations = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "src",
+            "facades",
+            "inspect-web-source.d.ts"));
+
+        Assert.Contains(
+            "export interface BrowserMemberSource {",
+            declarations,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "queryMemberSource(packageId: string, version: string, targetFramework: string, "
+            + "assemblyName: string, typeIdentity: string, memberName: string, "
+            + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
+            + "Promise<BrowserMemberSource>;",
+            declarations,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "queryTypeMemberSource(packageId: string, version: string, "
+            + "targetFramework: string, assemblyName: string, typeIdentity: string, "
+            + "memberName: string, selectorKey: string, metadataToken: number, "
+            + "styleOptionsJson: string): Promise<BrowserSource>;",
+            declarations,
+            StringComparison.Ordinal);
     }
 
     static IEnumerable<Type> SerializableRoots(Type context)

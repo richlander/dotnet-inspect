@@ -50,13 +50,6 @@ public sealed class ByteDivergentGateTests
                 "public static bool OrTailGuard(bool a, bool b) => !a || b;",
                 text.Trim()),
             AssertBranchlessBooleanBehavior),
-        new(
-            "prefer-long-literal-suffix",
-            "true",
-            typeof(LongLiteralFoldFixture),
-            nameof(LongLiteralFoldFixture.SmallReturn),
-            text => Assert.Equal("public static long SmallReturn() => 42L;", text.Trim()),
-            AssertLongLiteralBehavior),
     ];
 
     static IReadOnlyList<(string KnobId, string ValueToken)> ByteDivergentNonDefaultValues =>
@@ -138,6 +131,4 @@ public sealed class ByteDivergentGateTests
             Assert.Equal(!a || b, PreferBranchlessBooleanSpecimen.OrTailGuard(a, b));
     }
 
-    static void AssertLongLiteralBehavior()
-        => Assert.Equal(42L, LongLiteralFoldFixture.SmallReturn());
 }

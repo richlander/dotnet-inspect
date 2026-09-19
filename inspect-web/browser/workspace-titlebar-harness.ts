@@ -370,15 +370,15 @@ function scopeBarHtml() {
   });
 }
 
-const contentNavigationLabel = packageOverviewMode
-  ? "Libraries"
+const contentNavigationLabel = activeScope === "package"
+  ? "Frameworks"
   : memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
-  : packageOverviewMode
+  : activeScope === "package"
     ? renderPackageNav({
-        libraries: [{ id: "example", name: "Example.Library", types: 32, members: 1234 }],
-        selectedLibrary: "example",
+        frameworks: ["net10.0", "net10.0-windows10.0.19041.0"],
+        activeFramework: "net10.0",
         escapeHtml,
       })
   : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
@@ -519,8 +519,7 @@ function detailHtml() {
       totalTypes: emptyMode ? 0 : libraryOverviewMode && !longMode ? 81 : 32,
       totalMembers: emptyMode ? 0 : libraryOverviewMode && !longMode ? 932 : 1234,
       coordinateFieldsHtml: packageOverviewMode ? `
-        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option><option>net10.0-windows10.0.19041.0</option></select></label>` : "",
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option><option>9.0.0</option></select></label>` : "",
       contentHtml: packageOverviewMode
         ? renderPackageOverviewContent({
             inventoryHtml,
@@ -546,10 +545,6 @@ function detailHtml() {
           <label class="version-select">
             <span>Version</span>
             <select id="package-version"><option selected>10.0.0</option></select>
-          </label>
-          <label class="framework-select">
-            <span>Framework</span>
-            <select id="framework"><option selected>net10.0</option></select>
           </label>
         </div>
       </section>
@@ -690,9 +685,9 @@ function detailHtml() {
     const documentation = memberDocumentationMode === "summary"
       ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
       : memberDocumentationMode === "loading"
-        ? '<p class="docs-loading">Loading package documentation…</p>'
+        ? '<p class="docs-loading">Loading compiled documentation…</p>'
         : memberDocumentationMode === "error"
-          ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
+          ? '<p class="docs-unavailable">Documentation query failed: The compiled documentation could not be read.</p>'
           : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     const documentationStatus = memberDocumentationMode === "loading"
       ? "loading"
@@ -810,7 +805,6 @@ function detailHtml() {
       <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
       <div class="package-coordinate-fields">
         <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
       </div>
     </section>`;
 }

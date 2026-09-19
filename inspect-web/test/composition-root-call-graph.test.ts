@@ -987,7 +987,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /class="learn-section member-overview-intro">\s*\$\{documentationSummary\}[\s\S]*?class="signature-panel"/);
   assert.match(
     memberOverview,
-    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in the package XML documentation/);
+    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in compiled XML documentation/);
   assert.match(
     memberOverview,
     /aria-labelledby="member-declaration-title"[\s\S]*?\$\{copyDeclaration\}[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);
@@ -1084,7 +1084,7 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderOverview,
     /data-lib-scope=[\s\S]*No managed libraries were admitted/);
   assert.match(renderOverview,
-    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageCoordinateFields\(\),[\s\S]*contentHtml,/);
+    /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
@@ -1162,7 +1162,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /return packageLensBody\(\);/);
   assert.match(
     appSource,
-    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageVersionField\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
     5);

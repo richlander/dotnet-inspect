@@ -1109,7 +1109,7 @@ public sealed partial class CSharpPrinter
         // so demand the next-tighter level there. The left side can associate
         // bare at equal precedence (`(a - b) - c`).
         var demand = rightSide ? TighterThan(parentPrecedence) : parentPrecedence;
-        // The long-literal lens (#3347) at an operator operand. The folded literal
+        // The long-literal spelling (#3347) at an operator operand. The folded literal
         // carries its own precedence — Primary for `10L`, Unary for `-1L`, the same
         // level the `(long)-1` cast it replaces reports — so the demand still decides
         // the parentheses and no context can misbind.
@@ -2084,11 +2084,11 @@ public sealed partial class CSharpPrinter
 
     CoercedText RenderCoercion(IrExpression value, TypeRef? target)
     {
-        // The long-literal lens (#3347) at a value sink — a return, an argument, an
+        // The long-literal spelling (#3347, #7763) at a value sink — a return, an argument, an
         // assignment, a field/array store, a box. Gated on an Int64 sink so the fold
         // only ever replaces a rendering that was already the bare `(long)N` cast;
         // a wider or differently-typed sink keeps whichever coercion cast it needs.
-        if (IsCoreInt64(target) && TryLongLiteralText(value) is { } longSinkLiteral)
+        if (IsCoreInt64(target) && TryLongLiteralText(value, target) is { } longSinkLiteral)
             return new(longSinkLiteral, "LiteralExpression");
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
@@ -2390,14 +2390,45 @@ public sealed partial class CSharpPrinter
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
-        // target on the conversion's operand, not (char)((ushort)x). An
-        // out-of-range constant operand still needs the unchecked spelling.
+        // target on the conversion's operand, not (char)((ushort)x). A widening
+        // conv.u8 first zero-extends a signed stack value, however, so it
+        // cannot be replaced by a bare signed sink cast. Preserve the unsigned
+        // source reinterpretation for non-constants; for constants render the
+        // exact zero-extended value that csc itself lowers back to the widening
+        // conversion (#3356).
         // The remaining casts are same-width reinterprets (cross-signedness or
         // sibling-width): inside a lexical checked region a bare spelling
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
         {
+            TypeRef? zeroExtendSource = IsCoreInt64(numericTarget)
+                && conv.Target is
+                {
+                    Kind: TypeRefKind.Definition,
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                    Name: "UInt64",
+                }
+                ? TypeFamilies.WideningZeroExtendSibling(
+                    EffectiveType(conv.Operand),
+                    conv.Target)
+                : null;
+            if (zeroExtendSource is not null && conv.Operand is Constant { Value: int zeroExtendPayload })
+            {
+                string widened = ((uint)zeroExtendPayload).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return new(
+                    $"({TypeText(numericTarget)}){widened}",
+                    "ConversionExpression");
+            }
+            if (zeroExtendSource is not null)
+            {
+                return new(
+                    CheckedSafeCast(
+                        () => $"({TypeText(numericTarget)})({TypeText(zeroExtendSource)}){Operand(conv.Operand)}"),
+                    "ConversionExpression");
+            }
             if (conv.Operand is Constant { Value: int or long } convConst)
             {
                 long literal = convConst.Value is int i ? i : (long)convConst.Value!;
@@ -2588,14 +2619,14 @@ public sealed partial class CSharpPrinter
 
     string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
     {
-        // The long-literal lens (#3347). Only at a join whose target is Int64 or
+        // The long-literal spelling (#3347, #7763). Only at a join whose target is Int64 or
         // neutralized (EffectiveJoinTarget returns null when the arms already render
         // bare at the target — the reference witness's case): the folded literal is
         // long-typed exactly as the `(long)N` cast it replaces, so the join's natural
         // type is unchanged. A join distributing some OTHER target still needs its own
         // coercion cast and falls through untouched.
         if ((target is null || IsCoreInt64(target))
-            && TryLongLiteralText(arm) is { } longArmLiteral)
+            && TryLongLiteralText(arm, target) is { } longArmLiteral)
         {
             return WithNodeKind(arm, longArmLiteral, "LiteralExpression");
         }
@@ -2963,11 +2994,13 @@ public sealed partial class CSharpPrinter
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" };
 
     /// <summary>
-    /// The opt-in long-literal fold (#3347), gated on
+    /// The long-literal spelling choice (#3347, #7763), gated on
     /// <see cref="PrinterOptions.PreferLongLiteralSuffix"/>: the <c>NL</c> spelling
-    /// of a <c>Convert(→Int64, Int32 Constant)</c> — the IR shape csc's
+    /// of either a <c>Convert(→Int64, Int32 Constant)</c> — the IR shape csc's
     /// <c>ldc.i4(.s) N; conv.i8</c> produces for every small <c>long</c> literal —
-    /// or <see langword="null"/> when the lens is off or the node does not qualify.
+    /// or a widening-zero-extended <c>Convert(→UInt64, Int32 Constant)</c> flowing
+    /// into an <c>Int64</c> sink. Returns <see langword="null"/> when suffixes are
+    /// disabled or the node does not qualify.
     /// Returns a bare literal, so the caller may place it wherever it would have
     /// placed the <c>(long)N</c> cast: <c>NL</c> is a primary expression and a
     /// negative one is unary, exactly the cast's own precedence.
@@ -2975,17 +3008,19 @@ public sealed partial class CSharpPrinter
     /// <para>The opcode-fidelity guard is the node shape itself, not a heuristic. A
     /// genuine <c>ldc.i8</c> reaches the printer as a bare <see cref="Constant"/>
     /// carrying a <c>long</c> payload with no <see cref="Convert"/> over it, so it
-    /// cannot match here and keeps its current spelling with the lens on or off.
-    /// Only the plain widening <c>conv.i8</c> qualifies: <c>conv.ovf.i8</c>
+    /// cannot match here and keeps its current spelling with suffixes on or off.
+    /// Only the plain widening <c>conv.i8</c> and the proven widening
+    /// zero-extension <c>conv.u8</c> qualify: <c>conv.ovf.i8</c>
     /// (<see cref="Convert.IsChecked"/>) and the <c>.un</c> forms
     /// (<see cref="Convert.IsUnsigned"/>) are distinct opcodes and are declined, as
     /// is any operand that is not an <c>Int32</c>-typed constant — a bool, char, or
     /// enum-retyped constant spells a keyword or a member name that a bare integer
     /// literal would silently drop.</para>
     /// </summary>
-    string? TryLongLiteralText(IrExpression expression)
-        => _options.PreferLongLiteralSuffix
-            && expression is Convert
+    string? TryLongLiteralText(IrExpression expression, TypeRef? sinkTarget = null)
+    {
+        if (!_options.PreferLongLiteralSuffix
+            || expression is not Convert
             {
                 IsChecked: false,
                 IsUnsigned: false,
@@ -2995,10 +3030,30 @@ public sealed partial class CSharpPrinter
                     Value: int payload,
                     Type: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int32" },
                 },
+            } conversion)
+        {
+            return null;
+        }
+
+        if (IsCoreInt64(convertTarget))
+            return $"{payload.ToString(System.Globalization.CultureInfo.InvariantCulture)}L";
+
+        TypeRef? zeroExtendSource = IsCoreInt64(sinkTarget)
+            && convertTarget is
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "UInt64",
             }
-            && IsCoreInt64(convertTarget)
-                ? $"{payload.ToString(System.Globalization.CultureInfo.InvariantCulture)}L"
+                ? TypeFamilies.WideningZeroExtendSibling(
+                    EffectiveType(conversion.Operand),
+                    convertTarget)
                 : null;
+        return zeroExtendSource is not null
+            ? $"{((uint)payload).ToString(System.Globalization.CultureInfo.InvariantCulture)}L"
+            : null;
+    }
 
     static bool TryCharConstantText(IrExpression expression, out string text)
     {

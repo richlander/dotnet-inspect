@@ -99,6 +99,9 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
     /// <summary>A key that exists and cannot be ordered by.</summary>
     public const string OpaqueKey = "opaque";
 
+    /// <summary>A key whose known value domain differs by operator.</summary>
+    public const string ModeKey = "mode";
+
     public const string CandidatesDimension = "candidates";
     public const string MatchesDimension = "matches";
 
@@ -208,6 +211,7 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
                 OpaqueKey,
                 [PortableQueryOperator.Equal],
                 value => value),
+            ModeKey => new OperatorSpecificValueKey(),
             _ => null
         };
 
@@ -326,5 +330,26 @@ public sealed class TestVocabulary(AcquisitionCapability? acquisition = null)
 
             return requestedMaximum <= (content ? ContentCandidateCeiling : ceiling);
         }
+    }
+
+    private sealed class OperatorSpecificValueKey
+        : PortableQueryKeyDeclaration<TestPredicate>
+    {
+        public override string Key => ModeKey;
+
+        public override bool AdmitsOperator(
+            PortableQueryOperator @operator) =>
+            @operator is PortableQueryOperator.Equal
+                or PortableQueryOperator.NotEqual;
+
+        public override PortableQueryBinding<TestPredicate> Bind(
+            PortableQueryOperator @operator,
+            string value) =>
+            @operator is PortableQueryOperator.Equal
+                && value is "fast"
+                    ? PortableQueryBinding<TestPredicate>.Bound(
+                        "mode:fast",
+                        new TestPredicate(ModeKey, value))
+                    : PortableQueryBinding<TestPredicate>.Rejected;
     }
 }

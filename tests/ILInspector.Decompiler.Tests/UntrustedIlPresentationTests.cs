@@ -51,7 +51,7 @@ public sealed class UntrustedIlPresentationTests
 
             using var source = MetadataSource.Open(dllPath);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Hostile.Target",
                     "GetCount",
@@ -119,7 +119,7 @@ public sealed class UntrustedIlPresentationTests
 
             using var source = MetadataSource.Open(dllPath);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Hostile.Target",
                     "Echo",
@@ -193,7 +193,7 @@ public sealed class UntrustedIlPresentationTests
 
             using var source = MetadataSource.Open(dllPath);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Hostile.Target",
                     "Make",
@@ -265,7 +265,7 @@ public sealed class UntrustedIlPresentationTests
 
             using var source = MetadataSource.Open(dllPath);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Probe.Banner",
                     "Text",
