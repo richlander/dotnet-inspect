@@ -818,6 +818,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   order resolution, baseline ordering, and per-`Top` ranking identities.
 - [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
   binding, projection roles, terminal Count, and result binding.
+- [Multi-part inspection documents](design/multi-part-inspection-documents.md):
+  one authoritative typed Document for correlated semantic parts, with
+  independent section projections and optional authored-category composition.
 - [Source delegation](design/source-delegation.md): delegated source
   execution — the effect protocol, result algebra, completion-evidence
   binding, and exact upstream Count acceptance.
