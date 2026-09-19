@@ -282,7 +282,8 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   expect([...new URL(packageUrl).searchParams.keys()]).toEqual(["package", "w"]);
   await page.reload();
   await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#framework")).toHaveValue("netstandard2.0");
+  await expect(page.locator('[data-package-framework="netstandard2.0"]'))
+    .toHaveAttribute("aria-current", "page");
   await page.locator('[data-application-scope="workspace"]').click();
   await expect(page.getByRole("heading", { name: "Workspace", exact: true }))
     .toBeVisible();
