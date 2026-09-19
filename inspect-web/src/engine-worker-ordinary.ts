@@ -95,6 +95,7 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "admitRetainedWorkspacePackage"
   | "activateRetainedWorkspaceDefinition"
   | "canonicalizeWorkspaceSharePacket"
   | "deactivateRetainedWorkspaceDefinition"
@@ -1137,6 +1138,16 @@ export const engineWorkerOrdinaryOperations = {
     ),
   },
   catalog: {
+    admitRetainedWorkspacePackage: valueOperation(
+      "ordinary-catalog-admit-retained-workspace-package",
+      3,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["admitRetainedWorkspacePackage"]
+        >
+      ) => facades.catalog.admitRetainedWorkspacePackage(...args),
+    ),
     activateRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-activate-retained-workspace-definition",
       4,
@@ -1441,6 +1452,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
     },
     catalog: {
+      admitRetainedWorkspacePackage: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .admitRetainedWorkspacePackage,
+      ),
       activateRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .activateRetainedWorkspaceDefinition,

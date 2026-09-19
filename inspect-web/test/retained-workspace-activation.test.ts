@@ -35,6 +35,12 @@ function installation(
     canonicalPacket: `packet-${retainedDefinitionId}`,
     realizationId,
     publicationOrdinal: Number(realizationId.split("-").at(-1)),
+    definition: {
+      tabs: [],
+      contexts: [],
+      activeTabId: null,
+      selectedContextId: null,
+    },
     navigation: {
       operation: "Initialize",
       request: `request-${realizationId}`,
@@ -105,6 +111,7 @@ function installation(
       },
     },
     packages: [],
+    platforms: [],
     predecessor: settlementId === null
       ? null
       : {

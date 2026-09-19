@@ -146,6 +146,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    admitRetainedWorkspacePackage: () =>
+      unexpected("admitRetainedWorkspacePackage"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
     canonicalizeWorkspaceSharePacket: () =>
@@ -272,6 +274,39 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
     packet,
     failure: null,
   });
+  state.host.dispose();
+});
+
+test("retained package admission preserves exact identity and unavailable result", async () => {
+  const unavailable = {
+    status: "unavailable",
+    package: null,
+    message: "The active Package presentation is unavailable.",
+  };
+  let receivedArguments: readonly unknown[] = [];
+  const state = fixture({
+    catalog: {
+      admitRetainedWorkspacePackage: async (...args) => {
+        receivedArguments = args;
+        return unavailable;
+      },
+    },
+  });
+
+  const result = state.client.catalog.admitRetainedWorkspacePackage(
+    "definition-exact",
+    "realization-exact",
+    "navigation-exact",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(receivedArguments, [
+    "definition-exact",
+    "realization-exact",
+    "navigation-exact",
+  ]);
+  assert.deepEqual(await result, unavailable);
+  assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
 
@@ -1060,6 +1095,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "admitRetainedWorkspacePackage",
       "activateRetainedWorkspaceDefinition",
       "canonicalizeWorkspaceSharePacket",
       "deactivateRetainedWorkspaceDefinition",
@@ -1082,7 +1118,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 60);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 61);
 
   const state = fixture();
   const groups = [

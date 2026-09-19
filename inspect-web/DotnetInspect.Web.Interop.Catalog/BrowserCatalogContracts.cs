@@ -553,8 +553,27 @@ public sealed record BrowserRetainedNavigationResult(
 
 public sealed record BrowserRetainedWorkspacePackage(
     string NavigationId,
+    int ContextIndex,
     string ConsumerPackageSubjectId,
     BrowserPackageSurface Surface);
+
+public sealed record BrowserRetainedWorkspacePlatform(
+    string NavigationId,
+    int ContextIndex,
+    string Family,
+    string? RuntimeIdentifier,
+    BrowserPackageSurface Surface);
+
+public sealed record BrowserRetainedWorkspaceDefinitionState(
+    BrowserWorkspaceShareTab[] Tabs,
+    BrowserWorkspaceShareContext[] Contexts,
+    string? ActiveTabId,
+    string? SelectedContextId);
+
+public sealed record BrowserRetainedWorkspacePackageAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePackage? Package,
+    string? Message);
 
 public sealed record BrowserRetainedWorkspaceCleanup(string Message);
 
@@ -575,8 +594,10 @@ public sealed record BrowserRetainedWorkspaceInstallation(
     string CanonicalPacket,
     string RealizationId,
     long PublicationOrdinal,
+    BrowserRetainedWorkspaceDefinitionState Definition,
     BrowserRetainedNavigationResult Navigation,
     BrowserRetainedWorkspacePackage[] Packages,
+    BrowserRetainedWorkspacePlatform[] Platforms,
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanup? Cleanup);
 
@@ -625,6 +646,7 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareDecodeResult))]
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

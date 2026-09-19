@@ -10,6 +10,23 @@ namespace DotnetInspect.Web.Interop.Catalog;
 public static partial class CatalogExports
 {
     [JSExport]
+    public static async Task<string> AdmitRetainedWorkspacePackage(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId)
+    {
+        BrowserRetainedWorkspacePackageAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService.AdmitPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId).ConfigureAwait(false);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserCatalogJsonContext.Default
+                .BrowserRetainedWorkspacePackageAdmissionResult);
+    }
+
+    [JSExport]
     public static async Task<string> ActivateRetainedWorkspaceDefinition(
         string retainedDefinitionId,
         string label,
@@ -135,6 +152,30 @@ internal static class BrowserRetainedWorkspaceActivationService
         CreateOwner();
 
     internal static BrowserRetainedWorkspaceActivationOwner Owner => _owner;
+
+    internal static async Task<BrowserRetainedWorkspacePackageAdmissionResult>
+        AdmitPackageAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId)
+    {
+        DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult result =
+            await _owner.AdmitPackageAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId).ConfigureAwait(false);
+        return result switch
+        {
+            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
+                .Admitted admitted => new("admitted", Package(admitted.Package), null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
+                .Superseded => new("superseded", null, null),
+            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
+                .Unavailable unavailable => new("unavailable", null, unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Retained Package admission returned an unsupported result."),
+        };
+    }
 
     internal static async Task<BrowserRetainedWorkspaceActivationResult>
         ActivateAsync(
@@ -301,15 +342,17 @@ internal static class BrowserRetainedWorkspaceActivationService
                     "The packet activation export cannot project a non-packet retained definition."),
             installation.RealizationId,
             installation.PublicationOrdinal,
+            Definition(installation),
             BrowserCatalogWireProjection.Project(installation.Navigation),
+            [.. installation.Packages.Select(Package)],
             [
-                .. installation.Packages.Select(
-                    static package =>
-                        new BrowserRetainedWorkspacePackage(
-                            package.NavigationId,
-                            package.ConsumerPackageSubjectId,
-                            BrowserCatalogWireProjection.Project(
-                                package.Surface))),
+                .. installation.Platforms.Select(
+                    static platform => new BrowserRetainedWorkspacePlatform(
+                        platform.NavigationId,
+                        platform.ContextIndex,
+                        platform.Family,
+                        platform.RuntimeIdentifier,
+                        BrowserCatalogWireProjection.Project(platform.Surface))),
             ],
             installation.Predecessor is null
                 ? null
@@ -319,6 +362,53 @@ internal static class BrowserRetainedWorkspaceActivationService
             installation.Cleanup is null
                 ? null
                 : new(installation.Cleanup.Message));
+
+    static BrowserRetainedWorkspacePackage Package(
+        BrowserRetainedWorkspacePackagePresentation package) =>
+        new(
+            package.NavigationId,
+            package.ContextIndex,
+            package.ConsumerPackageSubjectId,
+            BrowserCatalogWireProjection.Project(package.Surface));
+
+    static BrowserRetainedWorkspaceDefinitionState Definition(
+        DotnetInspect.Web.BrowserRetainedWorkspaceInstallation installation)
+    {
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            installation.CanonicalPacket
+                ?? throw new InvalidOperationException(
+                    "The packet activation export requires a canonical packet."));
+        CommittedNavigationDefinition navigation =
+            installation.Definition.Navigation
+            ?? throw new InvalidOperationException(
+                "A restored Workspace requires its Navigation definition.");
+        WorkspaceDefinition workspace =
+            installation.Definition.Workspace
+            ?? throw new InvalidOperationException(
+                "A restored Workspace requires its Workspace definition.");
+        return new(
+            [
+                .. packet.Tabs.Select((tab, index) => new BrowserWorkspaceShareTab(
+                    navigation.Tabs[index].Id,
+                    tab.SourceKind == WorkspaceShareSourceKind.Package
+                        ? "package" : "group",
+                    tab.Source,
+                    tab.Version,
+                    tab.Framework,
+                    tab.RuntimeIdentifier)),
+            ],
+            [
+                .. packet.Contexts.Select((context, index) =>
+                    new BrowserWorkspaceShareContext(
+                        workspace.Contexts[index].Name,
+                        [
+                            .. context.TabIndexes.Select(
+                                tabIndex => navigation.Tabs[tabIndex].Id),
+                        ])),
+            ],
+            navigation.Focus,
+            installation.Definition.Scenario.Context);
+    }
 
     static BrowserRetainedWorkspaceSettlement Settlement(
         WorkspaceRealizationSettlement settlement) =>
