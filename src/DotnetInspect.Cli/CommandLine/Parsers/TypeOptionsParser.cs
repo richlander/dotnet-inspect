@@ -445,11 +445,14 @@ public static class TypeOptionsParser
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
 
+        bool envelopeOutput = parseResult.GetValue(opts.Envelope);
         bool tree = parseResult.GetValue(opts.Tree);
         bool treeOwnsFormat =
             tree && !opts.IsFormatFlagExplicitlySet(parseResult);
         OutputFormat outputFormat =
-            treeOwnsFormat
+            envelopeOutput
+                ? OutputFormat.Json
+                : treeOwnsFormat
                 ? OutputFormat.Markdown
                 : opts.ResolveFormat(parseResult);
 
@@ -475,25 +478,30 @@ public static class TypeOptionsParser
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
-            JsonOutput = outputFormat == OutputFormat.Json,
+            JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
+            EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
             Tabular =
-                outputFormat is
+                !envelopeOutput
+                && outputFormat is
                     OutputFormat.Table or
                     OutputFormat.Tsv or
                     OutputFormat.Jsonl,
-            Tsv = outputFormat == OutputFormat.Tsv,
-            Jsonl = outputFormat == OutputFormat.Jsonl,
+            Tsv = !envelopeOutput && outputFormat == OutputFormat.Tsv,
+            Jsonl = !envelopeOutput && outputFormat == OutputFormat.Jsonl,
             TabularExplicitlySet =
-                !treeOwnsFormat
+                !envelopeOutput
+                && !treeOwnsFormat
                 && opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet =
-                tree || opts.IsFormatExplicitlySet(parseResult),
+                !envelopeOutput
+                && (tree || opts.IsFormatExplicitlySet(parseResult)),
             FormatFlagExplicitlySet =
-                tree || opts.IsFormatFlagExplicitlySet(parseResult),
+                !envelopeOutput
+                && (tree || opts.IsFormatFlagExplicitlySet(parseResult)),
             Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-            PlainText = parseResult.GetValue(opts.PlainText),
+            PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
@@ -534,7 +542,10 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+            TipLevel = options.EnvelopeOutput
+                && parseResult.GetResult(opts.Tips) is { Implicit: false }
+                ? opts.ParseTipLevel(parseResult)
+                : options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
