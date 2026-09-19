@@ -19,6 +19,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Receipt);
         Assert.Same(
             execution.Receipt,
+            execution.Allocations.Receipt);
+        Assert.Same(
+            execution.Receipt,
             execution.ImplementationProfiles.Receipt);
         Assert.Same(
             execution.Receipt,
@@ -33,6 +36,10 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.Evidence.IsDefault);
         Assert.True(
             execution.Safety.WasRequested);
+        Assert.False(
+            execution.Allocations.WasRequested);
+        Assert.Empty(
+            execution.Allocations.Occurrences);
         Assert.True(
             execution.ImplementationProfiles.WasRequested);
         Assert.True(
@@ -92,6 +99,12 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.Safety.WasRequested);
         Assert.Empty(
             execution.Safety.Evidence);
+        Assert.Empty(
+            execution.Safety.Occurrences);
+        Assert.False(
+            execution.Allocations.WasRequested);
+        Assert.Empty(
+            execution.Allocations.Occurrences);
     }
 
     [Fact]

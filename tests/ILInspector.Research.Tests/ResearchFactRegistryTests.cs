@@ -47,11 +47,11 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
-    public void RequirementsNone_DoesNotResolveAnAssemblyContext()
+    public void RequirementsNone_DoesNotResolveAnalysis()
     {
         using var source = MetadataSource.Open(
             typeof(ResearchFixture).Assembly.Location);
-        var producer = new AssemblyContextCapturingProducer();
+        var producer = new AnalysisCapturingProducer();
 
         _ = ResearchViews.CollectFacts(
             source,
@@ -60,7 +60,7 @@ public class ResearchFactRegistryTests
             registry: new ResearchFactRegistry(producer));
 
         Assert.True(producer.WasInvoked);
-        Assert.Null(producer.AssemblyContext);
+        Assert.Null(producer.Analysis);
     }
 
     [Fact]
@@ -793,8 +793,8 @@ public class ResearchFactRegistryTests
 
         Assert.Equal(1, producer.FactCollectCount);
         Assert.Equal(1, producer.HeaderFactCollectCount);
-        Assert.NotNull(producer.AssemblyContext);
-        Assert.Same(producer.AssemblyContext, producer.HeaderAssemblyContext);
+        Assert.NotNull(producer.Analysis);
+        Assert.Same(producer.Analysis, producer.HeaderAnalysis);
         Assert.Contains("cost.test", projection.AnnotatedSource!.Output);
         Assert.Contains("cost.test", projection.CostOverlay!.Body.Output);
         Assert.Contains("semantics.test", projection.SemanticsOverlay!.Output);
@@ -1330,8 +1330,8 @@ public class ResearchFactRegistryTests
     {
         public int FactCollectCount { get; private set; }
         public int HeaderFactCollectCount { get; private set; }
-        public ResearchAssemblyContext? AssemblyContext { get; private set; }
-        public ResearchAssemblyContext? HeaderAssemblyContext { get; private set; }
+        public MemberProjectionAnalysisInput? Analysis { get; private set; }
+        public MemberProjectionAnalysisInput? HeaderAnalysis { get; private set; }
         public string Name => "counting";
         public IReadOnlyList<string> Produces { get; } = ["cost.test", "semantics.test", "cost.header.test"];
         public IReadOnlyList<string> DependsOn => [];
@@ -1343,7 +1343,7 @@ public class ResearchFactRegistryTests
             ResearchFactContext context)
         {
             FactCollectCount++;
-            AssemblyContext = context.Assembly;
+            Analysis = context.Analysis;
             return
             [
                 TestFinding(
@@ -1370,7 +1370,7 @@ public class ResearchFactRegistryTests
         public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
         {
             HeaderFactCollectCount++;
-            HeaderAssemblyContext = context.Assembly;
+            HeaderAnalysis = context.Analysis;
             return
             [
                 new ResearchHeaderFact(
@@ -1381,17 +1381,17 @@ public class ResearchFactRegistryTests
 
     }
 
-    sealed class AssemblyContextCapturingProducer
+    sealed class AnalysisCapturingProducer
         : IResearchFactProducer
     {
         public bool WasInvoked { get; private set; }
-        public ResearchAssemblyContext? AssemblyContext
+        public MemberProjectionAnalysisInput? Analysis
         {
             get;
             private set;
         }
 
-        public string Name => "assembly-context-capturing";
+        public string Name => "analysis-capturing";
         public IReadOnlyList<string> Produces => [];
         public IReadOnlyList<string> DependsOn => [];
 
@@ -1399,7 +1399,7 @@ public class ResearchFactRegistryTests
             ResearchFactContext context)
         {
             WasInvoked = true;
-            AssemblyContext = context.Assembly;
+            Analysis = context.Analysis;
             return [];
         }
     }

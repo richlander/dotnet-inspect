@@ -362,15 +362,18 @@ public static class AssemblyContextMemberProjectionQuery
     {
         AssemblyContextAnalysisSource.BindingPolicyResolver resolver =
             AssemblyContextResearchSource.Resolver(group, subject);
+        LibraryBodyAnalysisExecution? execution = null;
         LibraryBodyIndex? index = null;
         MemberProjectionContextLimitation? limitation = null;
         try
         {
-            index = LibraryBodyIndex.OpenFromPrefetchedImage(
+            execution = LibraryBodyAnalysisService.ExecuteImage(
                 AssemblyContextResearchSource.Name(subject),
                 snapshot.Content,
-                request.AnalysisFeatures,
+                LibraryBodyAnalysisRequest.Create(
+                    request.AnalysisFeatures),
                 resolver);
+            index = execution.CompatibilityIndex();
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -393,6 +396,14 @@ public static class AssemblyContextMemberProjectionQuery
                     resolver);
             ResearchAssemblyContext? assembly =
                 index is null ? null : ResearchAssemblyContext.Create(index);
+            MemberProjectionAnalysisInput? analysis =
+                execution is null
+                    ? null
+                    : new(
+                        execution.Allocations,
+                        execution.Safety,
+                        execution.CallGraph,
+                        execution.Leverage);
             CallRelationshipProjection? callRelationships =
                 index is not null
                     && request.MethodToken is int requestedMethodToken
@@ -431,7 +442,7 @@ public static class AssemblyContextMemberProjectionQuery
                         request.PrinterOptions,
                         CaretFocus: null,
                         request.SourceDocument,
-                        assembly,
+                        Analysis: analysis,
                         CallSites: request.CallRelationships
                                 && callRelationships is not null
                             ? callRelationships.Calls
@@ -440,12 +451,13 @@ public static class AssemblyContextMemberProjectionQuery
                             : null));
             IReadOnlyList<AssemblyMemberFindingEvidence>? findingEvidence =
                 request.FindingEvidence
-                    ? assembly is null
+                    ? assembly is null || analysis is null
                         ? null
                         : ProjectFindingEvidence(
                             source,
                             projection,
                             assembly,
+                            analysis,
                             request.PrinterOptions)
                     : null;
             IReadOnlyList<AssemblyMemberInvocationDestination> destinations = [];
@@ -534,6 +546,7 @@ public static class AssemblyContextMemberProjectionQuery
         MetadataSource source,
         MemberProjectionResult projection,
         ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         PrinterOptions? printerOptions)
     {
         if (projection.Facts is not { } facts
@@ -611,7 +624,7 @@ public static class AssemblyContextMemberProjectionQuery
 
             CalleeSourceProjection callee = ProjectCalleeSource(
                 source,
-                assembly,
+                analysis,
                 evidence.Subject,
                 printerOptions,
                 calleeProjections);
@@ -757,7 +770,7 @@ public static class AssemblyContextMemberProjectionQuery
 
     static CalleeSourceProjection ProjectCalleeSource(
         MetadataSource source,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         MethodIdentity callee,
         PrinterOptions? printerOptions,
         IDictionary<MethodIdentity, CalleeSourceProjection> cache)
@@ -774,7 +787,7 @@ public static class AssemblyContextMemberProjectionQuery
                     MethodToken: callee.MetadataToken,
                     PrinterOptions: printerOptions,
                     SourceDocument: true,
-                    Assembly: assembly));
+                    Analysis: analysis));
         var created = new CalleeSourceProjection(
             projected.SourceDocument,
             projected.SourceDocumentFailure?.Diagnostics.Count > 0
