@@ -381,6 +381,28 @@ public class DemoCommandTests
                 System.Globalization.CultureInfo.InvariantCulture));
     }
 
+    [Theory]
+    [InlineData("list")]
+    [InlineData(null)]
+    public async Task Cli_DemoList_JsonLineSelectionAppliesToCountPayload(
+        string? subcommand)
+    {
+        string[] args =
+            subcommand is null
+                ? ["demo", "-n", "1", "--lines", "--count", "--json"]
+                : ["demo", subcommand, "-n", "1", "--lines", "--count", "--json"];
+        var (exitCode, output, error) =
+            await RunCliWithLineWindowAsync(args);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal(
+            ProductDemos.Count,
+            int.Parse(
+                output.Trim(),
+                System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     [Fact]
     public async Task Cli_DemoScenario_RejectsCount()
     {

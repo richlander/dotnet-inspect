@@ -275,7 +275,8 @@ public static class UtilityCommandDefinitions
                 result.GetValue(scenarioArg)),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.IsJsonDocumentOutput(result),
+                    opts.IsJsonDocumentOutput(result)
+                        && !result.GetValue(opts.Count),
                     lowering));
         CliRowSelectionCommandRegistry.Register(
             listCommand,
@@ -284,7 +285,8 @@ public static class UtilityCommandDefinitions
             isActive: static _ => true,
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
-                    opts.IsJsonDocumentOutput(result),
+                    opts.IsJsonDocumentOutput(result)
+                        && !result.GetValue(opts.Count),
                     lowering));
 
         demoCommand.Validators.Add(result =>
