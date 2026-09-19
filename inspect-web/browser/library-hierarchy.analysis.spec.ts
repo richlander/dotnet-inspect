@@ -747,7 +747,7 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 
-test("Libraries navigation exposes the complete truncated name on hover", async ({ page }) => {
+test("Package Overview exposes the complete long Library name on hover", async ({ page }) => {
   const longLibrary = {
     ...core,
     name: "Example.Serialization.Providers.With.A.Very.Long.Library.Name",
@@ -758,15 +758,12 @@ test("Libraries navigation exposes the complete truncated name on hover", async 
     types: [type("Example.Widget", longLibrary), type("Example.Neighbor", other)],
   });
   await page.goto(root);
-  const row = page.locator('.library-subject-list [data-lib-scope="asset:core"]');
+  const row = page.locator('.library-list [data-lib-scope="asset:core"]');
   await expect(row).toBeVisible();
-  const name = row.locator(".type-name");
+  const name = row.locator(".library-name");
   await expect(name).toHaveText(longLibrary.name);
-  expect(await name.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
   const location = page.url();
   await row.hover();
   await expect(row).toHaveAttribute("title", `Inspect ${longLibrary.name}`);
-  await expect(page.locator('.library-list [data-lib-scope="asset:core"]'))
-    .toHaveAttribute("title", `Inspect ${longLibrary.name}`);
   await expect(page).toHaveURL(location);
 });

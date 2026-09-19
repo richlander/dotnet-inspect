@@ -1464,13 +1464,12 @@ public static class MemberBodyProducer
                             member.Name,
                             index,
                             bodyPublicOnly);
+                    IReadOnlyList<string> attributes = [];
                     if (attributeMode == MemberRenderAttributeMode.All)
                     {
-                        var attributes = memberHandle is { } attrHandle
+                        attributes = memberHandle is { } attrHandle
                             ? AttributeReader.RenderMethodAttributes(reader, attrHandle, bodyNamespaces)
                             : AttributeReader.RenderMethodAttributes(reader, typeHandle, member.Name, index, publicOnly, bodyNamespaces);
-                        foreach (var attribute in attributes)
-                            sb.AppendLf($"    [{attribute}]");
                     }
                     else if (memberHandle is { } requiredAttributeHandle
                         && AttributeReader.HasAttribute(
@@ -1478,7 +1477,7 @@ public static class MemberBodyProducer
                             reader.GetMethodDefinition(requiredAttributeHandle).GetCustomAttributes(),
                             KnownAttributeNames.SkipLocalsInitAttribute))
                     {
-                        sb.AppendLf("    [global::System.Runtime.CompilerServices.SkipLocalsInit]");
+                        attributes = ["global::System.Runtime.CompilerServices.SkipLocalsInit"];
                     }
 
                     string? constructorChain = null;
@@ -1489,80 +1488,6 @@ public static class MemberBodyProducer
                     string? body = member.IsAbstract
                         ? null
                         : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null, tracker);
-
-                    // An explicit interface property implementation surfaces
-                    // as its accessor method. Derive the property identity from
-                    // the MethodSemantics-owned PropertyDef rather than parsing
-                    // get_/set_ markers from the qualified MethodDef name.
-                    bool isExplicitSetter = false;
-                    string? explicitPropertyPath =
-                        member.Kind == "explicit-interface-implementation"
-                            && memberHandle is { } explicitAccessorHandle
-                            ? ExplicitPropertyName(
-                                reader,
-                                typeHandle,
-                                explicitAccessorHandle,
-                                out isExplicitSetter)
-                            : null;
-                    if (member.Kind == "explicit-interface-implementation"
-                        && explicitPropertyPath is { } propertyPath
-                        && memberHandle is { } propertyAccessorHandle
-                        && body is not null)
-                    {
-                        ThrowIfAccessorParameterNamesChanged(
-                            member.Name,
-                            isExplicitSetter
-                                ? AccessorRole.Setter
-                                : AccessorRole.Getter,
-                            function: null,
-                            bodyParameterNames,
-                            DeclarationParameterNames(member));
-                        string? accessorPropertyType = isExplicitSetter
-                            ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
-                            : member.SignatureModel?.ReturnType
-                                ?? member.ReturnType;
-                        if (string.IsNullOrEmpty(accessorPropertyType))
-                        {
-                            throw new InvalidOperationException(
-                                "The explicit property accessor does not provide its property type.");
-                        }
-                        string staticModifier = member.IsStatic ? "static " : "";
-                        string readonlyModifier = member.IsReadOnly ? "readonly " : "";
-                        string unsafeModifier =
-                            (member.IsUnsafe || requiresUnsafeContext)
-                                ? "unsafe "
-                                : "";
-                        string propertyType = EscapeKnownIdentifiers(
-                            accessorPropertyType,
-                            type.TypeParameters.Select(p => p.Name));
-                        string head =
-                            $"{staticModifier}{readonlyModifier}{unsafeModifier}{propertyType} {propertyPath}";
-                        if (isExplicitSetter)
-                        {
-                            string accessorKind = MetadataDeclarationQuery.IsInitOnlySetter(
-                                reader,
-                                reader.GetTypeDefinition(typeHandle),
-                                reader.GetMethodDefinition(propertyAccessorHandle))
-                                    ? "init"
-                                    : "set";
-                            sb.AppendLf($"    {head}");
-                            sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, accessorKind, body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLf("    }");
-                        }
-                        else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
-                        {
-                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions), bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
-                        }
-                        else
-                        {
-                            sb.AppendLf($"    {head}");
-                            sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, "get", body, 8, WrapExpressionBodyArrow(printerOptions));
-                            sb.AppendLf("    }");
-                        }
-                        break;
-                    }
 
                     var bodyShape = body is null
                         ? null
@@ -1579,6 +1504,23 @@ public static class MemberBodyProducer
                             // not silently re-inject the mandatory base call.
                             SuppressDestructorSyntax = member.IsFinalizer && !bodyIsDestructor
                         };
+                    if (bodyShape is not null
+                        && memberHandle is { } accessorHandle
+                        && SelectedPropertyAccessorSource.Create(reader, accessorHandle, member) is { } propertySource)
+                    {
+                        sb.AppendLf(propertySource.Format(
+                            type,
+                            bodyShape,
+                            bodyIsSingleExpressionBody,
+                            attributes: attributes,
+                            includeSignatureAttributes: attributeMode == MemberRenderAttributeMode.All,
+                            wrapExpressionBodyArrow: WrapExpressionBodyArrow(printerOptions),
+                            indent: 4));
+                        break;
+                    }
+
+                    foreach (var attribute in attributes)
+                        sb.AppendLf($"    [{attribute}]");
                     var declarationFormatter = attributeMode == MemberRenderAttributeMode.All
                         ? DefaultDeclarationFormatter
                         : ShellDeclarationFormatter;
@@ -1810,45 +1752,6 @@ public static class MemberBodyProducer
                     namespaces.Add(token[..lastDot]);
             }
         }
-    }
-
-    /// <summary>
-    /// Returns the explicit property name owned by the accessor's
-    /// MethodSemantics relationship. Indexer accessors keep method form.
-    /// </summary>
-    static string? ExplicitPropertyName(
-        MetadataReader reader,
-        TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle methodHandle,
-        out bool isSetter)
-    {
-        isSetter = false;
-        var type = reader.GetTypeDefinition(typeHandle);
-        foreach (var propertyHandle in type.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            var accessors = property.GetAccessors();
-            bool isGetter = accessors.Getter == methodHandle;
-            if (!isGetter && accessors.Setter != methodHandle)
-                continue;
-
-            isSetter = !isGetter;
-            string name = reader.GetString(property.Name);
-            int separator = name.LastIndexOf('.');
-            if (separator <= 0)
-                return null;
-            string propName = name[(separator + 1)..];
-            if (propName.Length == 0)
-                return null;
-            var signature = GuardedSignatureText.PropertyText(
-                reader,
-                property,
-                GenericContext.ForType(reader, type));
-            if (!signature.ParameterTypes.IsEmpty)
-                return null;
-            return $"{EscapeQualifiedName(name[..separator])}.{ContainedIdentifier(propName)}";
-        }
-        return null;
     }
 
     static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)

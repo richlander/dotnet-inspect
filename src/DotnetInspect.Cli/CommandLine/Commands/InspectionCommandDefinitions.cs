@@ -258,6 +258,7 @@ public static class InspectionCommandDefinitions
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -282,6 +283,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(unavailableCountOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -319,6 +321,14 @@ public static class InspectionCommandDefinitions
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(unavailableCountOption) is { Implicit: false })
+            {
+                CommandError.Write(
+                    "--count is not supported by the 'diff' command because "
+                    + "its current modes do not declare countable row semantics.");
+                return 1;
+            }
+
             var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
 
             switch (result)

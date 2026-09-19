@@ -18,7 +18,7 @@ public class AnnotatedSourceTasteTests
     static string Annotated(string method, PrinterOptions? options)
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
             method,
@@ -114,7 +114,7 @@ public class AnnotatedSourceTasteTests
     public void ByteDivergentLens_WhenApplied_StillReportsTheLensDecision()
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(AnnotatedTasteFixture).FullName!,
             nameof(AnnotatedTasteFixture.GuardBothVariable),
@@ -138,10 +138,10 @@ public class AnnotatedSourceTasteTests
         // section would change a different section's output. Pin that the overlays
         // render the member's own control flow no matter which sections are also
         // requested in the same projection.
-        static ResearchViews.MemberProjectionResult Project(bool annotated)
+        static MemberProjectionResult Project(bool annotated)
         {
             using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
-            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            return MemberProjectionProducer.Produce(new MemberProjectionRequest(
                 source,
                 typeof(AnnotatedTasteFixture).FullName!,
                 nameof(AnnotatedTasteFixture.GuardBothVariable),
@@ -168,10 +168,10 @@ public class AnnotatedSourceTasteTests
     [Fact]
     public void ReadableLocalNames_AreSharedByEveryCSharpBodyView()
     {
-        static ResearchViews.MemberProjectionResult Project(PrinterOptions options)
+        static MemberProjectionResult Project(PrinterOptions options)
         {
             using var source = MetadataSource.OpenWithoutSymbols(typeof(AnnotatedTasteFixture).Assembly.Location);
-            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            return MemberProjectionProducer.Produce(new MemberProjectionRequest(
                 source,
                 typeof(AnnotatedTasteFixture).FullName!,
                 nameof(AnnotatedTasteFixture.Compute),

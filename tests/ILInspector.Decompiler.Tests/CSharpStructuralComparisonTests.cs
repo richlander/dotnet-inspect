@@ -3772,7 +3772,7 @@ public class CSharpStructuralComparisonTests
 
             Assert.Equal(Guid.Empty, source.ModuleVersionId);
             var projection = ResearchViews.ProjectMember(
-                new ResearchViews.MemberProjectionRequest(
+                new MemberProjectionRequest(
                     source,
                     "Fixture",
                     "M",
@@ -3854,7 +3854,7 @@ public class CSharpStructuralComparisonTests
         int token = MetadataTokens.GetToken(method);
 
         AnnotatedSourceDocument Project(PrinterOptions? options)
-            => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            => ResearchViews.ProjectMember(new MemberProjectionRequest(
                 source,
                 typeof(CfgSampleClass).FullName!,
                 nameof(CfgSampleClass.CallsKeywordInstanceMethod),
@@ -3897,7 +3897,7 @@ public class CSharpStructuralComparisonTests
             .ToHashSet();
 
         var document = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+            new MemberProjectionRequest(
                 source,
                 typeof(CfgSampleClass).FullName!,
                 nameof(CfgSampleClass.YieldTwo),

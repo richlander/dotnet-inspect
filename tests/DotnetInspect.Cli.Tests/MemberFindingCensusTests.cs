@@ -20,7 +20,7 @@ public class MemberFindingCensusTests
             Finding(new Annotation(descriptor, SourceOffset: 0, Detail: "same")),
             Finding(new Annotation(descriptor, SourceOffset: 0, Detail: "same")),
         ]);
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(producer));
 
         MemberFindingCensusEnvelope envelope = MemberFindingCensus.Create(
@@ -49,7 +49,7 @@ public class MemberFindingCensusTests
     [Fact]
     public void Create_PreservesSuccessfulEmptyBodyCensusReceipt()
     {
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry());
 
         MemberFindingCensusEnvelope envelope = MemberFindingCensus.Create(
@@ -70,7 +70,7 @@ public class MemberFindingCensusTests
     [Fact]
     public void Create_RejectsReceiptFromAnotherResearchOperation()
     {
-        ResearchViews.MemberProjectionResult first = Project(
+        MemberProjectionResult first = Project(
             new ResearchFactRegistry(new TestProducer(
             [
                 Finding(new Annotation(
@@ -80,7 +80,7 @@ public class MemberFindingCensusTests
                         "first"),
                     SourceOffset: 0)),
             ])));
-        ResearchViews.MemberProjectionResult second = Project(
+        MemberProjectionResult second = Project(
             new ResearchFactRegistry());
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -94,13 +94,13 @@ public class MemberFindingCensusTests
         Assert.Contains("different receipt", error.Message);
     }
 
-    static ResearchViews.MemberProjectionResult Project(
+    static MemberProjectionResult Project(
         ResearchFactRegistry registry)
     {
         using MetadataSource source = MetadataSource.Open(
             typeof(FactsTableFixture).Assembly.Location);
         return ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+            new MemberProjectionRequest(
                 source,
                 typeof(FactsTableFixture).FullName!,
                 nameof(FactsTableFixture.BoxInt),

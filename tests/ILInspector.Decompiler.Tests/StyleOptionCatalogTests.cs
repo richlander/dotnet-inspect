@@ -125,10 +125,9 @@ public class StyleOptionCatalogTests
     [Fact]
     public void ChoiceIds_PreserveTheExistingBrowserPersistenceContract()
     {
-        // Literal ids are the compatibility gate. In particular, a currently
-        // two-state option keeps its bare id even if a future value joins that
-        // axis; the id is stored on the value rather than recomputed from the
-        // axis's current cardinality.
+        // Literal ids are the advertised persistence contract. The retired
+        // prefer-long-literal-suffix id remains accepted as a migration alias,
+        // but it no longer appears because suffixes are now the default.
         Assert.Equal(
             new[]
             {
@@ -147,7 +146,7 @@ public class StyleOptionCatalogTests
                 "var-spelling-style:var-elsewhere",
                 "explicit-object-creation",
                 "enum-case-label-order",
-                "prefer-long-literal-suffix",
+                "explicit-long-literal-cast",
             },
             StyleOptionCatalog.Choices.Select(choice => choice.Id).ToArray());
     }
@@ -244,6 +243,14 @@ public class StyleOptionCatalogTests
     }
 
     [Fact]
+    public void ResolveChoices_AcceptsTheRetiredSuffixChoiceAsTheNewDefault()
+    {
+        Assert.Equal(
+            StyleOptionCatalog.DefaultOptions,
+            StyleOptionCatalog.ResolveChoices(["prefer-long-literal-suffix"]));
+    }
+
+    [Fact]
     public void ResolveChoices_RejectsUnknownAndConflictingIds()
     {
         var unknown = Assert.Throws<ArgumentException>(() =>
@@ -298,13 +305,17 @@ public class StyleOptionCatalogTests
     }
 
     [Fact]
-    public void ProductDefaults_EnableReadableNames_WithoutChangingLibraryDefaults()
+    public void ProductDefaults_EnableReadableNamesAndLongSuffixes_WithoutChangingLibraryDefaults()
     {
         var slotNames = Options.Single(o => o.Id == "slot-local-names");
+        var longLiterals = Options.Single(o => o.Id == "prefer-long-literal-suffix");
 
         Assert.Equal("false", slotNames.DefaultValue);
+        Assert.Equal("true", longLiterals.DefaultValue);
         Assert.True(StyleOptionCatalog.DefaultOptions.ReadableLocalNames);
+        Assert.True(StyleOptionCatalog.DefaultOptions.PreferLongLiteralSuffix);
         Assert.False(PrinterOptions.Default.ReadableLocalNames);
+        Assert.False(PrinterOptions.Default.PreferLongLiteralSuffix);
     }
 
     [Fact]
@@ -657,6 +668,27 @@ public class StyleOptionCatalogTests
         var explicitOptions = style.WithValue(PrinterOptions.Default, "explicit");
         Assert.False(explicitOptions.PreferImplicitObjectCreation);
         Assert.Equal("explicit", style.GetValue(explicitOptions));
+    }
+
+    [Fact]
+    public void LongLiteralStyle_IsAByteNeutralExplicitCastOptOut()
+    {
+        var style = Options.Single(o => o.Id == "prefer-long-literal-suffix");
+
+        Assert.Equal(StyleOptionTier.Spelling, style.Tier);
+        Assert.False(style.ByteDivergent);
+        Assert.Equal(new[] { "false", "true" }, style.Values.Select(v => v.Token).ToArray());
+        Assert.Equal("true", style.DefaultValue);
+        Assert.Equal("false", style.GetValue(PrinterOptions.Default));
+        Assert.Equal("true", style.GetValue(StyleOptionCatalog.DefaultOptions));
+        Assert.False(style.OracleEndorsed);
+        Assert.False(style.CorpusEndorsed);
+        Assert.Equal(
+            "explicit-long-literal-cast",
+            Assert.Single(style.Values, value => value.Token == "false").ChoiceId);
+        Assert.Equal(
+            "dotnet_inspect_style_prefer_long_literal_suffix",
+            Assert.Single(style.Values, value => value.Token == "true").ConfigKey);
     }
 
     [Fact]

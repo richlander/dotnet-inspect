@@ -28,6 +28,7 @@ public class RenderStyleConfigTests
 
         Assert.Equal(RenderStyleResolution.None.Options, result.Options);
         Assert.True(result.Options.ReadableLocalNames);
+        Assert.True(result.Options.PreferLongLiteralSuffix);
         Assert.Equal(EnumCaseLabelOrder.Alphabetical, result.Options.EnumCaseLabelOrder);
         Assert.False(result.Options.QualifyFieldAccess);
         Assert.False(result.Options.QualifyPropertyAccess);
@@ -96,6 +97,24 @@ public class RenderStyleConfigTests
             origin: null);
         Assert.True(withSeverity.Options.PreferBranchlessBoolean);
         Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
+    public void Parse_LongLiteralSuffix_DefaultsOn_AndFalseSelectsExplicitCasts()
+    {
+        Assert.True(RenderStyleConfig.Parse("", origin: null).Options.PreferLongLiteralSuffix);
+
+        var explicitCasts = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_long_literal_suffix = false",
+            origin: "cfg");
+        Assert.False(explicitCasts.Options.PreferLongLiteralSuffix);
+        Assert.Empty(explicitCasts.Warnings);
+
+        var suffixes = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_long_literal_suffix = true:suggestion",
+            origin: "cfg");
+        Assert.True(suffixes.Options.PreferLongLiteralSuffix);
+        Assert.Empty(suffixes.Warnings);
     }
 
     [Fact]
