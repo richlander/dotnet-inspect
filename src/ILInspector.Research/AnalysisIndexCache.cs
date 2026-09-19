@@ -31,6 +31,15 @@ sealed class AnalysisIndexCache
         string path,
         ResearchFactRequirements requirements,
         int methodToken)
+        => ForPathExecution(
+            path,
+            requirements,
+            methodToken).CompatibilityIndex();
+
+    public LibraryBodyAnalysisExecution ForPathExecution(
+        string path,
+        ResearchFactRequirements requirements,
+        int methodToken)
     {
         var fullPath = Path.GetFullPath(path);
         lock (_indexLock)
@@ -53,7 +62,8 @@ sealed class AnalysisIndexCache
                     StringComparer.Ordinal.Equals(
                         candidate.Path,
                         fullPath)
-                    && (candidate.Index.Features & requirements.Features)
+                    && (candidate.Execution.Receipt.Features
+                            & requirements.Features)
                         == requirements.Features
                     && (candidate.MethodToken is null
                         || (requirements.Scope
@@ -66,7 +76,7 @@ sealed class AnalysisIndexCache
             if (cached is not null
                 && ownerFingerprint == cached.Fingerprint)
             {
-                return cached.Index;
+                return cached.Execution;
             }
 
             if (_pathIndexes.Count >= MaxCachedIndexes)
@@ -89,10 +99,12 @@ sealed class AnalysisIndexCache
             // produce a hit that looks verified but isn't.
             bool hadFingerprintBeforeOpen =
                 TryGetFingerprint(fullPath, out var fingerprintBeforeOpen);
-            LibraryBodyIndex index = LibraryBodyIndex.Open(
+            LibraryBodyAnalysisExecution execution =
+                LibraryBodyAnalysisService.ExecutePath(
                 fullPath,
-                requirements.Features,
-                bodyScope: bodyScope);
+                LibraryBodyAnalysisRequest.Create(
+                    requirements.Features,
+                    bodyScope));
             bool hadFingerprintAfterOpen =
                 TryGetFingerprint(fullPath, out var fingerprintAfterOpen);
             bool openWasStable =
@@ -117,9 +129,9 @@ sealed class AnalysisIndexCache
                 new PathCachedIndex(
                     fullPath,
                     scopedToken,
-                    index,
+                    execution,
                     fingerprintAfterOpen));
-            return index;
+            return execution;
         }
     }
 
@@ -265,7 +277,7 @@ sealed class AnalysisIndexCache
     sealed record PathCachedIndex(
         string Path,
         int? MethodToken,
-        LibraryBodyIndex Index,
+        LibraryBodyAnalysisExecution Execution,
         PathFingerprint Fingerprint);
 
     /// <summary>
