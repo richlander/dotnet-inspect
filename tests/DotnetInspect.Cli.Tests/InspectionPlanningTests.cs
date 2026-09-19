@@ -306,6 +306,153 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public async Task PackageAllLibraries_JsonSchemaMatchesSingularAndPooledRows()
+    {
+        string archive = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+        var referencesSchema = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "-D",
+            SectionNames.References,
+            "--schema",
+            "--json",
+            "--tips",
+            "q");
+        var references = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "-S",
+            SectionNames.References,
+            "--rows",
+            "1",
+            "--json",
+            "--tips",
+            "q");
+        var switchesSchema = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "-D",
+            SectionNames.Switches,
+            "--schema",
+            "--json",
+            "--tips",
+            "q");
+        var switches = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "--tfm",
+            "all",
+            "-S",
+            SectionNames.Switches,
+            "--rows",
+            "1",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, referencesSchema.Exit);
+        Assert.Equal(0, references.Exit);
+        Assert.Equal(0, switchesSchema.Exit);
+        Assert.Equal(0, switches.Exit);
+        Assert.Equal(
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Name",
+                "Version",
+                "Public Key Token",
+            ],
+            DiscoveryNames(referencesSchema.Output));
+        Assert.Equal(
+            [
+                "package",
+                "package_version",
+                "library",
+                "tfm",
+                "name",
+                "version",
+                "public_key_token",
+            ],
+            FirstRowProperties(
+                references.Output,
+                SectionNames.References));
+        Assert.Equal(
+            [
+                "Package",
+                "Package Version",
+                "Library",
+                "TFM",
+                "Kind",
+                "Switch",
+                "API",
+            ],
+            DiscoveryNames(switchesSchema.Output));
+        Assert.Equal(
+            [
+                "package",
+                "package_version",
+                "library",
+                "tfm",
+                "kind",
+                "switch",
+                "api",
+            ],
+            FirstRowProperties(
+                switches.Output,
+                SectionNames.Switches));
+        Assert.Empty(referencesSchema.Error);
+        Assert.Empty(references.Error);
+        Assert.Empty(switchesSchema.Error);
+        Assert.Empty(switches.Error);
+
+        static string[] DiscoveryNames(string output)
+        {
+            using var document =
+                System.Text.Json.JsonDocument.Parse(output);
+            return
+            [
+                .. document.RootElement
+                    .EnumerateArray()
+                    .Select(item =>
+                        item.GetProperty("name").GetString()!),
+            ];
+        }
+
+        static string[] FirstRowProperties(
+            string output,
+            string sectionName)
+        {
+            using var document =
+                System.Text.Json.JsonDocument.Parse(output);
+            var section = Assert.Single(
+                document.RootElement
+                    .GetProperty("sections")
+                    .EnumerateArray(),
+                candidate =>
+                    candidate.GetProperty("name").GetString()
+                    == sectionName);
+            var row = section
+                .GetProperty("rows")[0];
+            return
+            [
+                .. row.EnumerateObject()
+                    .Select(property => property.Name),
+            ];
+        }
+    }
+
+    [Fact]
     public void PackageLibrarySchema_IsDerivedFromAvailableRouteInputs()
     {
         StructuralSchemaProjection packageLibrary =

@@ -94,16 +94,16 @@ public partial class PackageCommand
                 : StructuralViewRegistry.Route(
                     StructuralViewIdentity.PackageSingleLibrary,
                     InspectionCatalogIdentity.Library);
+            StructuralDiscoveryRequest request =
+                StructuralDiscoveryRequest.From(options);
             StructuralOutputShape shape = options.AllLibraries
-                ? options.Count
-                    ? StructuralOutputShape.Count
-                    : options.TabularExplicitlySet
-                        ? StructuralOutputShape.Rows
-                        : StructuralOutputShape.Document
+                ? PackageAllLibrariesStructuralOutputShape(
+                    options.Count,
+                    request.Format)
                 : StructuralOutputShape.Document;
             return StructuralViewRegistry.Execute(
                 route,
-                StructuralDiscoveryRequest.From(options),
+                request,
                 shape);
         }
 

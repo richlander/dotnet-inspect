@@ -105,6 +105,19 @@ public partial class PackageCommand
         return schema;
     }
 
+    internal static StructuralOutputShape
+        PackageAllLibrariesStructuralOutputShape(
+            bool count,
+            OutputFormat format)
+        => count
+            ? StructuralOutputShape.Count
+            : format is OutputFormat.Table
+                or OutputFormat.Tsv
+                or OutputFormat.Jsonl
+                or OutputFormat.Json
+                    ? StructuralOutputShape.Rows
+                    : StructuralOutputShape.Document;
+
     private static bool ValidatePackageProjection(
         InspectionOptions options,
         int packageCount,

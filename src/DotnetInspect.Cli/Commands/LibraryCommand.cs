@@ -213,14 +213,6 @@ public partial class LibraryCommand
 
         DocumentSchema librarySchema =
             CreateStructuralSchema();
-        DocumentSchema columnSchema = aggregatePackageSelection
-            ? PackageCommand.PackageAllLibrariesDiscoverySchema(
-                options.Count
-                    ? StructuralOutputShape.Count
-                    : options.TabularExplicitlySet
-                        ? StructuralOutputShape.Rows
-                        : StructuralOutputShape.Document)
-            : librarySchema;
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -271,19 +263,23 @@ public partial class LibraryCommand
                     ? StructuralViewIdentity.DirectLibrary
                     : StructuralViewIdentity.LibraryCoordinate,
                 InspectionCatalogIdentity.Library);
+        StructuralDiscoveryRequest structuralRequest =
+            StructuralDiscoveryRequest.From(options);
         StructuralOutputShape structuralOutputShape =
             aggregatePackageSelection
-                ? options.Count
-                    ? StructuralOutputShape.Count
-                    : options.TabularExplicitlySet
-                        ? StructuralOutputShape.Rows
-                        : StructuralOutputShape.Document
+                ? PackageCommand.PackageAllLibrariesStructuralOutputShape(
+                    options.Count,
+                    structuralRequest.Format)
                 : StructuralOutputShape.Document;
+        DocumentSchema columnSchema = aggregatePackageSelection
+            ? PackageCommand.PackageAllLibrariesDiscoverySchema(
+                structuralOutputShape)
+            : librarySchema;
         if (options.Discover is not null && options.Schema)
         {
             return StructuralViewRegistry.Execute(
                 structuralRoute,
-                StructuralDiscoveryRequest.From(options),
+                structuralRequest,
                 structuralOutputShape);
         }
 
