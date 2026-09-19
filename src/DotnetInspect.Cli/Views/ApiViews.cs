@@ -1937,7 +1937,7 @@ public record ImplementationProfileRow(
     public int SwitchTargets { get; init; } = SwitchTargets;
 
     [MarkoutPropertyName("Normal-Flow Cyclomatic Complexity")]
-    public int NormalFlowCyclomaticComplexity { get; init; } =
+    public int NormalFlowComplexity { get; init; } =
         NormalFlowComplexity;
 
     public int Loops { get; init; } = Loops;

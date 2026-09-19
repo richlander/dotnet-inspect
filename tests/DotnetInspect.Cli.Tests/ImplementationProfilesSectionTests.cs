@@ -335,7 +335,7 @@ public class ImplementationProfilesSectionTests
             "conditional_branches",
             "switches",
             "switch_targets",
-            "normal_flow_cyclomatic_complexity",
+            "normal_flow_complexity",
             "catch_regions",
             "filter_regions",
             "finally_regions",
@@ -356,7 +356,7 @@ public class ImplementationProfilesSectionTests
                 - int.Parse(root.GetProperty("switches").GetString()!)
                 + int.Parse(root.GetProperty("switch_targets").GetString()!),
             int.Parse(
-                root.GetProperty("normal_flow_cyclomatic_complexity").GetString()!));
+                root.GetProperty("normal_flow_complexity").GetString()!));
 
         string relationships =
             root.GetProperty("overload_relationships")
