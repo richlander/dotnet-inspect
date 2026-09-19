@@ -113,7 +113,6 @@ public partial record ApiOptions : IProjectionOptions
     /// When false, the command decides the default based on context.
     /// </summary>
     public bool DocsExplicitlySet { get; init; }
-    public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool PreferRenderedUrls { get; init; }
 

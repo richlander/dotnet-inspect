@@ -34,8 +34,10 @@ separately owned portable terminal outcome as the source-generated JSON
 contract. Inspect Web package and platform member documentation now consume
 those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
-CLI platform adoption, the source adapter, the authored channel, field
-settlement, and remaining legacy retirement remain staged.
+The CLI now composes package, direct-Library, and platform reference-pack
+compiled documentation through the same House-backed Queries paths. The source
+adapter, authored channel, field settlement, and remaining legacy retirement
+remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -172,13 +174,19 @@ No adjacent owner should decide the product result:
 - hosts choose authorization and presentation but should not reproduce
   companion selection, channel interpretation, or conflict handling.
 
-The CLI package and direct-Library paths and the Inspect Web package and
-platform-member paths compose compiled documentation through
-DocumentationHouse. The remaining CLI `SourceEnricher` path combines platform
-reference-pack XML selection, source acquisition, comment search, parsing,
-field merging, and warnings; platform reference-pack documentation remains on
-that previous CLI host path until slice 12. DocumentationHouse replaces it
-with one source-neutral product boundary.
+The CLI package, direct-Library, and platform paths and the Inspect Web package
+and platform-member paths compose compiled documentation through
+DocumentationHouse. The CLI runtime and ASP.NET Core paths realize the exact
+installed reference Library through PlatformHouse before issuing the shared
+platform query. The CLI queries the IDs represented by that exact reference
+surface and leaves implementation-only members undocumented rather than
+failing otherwise valid reference subjects. The netstandard path, for which
+PlatformHouse defines no family, uses the same direct-Library
+DocumentationHouse composition as other local assemblies, with a bounded
+32-MiB allowance for its monolithic XML companion. The remaining CLI
+`SourceEnricher` path retains PDB and authored-source acquisition, comment
+search, parsing, field merging, and warnings until the authored channel
+transfers those responsibilities in slice 21.
 
 ## Relationship to adjacent owners
 
@@ -937,7 +945,8 @@ assembly and XML companion in the .NET 11 reference pack.
 10. **Completed.** Remove PlatformHouse's superseded documentation contracts;
 11. **Completed.** Adopt platform reference-pack compiled documentation in
     Inspect Web;
-12. adopt platform reference-pack compiled documentation in the CLI;
+12. **Completed.** Adopt platform reference-pack compiled documentation in the
+    CLI;
 13. lock the focused SourceHouse physical-declaration correspondence contract
     under #6584;
 14. implement one production SourceHouse path that issues that trusted

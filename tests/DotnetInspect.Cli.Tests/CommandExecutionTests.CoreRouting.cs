@@ -310,7 +310,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("System.Collections.Generic.List<T>.Add")]
     [InlineData("List<T>.Add")]
-    public async Task Router_GenericPlatformMember_PreservesContractDocumentation(
+    public async Task Router_GenericPlatformMember_UsesPlatformHouseDocumentation(
         string target)
     {
         var (exit, output, error) = await RunAppAsync(

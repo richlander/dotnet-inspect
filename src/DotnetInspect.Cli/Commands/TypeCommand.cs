@@ -90,7 +90,6 @@ public static class TypeCommand
             Verbose = options.Verbose,
             ShowDocs = options.DocsExplicitlySet && options.ShowDocs,
             DocsExplicitlySet = options.DocsExplicitlySet,
-            UseLocalDocs = options.UseLocalDocs,
             ShowSamples = options.ShowSamples,
             PreferRenderedUrls = options.PreferRenderedUrls,
             Verbosity = options.Verbosity,
@@ -551,11 +550,7 @@ public static class TypeCommand
                         await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                             apiType,
                             sourceFilesDllPath,
-                            effectiveOptions with
-                            {
-                                ShowDocs = false,
-                                UseLocalDocs = false,
-                            },
+                            effectiveOptions with { ShowDocs = false },
                             logger,
                             context.HttpClient,
                             sourceAssembly,
