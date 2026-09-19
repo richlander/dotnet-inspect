@@ -406,8 +406,11 @@ substrates, and inspection producers that will extend that space.
   not reference it. The proposed
   [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md)
   owner separately defines a product-authored Package and assembly association
-  profile and classification of already-issued direct-dependency observations
-  without traversal, provenance inference, or reinterpretation of discovery
+  profile, classification of already-issued direct-dependency observations,
+  Package/Library recognition Documents, and the application-owned composition
+  that pairs exact lower Dependency inspection Content with recognition
+  evidence while preserving the existing dependency direction. Recognition
+  performs no traversal, provenance inference, or reinterpretation of discovery
   metadata.
   The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)

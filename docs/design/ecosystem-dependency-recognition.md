@@ -9,6 +9,25 @@ The owner defines one product-relative interpretation over already-issued
 direct dependency observations. Package and Library extraction, CLI sections,
 and Browser presentation remain separate adoption efforts.
 
+## Approved composition scope
+
+The operator approved a broad-design exception for this document to specify the
+required composition between the recognition result and three existing CLI
+owners: Package inspection, Library inspection, and dependency inspection. The
+approved scope is limited to:
+
+- complete route-owned envelope transport of recognition evidence;
+- compact Package and Library Info rollups;
+- pair-grain recognition evidence under existing section and column
+  disclosure; and
+- a dependency-inspection query and projection over recognized direct
+  dependencies.
+
+The exception does not transfer command grammar, section-schema construction,
+row-query resolution, rendering, or dependency traversal into the recognition
+owner. Those owners adopt the recognition result in separate implementation
+slices.
+
 ## Owner and exact claim
 
 The **Ecosystem Dependency Recognition** owner in
@@ -22,6 +41,8 @@ The **Ecosystem Dependency Recognition** owner in
 - one owner-issued Package or Library semantic subject for every batch;
 - typed availability for every required Package or Library input component;
 - many-to-many recognition evidence, including every matching association;
+- one resource-free classification value reusable as a named part of an
+  owner-issued inspection Document;
 - explicit complete, incomplete, and unavailable outcomes;
 - deterministic product, observation, and recognition ordering;
 - recognized, unrecognized, candidate, and association counts;
@@ -32,12 +53,13 @@ The **Ecosystem Dependency Recognition** owner in
 Its exact claim is:
 
 > Given one validated resource-free product recognition profile and one
-> owner-issued subject-bound direct-dependency observation batch, recognize
-> every shipped ecosystem whose authored association matches each observation,
-> preserve the subject and applicable target selection, observation,
-> declaration source, matching basis, overlap, non-match, and input completion
-> in one detached product-relative Document without traversing dependencies or
-> inferring Package-to-assembly provenance.
+> ordered owner-issued direct-dependency observation population, recognize
+> every shipped ecosystem whose authored association matches each observation
+> and preserve observation, declaring source, matching basis, overlap, and
+> non-match in one reusable classification. For one Package or Library
+> subject-bound batch, also preserve the semantic subject, applicable target
+> selection, and input completion in one detached product-relative Document,
+> without traversing dependencies or inferring Package-to-assembly provenance.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -64,9 +86,21 @@ Microsoft.Extensions Package  Microsoft.Extensions.DependencyInjection  package 
 Microsoft.Extensions Assembly Microsoft.Extensions.Options              Microsoft.Extensions.Http
 ```
 
+Dependency inspection can select the same pair-grain evidence:
+
+```console
+dotnet-inspect depends --package Microsoft.Extensions.Http@10.0.0 \
+  -S "Ecosystem Dependencies" \
+  --where "Ecosystem=ecosystem.microsoft-extensions"
+```
+
+An unprojected Package or Library envelope retains the complete recognition
+Document. Dependency inspection composes its complete owner-issued Content and
+the same classification evidence into one application-owned Document.
+
 These are consumer mockups, not section schemas owned by this design. Package
-Info, Library Info, section placement, labels, and host rendering remain with
-their existing owners.
+Info, Library Info, dependency-section registration, exact query spelling,
+column labels, and host rendering remain with their existing owners.
 
 ## Supporting owners
 
@@ -84,6 +118,11 @@ This owner consumes, but does not redefine:
 - [Multi-part inspection documents](multi-part-inspection-documents.md) for one
   authoritative content value with independently useful summary, recognition,
   non-match, coverage, and failure parts;
+- [Dependency inspection command](dependency-inspection-command.md) for the
+  direct-declaration row set, traversal boundary, and sectioned dependency
+  Document;
+- [Row query and ordering](row-query-order.md) for typed ecosystem-key
+  predicate resolution over recognition rows;
 - [Progressive disclosure](progressive-disclosure.md), [Output
   Shapes](output-shapes.md), and [Style Guide](style-guide.md) for later CLI
   section adoption; and
@@ -96,7 +135,7 @@ application catalog.
 
 ## Boundary
 
-The operation starts after dependency facts have been selected and decoded:
+Classification starts after dependency facts have been selected and decoded:
 
 ```text
 Package or Library owner
@@ -104,12 +143,27 @@ Package or Library owner
   -> ordered direct-dependency observation batch
   -> completion and owner-issued diagnostics
 
+Dependency inspection owner
+  -> ordered owner-issued direct observations
+  -> root and phase completion
+
 Product ecosystem catalog
   -> immutable recognition profile
 
-Ecosystem Dependency Recognition
+Ecosystem Dependency Classifier
+  -> reusable classification part
+
+Package or Library composition
   -> complete, incomplete, or unavailable recognition outcome
   -> InspectionEnvelope
+
+Dependency inspection composition
+  -> DependencyInspectionContent
+  + classification part and coverage
+  -> DependencyEcosystemRecognitionDocument
+  -> InspectionEnvelope<DependencyEcosystemRecognitionDocument>
+
+Host
   -> CLI or managed inspect-web facade
 ```
 
@@ -117,6 +171,10 @@ The owner performs no network, filesystem, PackageHouse, PlatformHouse,
 Workspace, metadata decoding, dependency traversal, package resolution, or
 assembly loading. Its cost is bounded by the supplied observations and profile
 associations.
+
+The application composition consumes lower
+`DotnetInspector.Sections` Content through the existing application-to-lower
+dependency direction. It does not require changing the lower Content contract.
 
 The operation is stateless and single-shot. It has no concurrency, scheduling,
 or resource-lifetime transition that benefits from a TLA+ model.
@@ -322,14 +380,25 @@ The closed observation kinds are:
 ```text
 Package declaration
   - observation identity
-  - DeclaredPackageDependency
-  - declaring Package coordinate or manifest subject
+  - complete normalized Package dependency identity
+  - declaring source:
+      Package inspection:
+        DeclaredPackageDependency
+        declaring Package coordinate or manifest subject
+      Dependency inspection:
+        DependencyRootOccurrenceIdentity
+        owner-issued declaration identity
   - source order
 
 Assembly reference
   - observation identity
   - AssemblyReferenceIdentity
-  - declaring Library identity
+  - declaring source:
+      Library inspection:
+        declaring Library identity
+      Dependency inspection:
+        DependencyRootOccurrenceIdentity
+        owner-issued direct-relationship identity
   - source order
 ```
 
@@ -345,6 +414,13 @@ The caller supplies direct observations only. The recognition owner does not
 walk Package dependencies, resolve assembly references, acquire candidate
 Packages, or decide whether an observation is direct.
 
+The classifier consumes one validated profile and one ordered direct-observation
+population and returns `EcosystemDependencyClassification`. It does not decide
+whether that population is complete. Package and Library recognition combine
+the classification with their batch completion and issues. Dependency
+inspection combines it with its root and phase completion in
+an application-owned composition Document.
+
 The inspected Package or Library is retained as the semantic subject but is not
 classified from its own name. It may appear in a recognition or unrecognized
 observation population only if an owner-issued dependency observation names
@@ -352,7 +428,8 @@ it.
 
 ## Observation batch and completion
 
-One input batch has one of three states:
+The completed Package and Library operation accepts one input batch with one of
+three states:
 
 ```text
 Available
@@ -415,30 +492,41 @@ that partial evidence. `Unavailable` contains no recognition Document.
 It still validates that every unavailable or not-attempted input component
 refers to one of its contained input issues.
 
-One `EcosystemDependencyRecognitionDocument` contains:
+One `EcosystemDependencyClassification` contains:
 
-- the exact Package or Library semantic subject and typed input context;
 - a summary with the ordered product ecosystem candidate count, Package and
   assembly association counts, total, recognized, and unrecognized observation
   counts, distinct recognized ecosystem count, and
   observation-to-ecosystem recognition count;
 - distinct recognized ecosystem descriptors in product order;
 - recognized observation entries;
-- unrecognized observations in source order;
+- unrecognized observations in source order.
+
+One `EcosystemDependencyRecognitionDocument` contains:
+
+- the exact Package or Library semantic subject and typed input context;
+- one `EcosystemDependencyClassification`;
 - complete or incomplete coverage; and
 - input issues when coverage is incomplete.
 
-These are correlated semantic parts of one Document. A compact rollup, detailed
+The classification is a named resource-free semantic part, not a second host
+result or envelope. It lets an application composition retain the exact
+profile-relative observations, pairs, non-matches, descriptors, and counts
+beside another owner-issued Content value without copying the matching
+algorithm or reconstructing recognition from display text.
+
+The recognition Document's parts remain correlated. A compact rollup, detailed
 recognition rows, non-match disclosure, and coverage/failure disclosure are
 section projections over that Document, not independently constructed host
 models.
 
-The Document validates that its observations belong to its semantic subject
-and available input components, every unavailable or not-attempted component
-refers to a contained input issue, every recognition refers to one contained
+The classification validates that every recognition refers to one contained
 observation and one contained ecosystem descriptor, no observation appears in
 both the recognized and unrecognized populations, and every summary count
-equals its source populations. A complete Document has no unavailable or
+equals its source populations. The Document additionally validates that the
+classification's observations belong to its semantic subject and available
+input components and that every unavailable or not-attempted component refers
+to a contained input issue. A complete Document has no unavailable or
 not-attempted required component. Observation and input-issue identities are
 document-local joins, not portable subject identities.
 
@@ -479,6 +567,121 @@ Consumers may omit a compact Info field when the distinct recognized ecosystem
 list is empty. That omission must not be described as proof that the subject
 has no external ecosystem dependencies.
 
+## Required consumer projections
+
+Package and Library consumers project the same owner-issued recognition
+outcome. Dependency inspection uses one
+`DependencyEcosystemRecognitionDocument` that contains its exact owner-issued
+`DependencyInspectionContent`, the same recognition-owner-issued
+classification part, and recognition coverage. No host reruns matching,
+infers ecosystem identity from dependency text, or rebuilds pair evidence from
+the compact rollup.
+
+### Complete envelope
+
+Unprojected Package or Library envelope output contains the complete recognition
+outcome. An available or incomplete Document retains every recognized
+observation/ecosystem pair, every unrecognized observation, semantic subject,
+typed input context, summary count, coverage value, and input issue.
+
+Dependency inspection first settles its ordinary
+`InspectionEnvelope<DependencyInspectionContent>`. The application composition
+preserves that exact Content, Share, and diagnostics while constructing:
+
+```text
+DependencyEcosystemRecognitionDocument
+  - DependencyInspectionContent
+  - EcosystemDependencyClassification
+  - ecosystem-recognition coverage
+```
+
+The completed ecosystem-aware route returns
+`InspectionEnvelope<DependencyEcosystemRecognitionDocument>`. It does not
+mutate the lower Dependency Content, replace it with several recognition
+envelopes, or attach recognition as a second envelope payload.
+
+Selecting the ecosystem pair section, an ecosystem row predicate, or complete
+envelope output requests the direct Package-declaration and direct
+assembly-reference producers needed by classification. It does not authorize
+transitive traversal. Other dependency-inspection requests retain their
+existing plan and result.
+
+Section and column projection shape presentation. Row predicates select the
+ordinary pair view through the dependency owner's typed row-query path. None
+is silently applied after completion to narrow or reconstruct envelope Content.
+A CLI route whose ordinary shaping or row-selection options cannot coexist
+with complete envelope transport rejects the combination rather than
+serializing a success-shaped partial Document.
+
+### Package and Library Info rollup
+
+Package Info and Library Info project the ordered distinct recognized ecosystem
+population as one compact list, analogous to the Package target-framework
+list. The rollup preserves product order and emits each ecosystem once even
+when several observations or matching bases recognize it.
+
+A complete result with no recognized ecosystem may omit the row. An incomplete
+result must not render an unqualified list that looks complete; the consuming
+owner either discloses partial coverage with the rollup or omits the rollup and
+surfaces the recognition failure.
+
+### Pair-grain evidence
+
+The detailed recognition population has one row per
+observation/ecosystem pair. Its compact columns identify:
+
+- the recognized ecosystem;
+- whether the observation is a Package declaration or assembly reference;
+- the complete dependency identity; and
+- the declaring source.
+
+The owning CLI section exposes matching bases, version/range evidence, source
+occurrence, selected target/group context, and other retained fields through
+its section schema and explicit column projection. It does not add a
+`--details` flag: existing verbosity, section selection, discovery, and column
+projection remain the disclosure axes.
+
+An observation recognized by two ecosystems produces two pair rows. Several
+matching associations from one ecosystem still produce one pair row whose
+evidence retains every matching basis.
+
+### Dependency inspection selection
+
+Dependency inspection forms recognition observations only from owner-issued
+direct evidence:
+
+- normalized Package declarations retain their
+  `DependencyRootOccurrenceIdentity` and owner-issued declaration identity; and
+- a direct assembly relationship retains the exact root occurrence and
+  owner-issued assembly-reference identity.
+
+It does not classify transitive hierarchy nodes, resolved neighbors, or an edge
+merely because traversal discovered it. A relationship is eligible only when
+the dependency owner identifies it as a direct declaration/reference of the
+explicit root occurrence.
+
+One multi-root composition Document retains one ordered classification part
+over all eligible direct observations. Observation identity includes the exact
+root occurrence, so repeated equal dependency names from different roots
+remain distinct. Its recognition coverage corresponds to the retained
+Dependency Content's root and phase completion; a failed or unavailable root
+cannot become an empty successful recognition population.
+
+Construction validates that every observation joins to one retained direct
+declaration/reference, every trustworthy eligible direct observation appears
+in either the recognized or unrecognized population, and no traversal-only
+relationship enters classification.
+
+Its recognition-row vocabulary exposes a typed ecosystem key bound to
+`EcosystemPackId`. Selecting one ecosystem retains each matching pair in
+Document order and includes ecosystem identity in the projected row. Predicate
+evaluation reads the typed recognition entry; it does not parse a rendered
+ecosystem title or rematch the dependency name.
+
+The existing Package Query `depends-ecosystem` predicate remains a distinct
+catalog package-set/package-prefix question. Dependency inspection recognition
+must not silently substitute either predicate's meaning for the other.
+
 ## Completed host handoff
 
 The completed application operation returns:
@@ -486,6 +689,19 @@ The completed application operation returns:
 ```text
 InspectionEnvelope<EcosystemDependencyRecognitionOutcome>
 ```
+
+This completed operation is the Package and Library handoff. The reusable
+classification value is not a standalone host response. The dependency
+application composition instead returns:
+
+```text
+InspectionEnvelope<DependencyEcosystemRecognitionDocument>
+```
+
+The composition retains the exact lower Content as a Document part and
+propagates the lower envelope's Share and diagnostics into the new envelope.
+Classification and recognition coverage are the other parts of the one
+authoritative Content value.
 
 The Package or Library composition supplies the `InspectionShare` outcome for
 the exact semantic subject plan. Recognition validates that this plan
@@ -497,7 +713,8 @@ cross-host diagnostics may also appear in the envelope, but diagnostics alone
 must not turn an incomplete or unavailable content outcome into a complete
 one.
 
-The Document is detached and resource-free before it crosses to either host.
+Both completed Documents are detached and resource-free before they cross to a
+host.
 
 ## Real-package evidence
 
@@ -545,9 +762,11 @@ classification remains inspectable rather than replacing dependency evidence.
 The recognition Document is structured data, not formatted text.
 
 - CLI adoption uses the normal Markout path for an ecosystem rollup and detail
-  rows.
-- The managed inspect-web facade consumes the same envelope and projects a
-  portable payload.
+  rows. Package and Library project the compact distinct-ecosystem population;
+  dependency inspection projects and filters pair-grain direct-dependency
+  evidence through its existing section and row-query paths.
+- The managed inspect-web facade consumes the same Package/Library recognition
+  envelope and projects a portable payload.
 - TypeScript owns Browser gestures and DOM presentation but does not implement
   Package or assembly association matching.
 
@@ -557,18 +776,22 @@ same typed recognition Document, not a second classifier.
 ## Production adoption plan
 
 [#7818](https://github.com/richlander/dotnet-inspect/issues/7818) is the
-end-to-end tracker. The current plan has seven steps:
+end-to-end tracker. The current plan has eight steps:
 
 1. Lock this focused recognition contract.
 2. Implement the product profile, recognition operation, envelope, and
-   contract tests in `DotnetInspector.Ecosystems`.
+   reusable classification part with contract tests in
+   `DotnetInspector.Ecosystems`.
 3. Adopt Package direct-dependency observations and CLI Package Info/detail
    presentation.
 4. Adopt Library direct-reference observations and CLI Library Info/detail
    presentation.
-5. Expose the same envelope through the managed inspect-web facade.
-6. Adopt the result in the Browser Package surface.
-7. Adopt the result in the Browser Library surface.
+5. Adopt pair-grain recognition and typed ecosystem selection in CLI
+   dependency inspection, including complete envelope composition.
+6. Expose the Package/Library recognition envelope through the managed
+   inspect-web facade.
+7. Adopt the result in the Browser Package surface.
+8. Adopt the result in the Browser Library surface.
 
 Each adoption remains a focused owner change. This design does not define
 Package target-framework selection, selected compile-Library construction,
@@ -579,6 +802,8 @@ Library query orchestration, section registration, or Browser interaction.
 The implementation must name Release gates for:
 
 - profile validation and snapshot immutability;
+- equal profile and observation inputs producing equal classification parts
+  across Package, Library, and dependency-inspection adopters;
 - exact versus dot-segment family matching in both identity domains;
 - case behavior inherited from each identity domain;
 - one observation matching zero, one, and several ecosystems;
@@ -602,6 +827,24 @@ The implementation must name Release gates for:
 - recognized, unrecognized, candidate, and association counts;
 - complete-empty, complete-unrecognized, incomplete, and unavailable outcomes;
 - envelope content, Share, and diagnostic preservation;
+- complete envelope transport retaining all recognition pairs, non-matches,
+  context, coverage, counts, and failures independently from presentation
+  shaping;
+- Package and Library Info rollups deduplicating ecosystems in product order
+  while refusing success-shaped incomplete disclosure;
+- pair-grain rows preserving overlap without duplicating several bases from the
+  same ecosystem;
+- dependency inspection preserving multi-root occurrence and declaration or
+  assembly-reference joins inside the application composition Document;
+- dependency composition preserving the exact lower
+  `DependencyInspectionContent`, Share, and diagnostics without a generic
+  auxiliary payload;
+- dependency ecosystem section, predicate, and envelope gestures requesting
+  complete direct evidence without authorizing transitive traversal;
+- dependency inspection filtering pair rows through typed
+  `EcosystemPackId` identity without classifying traversal-only nodes;
+- dependency recognition remaining distinct from Package Query's
+  `depends-ecosystem` package-set/package-prefix predicate;
 - the `Microsoft.Extensions.AI.Abstractions` overlap case;
 - the `Microsoft.Extensions.AIBogus` family-boundary near miss;
 - unrecognized neighbors beside recognized observations; and
@@ -621,9 +864,12 @@ This owner does not claim:
 - ecosystem membership of the inspected subject;
 - Package-to-assembly or assembly-to-Package provenance;
 - Package acquisition, version resolution, or dependency traversal;
+- ecosystem classification of transitive dependency-inspection nodes or edges
+  without owner-issued direct-dependency evidence;
 - assembly binding, reference resolution, or platform compatibility;
 - Integration detection or application-wiring capability;
 - source ownership, publisher identity, support policy, security, or trust;
 - namespace-to-assembly identity;
-- section names, default disclosure, Info-field placement, or rendering; or
+- exact section names, CLI query spelling, final column labels or order, or
+  Browser visual layout; or
 - that an unrecognized dependency has no ecosystem.
