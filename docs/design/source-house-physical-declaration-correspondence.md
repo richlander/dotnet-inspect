@@ -54,7 +54,6 @@ Correspond(
     exact source bytes)
   -> Exact
    | Unavailable
-   | Ambiguous
    | Conflict
    | Rejected
    | Failed
@@ -275,9 +274,8 @@ The closed outcome family is:
 - **Exact** — every required association validates and every accepted
   contribution names the same one target, source content, and raw declaration;
 - **Unavailable** — no authorized applicable evidence exists, the target is
-  outside the supported profile, or no attestation row names it;
-- **Ambiguous** — one accepted evidence set names more than one eligible raw
-  declaration and cannot establish one;
+  outside the supported profile, its compiler documentation identity is not
+  unique, or no accepted attestation row names it;
 - **Conflict** — independently accepted contributions disagree about the
   module target, source content, span, or declaration kind; the result retains
   bounded descriptors for every conflicting contribution;
@@ -295,7 +293,7 @@ Caller cancellation remains cancellation. It does not become `Unavailable` or
 Equal corroborating contributions may yield `Exact`; they do not multiply the
 declaration. Their bounded issuer and generation evidence is retained.
 SourceHouse never selects the first declaration, first metadata row, first
-attestor, or highest-precedence text after ambiguity or conflict exists.
+attestor, or highest-precedence text when evidence is non-unique or conflicts.
 
 `Unavailable` does not weaken an otherwise available authored-source result.
 It means only that the result cannot yet authorize exact
@@ -350,7 +348,7 @@ The host-authorized correspondence plan bounds:
 - module bytes inspected;
 - source bytes and decoded characters;
 - target candidates and corroborating rows;
-- retained ambiguity and conflict descriptors;
+- retained conflict descriptors;
 - declaration span length; and
 - an absolute deadline.
 
@@ -407,7 +405,7 @@ binds those bytes to the target's raw declaring syntax, so correspondence is
 Two overloads share a name and move within one source file. Each attestation row
 binds a compiler identity and exact final Metadata address to a raw syntax span.
 Row order, source order, and method name are irrelevant. A compiler-ID collision
-is ambiguous rather than resolved by position.
+is `Unavailable` rather than resolved by position.
 
 ### Partial and synthesized declarations stay non-exact
 
@@ -469,8 +467,7 @@ The implementation must provide Release gates for:
   generations requiring new correspondence;
 - a post-emit transform preserving one unique compiler documentation ID
   remaining non-exact without separately authorized target-lineage evidence;
-- ambiguity and conflict retaining bounded evidence without first-candidate
-  selection;
+- conflict retaining bounded evidence without first-candidate selection;
 - malformed attestation, malformed Metadata, invalid source encoding,
   out-of-bounds spans, finite-work exhaustion, and cancellation remaining
   visible; and
