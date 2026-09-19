@@ -213,7 +213,9 @@ public static class ImplementationComplexityService
                 oldProfile?.IsComplete ?? false,
                 newProfile?.IsComplete ?? false,
                 oldEntry?.Profile.EvidenceMethod,
-                newEntry?.Profile.EvidenceMethod));
+                newEntry?.Profile.EvidenceMethod,
+                oldProfile,
+                newProfile));
         }
 
         return changes;

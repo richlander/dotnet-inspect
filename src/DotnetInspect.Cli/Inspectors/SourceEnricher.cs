@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using System.Xml;
 using CSharpText;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
@@ -79,11 +78,6 @@ internal static class SourceEnricher
         string? fallbackPackageVersion = null)
     {
         string typeName = apiType.FullName;
-        if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
-        {
-            EnrichFromXmlDocFile(apiType, typeName, options, logger);
-            return;
-        }
 
         try
         {
@@ -129,13 +123,6 @@ internal static class SourceEnricher
 
             if (!context.HasPdb)
             {
-                if (!string.IsNullOrEmpty(options.PlatformAssembly) && options.ShowDocs)
-                {
-                    logger.Log("No PDB available, falling back to XML documentation from packs directory");
-                    EnrichFromXmlDocFile(apiType, typeName, options, logger);
-                    return;
-                }
-
                 CommandError.WriteBlankLine();
                 if (context.WindowsPdbDetected)
                 {
@@ -408,150 +395,6 @@ internal static class SourceEnricher
             SourceResolver.ResolveSourceKeysForProbe(
                 options.SourceOptions,
                 packageName));
-
-    /// <summary>
-    /// Enriches multiple types from a single XML doc file (loaded once).
-    /// </summary>
-    internal static void EnrichTypesFromXmlDoc(
-        IEnumerable<ApiType> types,
-        ApiOptions options,
-        VerboseLogger logger)
-    {
-        if (string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            logger.Log("XML doc fallback only available for platform libraries");
-            return;
-        }
-
-        var (refPath, version, error) = PlatformResolver.ResolveFramework(
-            options.PlatformFramework ?? "runtime");
-
-        if (error != null || refPath == null)
-        {
-            logger.Log($"Could not resolve framework for XML docs: {error}");
-            return;
-        }
-
-        var xmlDocPath = Path.Combine(refPath, $"{options.PlatformAssembly}.xml");
-        if (!File.Exists(xmlDocPath))
-        {
-            logger.Log($"XML doc file not found: {xmlDocPath}");
-            return;
-        }
-
-        logger.Log($"Loading XML documentation from: {xmlDocPath}");
-
-        XmlDocumentationCatalog? documentation =
-            LoadXmlDocumentation(xmlDocPath, logger);
-        if (documentation is null)
-        {
-            return;
-        }
-
-        foreach (var apiType in types)
-        {
-            EnrichTypeFromXmlDoc(apiType, documentation, options);
-        }
-    }
-
-    private static void EnrichTypeFromXmlDoc(
-        ApiType apiType,
-        XmlDocumentationCatalog documentation,
-        ApiOptions options)
-    {
-        if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
-                apiType,
-                out XmlDocMemberIdentity typeIdentity)
-            && documentation.Find(typeIdentity) is { } typeDoc)
-        {
-            apiType.Documentation = new DocComment
-            {
-                Summary = typeDoc.Summary,
-                Remarks = typeDoc.Remarks
-            };
-        }
-
-        if (options.ShowDocs)
-        {
-            foreach (var member in apiType.Members)
-            {
-                if (ApiMemberIdentity.TryGetXmlDocMemberIdentity(
-                        apiType,
-                        member,
-                        out XmlDocMemberIdentity memberIdentity)
-                    && documentation.Find(memberIdentity) is { } memberDoc)
-                {
-                    member.Documentation = new DocComment
-                    {
-                        Summary = memberDoc.Summary,
-                        Remarks = memberDoc.Remarks,
-                        Parameters = memberDoc.Parameters.ToDictionary(
-                            pair => pair.Key,
-                            pair => pair.Value,
-                            StringComparer.Ordinal),
-                        Returns = memberDoc.Returns
-                    };
-                }
-            }
-        }
-
-        apiType.SourceResolution = "XmlDoc";
-    }
-
-    private static void EnrichFromXmlDocFile(ApiType apiType, string typeName, ApiOptions options, VerboseLogger logger)
-    {
-        if (string.IsNullOrEmpty(options.PlatformAssembly))
-        {
-            logger.Log("XML doc fallback only available for platform libraries");
-            return;
-        }
-
-        var (refPath, version, error) = PlatformResolver.ResolveFramework(
-            options.PlatformFramework ?? "runtime");
-
-        if (error != null || refPath == null)
-        {
-            logger.Log($"Could not resolve framework for XML docs: {error}");
-            return;
-        }
-
-        var xmlDocPath = Path.Combine(refPath, $"{options.PlatformAssembly}.xml");
-        if (!File.Exists(xmlDocPath))
-        {
-            logger.Log($"XML doc file not found: {xmlDocPath}");
-            return;
-        }
-
-        logger.Log($"Loading XML documentation from: {xmlDocPath}");
-
-        XmlDocumentationCatalog? documentation =
-            LoadXmlDocumentation(xmlDocPath, logger);
-        if (documentation is null)
-        {
-            return;
-        }
-
-        EnrichTypeFromXmlDoc(apiType, documentation, options);
-    }
-
-    private static XmlDocumentationCatalog? LoadXmlDocumentation(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using Stream stream = File.OpenRead(path);
-            return XmlDocumentationCatalog.Load(stream);
-        }
-        catch (Exception error) when (
-            error is IOException
-                or UnauthorizedAccessException
-                or XmlException)
-        {
-            logger.Log($"Failed to load XML documentation: {error.Message}");
-            return null;
-        }
-    }
 
     internal static void MergePartialTypeDocumentation(
         ApiType apiType,
