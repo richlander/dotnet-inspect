@@ -63,6 +63,46 @@ public sealed class SelectedPropertySourceTests
         Assert.Contains(expected, result.Text);
     }
 
+    [Theory]
+    [InlineData("Count", "set", "protected override void set_Count(int value)")]
+    [InlineData("Offset", "get", "protected override int get_Offset()")]
+    public void NarrowedOverrideAccessorsRetainMethodForm(
+        string propertyName, string role, string expected)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path,
+                "ILInspector.Decompiler.Fixtures.NarrowedOverridePropertySamples", propertyName, role);
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains(expected, result.Text);
+        }
+    }
+
+    [Theory]
+    [InlineData("NarrowedOverridePropertySamples", "Count", "get", "public override int Count")]
+    [InlineData("NarrowedOverridePropertySamples", "Offset", "set", "public override int Offset")]
+    [InlineData("NarrowedPropertySamples", "Count", "set", "protected virtual int Count")]
+    [InlineData("NarrowedPropertySamples", "Offset", "get", "protected virtual int Offset")]
+    public void RepresentableOverrideAndNarrowedAccessorsCompile(
+        string typeName, string propertyName, string role, string expected)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path,
+                $"ILInspector.Decompiler.Fixtures.{typeName}", propertyName, role);
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains(expected, result.Text);
+            Assert.DoesNotContain($"{role}_{propertyName}(", result.Text);
+            string listing = MemberBodyProducer.Project(type, path, pdbPath: null).Output!;
+            Assert.Contains(result.Text!.Trim(), listing);
+            AssertCompiles(listing, path);
+        }
+    }
+
     [Fact]
     public void AttributesStayOnTheSelectedAccessor()
     {
@@ -142,13 +182,19 @@ public sealed class SelectedPropertySourceTests
     static string FixturePath(bool updated)
         => (updated ? FixtureCatalog.DecompilerUnsafeNew : FixtureCatalog.DecompilerUnsafeLegacy).AssemblyPath();
 
-    static void AssertCompiles(string listing)
+    static void AssertCompiles(string listing, string? referencePath = null)
     {
+        IEnumerable<MetadataReference> references = RoslynTestReferences.TrustedPlatform;
+        if (referencePath is not null)
+            references = references.Where(reference =>
+                Path.GetFileName(reference.Display) != FixtureCatalog.DecompilerUnsafeLegacy.AssemblyFileName
+                && Path.GetFileName(reference.Display) != FixtureCatalog.DecompilerUnsafeNew.AssemblyFileName)
+                .Append(MetadataReference.CreateFromFile(referencePath));
         var compilation = CSharpCompilation.Create(
             "SelectedPropertyProjection",
             [CSharpSyntaxTree.ParseText(listing, new CSharpParseOptions(LanguageVersion.Preview),
                 cancellationToken: TestContext.Current.CancellationToken)],
-            RoslynTestReferences.TrustedPlatform,
+            references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Enable));

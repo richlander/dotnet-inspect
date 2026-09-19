@@ -165,6 +165,15 @@ illegal lone `private set`. This intentionally presents one accessor, not the
 entire original property. Attributes on the accessor remain on the accessor;
 they must not migrate to its enclosing property.
 
+An overriding accessor with narrower accessibility than its property's
+declaration retains method form. For example, a protected setter cannot become
+a protected override property when the inherited property is public, and a
+lone `protected set` cannot preserve that accessibility inside a public
+property. Metadata's accessor-accessibility facts establish this boundary.
+The existing lowered method representation is not a compilable property
+reconstruction; this slice neither promotes accessibility nor invents a sibling.
+Public override accessors and non-overriding narrowed accessors remain supported.
+
 Genuine accessor-like methods, actual indexers, and event accessors retain their
 existing representation. A property with its own compiler backing storage
 also retains method form here: existing body projection can spell that storage
@@ -187,6 +196,8 @@ selected-member source and compile product-composed artifacts.
 `SelectedPropertySourceTests` is the PR-fast Release gate for the real
 `SqlBytes` witness, get/set/init selection, physical modifiers, attribute
 attachment, product-composed source compilation, and the decline boundaries.
+Its narrowed-override fixtures cover both getter and setter declines and
+compile the neighboring public overrides and non-overriding narrowed accessors.
 `CSharpDeclarationWriterTests.ExplicitPropertyDeclaration_PreservesReadonlyModifier`
 gates the CSharp formatter's existing physical-modifier obligation. The CLI
 `MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;

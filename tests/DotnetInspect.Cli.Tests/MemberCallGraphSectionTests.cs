@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
@@ -1428,6 +1429,27 @@ public class MemberCallGraphSectionTests
         Assert.Equal(4, result.Output.Split("public long MaxLength", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("get_MaxLength(", result.Output);
         Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Theory]
+    [InlineData("Count", 2, "protected override void set_Count(int value)")]
+    [InlineData("Offset", 1, "protected override int get_Offset()")]
+    public async Task SelectedProperty_NarrowedOverridesRetainMethodForm(
+        string propertyName, int overloadIndex, string expected)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.NarrowedOverridePropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = [propertyName],
+            OverloadIndex = overloadIndex,
+            IncludeSections = [SectionNames.DecompiledSource],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(expected, result.Output);
     }
 
     [Fact]

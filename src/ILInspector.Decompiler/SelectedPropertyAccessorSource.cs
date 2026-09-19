@@ -33,7 +33,8 @@ public sealed class SelectedPropertyAccessorSource
     /// <summary>
     /// Returns null for methods without an owning property, indexers, and
     /// properties whose backing storage can be projected as a recursive
-    /// property access. The handle must already be resolved in this reader.
+    /// property access, or whose selected override has narrowed accessibility.
+    /// The handle must already be resolved in this reader.
     /// </summary>
     public static SelectedPropertyAccessorSource? Create(
         MetadataSource source, int methodToken, ApiMember method,
@@ -68,6 +69,16 @@ public sealed class SelectedPropertyAccessorSource
                 reader, property, GenericContext.ForType(reader, type));
             if (!signature.ParameterTypes.IsEmpty)
                 return null;
+
+            if (method.IsOverride)
+            {
+                var declaration = MetadataDeclarationQuery.GetProperty(reader, type, property);
+                string role = getter ? "get" : "set";
+                // A narrowed accessor cannot supply the inherited property's accessibility.
+                if (declaration.Signature.Accessors.Any(accessor =>
+                    accessor.Kind == role && accessor.Accessibility is not null))
+                    return null;
+            }
 
             string name = reader.GetString(property.Name);
             foreach (var fieldHandle in type.GetFields())

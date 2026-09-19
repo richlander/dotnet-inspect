@@ -54,6 +54,39 @@ public class DerivedPropertySamples : SelectedPropertySamples
     public override int Capacity => 42;
 }
 
+public class NarrowedPropertySamples
+{
+    int _count;
+    int _offset;
+
+    public virtual int Count
+    {
+        get => _count;
+        protected set => _count = value;
+    }
+
+    public virtual int Offset
+    {
+        protected get => _offset;
+        set => _offset = value;
+    }
+}
+
+public class NarrowedOverridePropertySamples : NarrowedPropertySamples
+{
+    public override int Count
+    {
+        get => base.Count;
+        protected set => base.Count = value;
+    }
+
+    public override int Offset
+    {
+        protected get => base.Offset;
+        set => base.Offset = value;
+    }
+}
+
 public struct ReadonlyPropertySamples
 {
     int _count;
