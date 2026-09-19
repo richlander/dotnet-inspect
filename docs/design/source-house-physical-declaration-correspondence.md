@@ -228,12 +228,20 @@ Contribution admission and aggregation are ordered:
    Library, content reference, Artifact generation, module digest and MVID,
    Metadata target, source-result identity, exact source bytes and encoding,
    attestation generation, and validation-profile version authorized by the
-   plan. Any mismatch makes the operation `Rejected`. A valid contribution
-   cannot mask a stale or incorrectly indexed one.
+   plan. Its declaration span must be non-negative and within the exact decoded
+   source under overflow-safe arithmetic, and its syntax kind must be permitted
+   for the attested target profile. Any association mismatch or invalid claimed
+   row makes the operation `Rejected`. A valid contribution cannot mask a
+   stale, incorrectly indexed, malformed, out-of-bounds, or target-incompatible
+   one.
 3. A contribution becomes **accepted** only after all those associations and
-   its declaration-span bounds validate. If no accepted row remains because
-   the supported target has no unique compiler identity or no authorized
-   attestation row, the result is `Unavailable`.
+   row-validity checks pass. Source-bounds validation does not traverse the
+   span or charge its declared-length work limit. An otherwise valid in-bounds
+   span that exceeds that plan limit produces `Incomplete`; an out-of-bounds
+   span remains `Rejected`. If no accepted row exists because the supported
+   target has no unique compiler identity or no authorized attestation row was
+   supplied, the result is `Unavailable`. Rejected rows never become
+   `Unavailable`.
 4. Accepted contributions are aggregated only after every contribution passes
    the preceding stages. Equal target, source, raw span, and syntax kind may
    corroborate one `Exact` result. Contributions that agree on every
@@ -310,7 +318,8 @@ The closed outcome family is:
 - **Rejected** — an owner-issued input or claimed association names the wrong
   request, Library, content, Artifact generation, module, target, source result,
   source content, policy, attestation generation, or authorized
-  validation-profile version;
+  validation-profile version, or carries a malformed, out-of-bounds, or
+  target-incompatible declaration span or syntax kind;
 - **Failed** — authorized attestation decoding, module inspection, source
   decoding, hashing, or target validation fails; and
 - **Incomplete** — a declared byte, record, source, candidate, span, or deadline
@@ -489,6 +498,10 @@ The implementation must provide Release gates for:
   rather than `Exact` or `Conflict`;
 - fully associated contributions that disagree only on raw declaration span or
   syntax kind producing `Conflict` with bounded evidence;
+- a lone out-of-bounds or target-incompatible row, and a valid row beside the
+  same invalid evidence, both producing `Rejected`;
+- an otherwise valid in-bounds span exceeding its declared work limit producing
+  `Incomplete` rather than `Rejected`;
 - a `#line` mapping into another real checksum-valid source document failing to
   authorize that destination declaration;
 - `#pragma checksum` evidence remaining insufficient without an attestation;
@@ -502,8 +515,7 @@ The implementation must provide Release gates for:
 - a post-emit transform preserving one unique compiler documentation ID
   remaining non-exact without separately authorized target-lineage evidence;
 - malformed attestation, malformed Metadata, invalid source encoding,
-  out-of-bounds spans, finite-work exhaustion, and cancellation remaining
-  visible; and
+  finite-work exhaustion, and cancellation remaining visible; and
 - results retaining no live resource or authority.
 
 ## Non-claims
