@@ -32,6 +32,18 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         "DelegateCreationExpression",
     ];
 
+    private static readonly IReadOnlySet<string> AllocationDescriptorIds =
+        new[]
+        {
+            "alloc.box",
+            "alloc.array",
+            "alloc.new",
+            "alloc.closure",
+            "alloc.statemachine",
+            "alloc.delegate",
+            "alloc.enumerator",
+        }.ToFrozenSet(StringComparer.Ordinal);
+
     public static BrowserAnnotatedSourceViewerCatalog Create(
         AnnotatedSourceDocument document,
         BrowserAnnotatedSourceInvocationDestination[]?
@@ -52,6 +64,21 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -73,6 +100,26 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 document,
                 callRelationships,
                 callCycles);
+        }
+        if (synchronousCompletions is not null)
+        {
+            if (callRelationships is null)
+            {
+                throw new ArgumentException(
+                    "Synchronous completions require projected call relationships.",
+                    nameof(synchronousCompletions));
+            }
+            ValidateSynchronousCompletions(
+                callRelationships,
+                synchronousCompletions);
+        }
+        if (awaitCompletionPaths is not null)
+            ValidateAwaitCompletionPaths(document, awaitCompletionPaths);
+        if (allocationExceptionPaths is not null)
+        {
+            ValidateAllocationExceptionPaths(
+                document,
+                allocationExceptionPaths);
         }
 
         var targetedFacts = new bool[document.Facts.Count];
@@ -144,6 +191,33 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     IsComplete: false,
                     Limits: [],
                     Findings: []),
+            synchronousCompletions is null
+                ? new BrowserAnnotatedSourceSynchronousCompletionInspection(
+                    Available: false,
+                    synchronousCompletionsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceSynchronousCompletionInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: synchronousCompletions),
+            awaitCompletionPaths is null
+                ? new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                    Available: false,
+                    awaitCompletionPathsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceAwaitCompletionPathInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: awaitCompletionPaths),
+            allocationExceptionPaths is null
+                ? new BrowserAnnotatedSourceAllocationExceptionPathInspection(
+                    Available: false,
+                    allocationExceptionPathsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceAllocationExceptionPathInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: allocationExceptionPaths),
             projectedDestinations);
     }
 
@@ -281,6 +355,103 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                         $"Call cycle {index} names an invalid call.edge fact.",
                         nameof(cycles));
                 }
+            }
+        }
+    }
+
+    private static void ValidateSynchronousCompletions(
+        IReadOnlyList<BrowserAnnotatedSourceCallRelationship> relationships,
+        BrowserAnnotatedSourceSynchronousCompletion[] observations)
+    {
+        HashSet<int> relationshipFactIds =
+        [
+            .. relationships.Select(static relationship =>
+                relationship.FactId),
+        ];
+        var observedFactIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceSynchronousCompletion observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Synchronous completion observation {index} is null.",
+                        nameof(observations));
+            if (!Enum.IsDefined(observation.Kind)
+                || !relationshipFactIds.Contains(observation.FactId)
+                || !observedFactIds.Add(observation.FactId))
+            {
+                throw new ArgumentException(
+                    $"Synchronous completion observation {index} has invalid or duplicate relationship evidence.",
+                    nameof(observations));
+            }
+        }
+
+    }
+
+    private static void ValidateAwaitCompletionPaths(
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceAwaitCompletionPath[] observations)
+    {
+        var observedNodeIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceAwaitCompletionPath observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Await completion-path observation {index} is null.",
+                        nameof(observations));
+            if (observation.NodeId < 0
+                || observation.NodeId >= document.Nodes.Count
+                || !observedNodeIds.Add(observation.NodeId))
+            {
+                throw new ArgumentException(
+                    $"Await completion-path observation {index} does not name a unique document node.",
+                    nameof(observations));
+            }
+
+            AnnotatedSourceNode node = document.Nodes[observation.NodeId];
+            if (node.Medium != SourceLineKind.CSharp
+                || !string.Equals(
+                    node.Kind,
+                    AnnotatedSourceNodeKinds.AwaitExpression,
+                    StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    $"Await completion-path observation {index} does not name a C# AwaitExpression node.",
+                    nameof(observations));
+            }
+        }
+    }
+
+    private static void ValidateAllocationExceptionPaths(
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceAllocationExceptionPath[] observations)
+    {
+        var observedFactIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceAllocationExceptionPath observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Allocation exception-path observation {index} is null.",
+                        nameof(observations));
+            if (!Enum.IsDefined(observation.Kind)
+                || observation.FactId < 0
+                || observation.FactId >= document.Facts.Count
+                || !observedFactIds.Add(observation.FactId))
+            {
+                throw new ArgumentException(
+                    $"Allocation exception-path observation {index} does not name unique typed evidence.",
+                    nameof(observations));
+            }
+
+            AnnotatedSourceFact fact = document.Facts[observation.FactId];
+            if (fact.Origin != AnnotatedSourceFactOrigin.Body
+                || !AllocationDescriptorIds.Contains(fact.Descriptor))
+            {
+                throw new ArgumentException(
+                    $"Allocation exception-path observation {index} does not name a body allocation fact.",
+                    nameof(observations));
             }
         }
     }

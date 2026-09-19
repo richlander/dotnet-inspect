@@ -19,9 +19,9 @@ for the retained implementation evidence.
 The current sources implement one host-neutral L1 Package Query vocabulary as
 `PackageQuery`: product-owned ordered term descriptors, complete Portable Query
 Intent planning, ANDed predicate evaluation with vocabulary-owned OR families,
-an explicit package-content provider for archive-derived terms, non-empty inert
-evidence, separate candidate and match bounds, retained Head/Tail/Window stages,
-visible failures, and typed completion.
+an explicit package-content provider for archive-derived terms, semantic
+answers with structured evidence, separate candidate and match bounds, retained
+Head/Tail/Window stages, visible failures, and typed completion.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -47,8 +47,9 @@ canary.
 
 CLI and Browser now consume the same first production vocabulary:
 `dependencies=none`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `downloads=10k|100k|1m`, `readme=true`,
-`tool=true`, `tool-format=v1|v2`, and `skill=true`.
+`depends=<package-id>`, `downloads=10k|100k|1m`,
+`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
+`skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
 `prerelease=stable|include` are structural terms authored by the shared input
 planner rather than host-visible inspection controls. Assembly-semantic
@@ -77,7 +78,8 @@ Related docs:
 
 - [Package Query inspection evidence](package-query-inspection-evidence.md)
   owns typed inspection counts and bounded previews, separate from query-wide
-  context. CLI and Browser consume the same compact product-authored evidence.
+  context. CLI and Browser consume the same semantic answers and structured
+  evidence facts.
 - [Package Query input selection](package-query-input-selection.md) owns the
   shared choice between exact-ID and explicit terminal-star prefix candidate
   inputs. `package query` consumes that spelling directly.
@@ -126,6 +128,7 @@ The production inspection vocabulary is:
 | `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
 | `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
+| `license` | `any`, `MIT`, or `OSMF` | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
 | `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
 | `tool-format` | `v1` or `v2` | package content | Tool settings use the selected format |
@@ -152,6 +155,11 @@ dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
   --where "tool-format=v2" \
   --take 20 -n 5
+
+dotnet-inspect package query wix \
+  --where "license=OSMF" --nuspec-only
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
 ```
 
 The old `facet=<opaque-id>` spelling is rejected; it is not retained as an
@@ -215,6 +223,15 @@ count of whichever adaptive section rendered. It therefore supports the
 Matching dependency evidence identifies each declaration's manifest group,
 package ID, and declared range, subject to the bounded evidence preview.
 
+`license=any` matches any recognized nuspec `<license>` declaration or legacy
+`<licenseUrl>`. Named values are a closed product vocabulary, not arbitrary
+filenames. `MIT` matches the exact SPDX expression `MIT`; `OSMF` matches a
+case-insensitive declared file basename of `OSMFEULA.*`. Both decisions use
+nuspec metadata only. Package Query never opens or reads the declared file to
+identify the license. The raw declaration remains provenance and supplies the
+separate package-file inventory; explicit `--print` on that section may read
+the selected document in the same way as README and SKILL projections.
+
 Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
 Such a query defaults the candidate budget to 20 and cannot bypass the
 20-candidate ceiling. `--nuspec-only` rejects it before acquisition.
@@ -224,10 +241,12 @@ manifest predicates run before archive acquisition.
 
 `PackageQueryTests` gates vocabulary shape, complete intent retention,
 resolution, dependency-target default and canonical binding, compatible group
-selection, selected-empty/no-groups/no-match behavior, evidence,
-candidate/match completion, and the search-metadata/no-manifest boundary.
-`PackageQueryCliTests` gates discovery, term spelling, Head/Count behavior,
-acquisition authorization, and output parity.
+selection, selected-empty/no-groups/no-match behavior, license identity,
+candidate/match completion, and the search-metadata/no-manifest boundary. Its
+license cases gate `any`, exact SPDX identity, the `OSMFEULA.*` nuspec filename
+pattern, and zero package-content acquisition. `PackageQueryCliTests` gates
+discovery, term spelling, Head/Count behavior, acquisition authorization, and
+output parity.
 
 ## CLI term binding
 
@@ -290,7 +309,7 @@ scopes and source overrides before acquisition. Patternless
 as aliases; `find PATTERN --package-prefix PREFIX` remains API search.
 
 One semantic result row is one matched package, carrying its exact version,
-source, and product-authored nonempty evidence. `-n` and `--rows` select those
+source, semantic answers, and structured evidence. `-n` and `--rows` select those
 rows before projection and Count. `--count` composes with `-n`: finding N
 ordered matches can witness exact `Head(N) -> Count` while candidate-bound
 incompleteness remains visible. Fewer than N matches at a reached candidate
@@ -656,20 +675,18 @@ evaluation](package-query-assembly-evaluation.md).
 ## Row declaration: coercing a wide per-package fact set into a Table
 
 A term-matched package is not naturally one flat row: it may match zero or
-more terms, each with its own evidence, and evaluating a capability-bearing
+more terms, each with its own answer and evidence, and evaluating a capability-bearing
 term may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
 document proposes:
 
-- **Default grain: one row per package.** Multiple matched terms collapse
-  into a single `Evidence` column, reusing the existing "evidence over
-  checkmark" convention already established for Performance Triage and
-  `package-opportunities.ts`, and already mirrored by the just-landed browser
-  scaffold's `QueryResultRow.evidence` (a non-empty list, never a bare
-  pass/fail). The CLI and the browser experience should render the *same*
-  evidence strings for the same match — one fact, one wording, two renderers
-  — not two independently authored explanations of why a package matched.
+- **Default grain: one row per package.** Multiple matched terms produce an
+  ordered semantic `Answer` vector and separate structured `Evidence`. The
+  query layer retrieves values, facts, and counts; it never authors
+  explanatory text. CLI and Browser consume the same typed values and each host
+  may render presentation suited to its surface without re-deriving semantic
+  identity.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets
@@ -798,7 +815,8 @@ the product's named terms as canonical for both hosts.
 3. **Product-owned query contract — implemented in the current sources.**
    `PackageQuery` composes package acquisition, publishes stable ordered term
    descriptors, resolves complete Portable Query Intents, and streams matched
-   package rows with product-authored evidence and honest completion.
+   package rows with semantic answers, structured evidence, and honest
+   completion.
    Search-metadata terms skip manifests, nuspec terms need no package payload,
    and package-content terms require an explicit host provider and at most 20
    candidates. `PackageQueryTests` and

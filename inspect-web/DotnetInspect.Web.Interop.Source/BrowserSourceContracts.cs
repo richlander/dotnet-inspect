@@ -79,6 +79,12 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         BrowserAnnotatedSourceCapabilityAvailability Destinations,
         BrowserAnnotatedSourceCapabilityAvailability CallRelationships,
         BrowserAnnotatedSourceCallCycleInspection CallCycles,
+        BrowserAnnotatedSourceSynchronousCompletionInspection
+            SynchronousCompletions,
+        BrowserAnnotatedSourceAwaitCompletionPathInspection
+            AwaitCompletionPaths,
+        BrowserAnnotatedSourceAllocationExceptionPathInspection
+            AllocationExceptionPaths,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -88,6 +94,9 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(Destinations);
         ArgumentNullException.ThrowIfNull(CallRelationships);
         ArgumentNullException.ThrowIfNull(CallCycles);
+        ArgumentNullException.ThrowIfNull(SynchronousCompletions);
+        ArgumentNullException.ThrowIfNull(AwaitCompletionPaths);
+        ArgumentNullException.ThrowIfNull(AllocationExceptionPaths);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -104,6 +113,9 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.Destinations = Destinations;
         this.CallRelationships = CallRelationships;
         this.CallCycles = CallCycles;
+        this.SynchronousCompletions = SynchronousCompletions;
+        this.AwaitCompletionPaths = AwaitCompletionPaths;
+        this.AllocationExceptionPaths = AllocationExceptionPaths;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -115,6 +127,12 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
     public BrowserAnnotatedSourceCapabilityAvailability CallRelationships { get; }
     public BrowserAnnotatedSourceCallCycleInspection CallCycles { get; }
+    public BrowserAnnotatedSourceSynchronousCompletionInspection
+        SynchronousCompletions { get; }
+    public BrowserAnnotatedSourceAwaitCompletionPathInspection
+        AwaitCompletionPaths { get; }
+    public BrowserAnnotatedSourceAllocationExceptionPathInspection
+        AllocationExceptionPaths { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -241,6 +259,157 @@ public sealed record BrowserAnnotatedSourceCallCycleInspection
     public BrowserAnnotatedSourceCallCycle[] Findings => [.. _findings];
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserSynchronousCompletionKind>))]
+public enum BrowserSynchronousCompletionKind
+{
+    TaskWait,
+    TaskResult,
+    TaskAwaiterGetResult,
+}
+
+/// <summary>
+/// One exact physical <c>call.edge</c> Finding whose framework member
+/// synchronously observes task completion.
+/// </summary>
+public sealed record BrowserAnnotatedSourceSynchronousCompletion(
+    int FactId,
+    BrowserSynchronousCompletionKind Kind);
+
+/// <summary>
+/// Positive synchronous-completion observations. Empty carries no absence
+/// claim about blocking behavior outside the classified structures.
+/// </summary>
+public sealed record BrowserAnnotatedSourceSynchronousCompletionInspection
+{
+    private readonly BrowserAnnotatedSourceSynchronousCompletion[]
+        _observations;
+
+    public BrowserAnnotatedSourceSynchronousCompletionInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceSynchronousCompletion[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Synchronous completion availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable synchronous completions cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+    public BrowserAnnotatedSourceSynchronousCompletion[] Observations =>
+        [.. _observations];
+}
+
+/// <summary>
+/// One Decompiler-issued classic <c>await</c> node whose inline and
+/// suspension/resume paths were proven before reconstruction.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAwaitCompletionPath(int NodeId);
+
+/// <summary>
+/// Positive classic-await completion-path observations. Empty carries no
+/// absence claim about unsupported or declined lowerings.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAwaitCompletionPathInspection
+{
+    private readonly BrowserAnnotatedSourceAwaitCompletionPath[] _observations;
+
+    public BrowserAnnotatedSourceAwaitCompletionPathInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceAwaitCompletionPath[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Await completion-path availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable await completion paths cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+    public BrowserAnnotatedSourceAwaitCompletionPath[] Observations =>
+        [.. _observations];
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<
+    BrowserAllocationExceptionPathKind>))]
+public enum BrowserAllocationExceptionPathKind
+{
+    ThrownValue,
+    ExceptionHandler,
+}
+
+/// <summary>
+/// One exact allocation Finding Analysis placed on exception-related control
+/// flow.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAllocationExceptionPath(
+    int FactId,
+    BrowserAllocationExceptionPathKind Kind);
+
+/// <summary>
+/// Positive allocation exception-path observations. Empty carries no absence
+/// claim about allocations or exception behavior.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAllocationExceptionPathInspection
+{
+    private readonly BrowserAnnotatedSourceAllocationExceptionPath[]
+        _observations;
+
+    public BrowserAnnotatedSourceAllocationExceptionPathInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceAllocationExceptionPath[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Allocation exception-path availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable allocation exception paths cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason
+    {
+        get;
+    }
+    public BrowserAnnotatedSourceAllocationExceptionPath[] Observations =>
+        [.. _observations];
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
 {
@@ -360,6 +529,21 @@ public sealed record BrowserMemberFindingCensus
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -483,7 +667,13 @@ public sealed record BrowserMemberFindingCensus
                 callRelationships,
                 callRelationshipsUnavailableReason,
                 callCycles,
-                callCyclesUnavailableReason),
+                callCyclesUnavailableReason,
+                synchronousCompletions,
+                synchronousCompletionsUnavailableReason,
+                awaitCompletionPaths,
+                awaitCompletionPathsUnavailableReason,
+                allocationExceptionPaths,
+                allocationExceptionPathsUnavailableReason),
             projectedIdentities);
     }
 
@@ -912,6 +1102,21 @@ public sealed record BrowserAnnotatedSource
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -931,7 +1136,13 @@ public sealed record BrowserAnnotatedSource
                 callRelationships,
                 callRelationshipsUnavailableReason,
                 callCycles,
-                callCyclesUnavailableReason),
+                callCyclesUnavailableReason,
+                synchronousCompletions,
+                synchronousCompletionsUnavailableReason,
+                awaitCompletionPaths,
+                awaitCompletionPathsUnavailableReason,
+                allocationExceptionPaths,
+                allocationExceptionPathsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],

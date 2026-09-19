@@ -5,6 +5,7 @@ import {
 } from "./annotated-source-view.ts";
 import {
   annotationState,
+  awaitCompletionPathForNode,
   callCyclesForFact,
   capabilityReason,
   createAnnotatedSourceViewerModel,
@@ -14,6 +15,7 @@ import {
   nodesForPrimary,
   renderedFindingTargets,
   renderedStructuralTargets,
+  synchronousCompletionForFact,
 } from "./annotated-source-session.ts";
 import type {
   AnnotatedFocusTarget,
@@ -503,6 +505,9 @@ function renderPrimary(context: SourceRenderContext): string {
   const destination = session.primary?.kind === "node"
     ? invocationDestinationForNode(model, session.primary.id)
     : null;
+  const awaitCompletionPath = session.primary?.kind === "node"
+    ? awaitCompletionPathForNode(model, session.primary.id)
+    : null;
   return `
     <section class="annotated-inspector-section">
       <p class="section-eyebrow">Selection</p>
@@ -520,12 +525,25 @@ function renderPrimary(context: SourceRenderContext): string {
                 destination.index,
                 destination.destination.target,
                 escapeHtml)
+            : ""}
+          ${awaitCompletionPath
+            ? renderAwaitCompletionPaths()
             : ""}`
         : `<div class="annotated-selection-empty">
             <strong>Nothing selected</strong>
             <span>Select addressable source or inspect a Finding.</span>
           </div>`}
     </section>`;
+}
+
+function renderAwaitCompletionPaths(): string {
+  return `
+    <div class="annotated-await-completion-paths">
+      <span>Compiled await paths</span>
+      <p><strong>Inline completion</strong> · the completed edge reaches the matching GetResult continuation</p>
+      <p><strong>Suspension and resume</strong> · the incomplete edge registers suspension and the correlated resume reaches the same continuation</p>
+      <small>Compiled structure only · no runtime path, frequency, duration, scheduler, or thread was measured</small>
+    </div>`;
 }
 
 function renderInvocationDestinations(
@@ -646,6 +664,8 @@ function renderDetail(context: SourceRenderContext): string {
             </li>`).join("")}</ul>`
           : `<p class="annotated-unavailable">No product-issued source target</p>`}
       </section>
+      ${renderAllocationExceptionPath(context, fact)}
+      ${renderSynchronousCompletion(context, fact)}
       ${renderCallCycles(context, fact)}
       ${renderFindingEvidence(context, fact.id)}
       <section class="annotated-detail-capabilities">
@@ -655,6 +675,70 @@ function renderDetail(context: SourceRenderContext): string {
         </div>
       </section>
     </section>`;
+}
+
+function renderAllocationExceptionPath(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  const observation =
+    context.model.allocationExceptionPathsByFactId.get(fact.id);
+  if (!observation) return "";
+
+  const statement = observation.kind === "ThrownValue"
+    ? "constructs the value used by a throw"
+    : "occurs in a catch, filter, or fault handler";
+  return `
+    <section class="annotated-allocation-exception-path">
+      <h4>Exception path</h4>
+      <p><strong>${context.escapeHtml(
+        allocationExceptionPathLabel(observation.kind))}</strong>
+        · ${context.escapeHtml(statement)}</p>
+      <p>Compiled control-flow evidence only · no runtime exception, handler execution, or frequency was measured</p>
+    </section>`;
+}
+
+function allocationExceptionPathLabel(value: string | number): string {
+  switch (value) {
+    case "ThrownValue":
+      return "Thrown value";
+    case "ExceptionHandler":
+      return "Exception handler";
+    default:
+      return String(value);
+  }
+}
+
+function renderSynchronousCompletion(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  if (fact.descriptor !== "call.edge") return "";
+  const observation =
+    synchronousCompletionForFact(context.model, fact.id);
+  if (observation === null) return "";
+
+  return `
+    <section class="annotated-synchronous-completion">
+      <h4>Synchronous completion</h4>
+      <p><strong>${context.escapeHtml(
+        synchronousCompletionLabel(observation.kind))}</strong>
+        · may block the current thread when the task is incomplete</p>
+      <p>Structural call evidence only · no runtime blocking or duration was measured</p>
+    </section>`;
+}
+
+function synchronousCompletionLabel(value: string | number): string {
+  switch (value) {
+    case "TaskWait":
+      return "Task.Wait";
+    case "TaskResult":
+      return "Task result";
+    case "TaskAwaiterGetResult":
+      return "Task awaiter GetResult";
+    default:
+      return String(value);
+  }
 }
 
 function renderCallCycles(

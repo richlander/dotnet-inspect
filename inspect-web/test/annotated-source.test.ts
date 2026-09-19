@@ -1150,6 +1150,133 @@ test("Finding detail does not turn an incomplete empty cycle census into absence
   assert.doesNotMatch(html, /not recursive/);
 });
 
+test("Finding detail renders typed synchronous completion without a runtime claim", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const completionResult: AnnotatedSourceResult = {
+    ...source,
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      synchronousCompletions: {
+        available: true,
+        unavailableReason: null,
+        observations: [{
+          factId,
+          kind: "TaskAwaiterGetResult",
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(completionResult);
+  const html = renderAnnotatedSourceModal({
+    result: completionResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /<h4>Synchronous completion<\/h4>/);
+  assert.match(html, /Task awaiter GetResult/);
+  assert.match(html, /may block the current thread when the task is incomplete/);
+  assert.match(html, /no runtime blocking or duration was measured/);
+  assert.doesNotMatch(html, /blocks the current thread awaiting/);
+});
+
+test("Finding detail renders allocation exception paths without a runtime claim", () => {
+  const cases = [
+    [
+      "ThrownValue",
+      "Thrown value",
+      "constructs the value used by a throw",
+    ],
+    [
+      "ExceptionHandler",
+      "Exception handler",
+      "occurs in a catch, filter, or fault handler",
+    ],
+  ] as const;
+  for (const [kind, label, statement] of cases) {
+    const exceptionPathResult: AnnotatedSourceResult = {
+      ...result,
+      viewerCatalog: {
+        ...sampleViewerCatalog,
+        allocationExceptionPaths: {
+          available: true,
+          unavailableReason: null,
+          observations: [{
+            factId: 0,
+            kind,
+          }],
+        },
+      },
+    };
+    const model = createAnnotatedSourceViewerModel(exceptionPathResult);
+    const html = renderAnnotatedSourceModal({
+      result: exceptionPathResult,
+      session: selectFinding(
+        createEmbeddedSession(model),
+        { kind: "inspector", factId: 0 },
+      ),
+      escapeHtml,
+    });
+
+    assert.match(html, /<h4>Exception path<\/h4>/);
+    assert.ok(html.includes(label));
+    assert.ok(html.includes(statement));
+    assert.match(html, /no runtime exception, handler execution, or frequency was measured/);
+    assert.doesNotMatch(html, /exception occurred/);
+  }
+});
+
+test("selected await presents both compiled paths without a runtime path claim", () => {
+  const awaitDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "AwaitExpression" }
+        : node),
+  };
+  const awaitResult: AnnotatedSourceResult = {
+    ...result,
+    document: awaitDocument,
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      awaitCompletionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{ nodeId: 1 }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(awaitResult);
+  const html = renderAnnotatedSourceModal({
+    result: awaitResult,
+    session: selectNode(
+      openModalSession(
+        model,
+        createEmbeddedSession(model),
+      ).modal,
+      1),
+    escapeHtml,
+  });
+
+  assert.match(html, /Compiled await paths/);
+  assert.match(html, /Inline completion/);
+  assert.match(html, /Suspension and resume/);
+  assert.match(html, /completed edge reaches the matching GetResult continuation/);
+  assert.match(html, /correlated resume reaches the same continuation/);
+  assert.match(html, /Compiled structure only/);
+  assert.match(html, /no runtime path, frequency, duration, scheduler, or thread was measured/);
+  assert.doesNotMatch(html, /fast path|slow path|path ran|completed successfully/);
+});
+
 test("Finding detail presents method-level callee evidence without an invented line", () => {
   const source = methodCostEvidenceResult();
   const model = createAnnotatedSourceViewerModel(source);
@@ -1217,6 +1344,21 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         isComplete: false,
         limits: [],
         findings: [],
+      },
+      synchronousCompletions: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      awaitCompletionPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      allocationExceptionPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
       },
     },
     findingEvidenceDocuments: [],

@@ -2155,12 +2155,14 @@ public class FidelityCheckGeneratedFilterTests
     [Fact]
     public async Task EvaluateChangedMethodTargets_PreservesProductNotFull()
     {
-        string assemblyPath = typeof(CfgSampleClass).Assembly.Location;
+        var fixture = typeof(CSharpText.Tests.PdbScopeFixtures);
+        string assemblyPath = fixture.Assembly.Location;
         var current = Assert.Single(
             FidelityCheck.Evaluate(
                 assemblyPath,
-                type => type == typeof(CfgSampleClass).FullName,
-                method => method.Method == nameof(CfgSampleClass.CapturedParamReadInOuterBody)));
+                type => type == fixture.FullName,
+                method => method.Method
+                    == nameof(CSharpText.Tests.PdbScopeFixtures.SequentialStackCarry)));
         Assert.Equal(FidelityCheck.CompileBackStatus.NotFull, current.Status);
 
         var result = Assert.Single(

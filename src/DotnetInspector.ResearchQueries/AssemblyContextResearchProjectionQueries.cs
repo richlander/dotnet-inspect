@@ -37,6 +37,18 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// Includes bounded focus-cycle witnesses over the same exact call relationships. Positive
 /// witnesses remain valid when the independent cycle census is incomplete.
 /// </param>
+/// <param name="SynchronousCompletions">
+/// Includes framework-authenticated synchronous task-completion observations
+/// joined to their exact physical <c>call.edge</c> Findings.
+/// </param>
+/// <param name="AwaitCompletionPaths">
+/// Includes Decompiler-proven inline and suspension/resume paths for each
+/// reconstructed classic <c>await</c>.
+/// </param>
+/// <param name="AllocationExceptionPaths">
+/// Includes Analysis-classified thrown-value and exception-handler paths for
+/// exact allocation Findings.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -52,7 +64,10 @@ public sealed record AssemblyContextMemberProjectionRequest(
     PrinterOptions? PrinterOptions = null,
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
     bool CallRelationships = false,
-    bool CallCycles = false);
+    bool CallCycles = false,
+    bool SynchronousCompletions = false,
+    bool AwaitCompletionPaths = false,
+    bool AllocationExceptionPaths = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -137,6 +152,28 @@ public sealed record AssemblyMemberCallCycleInspection(
     public bool IsComplete => Limits == AnnotatedCallGraphCycleLimit.None;
 }
 
+/// <summary>
+/// One exact physical relationship whose framework member synchronously
+/// observes task completion.
+/// </summary>
+public sealed record AssemblyMemberSynchronousCompletion(
+    int FactId,
+    SynchronousCompletionKind Kind);
+
+/// <summary>
+/// One Decompiler-issued classic <c>await</c> node whose inline and
+/// suspension/resume paths were proven before reconstruction.
+/// </summary>
+public sealed record AssemblyMemberAwaitCompletionPath(int NodeId);
+
+/// <summary>
+/// One exact allocation Finding Analysis placed on exception-related control
+/// flow.
+/// </summary>
+public sealed record AssemblyMemberAllocationExceptionPath(
+    int FactId,
+    ResearchViews.AllocationExceptionPathKind Kind);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
@@ -144,7 +181,13 @@ public sealed record AssemblyMemberProjection(
     IReadOnlyList<AssemblyMemberFindingEvidence>? FindingEvidence,
     IReadOnlyList<AssemblyMemberInvocationDestination> InvocationDestinations,
     AssemblyMemberCallRelationshipOverlay? CallRelationships = null,
-    AssemblyMemberCallCycleInspection? CallCycles = null);
+    AssemblyMemberCallCycleInspection? CallCycles = null,
+    IReadOnlyList<AssemblyMemberSynchronousCompletion>?
+        SynchronousCompletions = null,
+    IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+        AwaitCompletionPaths = null,
+    IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+        AllocationExceptionPaths = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -277,6 +320,29 @@ public static class AssemblyContextMemberProjectionQuery
         {
             throw new ArgumentException(
                 "Call cycles require exact call relationships.",
+                nameof(request));
+        }
+        if (request.SynchronousCompletions
+            && !request.CallRelationships)
+        {
+            throw new ArgumentException(
+                "Synchronous completions require exact call relationships.",
+                nameof(request));
+        }
+        if (request.AwaitCompletionPaths
+            && (!request.SourceDocument || request.MethodToken is null))
+        {
+            throw new ArgumentException(
+                "Await completion paths require a source document and an exact MethodDef token.",
+                nameof(request));
+        }
+        if (request.AllocationExceptionPaths
+            && (!request.SourceDocument
+                || !request.AnalysisFeatures.HasFlag(
+                    LibraryBodyAnalysisFeatures.Allocations)))
+        {
+            throw new ArgumentException(
+                "Allocation exception paths require a source document and allocation analysis.",
                 nameof(request));
         }
         if (request.FindingEvidence
@@ -417,13 +483,41 @@ public static class AssemblyContextMemberProjectionQuery
                         callRelationships,
                         relationshipOverlay)
                     : null;
+            IReadOnlyList<AssemblyMemberSynchronousCompletion>?
+                synchronousCompletions =
+                    request.SynchronousCompletions
+                        && callRelationships is not null
+                        && relationshipOverlay is not null
+                        ? ProjectSynchronousCompletions(
+                            callRelationships,
+                            relationshipOverlay)
+                        : null;
+            IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+                awaitCompletionPaths =
+                    request.AwaitCompletionPaths
+                        && projection.SourceDocument is { } awaitDocument
+                        ? ProjectAwaitCompletionPaths(
+                            projection,
+                            awaitDocument)
+                        : null;
+            IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+                allocationExceptionPaths =
+                    request.AllocationExceptionPaths
+                        && assembly is not null
+                        && projection.SourceDocument is not null
+                        ? ProjectAllocationExceptionPaths(
+                            projection)
+                        : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
                 findingEvidence,
                 destinations,
                 relationshipOverlay,
-                cycleInspection);
+                cycleInspection,
+                synchronousCompletions,
+                awaitCompletionPaths,
+                allocationExceptionPaths);
             resolver.ValidateForPublication();
             return result;
         }
@@ -978,6 +1072,88 @@ public static class AssemblyContextMemberProjectionQuery
         }
         return new(findings, limits);
     }
+
+    static IReadOnlyList<AssemblyMemberSynchronousCompletion>
+        ProjectSynchronousCompletions(
+            CallRelationshipProjection relationships,
+            AssemblyMemberCallRelationshipOverlay relationshipOverlay)
+    {
+        if (relationships.Calls.Length
+            != relationshipOverlay.Relationships.Count)
+        {
+            throw new InvalidOperationException(
+                "Synchronous completion projection requires one relationship for every physical call.");
+        }
+
+        var factIdsByCall =
+            new Dictionary<(Guid ModuleVersionId, int CallerToken, int ILOffset, int OperandToken), int>();
+        for (int index = 0; index < relationships.Calls.Length; index++)
+        {
+            DirectCall call = relationships.Calls[index].Call;
+            factIdsByCall.Add(
+                (
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
+                    call.ILOffset,
+                    call.OperandToken),
+                relationshipOverlay.Relationships[index]
+                    .Occurrence.FactId);
+        }
+        return
+        [
+            .. SynchronousCompletionAnalysis.Inspect(
+                    relationships.Calls.Select(static call =>
+                        call.Call))
+                .Select(observation =>
+                {
+                    DirectCall call = observation.Call;
+                    return new AssemblyMemberSynchronousCompletion(
+                        factIdsByCall[(
+                            call.EvidenceMethod.ModuleVersionId,
+                            call.EvidenceMethod.MetadataToken,
+                            call.ILOffset,
+                            call.OperandToken)],
+                        observation.Kind);
+                }),
+        ];
+    }
+
+    static IReadOnlyList<AssemblyMemberAwaitCompletionPath>
+        ProjectAwaitCompletionPaths(
+            ResearchViews.MemberProjectionResult projection,
+            AnnotatedSourceDocument document)
+    {
+        return
+        [
+            .. (projection.AwaitCompletionPathNodeIds ?? [])
+                .Select(nodeId =>
+                {
+                    AnnotatedSourceNode node = document.Nodes[nodeId];
+                    if (node.Medium != SourceLineKind.CSharp
+                        || !string.Equals(
+                            node.Kind,
+                            AnnotatedSourceNodeKinds.AwaitExpression,
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Classic await completion path names non-await node {nodeId}.");
+                    }
+                    return new AssemblyMemberAwaitCompletionPath(nodeId);
+                }),
+        ];
+    }
+
+    static IReadOnlyList<AssemblyMemberAllocationExceptionPath>
+        ProjectAllocationExceptionPaths(
+            ResearchViews.MemberProjectionResult projection)
+        =>
+        [
+            .. (projection.AllocationExceptionPaths ?? [])
+                .Select(static path =>
+                    new AssemblyMemberAllocationExceptionPath(
+                        path.FactId,
+                        path.Kind)),
+        ];
 
     static CallGraphNode? FindCallee(
         CallGraphProjection graph,

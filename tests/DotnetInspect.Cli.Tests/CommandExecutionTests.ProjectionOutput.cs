@@ -797,50 +797,6 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapeFailsClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "--json", projection, "ZZZNoSuchColumn", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--fields/--columns are not available with --shape",
-            error);
-        Assert.Contains(
-            "Replace --json --shape with --table, --tsv, or --jsonl",
-            error);
-        Assert.Contains(
-            "omit --fields/--columns to keep tree output",
-            error);
-        Assert.DoesNotContain("selection was ignored", error);
-    }
-
-    [Theory]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    [InlineData("--print")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "-S", "Type Info",
-            "--json", "--fields", "Name", projection, "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains($"{projection} is not available with --shape", error);
-        Assert.DoesNotContain("produced unprojected output", error);
-        Assert.DoesNotContain("selection was ignored", error);
-    }
-
     [Fact]
     public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
     {
@@ -1580,11 +1536,11 @@ public partial class CommandExecutionTests
         {
             var tfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var projectedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
                 "--columns", "TFM",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
                 "--count", "--rows", "1", "--tips", "q");
@@ -1593,7 +1549,7 @@ public partial class CommandExecutionTests
                 "--count", "--rows", "1", "--tips", "q");
             var renderedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--jsonl", "--rows", "1", "--tips", "q");
+                "--jsonl", "--rows", "1..1", "--tips", "q");
             var renderedDiscovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--jsonl", "--rows", "1", "--tips", "q");

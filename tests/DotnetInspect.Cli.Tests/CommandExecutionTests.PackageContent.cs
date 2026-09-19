@@ -157,31 +157,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_HonorsOutputPath()
+    public async Task Package_DependencyHierarchy_HonorsOutputPath()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         var outputPath = Path.Combine(tempDir, "dependencies.md");
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--tfm", "net9.0", "--out", outputPath, "--tips", "q");
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--tfm", "net9.0", "--source", tempDir,
+                "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
             Assert.Empty(error);
             var written = File.ReadAllText(outputPath);
-            Assert.Contains("Test.Dependency.One", written);
-            Assert.Contains("Test.Dependency.Two", written);
+            Assert.Contains("test.dependency.one", written);
+            Assert.Contains("test.dependency.two", written);
 
             var empty = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
+                "package", packagePath, "-S", "Dependency Hierarchy", "--tree",
                 "--tfm", "net10.0", "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, empty.Exit);
             Assert.Empty(empty.Output);
             Assert.Empty(empty.Error);
-            Assert.Contains("No additional dependencies for net10.0", File.ReadAllText(outputPath));
+            Assert.Contains("test.dependencygroups 1.0.0", File.ReadAllText(outputPath));
 
             var (noDependenciesPath, noDependenciesTempDir) =
                 CreateLocalReadmePackage(
@@ -191,14 +192,14 @@ public partial class CommandExecutionTests
             try
             {
                 var noDependencies = await RunAppAsync(
-                    "package", noDependenciesPath, "-S", "Dependencies", "--tree",
+                    "package", noDependenciesPath, "-S", "Dependency Hierarchy", "--tree",
                     "--out", outputPath, "--tips", "q",
                     "-n", "2", "--tail-lines");
 
                 Assert.Equal(0, noDependencies.Exit);
                 Assert.Empty(noDependencies.Output);
                 Assert.Empty(noDependencies.Error);
-                Assert.Contains("No dependencies declared in package", File.ReadAllText(outputPath));
+                Assert.Contains("test.nodependencies 1.0.0", File.ReadAllText(outputPath));
                 Assert.Equal(
                     -1,
                     File.ReadAllBytes(outputPath).AsSpan().IndexOf(
@@ -980,6 +981,107 @@ public partial class CommandExecutionTests
             var (layoutExit, layoutOutput, _) = await RunAppAsync("package", packagePath, "--layout");
             Assert.Equal(0, layoutExit);
             Assert.Contains("Test.Layout.nuspec", layoutOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LicenseFiles_ListsCountsAndPrintsDocuments()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicenseFiles",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">OSMFEULA.txt</license>",
+            extraFiles:
+            [
+                ("OSMFEULA.txt", "declared license"),
+                ("LICENSE.md", "conventional license"),
+                ("licenses/Dependency.txt", "dependency license"),
+                ("THIRD-PARTY-NOTICES.TXT", "not a license"),
+                ("content/driving-license.png", "not a document"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| LICENSE.md |", listOutput);
+            Assert.Contains("| OSMFEULA.txt |", listOutput);
+            Assert.Contains("| licenses/Dependency.txt |", listOutput);
+            Assert.DoesNotContain("THIRD-PARTY-NOTICES", listOutput);
+            Assert.DoesNotContain("driving-license.png", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("3\n", countOutput);
+            Assert.Empty(countError);
+
+            var (printExit, printOutput, printError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--print",
+                "--row",
+                "2",
+                "--bare");
+            Assert.Equal(0, printExit);
+            Assert.Equal("declared license", printOutput);
+            Assert.Empty(printError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LicenseFiles_HonorsLeadingCurrentDirectorySegment()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicensePath",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">./legal/TERMS.bin</license>",
+            extraFiles:
+            [
+                ("legal/TERMS.bin", "declared license"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| legal/TERMS.bin |", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("1\n", countOutput);
+            Assert.Empty(countError);
         }
         finally
         {

@@ -103,6 +103,15 @@ public static class WorkspaceSharePacketTransposer
                 nameof(packet));
         }
 
+        return ToDefinitionsCore(canonical, cancellationToken);
+    }
+
+    private static WorkspaceSharePacketDefinitionSet ToDefinitionsCore(
+        WorkspaceSharePacket canonical,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var contexts = new WorkspaceContextDefinition[canonical.Contexts.Count];
         for (int contextIndex = 0; contextIndex < canonical.Contexts.Count; contextIndex++)
         {
@@ -319,6 +328,165 @@ public static class WorkspaceSharePacketTransposer
                 ScenarioId,
                 cancellationToken),
             schemaVersion);
+    }
+
+    /// <summary>
+    /// Projects one exact, resolved schema-version-1 Workspace-root state into
+    /// a complete schema-version-3 packet.
+    /// </summary>
+    /// <remarks>
+    /// This is not packet canonicalization. The caller supplies resolved
+    /// definitions whose package and group coordinates are already pinned;
+    /// the result authors a new committed definition set.
+    /// </remarks>
+    public static WorkspaceSharePacketProjectionResult
+        ToCompleteWorkspacePacket(
+            WorkspaceSharePacketDefinitionSet resolvedDefinitions,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(resolvedDefinitions);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        WorkspaceSharePacketProjectionResult? failure =
+            ValidateDefinitionSet(
+                resolvedDefinitions,
+                cancellationToken);
+        if (failure is not null)
+            return failure;
+
+        ViewDefinition legacyView = resolvedDefinitions.View;
+        if (legacyView.Lens is not null
+            || legacyView.Type is not null
+            || legacyView.MemberAnchor is not null
+            || legacyView.MemberSignature is not null
+            || legacyView.MemberKey is not null
+            || legacyView.Section is not null
+            || legacyView.Libraries.Count != 0)
+        {
+            return NonProjectable(
+                "view",
+                "Complete Workspace capture requires the Workspace root view.");
+        }
+
+        WorkspaceSharePacketProjectionResult effectiveTopology =
+            ToPacket(
+                resolvedDefinitions,
+                cancellationToken,
+                canonicalizeFormat1: false);
+        if (!effectiveTopology.Succeeded)
+            return effectiveTopology;
+        WorkspaceSharePacket effectivePacket =
+            effectiveTopology.Packet ?? throw new UnreachableException();
+        WorkspaceSharePacketDefinitionSet effectiveDefinitions =
+            ToDefinitionsCore(effectivePacket, cancellationToken);
+
+        for (int index = 0; index < effectivePacket.Tabs.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string path = $"navigation.tabs[{index}]";
+            WorkspaceShareTab effectiveTab = effectivePacket.Tabs[index];
+            if (effectiveTab.SourceKind == WorkspaceShareSourceKind.Package)
+            {
+                if (effectiveTab.Version is null
+                    || effectiveTab.Framework is null)
+                {
+                    return NonProjectable(
+                        path + ".coordinate",
+                        "Complete Workspace capture requires an exact package version and framework.");
+                }
+                continue;
+            }
+
+            if (effectiveTab.Framework is null)
+            {
+                return NonProjectable(
+                    path,
+                    "Complete Workspace capture requires an exact group pin and framework.");
+            }
+            if (effectiveTab.Version is null)
+            {
+                return NonProjectable(
+                    path + ".subscribe",
+                    "Complete Workspace capture requires an exact group pin.");
+            }
+        }
+
+        WorkspaceDefinition legacyWorkspace = effectiveDefinitions.Workspace;
+        NavigationDefinition legacyNavigation =
+            effectiveDefinitions.Navigation;
+        ScenarioDefinition legacyScenario = effectiveDefinitions.Scenario;
+        NavigationTabDefinition focusedTab = legacyNavigation.Tabs.Single(
+            tab => string.Equals(
+                tab.Id,
+                legacyNavigation.Focus,
+                StringComparison.Ordinal));
+        if (focusedTab.Coordinate
+            is not DefinitionMemberCoordinate.PackageCoordinate)
+        {
+            return NonProjectable(
+                "navigation.focus",
+                "Complete Workspace capture can preserve focus only on a direct Package coordinate.");
+        }
+
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            WorkspaceId,
+            legacyWorkspace.Contexts,
+            registrations: []);
+        var navigation = new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version3,
+            NavigationId,
+            legacyNavigation.Tabs,
+            legacyNavigation.Focus);
+        var states =
+            new List<CommittedViewStateDefinition>(
+                legacyNavigation.Tabs.Count + 1)
+            {
+                new(
+                    navigation: null,
+                    subject: new PortableSubjectRequest.Workspace()),
+            };
+        foreach (NavigationTabDefinition tab in legacyNavigation.Tabs)
+        {
+            states.Add(
+                tab.Coordinate
+                    is not DefinitionMemberCoordinate.PackageCoordinate
+                        ? new CommittedViewStateDefinition(tab.Id)
+                        : string.Equals(
+                            tab.Id,
+                            legacyNavigation.Focus,
+                            StringComparison.Ordinal)
+                            ? new CommittedViewStateDefinition(
+                                tab.Id,
+                                new PortableSubjectRequest.Workspace())
+                            : new CommittedViewStateDefinition(
+                                tab.Id,
+                                new PortableSubjectRequest.Package(),
+                                new PortableRetainedSubjectContext.Package()));
+        }
+        var view = new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version3,
+            ViewId,
+            states);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version3,
+            ScenarioId,
+            workspace: workspace.Id,
+            context: legacyScenario.Context,
+            view: view.Id,
+            navigation: navigation.Id);
+
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(workspace);
+        registry.Add(navigation);
+        registry.Add(view);
+        registry.Add(scenario);
+        CommittedScenarioDefinitionSet committed = AssertCommitted(
+            registry.PreparePacketScenarioWithCancellation(
+                ScenarioId,
+                cancellationToken),
+            InspectionDefinitionSchema.Version3);
+        return ToPacket(committed, cancellationToken);
     }
 
     private static WorkspaceContextDefinition[] ToWorkspaceContexts(

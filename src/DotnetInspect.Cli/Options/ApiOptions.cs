@@ -208,7 +208,6 @@ public partial record ApiOptions : IProjectionOptions
     /// establishes whether an explicit-source target is a type or member.
     /// </summary>
     public bool ShapeOutput { get; init; }
-    public bool ShapeExplicitlySet { get; init; }
     public string[]? Select { get; init; }
 
     /// <summary>
@@ -246,6 +245,7 @@ public partial record ApiOptions : IProjectionOptions
     public bool Schema { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
+    public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
     public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
     public CloneCandidateQueryOptions CloneCandidateQuery { get; init; } =
@@ -310,6 +310,8 @@ public partial record ApiOptions
 
 public record TypeOptions : ApiOptions
 {
+    public string? WorkspacePacket { get; init; }
+    public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
     public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
     internal int? MemberLimit { get; init; }
@@ -320,7 +322,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
     /// </summary>
-    public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
+    public bool IsDefaultInvocation => !FormatExplicitlySet;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -433,8 +435,8 @@ public record MemberOptions : ApiOptions
     public IReadOnlyList<string> CallerScopeAssemblies { get; init; } = [];
 
     /// <summary>True when the user supplied any caller-scope flag.</summary>
-    public bool HasCallerScope => CallerScopeDirectories.Length > 0 
-        || CallerScopeProjects.Length > 0 
+    public bool HasCallerScope => CallerScopeDirectories.Length > 0
+        || CallerScopeProjects.Length > 0
         || CallerScopePackages.Length > 0;
 
     /// <inheritdoc/>

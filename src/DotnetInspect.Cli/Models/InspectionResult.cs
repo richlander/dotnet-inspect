@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using NuGetFetch;
@@ -32,6 +33,8 @@ public class InspectionResult
     public string? Authors { get; set; }
     public string? License { get; set; }
     public string? LicenseUrl { get; set; }
+    [JsonIgnore]
+    internal string? DeclaredLicenseFile { get; set; }
     public string? Repository { get; set; }
     public string? RepositoryType { get; set; }
     public string? RepositoryCommit { get; set; }
@@ -192,6 +195,12 @@ public class InspectionResult
 
     public List<DependencyGroup>? DependencyGroups { get; set; }
 
+    /// <summary>
+    /// The shared Depends operation projected for this resolved Package subject.
+    /// </summary>
+    [JsonIgnore]
+    internal DependsAssetProjection? DependencyHierarchyProjection { get; set; }
+
     public List<PackageDependency>? RuntimeDependencies { get; set; }
 
     /// <summary>
@@ -273,13 +282,15 @@ public record class PackageBinarySignals
 /// and uncompressed size in bytes (read from the already-extracted package, so
 /// no extra download is required). <paramref name="IsReadme"/> marks the file the
 /// package's <c>.nuspec</c> declares as its readme (not always <c>README.md</c>);
-/// <paramref name="IsAgents"/> marks a root <c>AGENTS.md</c> file.
+/// <paramref name="IsAgents"/> marks a root <c>AGENTS.md</c> file;
+/// <paramref name="IsLicense"/> marks a declared or conventionally named license document.
 /// </summary>
 public sealed record PackageFile(
     string Path,
     long Size,
     [property: JsonIgnore] bool IsReadme = false,
-    [property: JsonIgnore] bool IsAgents = false);
+    [property: JsonIgnore] bool IsAgents = false,
+    [property: JsonIgnore] bool IsLicense = false);
 
 /// <summary>
 /// Content for one selected package file. Empty rows preserve package input

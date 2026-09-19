@@ -2390,14 +2390,45 @@ public sealed partial class CSharpPrinter
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
-        // target on the conversion's operand, not (char)((ushort)x). An
-        // out-of-range constant operand still needs the unchecked spelling.
+        // target on the conversion's operand, not (char)((ushort)x). A widening
+        // conv.u8 first zero-extends a signed stack value, however, so it
+        // cannot be replaced by a bare signed sink cast. Preserve the unsigned
+        // source reinterpretation for non-constants; for constants render the
+        // exact zero-extended value that csc itself lowers back to the widening
+        // conversion (#3356).
         // The remaining casts are same-width reinterprets (cross-signedness or
         // sibling-width): inside a lexical checked region a bare spelling
         // recompiles to a conv.ovf the IL never had (#2301), so they route
         // through CheckedSafeCast like the enum reinterprets above.
         if (value is Convert { IsChecked: false, IsUnsigned: false } conv && CSharpConversionRules.SameNumericSlotWidth(conv.Target, numericTarget))
         {
+            TypeRef? zeroExtendSource = IsCoreInt64(numericTarget)
+                && conv.Target is
+                {
+                    Kind: TypeRefKind.Definition,
+                    Assembly: TypeRef.CoreLibrary,
+                    Namespace: "System",
+                    Name: "UInt64",
+                }
+                ? TypeFamilies.WideningZeroExtendSibling(
+                    EffectiveType(conv.Operand),
+                    conv.Target)
+                : null;
+            if (zeroExtendSource is not null && conv.Operand is Constant { Value: int zeroExtendPayload })
+            {
+                string widened = ((uint)zeroExtendPayload).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return new(
+                    $"({TypeText(numericTarget)}){widened}",
+                    "ConversionExpression");
+            }
+            if (zeroExtendSource is not null)
+            {
+                return new(
+                    CheckedSafeCast(
+                        () => $"({TypeText(numericTarget)})({TypeText(zeroExtendSource)}){Operand(conv.Operand)}"),
+                    "ConversionExpression");
+            }
             if (conv.Operand is Constant { Value: int or long } convConst)
             {
                 long literal = convConst.Value is int i ? i : (long)convConst.Value!;
@@ -2483,8 +2514,7 @@ public sealed partial class CSharpPrinter
         // the condition renders at the NullCoalescing demand: a Conditional
         // (even hidden behind a stale Coerce/Convert — RenderedCondition
         // strips wrappers for classification, the #2345 round-5 lesson) wraps;
-        // every other bool form out-binds it. The arms render through Operand,
-        // which already wraps a nested conditional where needed.
+        // every other bool form out-binds it. Each arm accepts a full expression.
         var condition = RenderedCondition(conditional.Condition).At(Precedence.NullCoalescing);
         // Two-stage join decision (#2306 unified with #2322): first the
         // join-level bare-vs-spell call (EffectiveJoinTarget — neutralizes the
@@ -2612,7 +2642,7 @@ public sealed partial class CSharpPrinter
         // arm (constant or not; a cross-assembly enum is unresolved, and its
         // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
         // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
-        // and renders its member name via Operand.
+        // and renders its member name via Expression.
         if (TryCoerceJoinArm(
             arm,
             target,
@@ -2627,7 +2657,7 @@ public sealed partial class CSharpPrinter
         {
             return BoolToIntegerText(arm, intTarget);
         }
-        return Operand(arm);
+        return Expression(arm);
     }
 
     string BoolToIntegerText(IrExpression value, TypeRef target)

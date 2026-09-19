@@ -6,6 +6,8 @@ export type InertString = string & {
   readonly [inertStringBrand]: "InertString";
 };
 
+export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandler" | number;
+
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
 
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
@@ -24,6 +26,8 @@ export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | 
 
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
+export type BrowserSynchronousCompletionKind = "TaskWait" | "TaskResult" | "TaskAwaiterGetResult" | number;
+
 export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
 export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
@@ -40,6 +44,27 @@ export interface BrowserAnnotatedSource {
   readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
   readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPath {
+  readonly factId: number;
+  readonly kind: BrowserAllocationExceptionPathKind;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAllocationExceptionPath>;
+}
+
+export interface BrowserAnnotatedSourceAwaitCompletionPath {
+  readonly nodeId: number;
+}
+
+export interface BrowserAnnotatedSourceAwaitCompletionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAwaitCompletionPath>;
 }
 
 export interface BrowserAnnotatedSourceCallCycle {
@@ -103,6 +128,17 @@ export interface BrowserAnnotatedSourceInvocationDestination {
   readonly target: BrowserCallGraphTarget;
 }
 
+export interface BrowserAnnotatedSourceSynchronousCompletion {
+  readonly factId: number;
+  readonly kind: BrowserSynchronousCompletionKind;
+}
+
+export interface BrowserAnnotatedSourceSynchronousCompletionInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceSynchronousCompletion>;
+}
+
 export interface BrowserAnnotatedSourceViewerCatalog {
   readonly defaultFindingIds: ReadonlyArray<number>;
   readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
@@ -112,6 +148,9 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
   readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
   readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
+  readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
+  readonly awaitCompletionPaths: BrowserAnnotatedSourceAwaitCompletionPathInspection;
+  readonly allocationExceptionPaths: BrowserAnnotatedSourceAllocationExceptionPathInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {

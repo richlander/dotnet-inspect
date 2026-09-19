@@ -115,6 +115,84 @@ namespace Target
         }
     }
 
+    public static class SynchronousCompletionApi
+    {
+        public static void Wait(Task task) =>
+            task.Wait();
+
+        public static int Result(Task<int> task) =>
+            task.Result;
+
+        public static int AwaiterResult(Task<int> task) =>
+            task.GetAwaiter().GetResult();
+
+        public static int ConfiguredAwaiterResult(Task<int> task) =>
+            task.ConfigureAwait(false).GetAwaiter().GetResult();
+
+        public static int CustomAwaiterResult(CustomAwaitable awaitable) =>
+            awaitable.GetAwaiter().GetResult();
+    }
+
+    public static class AwaitCompletionPathApi
+    {
+        public static async Task<int> One(Task<int> task) =>
+            await task;
+
+        public static async Task<int> Configured(Task<int> task) =>
+            await task.ConfigureAwait(false);
+
+        public static async Task<int> Sequential(
+            Task<int> first,
+            Task<int> second)
+        {
+            int firstResult = await first;
+            int secondResult = await second;
+            return firstResult + secondResult;
+        }
+
+        public static async Task<int> Custom(CustomAwaitable awaitable) =>
+            await awaitable;
+    }
+
+    public static class AllocationExceptionPathApi
+    {
+        static readonly object Shared = new();
+
+        public static object ThrownValue() =>
+            throw new InvalidOperationException("failure");
+
+        public static object ExceptionHandler(string value)
+        {
+            try
+            {
+                return int.Parse(value).ToString();
+            }
+            catch (FormatException)
+            {
+                return new object();
+            }
+        }
+
+        public static object ConditionalBranch(bool useAlternative) =>
+            useAlternative ? new object() : Shared;
+    }
+
+    public readonly struct CustomAwaitable
+    {
+        public CustomAwaiter GetAwaiter() => new();
+    }
+
+    public readonly struct CustomAwaiter :
+        System.Runtime.CompilerServices.INotifyCompletion
+    {
+        public bool IsCompleted => false;
+
+        public void OnCompleted(Action continuation) =>
+            continuation();
+
+        public int GetResult() => 42;
+    }
+
     public interface IBodilessApi
     {
         void Invoke();

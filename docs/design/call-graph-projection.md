@@ -577,6 +577,78 @@ first edge exists only in an attributed generated body has no declared-body
 source fact to anchor; the source projection omits that witness and reports
 `IncompleteCorrespondence` instead of failing the enclosing Finding census.
 
+The same operation can classify exact physical relationships that synchronously
+observe `Task` completion. Analysis authenticates only framework
+`Task.Wait(...)`, `Task<T>.Result`, and task-awaiter `GetResult()` members and
+matches their complete ordinary instance signatures, including exact parameter
+and return types, non-generic method arity, and default calling convention.
+Fixed framework signature types require trusted framework identity; generic
+result members preserve and match the open declaring-type parameter. Fixed
+types also retain their exact ECMA-335 primitive or value-type discriminator,
+so a same-name `CLASS`/`VALUETYPE` mismatch is not authenticated. It
+returns a typed operation kind; Research joins each positive observation to the
+existing physical `call.edge` fact. The classification needs no graph expansion,
+body reopening, ownership result, or inferred source text. It deliberately does
+not classify custom awaiters or `ValueTask`, and an empty result makes no claim
+that the member is free of blocking behavior. The viewer describes the proven
+structure as a synchronous completion operation that *may* block when the task
+is incomplete; actual blocking, duration, frequency, deadlock, and completion
+state require runtime or stronger flow evidence and are not asserted.
+[VSTHRD002](https://microsoft.github.io/vs-threading/analyzers/VSTHRD002.html)
+and
+[CA1849](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1849)
+recognize the same three Task structures as analyzer inputs. This projection
+uses that established structural boundary but deliberately reports evidence
+rather than a diagnostic: it does not apply source-level completion guards,
+async-context policy, or code-fix advice.
+
+Annotated Source can also expose the complementary asynchronous structure for a
+successfully reconstructed classic await. The Decompiler, not Analysis, owns
+this evidence because
+[the classic async inverse](classic-async-reconstruction.md) already requires a
+closed proof that the exact `IsCompleted` test has an inline edge to the matching
+`GetResult`, a suspension-registration edge, and a correlated resume edge to the
+same continuation before it may mark the reconstructed `AwaitExpression`.
+Re-running a second, weaker recognizer over Analysis IL would duplicate that
+proof and could disagree with the source reconstruction the viewer actually
+displays. Method-level async classification is likewise too coarse because one
+rendered body can contain other await syntax that does not carry this proof.
+Research therefore emits one typed sidecar row only for each exact printed
+`AwaitExpression` retaining the classic inverse's completion-path marker.
+If marked and unmarked contributors collapse to one rendered node, projection
+fails closed and emits no row for that node.
+Browser validation requires every row to name an existing C#
+`AwaitExpression` node and rejects duplicates; no identity is recovered from
+method classification or source text. Selecting the await explains the
+inline-completion and suspension/resume paths and states
+that this is compiled structure only. It does not claim which path ran,
+successful completion, path frequency or duration, scheduler or thread
+selection, `ExecutionContext` behavior, or allocation behavior. Runtime-async,
+async iterators, and declined classic lowerings fail closed with no observation.
+The sidecar remains outside default annotations and adds no source Finding.
+
+Annotated Source also preserves Analysis-owned exception-path classification
+for exact allocation Findings. Research reads the typed
+`AllocationOccurrence`, not its formatted `path=...` detail, and joins each
+positive observation to the existing source document `FactId`. A thrown-value
+observation requires `Escape == ThrowPath`; an exception-handler observation
+requires `PathContext == ErrorPath` after excluding thrown values. Browser
+validation requires a unique body allocation fact for every observation. The
+viewer adds structured detail to the selected allocation Finding without
+minting another Finding, chip, or default annotation.
+
+The presentation says either that the allocation constructs the thrown value
+or that it occurs in a catch, filter, or fault handler, followed by an explicit
+compiled-structure-only disclaimer. It does not claim that an exception
+occurred, that a handler ran, path frequency, rarity, latency, or runtime
+allocation count. Ordinary branch and switch-arm allocations are close
+negatives: the current Analysis evidence proves conditional placement but not
+that the branch is semantically a fallback. The motivating real shape is the
+`System.MemoryExtensions` throw helper documented in
+[caret stacking](caret-stacking.md), where the exception allocation already
+carries `path=error-path` and `escape=throw-path`; the typed sidecar removes the
+browser's need to parse that presentation string.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -588,6 +660,19 @@ Browser/Wasm transport alongside existing callee evidence.
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
 This adoption does not yet transport ownership witnesses, add a relationship
 table, or reuse the separately requested full member Call Graph surface.
+`MemberProjection_ProjectsSynchronousTaskCompletionOperations` and
+`MemberFindingCensus_ProjectsSynchronousTaskCompletionOperation` gate the
+framework identity, physical `call.edge` join, Browser/Wasm transport, and
+non-default detail. Compiler-generated async-body calls remain outside this
+declared-body source correspondence; their absence is not presented as a clean
+result. `MemberProjection_ProjectsClassicAwaitCompletionPaths` and
+`MemberFindingCensus_ProjectsClassicAwaitCompletionPaths` gate the authenticated
+classic kickoff, exact Decompiler-issued await-node binding, Browser/Wasm
+transport, and bounded no-runtime-claim presentation.
+`MemberProjection_ProjectsAllocationExceptionPaths` and
+`MemberFindingCensus_ProjectsAllocationExceptionPath` gate the typed allocation
+payload, exact source-Finding join, thrown-value versus handler distinction,
+Browser/Wasm transport, and branch-only close negative.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

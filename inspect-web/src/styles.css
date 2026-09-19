@@ -3776,6 +3776,21 @@ kbd {
 }
 .query-row-head h2 { margin: 0; font: 600 14px var(--mono); }
 .query-row-version { color: var(--dim); font: 11px var(--mono); }
+.query-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.query-answer {
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font: 11px var(--mono);
+}
 .query-tier {
   flex: none;
   padding: 2px 7px;
@@ -4268,6 +4283,12 @@ kbd {
 .annotated-destinations > div { display: flex; gap: 7px; }
 .annotated-destinations button { color: var(--text); border-color: var(--line-strong); }
 .annotated-destinations button:first-child { border-color: var(--accent); }
+.annotated-await-completion-paths { display: grid; gap: 7px; margin-top: 10px; padding: 10px; border-top: 1px solid var(--line); background: var(--panel-raised); }
+.annotated-await-completion-paths > span { color: var(--dim); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.annotated-await-completion-paths p,
+.annotated-await-completion-paths small { margin: 0; color: var(--muted); font: 11px/1.5 var(--mono); }
+.annotated-await-completion-paths strong { color: var(--text); }
+.annotated-await-completion-paths small { color: var(--dim); }
 .annotated-inspector-action > span:first-child { display: grid; gap: 3px; }
 .annotated-inspector-action { border-left: 3px solid var(--line-strong); }
 button:is(.annotated-finding-chip, .annotated-finding-toggle, .annotated-inspector-action).category-allocation { border-left-color: var(--finding-allocation); }

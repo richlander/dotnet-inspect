@@ -27,6 +27,10 @@
     <AdditionalFiles Include="..\DotnetInspect.Web\BannedSymbols.txt" />
     <ProjectReference Include="..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse.Execution.Packages\DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformHouse.Packages\DotnetInspector.PlatformHouse.Packages.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.PlatformQueries\DotnetInspector.PlatformQueries.csproj" />
+    <ProjectReference Include="..\..\src\DotnetInspector.Platforms.Packages\DotnetInspector.Platforms.Packages.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />

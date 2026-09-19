@@ -67,6 +67,7 @@ public static class PackageSectionDescriptors
             .Add<Statistics>()
             .Add<TargetFrameworks>()
             .Add<NuspecFiles>()
+            .Add<LicenseFiles>()
             .Add<SkillFiles>()
             .Add<SourceFiles>()
             .Add<SourceLinkAvailability>(
@@ -79,6 +80,9 @@ public static class PackageSectionDescriptors
                 SourceAvailabilityQuery.Definition,
                 HasLibraries)
             .Add<Signature>()
+            // Effective discovery advertises the authored hierarchy schema without acquiring
+            // transitive dependency evidence; rendering remains gated by CanRender.
+            .Add<DependencyHierarchy>(static _ => true)
             .Add<Dependencies>()
             .Add<Vulnerabilities>()
             .Add<Manifest>()
@@ -106,6 +110,7 @@ public static class PackageSectionDescriptors
             .AddBaseCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
             .AddCategory(
                 SectionCategoryNames.Dependencies,
+                PackageSections.DependencyHierarchy,
                 PackageSections.Dependencies,
                 PackageSections.RuntimeDependencies)
             .AddCategory(
@@ -249,6 +254,17 @@ public static class PackageSectionDescriptors
             => Matches(model, PackageSections.FilesSkills);
     }
 
+    public sealed class LicenseFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.FilesLicenses;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(InspectionResult model)
+            => Matches(model, PackageSections.FilesLicenses);
+    }
+
     public sealed class NuspecFiles : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.FilesNuspec;
@@ -327,6 +343,18 @@ public static class PackageSectionDescriptors
     }
 
     // ===== Offline sections =====
+
+    public sealed class DependencyHierarchy :
+        ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.DependencyHierarchy;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(InspectionResult model) =>
+            model.DependencyHierarchyProjection is not null;
+    }
 
     public sealed class Dependencies : ISectionDescriptor<InspectionResult>
     {

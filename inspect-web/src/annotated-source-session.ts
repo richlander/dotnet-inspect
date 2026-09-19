@@ -12,6 +12,10 @@ import type {
 } from "./document-model.ts";
 import type {
   BrowserAnnotatedSource,
+  BrowserAnnotatedSourceAllocationExceptionPath,
+  BrowserAnnotatedSourceAllocationExceptionPathInspection,
+  BrowserAnnotatedSourceAwaitCompletionPath,
+  BrowserAnnotatedSourceAwaitCompletionPathInspection,
   BrowserAnnotatedSourceCallCycle,
   BrowserAnnotatedSourceCallCycleInspection,
   BrowserAnnotatedSourceCallRelationship,
@@ -19,6 +23,8 @@ import type {
   BrowserAnnotatedSourceFindingEvidence,
   BrowserAnnotatedSourceFindingEvidenceDocument,
   BrowserAnnotatedSourceInvocationDestination,
+  BrowserAnnotatedSourceSynchronousCompletion,
+  BrowserAnnotatedSourceSynchronousCompletionInspection,
   BrowserAnnotatedSourceViewerCatalog,
 } from "./facades/inspect-web-source.d.ts";
 
@@ -103,6 +109,18 @@ export interface AnnotatedSourceViewerModel {
   callCycles: BrowserAnnotatedSourceCallCycleInspection;
   callCyclesByFactId:
     ReadonlyMap<number, readonly BrowserAnnotatedSourceCallCycle[]>;
+  synchronousCompletions:
+    BrowserAnnotatedSourceSynchronousCompletionInspection;
+  synchronousCompletionsByFactId:
+    ReadonlyMap<number, BrowserAnnotatedSourceSynchronousCompletion>;
+  awaitCompletionPaths:
+    BrowserAnnotatedSourceAwaitCompletionPathInspection;
+  awaitCompletionPathsByNodeId:
+    ReadonlyMap<number, BrowserAnnotatedSourceAwaitCompletionPath>;
+  allocationExceptionPaths:
+    BrowserAnnotatedSourceAllocationExceptionPathInspection;
+  allocationExceptionPathsByFactId:
+    ReadonlyMap<number, BrowserAnnotatedSourceAllocationExceptionPath>;
   findingEvidence: readonly AnnotatedSourceFindingEvidence[];
   findingEvidenceByFactId:
     ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
@@ -171,6 +189,12 @@ export function createAnnotatedSourceViewerModel(
     validateCallRelationships(result.document, result);
   const callCycles =
     validateCallCycles(result.document, result, callRelationships);
+  const synchronousCompletions =
+    validateSynchronousCompletions(result, callRelationships);
+  const awaitCompletionPaths =
+    validateAwaitCompletionPaths(result);
+  const allocationExceptionPaths =
+    validateAllocationExceptionPaths(result);
   const findingEvidence =
     validateFindingEvidence(
       result.document,
@@ -192,6 +216,18 @@ export function createAnnotatedSourceViewerModel(
     callRelationships,
     callCycles,
     callCyclesByFactId: indexCallCycles(callCycles),
+    synchronousCompletions,
+    synchronousCompletionsByFactId:
+      new Map(synchronousCompletions.observations.map(
+        observation => [observation.factId, observation])),
+    awaitCompletionPaths,
+    awaitCompletionPathsByNodeId:
+      new Map(awaitCompletionPaths.observations.map(
+        observation => [observation.nodeId, observation])),
+    allocationExceptionPaths,
+    allocationExceptionPathsByFactId:
+      new Map(allocationExceptionPaths.observations.map(
+        observation => [observation.factId, observation])),
     findingEvidence,
     findingEvidenceByFactId:
       new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
@@ -225,6 +261,20 @@ export function callCyclesForFact(
   factId: number,
 ): readonly BrowserAnnotatedSourceCallCycle[] {
   return model.callCyclesByFactId.get(factId) ?? [];
+}
+
+export function synchronousCompletionForFact(
+  model: AnnotatedSourceViewerModel,
+  factId: number,
+): BrowserAnnotatedSourceSynchronousCompletion | null {
+  return model.synchronousCompletionsByFactId.get(factId) ?? null;
+}
+
+export function awaitCompletionPathForNode(
+  model: AnnotatedSourceViewerModel,
+  nodeId: number,
+): BrowserAnnotatedSourceAwaitCompletionPath | null {
+  return model.awaitCompletionPathsByNodeId.get(nodeId) ?? null;
 }
 
 export function createEmbeddedSession(
@@ -848,6 +898,132 @@ function indexCallCycles(
     }
   }
   return indexed;
+}
+
+function validateSynchronousCompletions(
+  result: AnnotatedSourceResult,
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): BrowserAnnotatedSourceSynchronousCompletionInspection {
+  const inspection = result.viewerCatalog.synchronousCompletions;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.observations.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source synchronous completions cannot carry observations.");
+    }
+    return inspection;
+  }
+  if (inspection.unavailableReason !== null
+    || !result.viewerCatalog.callRelationships.available) {
+    throw new TypeError(
+      "Available Annotated Source synchronous completions require call relationships.");
+  }
+
+  const knownKinds = new Set([
+    "TaskWait",
+    "TaskResult",
+    "TaskAwaiterGetResult",
+  ]);
+  const relationshipFactIds = new Set(
+    relationships.map(relationship => relationship.factId),
+  );
+  const observedFactIds = new Set<number>();
+  for (const [index, observation] of inspection.observations.entries()) {
+    if (!Number.isSafeInteger(observation.factId)
+      || !relationshipFactIds.has(observation.factId)
+      || observedFactIds.has(observation.factId)
+      || typeof observation.kind !== "string"
+      || !knownKinds.has(observation.kind)) {
+      throw new TypeError(
+        `Annotated Source synchronous completion ${index} has invalid or duplicate relationship evidence.`);
+    }
+    observedFactIds.add(observation.factId);
+  }
+  return inspection;
+}
+
+function validateAwaitCompletionPaths(
+  result: AnnotatedSourceResult,
+): BrowserAnnotatedSourceAwaitCompletionPathInspection {
+  const inspection = result.viewerCatalog.awaitCompletionPaths;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.observations.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source await completion paths cannot carry observations.");
+    }
+    return inspection;
+  }
+
+  if (inspection.unavailableReason !== null) {
+    throw new TypeError(
+      "Available Annotated Source await completion paths cannot carry an unavailable reason.");
+  }
+
+  const observedNodeIds = new Set<number>();
+  for (const [index, observation] of inspection.observations.entries()) {
+    const node = result.document.nodes[observation.nodeId];
+    if (!Number.isSafeInteger(observation.nodeId)
+      || observation.nodeId < 0
+      || !node
+      || node.medium !== "CSharp"
+      || node.kind !== "AwaitExpression"
+      || observedNodeIds.has(observation.nodeId)) {
+      throw new TypeError(
+        `Annotated Source await completion path ${index} does not name a unique C# AwaitExpression node.`);
+    }
+    observedNodeIds.add(observation.nodeId);
+  }
+  return inspection;
+}
+
+function validateAllocationExceptionPaths(
+  result: AnnotatedSourceResult,
+): BrowserAnnotatedSourceAllocationExceptionPathInspection {
+  const inspection = result.viewerCatalog.allocationExceptionPaths;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.observations.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source allocation exception paths cannot carry observations.");
+    }
+    return inspection;
+  }
+  if (inspection.unavailableReason !== null) {
+    throw new TypeError(
+      "Available Annotated Source allocation exception paths cannot carry an unavailable reason.");
+  }
+
+  const knownKinds = new Set([
+    "ThrownValue",
+    "ExceptionHandler",
+  ]);
+  const allocationDescriptors = new Set([
+    "alloc.box",
+    "alloc.array",
+    "alloc.new",
+    "alloc.closure",
+    "alloc.statemachine",
+    "alloc.delegate",
+    "alloc.enumerator",
+  ]);
+  const observedFactIds = new Set<number>();
+  for (const [index, observation] of inspection.observations.entries()) {
+    const fact = result.document.facts[observation.factId];
+    if (!Number.isSafeInteger(observation.factId)
+      || observation.factId < 0
+      || !fact
+      || fact.origin !== "Body"
+      || !allocationDescriptors.has(fact.descriptor)
+      || observedFactIds.has(observation.factId)
+      || typeof observation.kind !== "string"
+      || !knownKinds.has(observation.kind)) {
+      throw new TypeError(
+        `Annotated Source allocation exception path ${index} does not name unique typed allocation evidence.`);
+    }
+    observedFactIds.add(observation.factId);
+  }
+  return inspection;
 }
 
 function validateFindingEvidence(

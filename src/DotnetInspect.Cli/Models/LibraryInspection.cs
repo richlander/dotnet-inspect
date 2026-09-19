@@ -1616,6 +1616,8 @@ public sealed record LibraryIntegrationSummaryJson(string Integration, int Count
 
 public sealed record VersionJson(string Version);
 
+public sealed record PackageTfmJson(string Tfm);
+
 public sealed record VersionListingJson(string Version, string Listing);
 
 /// <summary>

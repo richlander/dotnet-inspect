@@ -256,7 +256,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "package",
                 "schema-static-without-target/effective-with-target",
-                "Package[schema:54:A1719441C232]",
+                "Package[schema:58:C4EA9DCFE6A5]",
                 "focus=SourceLink: Availability->SourceLink availability;"
                     + "discovery=none",
                 "focus:vulnerability-traffic=True;"

@@ -31,7 +31,11 @@ public static class PackageCommandDefinitions
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S Dependencies --tree (tip: use 'depends --package' instead)" };
+        var dependenciesOption = new Option<bool>("--dependencies")
+        {
+            Description = "Obsolete Package dependency-tree spelling",
+            Hidden = true,
+        };
         var layoutOption = new Option<bool>("--layout") { Description = "Show package file tree" };
         var pathOption = new Option<string[]>("--path")
         {
@@ -41,7 +45,11 @@ public static class PackageCommandDefinitions
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
         var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
-        var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
+        var tfmsOption = new Option<bool>("--tfms")
+        {
+            Description =
+                "List target frameworks in the package; use -n N to select N TFM rows"
+        };
         var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --layout)" };
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
@@ -123,6 +131,14 @@ public static class PackageCommandDefinitions
                 && !PackageOptionsParser.IsPackageFileRowSelection(
                     result,
                     opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsPackageTfmRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsCloneCandidateRowSelection(
+                    result,
+                    opts,
                     commandArgs));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
@@ -191,6 +207,30 @@ public static class PackageCommandDefinitions
 
         });
 
+        // Register this fallback first: the registry prepends, so the
+        // established package populations below retain short-limit ownership.
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => PackageOptionsParser.IsCloneCandidateRowSelection(
+                result,
+                opts,
+                commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -221,6 +261,10 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 || PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
                     commandArgs),
