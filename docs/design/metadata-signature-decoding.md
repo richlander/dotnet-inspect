@@ -10,8 +10,9 @@
 `SignatureOccurrenceDecoder.Decode(PEReader, EntityHandle)` implements the
 single-signature operation for MethodDef, FieldDef, and PropertyDef handles.
 Its closed result contains either named occurrences or a typed rejection.
-The decoder-owned source closure is enforced by the structural gates named
-under [Enforcement obligation](#enforcement-obligation), with explicit imported
+The decoder-owned work bound is enforced at the artifact and result boundary
+by the pathological and valid-neighbor gates named under
+[Enforcement obligation](#enforcement-obligation), with explicit imported
 framework and mechanical-guard boundaries.
 
 ## Contract
