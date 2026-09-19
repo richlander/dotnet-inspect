@@ -47,24 +47,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     .OptimizationOpportunities));
         Assert.False(
             execution.Optimization.WasRequested);
-        Assert.False(
-            execution.Optimization
-                .HasProjectedPhysicalDirectCalls);
-        Assert.False(
+        Assert.True(
             execution.CallGraph
                 .HasProjectedPhysicalDirectCalls);
-        Assert.False(
+        Assert.True(
             execution.CallGraph
                 .HasProjectedMethodSignals);
         Assert.Empty(
             execution.Optimization.Opportunities);
-        Assert.False(
-            execution.Optimization
-                .HasProjectedPhysicalDirectCalls);
         Assert.Empty(
             execution.Optimization
                 .AllocationFanoutOpportunities);
-        Assert.False(
+        Assert.True(
             execution.Optimization
                 .HasProjectedPhysicalDirectCalls);
         Assert.NotEmpty(
@@ -72,6 +66,14 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.NotEmpty(
             execution.ImplementationProfiles
                 .OverloadRelationships);
+        Assert.Same(
+            execution.ImplementationProfiles
+                .GeneratedFrameworkTypes,
+            execution.Leverage.GeneratedFrameworkTypes);
+        Assert.Same(
+            execution.ImplementationProfiles
+                .GeneratedFrameworkTypes,
+            execution.Optimization.GeneratedFrameworkTypes);
     }
 
     [Fact]

@@ -133,10 +133,11 @@ lease, or service instance.
 Publishing an unrequested focused result must remain constant-cost over its
 already-produced input references. Result-local derived arrays are constructed
 only when a consumer accesses a result whose producer participated.
-Call-graph, leverage, and optimization results share one lazy physical-call
-projection and one lazy generated-framework classification internally. This
-keeps the result types semantically separate without repeating the retained
-evidence or whole-library classification.
+Implementation-profile, call-graph, leverage, and optimization results share
+one lazy physical-call projection, method-signal derivation, declared-method
+map, and generated-framework classification internally. This keeps the result
+types semantically separate without repeating retained evidence or
+whole-library classification.
 
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
