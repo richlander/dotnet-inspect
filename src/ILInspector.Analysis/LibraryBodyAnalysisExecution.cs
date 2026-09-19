@@ -89,7 +89,6 @@ public sealed class LibraryBodyAnalysisExecution
                 generatedFrameworkTypes);
         Optimization = new(
             Receipt,
-            _moduleName,
             analysis,
             CallGraph,
             generatedFrameworkTypes);

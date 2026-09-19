@@ -74,6 +74,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes,
             execution.Optimization.GeneratedFrameworkTypes);
+        Assert.Same(
+            execution.CallGraph.DeclaredMethodMap,
+            execution.Optimization.DeclaredMethodMap);
     }
 
     [Fact]

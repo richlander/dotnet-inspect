@@ -130,7 +130,6 @@ public sealed class LibraryBodyIndex
         _optimization = optimization
             ?? new(
                 receipt,
-                moduleName,
                 analysis,
                 _callGraph,
                 generatedFrameworkTypes ??=

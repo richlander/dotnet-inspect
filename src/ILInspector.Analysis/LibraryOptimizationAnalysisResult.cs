@@ -11,7 +11,6 @@ public sealed class LibraryOptimizationAnalysisResult
 {
     private const int AllocationHotspotThreshold = 16;
 
-    private readonly string? _moduleName;
     private readonly LibraryCallGraphAnalysisResult _callGraph;
     private readonly GeneratedFrameworkTypeSet _generatedFrameworkTypes;
     private readonly ImmutableArray<MethodIdentity> _declaredMethods;
@@ -32,17 +31,14 @@ public sealed class LibraryOptimizationAnalysisResult
     private IReadOnlyDictionary<int, CallerLoopEvidence>?
         _directCallerLoops;
     private Dictionary<int, int>? _rootReachByToken;
-    private MethodDefinitionMap? _declaredMethodMap;
 
     internal LibraryOptimizationAnalysisResult(
         LibraryBodyAnalysisReceipt receipt,
-        string? moduleName,
         LibraryBodyAnalysisResult analysis,
         LibraryCallGraphAnalysisResult callGraph,
         GeneratedFrameworkTypeSet generatedFrameworkTypes)
     {
         Receipt = receipt;
-        _moduleName = moduleName;
         _callGraph = callGraph;
         _generatedFrameworkTypes = generatedFrameworkTypes;
         _declaredMethods = analysis.Methods.DeclaredMethods;
@@ -263,11 +259,8 @@ public sealed class LibraryOptimizationAnalysisResult
     private ImmutableArray<DirectCall> PhysicalDirectCalls
         => _callGraph.PhysicalDirectCalls;
 
-    private MethodDefinitionMap DeclaredMethodMap =>
-        _declaredMethodMap ??=
-            MethodDefinitionMap.Create(
-                _declaredMethods,
-                _moduleName);
+    internal MethodDefinitionMap DeclaredMethodMap =>
+        _callGraph.DeclaredMethodMap;
 
     private IReadOnlyDictionary<int, CallerLoopEvidence>
         DirectCallerLoops
