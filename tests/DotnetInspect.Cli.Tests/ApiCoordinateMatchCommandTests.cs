@@ -335,6 +335,28 @@ public sealed class ApiCoordinateMatchCommandTests
         }
     }
 
+    [Fact]
+    public async Task TypeEnvelopeRejectsWorkspaceBeforeRestoration()
+    {
+        var result = await Invoke(
+        [
+            "type", "Example.Widget",
+            "--workspace", "not-a-workspace-packet",
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Workspace packet",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("--bare")]
     [InlineData("--tree")]

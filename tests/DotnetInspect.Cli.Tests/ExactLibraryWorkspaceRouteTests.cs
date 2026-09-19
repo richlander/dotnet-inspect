@@ -111,6 +111,13 @@ public sealed class ExactLibraryWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactLibraryApiRequest(
                 options with
                 {
+                    WorkspacePacket = "packet",
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactLibraryApiRequest(
+                options with
+                {
                     JsonOutput = true,
                     Verbosity = Verbosity.Normal,
                 },

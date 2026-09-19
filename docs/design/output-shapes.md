@@ -134,8 +134,8 @@ Asset-mode `depends`, other Type routes, other commands, Discover, Count,
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
 unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
-[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) owns this
-command cutover.
+[#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
+remaining Diff command-family adoption.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
