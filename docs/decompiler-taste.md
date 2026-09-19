@@ -890,6 +890,44 @@ conceptual orders. Consequently neither value is declared- or
 corpus-endorsed. Alphabetical is an explicit tool-owned default, not an oracle
 claim.
 
+## Long-literal spelling
+
+Compiler-shaped `long` constants use the terse uppercase-`L` spelling in
+user-facing output:
+
+```csharp
+public static long Small() => 42L;
+public static long JustPastIntMaxValue() => 2147483648L;
+```
+
+The low-level fidelity and harness view retains the explicit conversion
+spelling, `(long)42` or `(long)2147483648`, so evidence can continue to expose
+the imported conversion structure. Both spellings compile back Exact for the
+accepted shapes. The suffix spelling recognizes only the compiler-produced
+`ldc.i4 N; conv.i8` family and the proven `ldc.i4 N; conv.u8`
+zero-extension feeding an `Int64` sink. A genuine `ldc.i8` remains distinct and
+is never rewritten by this option.
+
+The declared dotnet/runtime oracle is silent: its `.editorconfig` has no rule
+choosing an `L` suffix over a `(long)` cast. At runtime commit
+`7adc767a7bb3c41986db17f10a6369800501a624`, the revealed library source
+generally favors uppercase `L`: after excluding obvious generated source, 64
+matching lines across 43 files use `L`, versus 16 lines across 6 files using
+`(long)<literal>`. The broader library-source scan contains 101 uppercase `L`
+occurrences and no lowercase `l` occurrences. The exact `2147483648` boundary
+has no authored production-library witness and is sparse and mixed in tests and
+reference declarations. The suffix default is therefore an explicit product
+decision favoring terseness, supported by the general revealed convention but
+not recorded as declared- or corpus-oracle endorsement.
+
+The `prefer-long-literal-suffix` catalog axis owns both spellings. Its
+user-facing default is the suffix; the `explicit-long-literal-cast` picker
+choice selects casts. In `.dotnet-inspectconfig`,
+`dotnet_inspect_style_prefer_long_literal_suffix = false` selects the explicit
+cast and `true` restores the suffix. The previously persisted browser choice id
+`prefer-long-literal-suffix` remains accepted as a migration alias for the new
+default.
+
 ## Style configuration
 
 The oracle settles a single shipped default per equivalence class, but a few
@@ -918,6 +956,7 @@ dotnet_style_qualification_for_method = true
 dotnet_style_qualification_for_event = true
 dotnet_style_prefer_conditional_expression_over_return = true
 dotnet_inspect_style_enum_case_label_order = value
+dotnet_inspect_style_prefer_long_literal_suffix = false
 ```
 
 - `#` and `;` comment lines and `[section]` headers are ignored.
@@ -934,7 +973,9 @@ dotnet_inspect_style_enum_case_label_order = value
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key),
   `dotnet_inspect_style_enum_case_label_order` (`alphabetical` by default or
-  `value` for recovered numeric order), and
+  `value` for recovered numeric order),
+  `dotnet_inspect_style_prefer_long_literal_suffix` (`true` by default for
+  terse `NL` constants or `false` for explicit `(long)N` casts), and
   `dotnet_inspect_style_slot_local_names` (the registry's default-off opt-out
   that keeps `V_index` names), plus
   `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name

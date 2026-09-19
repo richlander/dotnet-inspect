@@ -79,9 +79,24 @@ explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
 Metadata friend set. The source rejects resolver operations after its owning
 session is disposed, while copied body data remains safe to retain.
 
-This establishes the migration pattern for the existing member projection:
-top-level contracts, a focused `MemberProjectionProducer`, and a thin
-`ResearchViews.ProjectMember` forwarder. That migration is tracked by
+`MemberProjectionProducer` applies that pattern to member inspection:
+
+- top-level `MemberProjectionRequest` and `MemberProjectionResult` contracts
+  carry already-open Metadata, optional Analysis context, and selected
+  projection capabilities;
+- the producer owns method import, one Finding census, overlays, portable
+  source, tracing, and projection-specific failure shaping;
+- `ResearchViews.ProjectMember` is a compatibility forwarder with no production
+  logic;
+- CLI member inspection and L1 Research queries invoke the producer directly;
+  the CLI unions `ResearchFactRegistry` requirements into its existing Analysis
+  execution, while the pathless Workspace query supplies its immutable-image
+  context; and
+- `ResearchAssemblyContext` remains a transitional input until every member
+  fact family has an exact focused Analysis result. The producer does not
+  replace that boundary with a universal Research result bag.
+
+This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
 
 ## Selector shapes
@@ -238,8 +253,23 @@ decoded once during acquisition rather than independently by safety evidence
 and occurrence scans. Raw IL, generic decoding scope, metadata readers, and
 reader-bound method bodies remain outside the context so a topic producer
 cannot create a second decode or metadata traversal path.
-Allocation path contexts, confidence, and post-dominance remain private
-Layer-1 interpretations rather than becoming neutral context.
+Allocation path contexts, confidence, and post-dominance remain Layer-1
+interpretations rather than becoming neutral context. Analysis may publish
+those interpretations through the typed `AllocationOccurrence` result; a
+consumer must preserve that owner-issued value rather than infer path context
+from rendered detail text or source syntax. The first Annotated Source adoption
+projects only positive exception-related allocation paths:
+
+- `Escape == ThrowPath` means the allocation constructs the value used by a
+  `throw`;
+- otherwise `PathContext == ErrorPath` means the allocation occurs in a
+  `catch`, filter, or fault handler.
+
+The two cases are structural compiled-code evidence. They do not claim that an
+exception occurred, a handler ran, the path is cold or rare, or how often the
+allocation executed. Branch and switch-arm contexts are not called fallback
+paths because Analysis does not identify the branch's semantic role.
+
 `BodySignalAnalysis` owns array, throw, exception-region, allocating-box, and
 throw-path object signals; it receives the metadata-dependent box judgment
 through a narrow callback. `MethodBodyFlowProbe` owns the bounded throw-path

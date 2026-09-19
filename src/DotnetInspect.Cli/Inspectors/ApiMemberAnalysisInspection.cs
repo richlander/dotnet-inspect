@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -24,6 +25,8 @@ internal sealed class ApiMemberAnalysisInspection
     readonly bool _includeOpportunities;
     readonly bool _includeGraphAllocations;
     readonly bool _includeGraphOpportunities;
+    readonly bool _includeResearchContext;
+    readonly Analysis.LibraryBodyAnalysisFeatures _features;
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
     readonly IReadOnlySet<int>? _bodyScope;
@@ -34,6 +37,7 @@ internal sealed class ApiMemberAnalysisInspection
         Analysis.TypeRef,
         List<MethodBodyInspectionSession>> _directCallerScopes = [];
     MethodBodyInspectionSession? _session;
+    ResearchAssemblyContext? _researchContext;
     ResolvedAssemblyReference? _targetAssembly;
     IReadOnlyList<ResolvedAssemblyReference>? _scopeCandidates;
     List<MethodBodyInspectionSession>? _callerScopes;
@@ -59,6 +63,25 @@ internal sealed class ApiMemberAnalysisInspection
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
+        bool requestsResearchProjection =
+            requestedSections.Contains(SectionNames.AnnotatedSource)
+            || requestedSections.Contains(SectionNames.CostOverlay)
+            || requestedSections.Contains(SectionNames.SemanticsOverlay)
+            || requestedSections.Contains(SectionNames.Facts)
+            || requestedSections.Contains(
+                SectionNames.AnnotatedSourceDocument)
+            || requestedSections.Contains(SectionNames.FindingCensus);
+        ResearchFactRequirements researchRequirements =
+            requestsResearchProjection
+                ? ResearchFactRegistry.Default.Requirements
+                : ResearchFactRequirements.None;
+        _includeResearchContext =
+            researchRequirements.Scope != ResearchAnalysisScope.None;
+        if ((researchRequirements.Features
+                & Analysis.LibraryBodyAnalysisFeatures.Allocations) != 0)
+        {
+            _includeAllocations = true;
+        }
         if (requestedSections.Contains(SectionNames.CallGraph)
             && (options?.Fields is { Length: > 0 }
                 || options?.Columns is { Length: > 0 }))
@@ -78,7 +101,9 @@ internal sealed class ApiMemberAnalysisInspection
 
         bool needsWholeAssemblyBody =
             requestedSections.Contains(SectionNames.Callers)
-            || requestedSections.Contains(SectionNames.CallGraph);
+            || requestedSections.Contains(SectionNames.CallGraph)
+            || researchRequirements.Scope
+                == ResearchAnalysisScope.Assembly;
         if (!needsWholeAssemblyBody)
         {
             var memberTokens = methods
@@ -91,9 +116,33 @@ internal sealed class ApiMemberAnalysisInspection
                 _bodyScope = memberTokens;
             }
         }
+
+        _features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+            | researchRequirements.Features;
+        if (_includeAllocations)
+        {
+            _features |=
+                Analysis.LibraryBodyAnalysisFeatures.Allocations;
+        }
+        if (_includeOpportunities)
+        {
+            _features |= Analysis.LibraryBodyAnalysisFeatures
+                .OptimizationOpportunities;
+        }
+        if (_includeGraphOpportunities)
+        {
+            _features |= Analysis.LibraryBodyAnalysisFeatures
+                .AsyncSiblingOpportunities;
+        }
     }
 
     internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
+
+    internal ResearchAssemblyContext? ResearchContext =>
+        _includeResearchContext
+            ? _researchContext ??=
+                ResearchAssemblyContext.Create(BodyIndex)
+            : null;
 
     internal IReadOnlyList<CallGraphField> CallGraphFields =>
         _callGraphFields;
@@ -196,16 +245,13 @@ internal sealed class ApiMemberAnalysisInspection
         _callGraphDiagnostics;
 
     MethodBodyInspectionSession Session =>
-        _session ??= MethodBodyInspectionSession.Open(
+        _session ??= MethodBodyInspectionSession.OpenWithFeatures(
             TargetAssembly,
+            _features,
             ApiAnalysisInspection.CreateReferenceResolver(
                 _assemblyPath,
                 _options),
-            _includeAllocations,
-            _includeOpportunities,
-            _bodyScope,
-            includeAsyncSiblingOpportunities:
-                _includeGraphOpportunities);
+            _bodyScope);
 
     ResolvedAssemblyReference TargetAssembly =>
         _targetAssembly ??= ResolvedAssemblyReference.CreateFromPath(

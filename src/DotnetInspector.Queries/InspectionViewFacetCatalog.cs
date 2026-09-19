@@ -15,6 +15,9 @@ public static class InspectionViewFacetCatalog
             "package.dependencies",
             InspectionViewFacetExecution.PackageDependencies),
         Binding(
+            "package.dependency-hierarchy",
+            InspectionViewFacetExecution.PackageDependencyHierarchy),
+        Binding(
             "library.references",
             InspectionViewFacetExecution.LibraryReferences),
         Binding(
@@ -91,6 +94,15 @@ public static class InspectionViewFacetCatalog
                 "Declared package dependencies for the selected target framework.",
                 200),
             "Declared package dependencies for the selected target framework.",
+            AppliesToPackage),
+        Active(
+            Descriptor(
+                "package.dependency-hierarchy",
+                StructuralSubjectKind.Package,
+                "Dependency Hierarchy",
+                "Rooted transitive package dependencies for the selected target framework.",
+                300),
+            "Rooted transitive package dependencies for the selected target framework.",
             AppliesToPackage),
         Active(
             Descriptor(
@@ -294,6 +306,7 @@ internal enum InspectionViewFacetExecution
     WorkspaceOverview,
     PackageOverview,
     PackageDependencies,
+    PackageDependencyHierarchy,
     LibraryReferences,
     LibraryIntegrations,
     LibraryAnalysis,

@@ -9,7 +9,11 @@ namespace DotnetInspect.Cli.Inspectors;
 
 internal static class MemberSourceLocationCollector
 {
-    public static async Task<string?> EnrichAsync(
+    internal sealed record Result(
+        string? PdbPath,
+        IReadOnlyDictionary<ApiMember, MemberSourceObservation> Mappings);
+
+    public static async Task<Result> EnrichAsync(
         ApiType apiType,
         string assemblyPath,
         ResolvedAssemblyReference? sourceAssembly,
@@ -19,12 +23,13 @@ internal static class MemberSourceLocationCollector
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        var collected = new Dictionary<ApiMember, MemberSourceObservation>(ReferenceEqualityComparer.Instance);
         try
         {
             using var service = SourceLinkService.Open(assemblyPath, logger.Log);
             var context = service.Context;
             if (!context.HasMetadata)
-                return null;
+                return new(null, collected);
 
             if (context.NeedsPdb)
             {
@@ -55,8 +60,8 @@ internal static class MemberSourceLocationCollector
             }
 
             var pdbPath = context.PortablePdbPath;
-            if (!service.HasPdb || !service.HasSourceLink)
-                return pdbPath;
+            if (!service.HasPdb)
+                return new(pdbPath, collected);
 
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
             var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
@@ -68,7 +73,7 @@ internal static class MemberSourceLocationCollector
                     static group => group.Key,
                     static group => group.Select(static pair => pair.Candidate).ToArray());
             if (membersByToken.Count == 0)
-                return pdbPath;
+                return new(pdbPath, collected);
 
             // A member can offer several accessor tokens; the best-ranked one that actually
             // resolves wins, so a later accessor is consulted only when a preferred one carries
@@ -88,12 +93,13 @@ internal static class MemberSourceLocationCollector
                     membersByToken,
                     complete,
                     documentsByRowId,
-                    appliedRank);
-                return pdbPath;
+                    appliedRank,
+                    collected);
+                return new(pdbPath, collected);
             }
 
             if (sourceInspection.Value is FindingInspection<MemberSourceObservation>.Absent)
-                return pdbPath;
+                return new(pdbPath, collected);
 
             // A malformed method must not suppress source locations for healthy selected
             // members. Token queries are direct lookups, so this fallback remains O(selected).
@@ -118,15 +124,16 @@ internal static class MemberSourceLocationCollector
                     new Dictionary<int, (ApiMember Member, int Rank)[]> { [token] = members },
                     tokenComplete,
                     documentsByRowId,
-                    appliedRank);
+                    appliedRank,
+                    collected);
             }
 
-            return pdbPath;
+            return new(pdbPath, collected);
         }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
-            return null;
+            return new(null, collected);
         }
     }
 
@@ -134,7 +141,8 @@ internal static class MemberSourceLocationCollector
         IReadOnlyDictionary<int, (ApiMember Member, int Rank)[]> membersByToken,
         FindingInspection<MemberSourceObservation>.Complete inspection,
         IReadOnlyDictionary<int, SourceDocument> documentsByRowId,
-        Dictionary<ApiMember, int> appliedRank)
+        Dictionary<ApiMember, int> appliedRank,
+        Dictionary<ApiMember, MemberSourceObservation> collected)
     {
         foreach (var mappings in inspection.Findings
             .Select(static finding => finding.Payload)
@@ -154,6 +162,7 @@ internal static class MemberSourceLocationCollector
                     continue;
 
                 appliedRank[member] = rank;
+                collected[member] = mapping;
                 member.SourceFilePath = mapping.OriginalPath;
                 member.SourceUrl = mapping.ResolvedUrl;
                 member.SourceLineNumber = mapping.StartLine;

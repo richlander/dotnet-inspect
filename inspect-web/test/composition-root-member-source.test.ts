@@ -795,7 +795,7 @@ test("decompiled source discloses the PDB-source limitation", () => {
     /renderSourceResult[\s\S]*pdbSourceLimitationHtml\(source\)/);
   assert.match(
     appSource,
-    /case "ready":\s*return renderSourceResult\(\{\s*source: state\.memberSource\.source,/);
+    /source: source\.source,\s*text: memberSourceText\(source, selectedPart\),/);
 });
 
 test("history never applies a selection to another coordinate", () => {
