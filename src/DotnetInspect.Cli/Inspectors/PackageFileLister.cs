@@ -130,6 +130,70 @@ public static class PackageFileLister
         return files.Where(f => IsImmediateChild(f.Path, p)).ToList();
     }
 
+    /// <summary>
+    /// Retains entries whose directory segments contain the requested target
+    /// framework. The filename is never considered a directory segment.
+    /// </summary>
+    public static List<PackageFile> FilterByTargetFramework(
+        IEnumerable<PackageFile> files,
+        string? targetFramework)
+    {
+        if (string.IsNullOrWhiteSpace(targetFramework)
+            || targetFramework.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            return files.ToList();
+        }
+
+        return files
+            .Where(file => HasDirectorySegment(
+                file.Path,
+                targetFramework))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns ordered, case-insensitively distinct top-level roots represented
+    /// by the selected package entries.
+    /// </summary>
+    public static List<string> ProjectRoots(IEnumerable<PackageFile> files)
+    {
+        var roots = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (PackageFile file in files)
+        {
+            int separator = file.Path.IndexOf('/');
+            if (separator <= 0)
+                continue;
+
+            string root = file.Path[..separator];
+            if (seen.Add(root))
+                roots.Add(root);
+        }
+
+        return roots;
+    }
+
+    private static bool HasDirectorySegment(
+        string path,
+        string value)
+    {
+        int segmentStart = 0;
+        while (true)
+        {
+            int separator = path.IndexOf('/', segmentStart);
+            if (separator < 0)
+                return false;
+
+            if (path.AsSpan(segmentStart, separator - segmentStart)
+                .Equals(value, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            segmentStart = separator + 1;
+        }
+    }
+
     private static bool IsImmediateChild(string path, string dir)
     {
         if (!path.StartsWith(dir + "/", StringComparison.OrdinalIgnoreCase))

@@ -131,6 +131,72 @@ public class PackageFileListerTests
     }
 
     [Fact]
+    public void FilterByTargetFramework_MatchesExactDirectorySegmentsAcrossRoots()
+    {
+        List<PackageFile> files =
+        [
+            new("lib/net8.0/Foo.dll", 1),
+            new("ref/NET8.0/Foo.dll", 1),
+            new("runtimes/win/lib/net8.0/Foo.dll", 1),
+            new("custom/net8.0/data.bin", 1),
+            new("build/net8.0/_._", 1),
+            new("lib/net8.0-windows/Foo.dll", 1),
+            new("docs/net8.0.txt", 1),
+            new("lib/net6.0/Foo.dll", 1),
+        ];
+
+        var result = PackageFileLister.FilterByTargetFramework(files, "net8.0");
+
+        Assert.Equal(
+            [
+                "lib/net8.0/Foo.dll",
+                "ref/NET8.0/Foo.dll",
+                "runtimes/win/lib/net8.0/Foo.dll",
+                "custom/net8.0/data.bin",
+                "build/net8.0/_._",
+            ],
+            result.Select(file => file.Path));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("all")]
+    [InlineData("ALL")]
+    public void FilterByTargetFramework_UnselectedOrAll_ReturnsEverything(
+        string? targetFramework)
+    {
+        List<PackageFile> files =
+        [
+            new("lib/net8.0/Foo.dll", 1),
+            new("lib/net6.0/Foo.dll", 1),
+        ];
+
+        Assert.Equal(
+            files,
+            PackageFileLister.FilterByTargetFramework(files, targetFramework));
+    }
+
+    [Fact]
+    public void ProjectRoots_PreservesOrderAndFirstSpelling()
+    {
+        List<PackageFile> files =
+        [
+            new("lib/net8.0/Foo.dll", 1),
+            new("Ref/net8.0/Foo.dll", 1),
+            new("runtimes/win/lib/net8.0/Foo.dll", 1),
+            new("LIB/net8.0/Bar.dll", 1),
+            new("README.md", 1),
+            new("custom/net8.0/_._", 1),
+            new("ref/net8.0/Bar.dll", 1),
+        ];
+
+        Assert.Equal(
+            ["lib", "Ref", "runtimes", "custom"],
+            PackageFileLister.ProjectRoots(files));
+    }
+
+    [Fact]
     public void ListAll_MarksDeclaredReadme_RegardlessOfName()
     {
         var root = CreateExtractDir("PACKAGE.md", "README.md", "lib/net8.0/Foo.dll");

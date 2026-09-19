@@ -251,6 +251,13 @@ public partial class PackageCommand
             // Opaque lens payload projections are target-independent failures. Reject them
             // before version lookup, package resolution, or extraction; --count needs the rows.
             if (packageLens is not null
+                && options.Roots)
+            {
+                CommandError.Write($"{packageLens} cannot be combined with --roots.");
+                return 1;
+            }
+
+            if (packageLens is not null
                 && !options.Count
                 && LensProjection.TryProject(
                     options,
@@ -293,21 +300,38 @@ public partial class PackageCommand
                     return 1;
             }
 
-            var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
+            var shapeCount =
+                ShapeProjectionOutput.ActiveShapeCount(
+                    options.Value,
+                    options.Urls,
+                    options.Paths)
+                + (options.Roots ? 1 : 0);
             if (shapeCount > 1)
             {
-                CommandError.Write("specify only one of --value, --urls, or --paths.");
+                CommandError.Write(
+                    "specify only one of --value, --urls, --paths, or --roots.");
                 return 1;
             }
 
             if (shapeCount == 1)
             {
-                var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
+                var optionName = options.Value ? "--value"
+                    : options.Urls ? "--urls"
+                    : options.Paths ? "--paths"
+                    : "--roots";
                 // In a lens mode the shape projection is refused by LensProjection with an
                 // accurate reason; demanding -S first would report a section requirement that is
                 // not the actual problem.
                 if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
+                if (options.Roots
+                    && options.IncludeSections is { Count: 1 } sections
+                    && !sections.Contains(PackageSections.Files))
+                {
+                    CommandError.Write(
+                        "--roots requires the Package files section.");
+                    return 1;
+                }
                 if (options.Count || options.Print)
                 {
                     CommandError.Write($"{optionName} cannot be combined with --count or --print.");
@@ -322,7 +346,8 @@ public partial class PackageCommand
 
             if (options.JsonArray && shapeCount == 0 && !options.Print)
             {
-                CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
+                CommandError.Write(
+                    "--json-array requires --value, --urls, --paths, --roots, or --print.");
                 return 1;
             }
 
@@ -373,6 +398,8 @@ public partial class PackageCommand
         if (!ValidatePathMatchMode(options))
             return 1;
         if (!ValidatePackageContentMode(options))
+            return 1;
+        if (!TryValidatePackageTargetFramework(options))
             return 1;
 
         if (GetLibraryInspectionModeError(options) is { } libraryModeError)
@@ -1249,7 +1276,8 @@ public partial class PackageCommand
                 return PackageIntegrityExitCode(result);
             }
 
-            if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
+            if ((options.Value || options.Urls || options.Paths || options.Roots)
+                && !effectiveDiscovery)
                 return PackageIntegrityExitCode(
                     WritePackageShapeProjection(result, options),
                     result);

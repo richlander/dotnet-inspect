@@ -57,6 +57,28 @@ public partial class PackageCommand
         }
     }
 
+    private static bool TryValidatePackageTargetFramework(
+        InspectionOptions options)
+    {
+        if (!HasTargetFrameworkFileFilter(options)
+            || !RequestsPackageFileRows(options))
+        {
+            return true;
+        }
+
+        try
+        {
+            _ = PackageHouseTargetContext.Exact(options.Tfm!);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            CommandError.Write(
+                $"Invalid --tfm value '{options.Tfm}': expected a bounded ASCII target moniker.");
+            return false;
+        }
+    }
+
     private static bool TryCreatePackageInfoTargetContext(
         InspectionOptions options,
         InspectionOptions producerOptions,
