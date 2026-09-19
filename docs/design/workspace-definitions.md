@@ -2705,6 +2705,20 @@ One restoration attempt proceeds in this order:
    Missing, ambiguous, rejected, or invalid resource-free input fails under the
    same attempt token. This phase creates no Workspace, Root, Scope, reader,
    session, or lease.
+   Complete restoration admits a single exact pinned `:Platform@version`
+   subscription with an effective framework. Its synthesized Platform
+   membership preserves every declared member's order and its association
+   with Package Navigation; it must not redirect a Package row to the Platform
+   member or another context. The effective framework/RID uses the same
+   context-and-member target rules as source matching. Other subscriptions or
+   a missing effective framework receive `InvalidDefinitionSet`; ordinary
+   scenario lowering is unchanged. The shared Release gates
+   `PinnedPlatformPacket_PreservesDeclaredPackageOrder`,
+   `PinnedPlatformDefinition_InheritsTargetWithoutChangingMembers`, and
+   `PinnedPlatformSharedContext_RestoresExactPackageAssociation` enforce this
+   boundary, including real `System.Text.Json@9.0.4` beside
+   `:Platform@10.0.10`, reversed context order, and a Package-only neighbor.
+   `UnsupportedCompleteRestorationGroup_ReturnsTypedFailure` gates refusal.
 4. Ask the consuming host for construction authority over one fresh Workspace
    created from that exact plan. Inspect Web begins a
    `WorkspaceRealizationCoordinator` candidate and supplies its
