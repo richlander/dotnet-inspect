@@ -84,17 +84,15 @@ preserve the selected Call Graph.
 
 Inspect Web at `https://dotnet-inspect.net/` uses the same inspection codebase
 and provides an analogous interactive experience. Prefer a product-issued URL
-over describing how the user could reconstruct a view:
+over describing how the user could reconstruct a view, but only for a packet
+format the current browser restores:
 
-- Use `--share url` on supported Workspace, public member, and dependency
-  routes.
-- Given a schema-4 packet, add `--workspace "$packet" --share url` to one exact
-  Type query to use its selected aggregate context and issue the derived
-  Inspect Web URL.
-- When an envelope has `share.kind: "available"`, use its `full_url` directly
-  and treat its `packet` as opaque replay state.
-- Use `workspace --packet URL` to validate and restore an exact Inspect Web
-  URL; do not edit its `w=` payload.
+- Use `--share url` for exact public members and package dependencies. These
+  routes issue browser-restorable format-1 packets.
+- `share.kind: "available"` means the service request is projectable; it does
+  not by itself prove that Inspect Web has adopted that packet format.
+- For CLI restoration, pass opaque packet text to
+  `workspace --packet "$packet"`; this option rejects URLs.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer \
@@ -102,21 +100,16 @@ dnx dotnet-inspect -y -- member JsonSerializer \
   --tfm net10.0 --share url
 dnx dotnet-inspect -y -- depends \
   --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
-dnx dotnet-inspect -y -- workspace \
-  --package System.Text.Json@10.0.0 --tfm net10.0 --share url
-dnx dotnet-inspect -y -- type System.Text.Json.JsonSerializer \
-  --workspace "$schema4_packet" --share url
 ```
 
 These URLs carry canonical datapackets rather than rendered output. The member
 URL opens the selected public API Overview. The package-dependency URL lets
 Inspect Web acquire the exact package and compute its dependency graph. The
-Workspace URL restores the complete projectable definition. The Type command
-uses only a packet string, not a URL; ordinary Type output remains on stdout
-and the derived URL is the final stderr line. A schema-3 packet remains valid
-Type context but cannot encode derived Type Share. Package Query envelopes are
-currently `nonProjectable`; do not hand-author a query-bearing packet or
-promise that Inspect Web can restore it.
+CLI can also produce Workspace format-3 and derived-Type format-4 packet or URL
+Shares, but current Inspect Web rejects those formats. Keep them as opaque
+packet strings for supported CLI workflows rather than offering their URLs.
+Package Query envelopes are currently `nonProjectable`; do not hand-author a
+query-bearing packet or promise that Inspect Web can restore it.
 
 ## Member lookup
 

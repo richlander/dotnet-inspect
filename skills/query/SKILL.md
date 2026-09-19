@@ -388,8 +388,9 @@ order. Neither is another spelling of `-n`.
 ## Use a URL as part of the answer
 
 Inspect Web consumes the same inspection and portable-query contracts. For a
-supported envelope, inspect `share.kind`; use `full_url` only when it is
-`available`. Do not turn `nonProjectable` into an approximate link.
+supported envelope, inspect `share.kind`; `available` means the request is
+projectable, not that the browser has adopted its packet format. Do not turn
+`nonProjectable` into an approximate link.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer \
@@ -397,19 +398,14 @@ dnx dotnet-inspect -y -- member JsonSerializer \
   --tfm net10.0 --share url
 dnx dotnet-inspect -y -- depends \
   --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
-dnx dotnet-inspect -y -- workspace \
-  --package System.Text.Json@10.0.0 --tfm net10.0 --share url
-dnx dotnet-inspect -y -- type System.Text.Json.JsonSerializer \
-  --workspace "$schema4_packet" --share url
 ```
 
-The URL carries a canonical datapacket, not captured output. The receiving
-Inspect Web host re-runs the represented operation. `workspace --packet URL`
-validates and restores the same projectable Workspace state; do not edit its
-`w=` payload. Given a schema-4 packet, `type --workspace` can use its selected
-context for a new exact-Type question and write a derived URL as the final
-stderr line after ordinary Type output. It rejects URL input; schema-3 packets
-remain valid inspection context but cannot encode derived Type Share. Package
-Query Share is currently `nonProjectable`, and Inspect Web does not yet restore
-query-bearing packets. Keep Package Query answers in Content rather than
-manufacturing a link.
+These browser-restorable format-1 URLs carry canonical datapackets, not
+captured output. The receiving Inspect Web host re-runs the represented member
+or package-dependency operation. For CLI restoration, pass opaque packet text
+to `workspace --packet "$packet"`; it rejects URL input. The CLI can issue
+Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
+Inspect Web rejects both formats. Keep them as packet strings for supported CLI
+workflows. Package Query Share is currently `nonProjectable`, and Inspect Web
+does not yet restore query-bearing packets. Keep Package Query answers in
+Content rather than manufacturing a link.
