@@ -1218,7 +1218,9 @@ across Markdown, plain text, TSV, JSONL, and structured aggregate JSON at the
 window boundary. Aggregate JSON groups stable row objects by section under one
 Package identity; every row retains Package, Package version, Library, and TFM
 provenance. The same gates require singular JSON rows to window per Library and
-pooled JSON sections to window once after rollup.
+pooled JSON sections to window once after rollup. JSON lowering removes only
+formatter-owned wrappers; literal entity text in authored values and producer
+identity remains byte-for-byte equal to JSONL.
 
 A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not. Bare `--rows 2..10 --tail` is rejected.

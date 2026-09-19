@@ -517,6 +517,95 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task PackageAllLibraries_JsonPreservesLiteralEntityTextLikeJsonl()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalEntityNamedLibraryPackage();
+        try
+        {
+            var jsonl = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.LibraryInfo,
+                "--jsonl",
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.LibraryInfo,
+                "--json",
+                "--tips", "q");
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, json.Exit);
+            var jsonlRows =
+                SplitOutputLines(jsonl.Output)
+                    .Select(line =>
+                    {
+                        using var document =
+                            System.Text.Json.JsonDocument.Parse(line);
+                        return document.RootElement
+                            .EnumerateObject()
+                            .ToDictionary(
+                                property => property.Name,
+                                property =>
+                                    property.Value.GetString());
+                    })
+                    .ToArray();
+            using var jsonDocument =
+                System.Text.Json.JsonDocument.Parse(json.Output);
+            var section = Assert.Single(
+                jsonDocument.RootElement
+                    .GetProperty("sections")
+                    .EnumerateArray());
+            var jsonRows = section
+                .GetProperty("rows")
+                .EnumerateArray()
+                .Select(row =>
+                    row.EnumerateObject()
+                        .ToDictionary(
+                            property => property.Name,
+                            property =>
+                                property.Value.GetString()))
+                .ToArray();
+
+            Assert.Equal(jsonlRows.Length, jsonRows.Length);
+            for (int index = 0; index < jsonlRows.Length; index++)
+            {
+                Assert.Equal(
+                    jsonlRows[index].Count,
+                    jsonRows[index].Count);
+                foreach (var property in jsonlRows[index])
+                {
+                    Assert.True(
+                        jsonRows[index].TryGetValue(
+                            property.Key,
+                            out string? value));
+                    Assert.Equal(property.Value, value);
+                }
+            }
+
+            Assert.All(
+                jsonRows,
+                row => Assert.Equal(
+                    "lib/net10.0/A&amp;B.dll",
+                    row["library"]));
+            Assert.Equal(
+                "A&amp;B",
+                Assert.Single(
+                    jsonRows,
+                    row =>
+                        row["field"] == "Name")["value"]);
+            Assert.Empty(jsonl.Error);
+            Assert.Empty(json.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--tree")]
     [InlineData("--dependencies")]
@@ -1013,6 +1102,30 @@ public partial class CommandExecutionTests
         string packagePath =
             Path.Combine(tempDir, "Nested.Tfm.All.1.0.0.nupkg");
         ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalEntityNamedLibraryPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string targetDir = Path.Combine(
+            tempDir,
+            "content",
+            "lib",
+            "net10.0");
+        CompileBodyStateFixture(
+            targetDir,
+            "A&amp;B",
+            "public sealed class EntityNamedLibrary { }");
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.EntityNamedLibrary.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(
+            Path.Combine(tempDir, "content"),
+            packagePath);
         return (packagePath, tempDir);
     }
 

@@ -174,7 +174,7 @@ internal sealed class CapturedLibraryTableFormatter :
                 value[openCode.Length..^closeCode.Length]);
         }
 
-        return WebUtility.HtmlDecode(value);
+        return value;
     }
 
     internal void ProjectColumns(
