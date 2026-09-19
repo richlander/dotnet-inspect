@@ -1058,9 +1058,11 @@ never enter an outcome or receipt.
 The resolver indexes attempts by capability identity, rejects duplicate
 capabilities or candidate identities, and traverses the source plan's
 capability order rather than caller enumeration order. Missing required
-attempts remain incomplete. Consumed work records at least one source
+attempts remain incomplete. An in-budget ledger records at least one source
 operation for every supplied attempt, while assembly and byte work apply to
-successful materializations. The policy modes execute as follows:
+successful materializations. Exhausted work with an under-reported ledger
+closes as `Incomplete` without retaining source settlements that ledger cannot
+support. The policy modes execute as follows:
 
 - `Precedence` selects the first authoritative realization after unavailable
   predecessors. A higher-priority failure is terminal.
@@ -1083,16 +1085,19 @@ receipt construction unchanged.
 Terminal precedence is:
 
 1. observe cancellation before accepting attempts;
-2. reject an invalid request before source-content access;
-3. validate attempt correspondence without retaining foreign evidence, using
-   `Incomplete` without settlement when work is already exhausted and
-   `Rejected` otherwise;
-4. reject a consumed-work ledger that cannot cover the supplied attempts;
-5. preserve a corresponding policy-terminal source failure as
+2. validate the request before enumerating attempts, using `Incomplete`
+   without settlement when work is already exhausted and `Rejected` otherwise;
+3. validate attempt correspondence under the same exhausted-work precedence
+   without retaining foreign evidence;
+4. select the source-policy decision;
+5. reject an in-budget consumed-work ledger that cannot cover the supplied
+   attempts;
+6. preserve a corresponding policy-terminal source failure as
    `Failed(Source)`;
-6. otherwise make exhausted work or required missing/incomplete evidence
-   `Incomplete`; and
-7. apply the remaining selection, ambiguity, rejection, or unavailability
+7. otherwise make exhausted work `Incomplete`, retaining policy evidence only
+   when the ledger covers it;
+8. make required missing/incomplete evidence `Incomplete`; and
+9. apply the remaining selection, ambiguity, rejection, or unavailability
    decision.
 
 No terminal, shadowed, or ambiguous path opens source content.
@@ -1120,6 +1125,9 @@ and finite-work precedence.
 coverage for failure and shadowed attempts.
 `ResolveAsync_InvalidRequestDoesNotEnumerateAttempts` gates request rejection
 before attempt production.
+`ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration` and
+`ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement` gate
+receipt-compatible exhausted-work closure without unsupported settlement.
 
 ### Installed successful-result binding adoption
 

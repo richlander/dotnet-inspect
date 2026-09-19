@@ -1071,6 +1071,101 @@ public sealed class PlatformAssemblyReferenceResolverTests
     }
 
     [Fact]
+    public async Task
+        ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 1,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength,
+            mismatchRoute: true);
+        bool enumerated = false;
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    Attempts(),
+                    Consumed(
+                        sourceOperations: 0,
+                        assemblies: 0,
+                        bytes: 0,
+                        elapsed: TimeSpan.FromMinutes(1))));
+
+        Assert.Empty(incomplete.Receipt.SourceSettlements);
+        Assert.False(enumerated);
+
+        IEnumerable<PlatformAssemblyReferenceSourceAttempt> Attempts()
+        {
+            enumerated = true;
+            yield break;
+        }
+    }
+
+    [Fact]
+    public async Task
+        ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Aggregation,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 2,
+            maxBytes: image.LongLength * 2);
+        int opens = 0;
+        var firstAttempt = SuccessfulAttempt(
+            request,
+            first,
+            identity,
+            image,
+            "installed-candidate",
+            () => opens++);
+        var secondAttempt = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [firstAttempt, secondAttempt],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 2,
+                        bytes: image.LongLength * 2,
+                        elapsed: TimeSpan.FromMinutes(1))));
+
+        Assert.Empty(incomplete.Receipt.SourceSettlements);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
     public async Task ResolveAsync_RejectsForeignAttemptBeforeSourceAccess()
     {
         CancellationToken cancellationToken =
@@ -1445,7 +1540,8 @@ public sealed class PlatformAssemblyReferenceResolverTests
     static PlatformHouseConsumedWork Consumed(
         int sourceOperations,
         int assemblies,
-        long bytes) =>
+        long bytes,
+        TimeSpan? elapsed = null) =>
         new(
             sourceOperations,
             targetCandidates: 0,
@@ -1456,7 +1552,7 @@ public sealed class PlatformAssemblyReferenceResolverTests
             bytes,
             forwardingHops: 0,
             targetComparisons: 0,
-            elapsed: TimeSpan.Zero);
+            elapsed: elapsed ?? TimeSpan.Zero);
 
     static ResolvedAssemblyReference Descriptor(byte[] image) =>
         ResolvedAssemblyReference.CreateFromStreamIfManaged(

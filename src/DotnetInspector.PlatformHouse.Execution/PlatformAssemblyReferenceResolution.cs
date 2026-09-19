@@ -118,6 +118,9 @@ public static class PlatformHouseAssemblyReferenceResolver
         ArgumentNullException.ThrowIfNull(consumedWork);
         request.CancellationToken.ThrowIfCancellationRequested();
 
+        bool exceedsBudget = PlatformHouseLibraryRealizer.ExceedsBudget(
+            consumedWork,
+            request);
         if (!TryValidateRequest(
                 request,
                 out PlatformHouseOperation.ResolveAssemblyReference? operation,
@@ -126,6 +129,14 @@ public static class PlatformHouseAssemblyReferenceResolver
                     PlatformSourceFacet.Reference)
                 is not { } selection)
         {
+            if (exceedsBudget)
+            {
+                return Incomplete(
+                    request,
+                    consumedWork,
+                    $"{IdentityPrefix}.source-policy-incomplete");
+            }
+
             return Rejected(
                 request,
                 consumedWork,
@@ -144,9 +155,7 @@ public static class PlatformHouseAssemblyReferenceResolver
                     PlatformSourceCapabilityIdentity,
                     PlatformAssemblyReferenceSourceAttempt>? byCapability))
         {
-            if (PlatformHouseLibraryRealizer.ExceedsBudget(
-                    consumedWork,
-                    request))
+            if (exceedsBudget)
             {
                 return Incomplete(
                     request,
@@ -164,7 +173,9 @@ public static class PlatformHouseAssemblyReferenceResolver
         SourcePolicyDecision decision = SelectSourcePolicy(
             selection,
             byCapability);
-        if (!ConsumedWorkCoversAttempts(consumedWork, snapshot))
+        bool consumedWorkCoversAttempts =
+            ConsumedWorkCoversAttempts(consumedWork, snapshot);
+        if (!consumedWorkCoversAttempts && !exceedsBudget)
         {
             return Rejected(
                 request,
@@ -184,16 +195,15 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.source-policy-failed");
         }
 
-        if (PlatformHouseLibraryRealizer.ExceedsBudget(
-                consumedWork,
-                request))
+        if (exceedsBudget)
         {
             return Incomplete(
                 request,
                 consumedWork,
                 $"{IdentityPrefix}.source-policy-incomplete",
-                retainedSettlements:
-                    TerminalSettlements(decision.Settlements));
+                retainedSettlements: consumedWorkCoversAttempts
+                    ? TerminalSettlements(decision.Settlements)
+                    : null);
         }
 
         return decision.Kind switch
