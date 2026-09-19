@@ -22,7 +22,7 @@ public static class EcosystemPopulationLoadOperation
                 "The Ecosystem population loader returned no reply.");
         if (!ReferenceEquals(reply.Request, request.Identity))
         {
-            await RetireReplyOwnersAsync(reply);
+            await RetireReplyAuthoritiesAsync(reply);
             throw new InvalidOperationException(
                 "The Ecosystem population loader returned a reply for another request.");
         }
@@ -33,6 +33,8 @@ public static class EcosystemPopulationLoadOperation
                 EcosystemPopulationLoadSettlementKind.Completed,
             EcosystemPopulationLoaderReply.Unavailable =>
                 EcosystemPopulationLoadSettlementKind.Unavailable,
+            EcosystemPopulationLoaderReply.Ambiguous =>
+                EcosystemPopulationLoadSettlementKind.Ambiguous,
             EcosystemPopulationLoaderReply.Incomplete =>
                 EcosystemPopulationLoadSettlementKind.Incomplete,
             EcosystemPopulationLoaderReply.Rejected =>
@@ -53,11 +55,13 @@ public static class EcosystemPopulationLoadOperation
 
         EcosystemPopulationOwnerBatch? owners =
             reply.Ownerships.Count == 0
+                && reply.ArtifactSessions.Count == 0
                 && reply is not EcosystemPopulationLoaderReply.Completed
                 && reply is not EcosystemPopulationLoaderReply.Incomplete
             ? null
             : new EcosystemPopulationOwnerBatch(
-                reply.Ownerships);
+                reply.Ownerships,
+                reply.ArtifactSessions);
 
         if (request.CancellationToken.IsCancellationRequested)
         {
@@ -87,6 +91,8 @@ public static class EcosystemPopulationLoadOperation
                     owners!),
             EcosystemPopulationLoaderReply.Unavailable =>
                 new EcosystemPopulationLoadOutcome.Unavailable(receipt),
+            EcosystemPopulationLoaderReply.Ambiguous =>
+                new EcosystemPopulationLoadOutcome.Ambiguous(receipt),
             EcosystemPopulationLoaderReply.Incomplete =>
                 new EcosystemPopulationLoadOutcome.Incomplete(
                     receipt,
@@ -100,13 +106,16 @@ public static class EcosystemPopulationLoadOperation
         };
     }
 
-    static async ValueTask RetireReplyOwnersAsync(
+    static async ValueTask RetireReplyAuthoritiesAsync(
         EcosystemPopulationLoaderReply reply)
     {
-        if (reply.Ownerships.Count == 0)
+        if (reply.Ownerships.Count == 0
+            && reply.ArtifactSessions.Count == 0)
             return;
 
-        var owners = new EcosystemPopulationOwnerBatch(reply.Ownerships);
+        var owners = new EcosystemPopulationOwnerBatch(
+            reply.Ownerships,
+            reply.ArtifactSessions);
         try
         {
             await owners.DisposeAsync();
@@ -114,7 +123,7 @@ public static class EcosystemPopulationLoadOperation
         catch (Exception cleanupFailure)
         {
             throw new InvalidOperationException(
-                "A foreign Ecosystem population reply returned Library owners and their cleanup failed.",
+                "A foreign Ecosystem population reply returned authorities and their cleanup failed.",
                 cleanupFailure);
         }
     }
