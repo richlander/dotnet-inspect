@@ -33,9 +33,9 @@ internal static class MemberFindingCensus
 {
     public static MemberFindingCensusEnvelope Create(
         FindingCensusReceipt? receipt,
-        IReadOnlyList<ResearchViews.FactRow>? facts,
+        IReadOnlyList<FactRow>? facts,
         AnnotatedSourceDocument document,
-        IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>? sourceFactIdentities)
+        IReadOnlyList<AnnotatedSourceFactIdentity>? sourceFactIdentities)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
             throw new InvalidOperationException("Finding Census produced no non-default receipt.");
@@ -49,7 +49,7 @@ internal static class MemberFindingCensus
         var projectedFacts = new MemberFindingCensusFact[facts.Count];
         for (int index = 0; index < facts.Count; index++)
         {
-            ResearchViews.FactRow fact = facts[index];
+            FactRow fact = facts[index];
             bool hasReceipt = fact.CensusReceipt is not null;
             bool hasKey = fact.InstanceKey is not null;
             if (hasReceipt != hasKey)
@@ -97,7 +97,7 @@ internal static class MemberFindingCensus
             new MemberSourceFactInstance[sourceFactIdentities.Count];
         for (int index = 0; index < sourceFactIdentities.Count; index++)
         {
-            ResearchViews.AnnotatedSourceFactIdentity identity =
+            AnnotatedSourceFactIdentity identity =
                 sourceFactIdentities[index];
             if (identity.CensusReceipt != censusReceipt)
             {

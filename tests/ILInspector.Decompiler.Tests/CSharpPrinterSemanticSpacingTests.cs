@@ -1230,7 +1230,7 @@ public class CSharpPrinterSemanticSpacingTests
     public void InsertedBlankLines_RebaseAnnotatedSourceDocumentSpans()
     {
         using var source = MetadataSource.Open(typeof(SemanticSpacingFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = ResearchViews.ProjectMember(new MemberProjectionRequest(
             source,
             typeof(SemanticSpacingFixture).FullName!,
             nameof(SemanticSpacingFixture.Grouped),
