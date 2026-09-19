@@ -1285,11 +1285,13 @@ public class MemberCodeView
 
     /// <summary>
     /// Hides the Callers "Source" column when every caller comes from a single assembly
-    /// (the default single-assembly scan), keeping that output unchanged. The column appears
-    /// only when a caller scope (<c>--bin</c>/<c>--project</c>) brings in additional assemblies.
+    /// (the default single-source result), keeping that output unchanged. A semantic selection
+    /// preserves the completed vector's decision when it narrows multi-source rows to one source.
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
-        => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+        => rows is null
+            || (rows.All(row => !row.SourceColumnRequired)
+                && rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1);
 
     public static bool CallerEvidenceMethodIsEmpty(List<CallerSiteRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
@@ -1564,6 +1566,10 @@ public record CallerSiteRow(
     public string Source { get; init; } = Source;
 
     public string Caller { get; init; } = Caller;
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool SourceColumnRequired { get; init; }
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Evidence Method")]

@@ -9,6 +9,31 @@ namespace DotnetInspector.Ecosystems.Tests;
 public sealed class ProductEcosystemPackTests
 {
     [Fact]
+    public void PackageQueryMembershipsProjectExactAndPrefixMemberships()
+    {
+        PackageQueryEcosystemMembershipDeclaration aspire =
+            Assert.Single(
+                EcosystemPackCatalog.PackageQueryMemberships.Declarations,
+                membership =>
+                    membership.Id.Value == EcosystemPackIds.Aspire.Value);
+        Assert.Contains(
+            aspire.ExactPackages,
+            package => package.PackageId == "Aspire.Hosting");
+        Assert.Contains(
+            aspire.PackagePrefixes,
+            prefix => prefix.Prefix == "Aspire.");
+
+        PackageQueryEcosystemMembershipDeclaration runtime =
+            Assert.Single(
+                EcosystemPackCatalog.PackageQueryMemberships.Declarations,
+                membership =>
+                    membership.Id.Value == EcosystemPackIds.Runtime.Value);
+        Assert.Contains(
+            runtime.PackagePrefixes,
+            prefix => prefix.Prefix == "System.");
+    }
+
+    [Fact]
     public void RuntimeAndAspNetCoreExposeIndependentPopulationLoaders()
     {
         Assert.Equal(

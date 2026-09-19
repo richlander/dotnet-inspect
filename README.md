@@ -384,7 +384,7 @@ transport.
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
-| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
@@ -445,6 +445,10 @@ dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
@@ -452,9 +456,10 @@ dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
-enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
-`--value`, and `--paths` observe the same selected rows; add `--lines` only to
-clip rendered text.
+enumeration, optional exact directory-segment `--tfm` filtering, and optional
+`--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
+observe the same selected rows; `--roots` instead emits their ordered distinct
+top-level package roots. Add `--lines` only to clip rendered text.
 
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework
@@ -492,7 +497,9 @@ considers all package manifest groups by default; add
 `dependency-target=<TFM>` to select one applicable dependency group instead.
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
-dependency under the same scope:
+dependency under the same scope. Use
+`depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
+against the ecosystem's registered exact packages and package prefixes:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
@@ -503,6 +510,8 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 ```
 
 License selection also stays at the manifest boundary. `license=any` matches
@@ -539,7 +548,8 @@ directories; notices remain a separate legal-document concern. Reading that
 content is an explicit package projection and never informs license identity.
 
 Add `--where "key=value"` to select product-owned Package Query terms, with one
-matched package per row, semantic answers, and structured evidence. The initial CLI
+matched package per row and semantic answers. Structured evidence remains
+available in unprojected JSON and the inspection envelope. The initial CLI
 vocabulary covers package metadata, dependencies, downloads, README presence,
 .NET tools and their CLI v1/v2 format, skill packages, and nuspec license
 identity. Discover the admitted keys and values before constructing a query:
@@ -869,6 +879,10 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
+dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
+  -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -882,6 +896,28 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 `--lines` only to clip rendered text. Exact-type, selected-section, discovery,
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
+
+With exact `member -S Callers`, `-n`, `--tail`, and strict `--rows A..B`
+select complete deduplicated caller-site rows after the selected target
+overload and all authorized caller scopes have been scanned. Markdown, table,
+TSV, JSONL, structured JSON, and Count observe the same selected call sites,
+including Source when the completed caller rows came from multiple assemblies.
+Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed
+sections, discovery, and scope-implied Callers without the exact selector retain
+their existing row contracts or rendered-line fallback.
+
+Focused member `-S "Source Locations" --json` reports `member`, `document`, and
+`pdb_span` without fetching source text or adding generic section/row wrappers.
+PDB spans describe executable source, not the entire declaration.
+Opt in with `--source-parts` to acquire checksum-verified source and discover
+lexical ranges. `--print --part member|xml-docs|attributes|signature|body`
+prints the selected part; both gestures imply Source Locations when `-S` is
+omitted. The full member includes attached XML documentation and attributes;
+the body includes its delimiters. Missing parts fail visibly, and unqualified
+`--print` still prints the whole source document. These are lexical source
+parts, not parsed documentation or stronger physical-authorship evidence.
+Human-readable part output restores the original first-line indentation;
+structured JSON content remains the exact token-selected text.
 
 Use a Workspace packet as reusable aggregate context when the Type may be
 defined by any Library in its selected context:

@@ -4,6 +4,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
 
@@ -336,12 +337,16 @@ public record TypeOptions : ApiOptions
 public record MemberOptions : ApiOptions
 {
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
+    internal RowSelectionIntent<string>? CallerRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
     internal bool OverloadIndexExplicitlySet { get; init; }
     internal bool UrlPreferenceExplicitlySet { get; init; }
     internal bool LineWindowExplicitlySet { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
+    public bool SourceParts { get; init; }
+    public MemberSourcePartKind? SourcePart { get; init; }
+    internal IReadOnlyDictionary<ApiMember, MemberSourceObservation>? SourceLocationMappings { get; init; }
 
     /// <summary>
     /// True when <see cref="ApiOptions.IncludeSections"/> was supplied before the command
