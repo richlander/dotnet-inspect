@@ -201,6 +201,31 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("member", "mermaid", false)]
+    [InlineData("member", "mermaid", true)]
+    [InlineData("package", "tree", false)]
+    [InlineData("package", "tree", true)]
+    [InlineData("member", "envelope", false)]
+    [InlineData("member", "envelope", true)]
+    public async Task QueryRejectsNonFormatOutputOperations(
+        string command,
+        string output,
+        bool readableFlag)
+    {
+        string[] outputArgs = readableFlag
+            ? [$"--{output}"]
+            : ["-o", output];
+        var result = await Run(
+            [command, .. outputArgs, "-Q"]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--{output} cannot be combined with query discovery",
+            result.Error);
+    }
+
+    [Theory]
     [InlineData("-D")]
     [InlineData("-S")]
     public async Task QueryRejectsDataDiscoveryModes(string mode)

@@ -110,10 +110,22 @@ internal static class QueryDiscoveryCommand
             exitCode = 1;
             return true;
         }
+        string? incompatibleOutput =
+            options.IsTreeOutput(result) ? "--tree"
+            : options.IsMermaidOutput(result) ? "--mermaid"
+            : options.IsEnvelopeOutput(result) ? "--envelope"
+            : null;
+        if (incompatibleOutput is not null)
+        {
+            CommandError.Write(
+                $"{incompatibleOutput} cannot be combined with query discovery; it does not execute a data query.");
+            exitCode = 1;
+            return true;
+        }
 
         foreach (Option option in new Option[]
         {
-            options.Effective, options.Tree, options.Mermaid, options.Bare,
+            options.Effective, options.Bare,
             options.Print, options.Value, options.Urls, options.Paths, options.JsonArray,
             options.Row, options.RowWhere, options.RowOrderBy, options.PerformanceTriageTop,
             options.PerformanceTriageLoop, options.PerformanceTriageMinConfidence,
