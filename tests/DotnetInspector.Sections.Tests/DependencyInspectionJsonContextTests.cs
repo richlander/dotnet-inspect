@@ -4,6 +4,7 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;
@@ -175,7 +176,14 @@ public sealed class DependencyInspectionJsonContextTests
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 DependencyInspectionPruningSummary.NotRequested,
                 IsPrefixRootSet: false,
-                PackagePrefix: null),
+                PackagePrefix: null)
+            {
+                Licenses = new DependencyInspectionLicenseSummary(
+                    DependencyInspectionLicenseCompletion.Partial,
+                    Packages: 2,
+                    Available: 1,
+                    Unavailable: 1),
+            },
             DependencyHierarchyDocument.Create(graph),
             [
                 new DependencyInspectionRoot(
@@ -236,7 +244,29 @@ public sealed class DependencyInspectionJsonContextTests
                             "Inventory unavailable\r\nTry again.\tLater."),
                         AffectedRootOccurrences: [1],
                         AffectedDeclarations: 1)),
-            ]);
+            ])
+        {
+            Licenses =
+            [
+                DependencyInspectionLicense.Create(
+                    PackageLicenseInventoryItem.Available(
+                        PackageSourceCoordinate.Create(
+                            "Example.Dependency",
+                            "2.0.0"),
+                        new PackageLicenseDeclaration(
+                            PackageLicenseDeclarationKind.Expression,
+                            "MIT"))),
+                DependencyInspectionLicense.Create(
+                    PackageLicenseInventoryItem.Unavailable(
+                        PackageSourceCoordinate.Create(
+                            "Example.Unavailable",
+                            "3.0.0"),
+                        new PackageLicenseInventoryFailure(
+                            PackageLicenseInventoryFailureReason
+                                .ManifestAcquisitionFailed,
+                            "The exact package manifest could not be acquired."))),
+            ],
+        };
         JsonTypeInfo<DependencyInspectionContent> typeInfo =
             TypeInfo<DependencyInspectionContent>();
 
@@ -276,6 +306,16 @@ public sealed class DependencyInspectionJsonContextTests
         Assert.Equal(
             "Inventory unavailable\r\nTry again.\tLater.",
             inventory.Message.ToString());
+        Assert.Equal(
+            DependencyInspectionLicenseCompletion.Partial,
+            roundTripped.Summary.Licenses.Completion);
+        Assert.Equal("MIT", roundTripped.Licenses[0].License.ToString());
+        Assert.Equal(
+            PackageLicenseInventoryFailureReason.ManifestAcquisitionFailed,
+            roundTripped.Licenses[1].FailureReason);
+        Assert.Equal(
+            "The exact package manifest could not be acquired.",
+            roundTripped.Licenses[1].FailureMessage?.ToString());
     }
 
     [Fact]
