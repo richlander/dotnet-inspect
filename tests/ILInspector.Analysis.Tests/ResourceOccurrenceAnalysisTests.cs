@@ -12,6 +12,12 @@ public sealed class ResourceOccurrenceAnalysisTests
         new("test.resource-occurrence.pathological");
     static readonly ResourceEffectModelIdentity ValueFlowModel =
         new("test.resource-occurrence.value-flow");
+    static readonly ResourceEffectModelIdentity ConflictOrdinaryModel =
+        new("test.resource-occurrence.conflict-ordinary");
+    static readonly ResourceEffectModelIdentity ConflictTransparentModel =
+        new("test.resource-occurrence.conflict-transparent");
+    static readonly ResourceEffectModelIdentity UnsupportedTargetModel =
+        new("test.resource-occurrence.unsupported-target");
     static readonly ResourceKindIdentity FirstKind =
         new("test.resource-occurrence.first");
     static readonly ResourceKindIdentity SecondKind =
@@ -265,6 +271,16 @@ public sealed class ResourceOccurrenceAnalysisTests
             limitation =>
                 limitation.Root == second
                 && limitation.Effect is ResourceEffect.Pass);
+        Assert.Contains(
+            method.Occurrences,
+            occurrence =>
+                occurrence.Root == first
+                && occurrence.ILOffset == sharedOffset
+                && occurrence.Effects.Any(effect =>
+                    effect.Effect is ResourceEffect.Authority));
+        Assert.DoesNotContain(
+            secondOccurrence.Effects,
+            effect => effect.Effect is ResourceEffect.Authority);
     }
 
     [Fact]
@@ -401,6 +417,86 @@ public sealed class ResourceOccurrenceAnalysisTests
                         ResourceOccurrenceOperationKind.Release)));
     }
 
+    [Fact]
+    public void ExecutePath_PreservesUnaffectedCallsWhenEffectsConflict()
+    {
+        ResourceEffectAdmissionOutcome admission =
+            ResourceEffectAdmissionBuilder.Admit(
+                [
+                    ArrayPoolResourceEffectModel.Definition(),
+                    ConflictDefinition(
+                        ConflictOrdinaryModel,
+                        ResourceOperationBoundary.Ordinary),
+                    ConflictDefinition(
+                        ConflictTransparentModel,
+                        ResourceOperationBoundary.Transparent),
+                ]);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    Assert.IsType<
+                        ResourceEffectAdmissionOutcome.Admitted>(
+                            admission).Admission),
+                resolver);
+        ResourceOccurrenceAnalysisResult method =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                result =>
+                    result.Method.Name == "RentTwoAndReturnDirectly");
+
+        Assert.Equal(
+            2,
+            method.Occurrences.Count(occurrence =>
+                occurrence.Operations.Contains(
+                    ResourceOccurrenceOperationKind.Release)));
+        Assert.Contains(
+            execution.ResourceOccurrences.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceOccurrenceLimitationKind.EffectResolution
+                && limitation.Message.Contains(
+                    "conflict",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExecutePath_ReportsUnsupportedAcquisitionTarget()
+    {
+        ResourceEffectAdmissionOutcome admission =
+            ResourceEffectAdmissionBuilder.Admit(
+                [UnsupportedTargetDefinition()]);
+        string path =
+            FixtureCatalog.AnalysisOwnershipFlow.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    Assert.IsType<
+                        ResourceEffectAdmissionOutcome.Admitted>(
+                            admission).Admission),
+                resolver);
+        ResourceOccurrenceAnalysisResult method =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                result =>
+                    result.Method.Name == "ExerciseTwoResourceDomains");
+
+        Assert.Empty(method.Roots);
+        Assert.Empty(method.Occurrences);
+        Assert.Contains(
+            method.Limitations,
+            limitation =>
+                limitation.Kind == ResourceOccurrenceLimitationKind.ValueFlow
+                && limitation.Effect is ResourceEffect.Acquire);
+    }
+
     static ResourceEffectAdmission PathologicalAdmission()
     {
         ResourceTypeExpression.Named entry = new(
@@ -481,6 +577,17 @@ public sealed class ResourceOccurrenceAnalysisTests
                         Correspondence: null,
                         Observation: null),
                     5),
+                Declaration(
+                    PathologicalModel,
+                    entry,
+                    "ObserveTwoResources",
+                    [byteArray, byteArray],
+                    voidType,
+                    new ResourceEffect.Authority(
+                        first,
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceAuthorityKey.Value()),
+                    6),
             ]);
         ResourceEffectAdmissionOutcome outcome =
             ResourceEffectAdmissionBuilder.Admit([definition]);
@@ -539,6 +646,63 @@ public sealed class ResourceOccurrenceAnalysisTests
                         new ResourceEffectLocation.Parameter(0),
                         Identity: null),
                     0),
+            ]);
+    }
+
+    static ResourceEffectModelDefinition ConflictDefinition(
+        ResourceEffectModelIdentity model,
+        ResourceOperationBoundary boundary) =>
+        new(
+            ResourceEffectLanguageIdentity.Version1,
+            model,
+            [],
+            [],
+            [
+                Declaration(
+                    model,
+                    FixtureEntryType(),
+                    "ObserveResource",
+                    [
+                        new ResourceTypeExpression.SzArray(
+                            CoreType("Byte")),
+                    ],
+                    CoreType("Void"),
+                    new ResourceEffect.Operation(
+                        boundary,
+                        ResourceOperationThrows.Possible,
+                        Guard: null),
+                    0),
+            ]);
+
+    static ResourceEffectModelDefinition UnsupportedTargetDefinition()
+    {
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(CoreType("Byte"));
+        ResourceKindReference first = new(FirstKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            UnsupportedTargetModel,
+            [
+                new ResourceKindDefinition(
+                    FirstKind,
+                    arity: 0,
+                    [Provenance(UnsupportedTargetModel, 0)]),
+            ],
+            [],
+            [
+                Declaration(
+                    UnsupportedTargetModel,
+                    FixtureEntryType(),
+                    "ObserveTwoResources",
+                    [byteArray, byteArray],
+                    CoreType("Void"),
+                    new ResourceEffect.Acquire(
+                        first,
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        Correspondence: null,
+                        Lender: null),
+                    1),
             ]);
     }
 

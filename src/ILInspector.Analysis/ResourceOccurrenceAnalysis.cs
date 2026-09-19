@@ -297,6 +297,20 @@ internal static class ResourceOccurrenceAnalysisService
                 StringComparer.Ordinal))
         {
             DirectCall call = effect.DirectCall.Call;
+            if (!IsSupportedAcquisitionTarget(effect))
+            {
+                limitations.Add(
+                    new ResourceOccurrenceLimitation(
+                        ResourceOccurrenceLimitationKind.ValueFlow,
+                        "Resource Occurrence V1 requires an acquisition "
+                        + "target that resolves to the call result.")
+                    {
+                        Method = method,
+                        Call = ResourceOccurrenceCallSite.From(call),
+                        Effect = effect.Effect,
+                    });
+                continue;
+            }
             var key = ResourceRootKey.Acquisition(
                 call.ILOffset,
                 ResourceDomainKey(effect.ResourceKinds));
@@ -444,6 +458,13 @@ internal static class ResourceOccurrenceAnalysisService
                         || Source(effect.Effect) is not null;
                     if (isRootScoped
                         && !effectRoots.Contains(rootKey))
+                    {
+                        continue;
+                    }
+                    if (!isRootScoped
+                        && !effect.ResourceKinds.IsEmpty
+                        && !rootKey.Domain.Equals(
+                            ResourceDomainKey(effect.ResourceKinds)))
                     {
                         continue;
                     }
@@ -695,6 +716,16 @@ internal static class ResourceOccurrenceAnalysisService
             or ResourceEffect.Authority
             or ResourceEffect.Resource
             or ResourceEffect.Operation;
+
+    static bool IsSupportedAcquisitionTarget(
+        ResolvedResourceEffect effect) =>
+        effect.Effect is ResourceEffect.Acquire acquire
+        && effect.Binding.Location(acquire.Target)
+            is ResolvedResourceEffectLocation.Boundary
+            {
+                Kind: ResolvedResourceEffectBoundaryLocationKind.Return
+                    or ResolvedResourceEffectBoundaryLocationKind.Constructed,
+            };
 
     static ImmutableArray<ResourceOccurrenceAuthority> Authorities(
         ResolvedResourceEffect acquisition,

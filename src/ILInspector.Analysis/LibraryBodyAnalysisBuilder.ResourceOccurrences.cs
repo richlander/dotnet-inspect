@@ -131,7 +131,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                     .Where(effect => !conflict.Conflicts.Any(item =>
                         item.PhysicalInvocation.Equals(
                             effect.PhysicalInvocation)))
-                    .DistinctBy(effect => effect.CanonicalEffect),
+                    .DistinctBy(effect =>
+                        (effect.PhysicalInvocation, effect.CanonicalEffect)),
             ],
             ResourceEffectResolutionOutcome.Rejected => [],
             _ => throw new InvalidOperationException(

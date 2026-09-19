@@ -102,9 +102,15 @@ observation after returning.
 
 An **ownership root** is one of:
 
-- one exact acquisition occurrence that creates a terminal obligation; or
+- one exact acquisition occurrence whose target resolves to the call result
+  and creates a terminal obligation; or
 - one incoming method parameter whose carried obligation is established by
   applicable resolved effects or later interprocedural composition.
+
+Version 1 does not rebase a receiver- or parameter-target acquisition onto the
+target's later value provenance. Such an effect remains a visible method-level
+value-flow limitation and does not create an acquisition root. The lifecycle
+consumer decides whether later work needs that richer rebasing contract.
 
 An **occurrence** joins one root to one physical method-body operation. Its
 identity preserves the method generation, IL coordinate, and root. A direct
