@@ -65,57 +65,16 @@ public static class MemberTextSlicer
         string methodName,
         IReadOnlyList<int>? activeLineNumbers = null)
     {
-        var sourceIndex = DeclarationIndex.Build(sourceText);
-        var index = sourceIndex;
-        IReadOnlyList<ConditionalSelection> conditionalSelections = [];
-        if (activeLineNumbers is { Count: > 0 } points)
-        {
-            if (index.HasLineDirectives)
-                return null;
-
-            ValidateMemberTextCoordinates(startLine, endLine, points, index.LineCount);
-            conditionalSelections = SelectUniquelyEvidencedBranches(index, points);
-            if (conditionalSelections.Count > 0)
-            {
-                index = index.WithSelectedConditionalBranches(
-                    [.. conditionalSelections.Select(static selection => selection.Branch)]);
-            }
-        }
-
-        var row = FindRequestedDeclaration(index, startLine, endLine, methodName);
-
-        if (!IsSliceableDeclaration(index, row))
-        {
+        var selection = SelectRequestedDeclaration(
+            sourceText,
+            startLine,
+            endLine,
+            methodName,
+            activeLineNumbers,
+            exactParts: false);
+        if (selection is null)
             return null;
-        }
-        var declaration = row!;
-
-        if (conditionalSelections.Any(selection =>
-            StraddlesDeclarationBoundary(selection.Group, declaration)))
-        {
-            return null;
-        }
-
-        var boundaryBranches = conditionalSelections
-            .Where(selection => !IsWhollyInside(selection.Group, declaration))
-            .Select(static selection => selection.Branch)
-            .ToArray();
-        if (boundaryBranches.Length != conditionalSelections.Count)
-        {
-            var boundaryIndex = boundaryBranches.Length == 0
-                ? sourceIndex
-                : sourceIndex.WithSelectedConditionalBranches(boundaryBranches);
-            var boundaryRow = FindRequestedDeclaration(
-                boundaryIndex,
-                startLine,
-                endLine,
-                methodName);
-            if (!IsSliceableDeclaration(boundaryIndex, boundaryRow)
-                || !HasSameSliceBoundaries(declaration, boundaryRow!))
-            {
-                return null;
-            }
-        }
+        var declaration = selection.Value.Declaration;
 
         int from = declaration.SignatureStartLine - 1;
         int to = declaration.EndLine;
@@ -149,6 +108,104 @@ public static class MemberTextSlicer
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// Returns exact lexical parts for the uniquely supported member selected by the supplied
+    /// physical line evidence. Every span addresses <paramref name="sourceText"/> directly in
+    /// zero-based UTF-16 code units; line ranges are one-based physical display coordinates.
+    /// </summary>
+    /// <remarks>
+    /// Selection, constructor reasoning, conditional projection, <c>#line</c> refusal, invalid
+    /// coordinate exceptions, and explicit <see langword="null"/> outcomes match
+    /// <see cref="ExtractMemberText"/>. Exact columns additionally allow one uniquely selected
+    /// member to share a line with its declaring type. Same-line sibling declarations remain
+    /// ambiguous and are refused.
+    /// </remarks>
+    public static MemberTextParts? GetMemberTextParts(
+        string sourceText,
+        int startLine,
+        int endLine,
+        string methodName,
+        IReadOnlyList<int>? activeLineNumbers = null)
+    {
+        var selection = SelectRequestedDeclaration(
+            sourceText,
+            startLine,
+            endLine,
+            methodName,
+            activeLineNumbers,
+            exactParts: true);
+        if (selection is null)
+            return null;
+
+        return selection.Value.Index.GetMemberTextParts(selection.Value.Declaration);
+    }
+
+    private static SelectedDeclaration? SelectRequestedDeclaration(
+        string sourceText,
+        int startLine,
+        int endLine,
+        string methodName,
+        IReadOnlyList<int>? activeLineNumbers,
+        bool exactParts)
+    {
+        var sourceIndex = DeclarationIndex.Build(sourceText);
+        var index = sourceIndex;
+        IReadOnlyList<ConditionalSelection> conditionalSelections = [];
+        if (activeLineNumbers is { Count: > 0 } points)
+        {
+            if (index.HasLineDirectives)
+                return null;
+
+            ValidateMemberTextCoordinates(startLine, endLine, points, index.LineCount);
+            conditionalSelections = SelectUniquelyEvidencedBranches(index, points);
+            if (conditionalSelections.Count > 0)
+            {
+                index = index.WithSelectedConditionalBranches(
+                    [.. conditionalSelections.Select(static selection => selection.Branch)]);
+            }
+        }
+
+        var row = FindRequestedDeclaration(index, startLine, endLine, methodName);
+        if (!IsSupportedDeclaration(index, row, exactParts))
+            return null;
+        var declaration = row!;
+
+        if (conditionalSelections.Any(selection =>
+            StraddlesDeclarationBoundary(selection.Group, declaration)))
+        {
+            return null;
+        }
+
+        var boundaryBranches = conditionalSelections
+            .Where(selection => !IsWhollyInside(selection.Group, declaration))
+            .Select(static selection => selection.Branch)
+            .ToArray();
+        if (boundaryBranches.Length != conditionalSelections.Count)
+        {
+            var boundaryIndex = boundaryBranches.Length == 0
+                ? sourceIndex
+                : sourceIndex.WithSelectedConditionalBranches(boundaryBranches);
+            var boundaryRow = FindRequestedDeclaration(
+                boundaryIndex,
+                startLine,
+                endLine,
+                methodName);
+            if (!IsSupportedDeclaration(boundaryIndex, boundaryRow, exactParts)
+                || !(exactParts
+                    ? HasSameTextPartBoundaries(
+                        index,
+                        declaration,
+                        boundaryIndex,
+                        boundaryRow!)
+                    : HasSameSliceBoundaries(declaration, boundaryRow!)))
+            {
+                return null;
+            }
+        }
+
+        return new SelectedDeclaration(index, declaration);
     }
 
     private static void ValidateMemberTextCoordinates(
@@ -230,12 +287,14 @@ public static class MemberTextSlicer
                 staticConstructor: IsStaticConstructorRequest(methodName))
             : index.FindByLine(startLine);
 
-    private static bool IsSliceableDeclaration(
+    private static bool IsSupportedDeclaration(
         DeclarationIndex index,
-        DeclarationSpan? declaration) =>
+        DeclarationSpan? declaration,
+        bool exactParts) =>
         declaration is not null
             && !IsTypeOrNamespace(declaration.Kind)
-            && !SharesBoundaryWithParentType(index, declaration)
+            && (!exactParts || index.GetMemberTextParts(declaration) is not null)
+            && (exactParts || !SharesBoundaryWithParentType(index, declaration))
             && !SharesBoundaryWithSibling(index, declaration)
             && !SharesBoundaryWithTransparentScope(index, declaration);
 
@@ -266,6 +325,28 @@ public static class MemberTextSlicer
             && projected.FirstCodeColumn == boundary.FirstCodeColumn
             && projected.EndLine == boundary.EndLine;
 
+    private static bool HasSameTextPartBoundaries(
+        DeclarationIndex projectedIndex,
+        DeclarationSpan projected,
+        DeclarationIndex boundaryIndex,
+        DeclarationSpan boundary)
+    {
+        if (!HasSameSliceBoundaries(projected, boundary))
+        {
+            return false;
+        }
+
+        var projectedParts = projectedIndex.GetMemberTextParts(projected);
+        var boundaryParts = boundaryIndex.GetMemberTextParts(boundary);
+        return projectedParts is not null
+            && boundaryParts is not null
+            && projectedParts.Member == boundaryParts.Member
+            && projectedParts.Signature == boundaryParts.Signature
+            && projectedParts.Body == boundaryParts.Body
+            && projectedParts.XmlDocumentation.SequenceEqual(boundaryParts.XmlDocumentation)
+            && projectedParts.Attributes.SequenceEqual(boundaryParts.Attributes);
+    }
+
     private static bool ContainsPoint(
         ConditionalBranchSpan branch,
         IReadOnlyList<int> points)
@@ -287,6 +368,10 @@ public static class MemberTextSlicer
     private readonly record struct ConditionalSelection(
         ConditionalGroupSpan Group,
         ConditionalBranchSpan Branch);
+
+    private readonly record struct SelectedDeclaration(
+        DeclarationIndex Index,
+        DeclarationSpan Declaration);
 
     private static bool IsTypeOrNamespace(DeclarationKind kind) =>
         kind is DeclarationKind.Class or DeclarationKind.Struct or DeclarationKind.Record
