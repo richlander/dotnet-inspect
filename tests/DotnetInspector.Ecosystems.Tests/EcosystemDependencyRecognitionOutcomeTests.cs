@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -252,6 +253,145 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             new EcosystemDependencySubject.Package(fixture.Coordinate),
             fixture.Context);
 
+        Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch));
+    }
+
+    [Fact]
+    public async Task ActualDefaultQuerySelectionRetainsOneImplicitRun()
+    {
+        InMemoryPackageContent content = PackageWithManifest(
+            """
+            <dependency id="Microsoft.Extensions.Options" version="10.0.0" />
+            <group targetFramework="net11.0">
+              <dependency id="Middle" version="1.0.0" />
+            </group>
+            <dependency id="System.Text.Json" version="10.0.0" />
+            """,
+            "ref/net10.0/_._");
+        var available = Assert.IsType<PackageDependencyGroupsResult.Available>(
+            await PackageDependencyGroupsQuery.ExecuteAsync(
+                content,
+                "sample.package",
+                "1.0.0",
+                "net10.0",
+                TestContext.Current.CancellationToken));
+        EcosystemDependencyInputContext.Package context =
+            Context(available, CompileSelection(content, "net10.0"));
+        DeclaredPackageDependency dependency =
+            Assert.Single(available.Value.SelectedGroup!.Dependencies);
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(PackageSource("net10.0")),
+            context,
+            [
+                new EcosystemDependencyObservation.PackageDeclaration(
+                    new(1),
+                    1,
+                    dependency,
+                    PackageSource("net10.0")),
+            ]);
+
+        Assert.Equal("Microsoft.Extensions.Options", dependency.Id);
+        Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch));
+    }
+
+    [Fact]
+    public async Task ActualCompatibleQuerySelectionRetainsCoalescedImplicitRuns()
+    {
+        InMemoryPackageContent content = PackageWithManifest(
+            """
+            <dependency id="Microsoft.Extensions.Options" version="10.0.0" />
+            <group targetFramework="net11.0">
+              <dependency id="Middle" version="1.0.0" />
+            </group>
+            <dependency id="System.Text.Json" version="10.0.0" />
+            """,
+            "ref/net10.0/_._");
+        var available = Assert.IsType<PackageDependencyGroupsResult.Available>(
+            await PackageDependencyGroupsQuery.ExecuteAsync(
+                content,
+                "sample.package",
+                "1.0.0",
+                "net10.0",
+                TestContext.Current.CancellationToken,
+                allowCompatibleFallbackForRequestedTfm: true));
+        EcosystemDependencyInputContext.Package context =
+            Context(available, CompileSelection(content, "net10.0"));
+        EcosystemDependencyObservation[] observations =
+        [
+            .. available.Value.SelectedGroup!.Dependencies.Select(
+                (dependency, index) =>
+                    new EcosystemDependencyObservation.PackageDeclaration(
+                        new(index + 1),
+                        index + 1,
+                        dependency,
+                        PackageSource("net10.0"))),
+        ];
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(PackageSource("net10.0")),
+            context,
+            observations);
+
+        Assert.Equal(
+            ["Microsoft.Extensions.Options", "System.Text.Json"],
+            available.Value.SelectedGroup.Dependencies.Select(
+                dependency => dependency.Id));
+        Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ActualEmptyTargetUniversalGroupIsSuccessful(
+        bool includeDependency)
+    {
+        string group = includeDependency
+            ? """
+              <group targetFramework="">
+                <dependency id="System.Text.Json" version="10.0.0" />
+              </group>
+              """
+            : """<group targetFramework="" />""";
+        InMemoryPackageContent content = PackageWithManifest(
+            group,
+            "ref/net10.0/_._");
+        var available = Assert.IsType<PackageDependencyGroupsResult.Available>(
+            await PackageDependencyGroupsQuery.ExecuteAsync(
+                content,
+                "sample.package",
+                "1.0.0",
+                "net10.0",
+                TestContext.Current.CancellationToken));
+        EcosystemDependencyInputContext.Package context =
+            Context(available, CompileSelection(content, "net10.0"));
+        EcosystemDependencyObservation[] observations =
+        [
+            .. (available.Value.SelectedGroup?.Dependencies ?? [])
+                .Select(
+                    (dependency, index) =>
+                        new EcosystemDependencyObservation.PackageDeclaration(
+                            new(index + 1),
+                            index + 1,
+                            dependency,
+                            PackageSource("net10.0"))),
+        ];
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(PackageSource("net10.0")),
+            context,
+            observations);
+
+        Assert.Equal("", available.Value.SelectedTargetFramework);
+        Assert.Equal(
+            includeDependency ? 1 : 0,
+            available.Value.SelectedGroup!.Dependencies.Length);
         Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
             EcosystemDependencyRecognizer.Recognize(
                 EcosystemPackCatalog.DependencyRecognitionProfile,
@@ -610,6 +750,30 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
         return new(selection, library);
     }
 
+    private static EcosystemDependencyPackageCompileSelection CompileSelection(
+        InMemoryPackageContent content,
+        string targetFramework)
+    {
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "sample.package",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                targetFramework);
+        return new(receipt);
+    }
+
+    private static EcosystemDependencyInputContext.Package Context(
+        PackageDependencyGroupsResult.Available dependencies,
+        EcosystemDependencyPackageCompileSelection compile) =>
+        new(
+            new EcosystemDependencyInputComponent<
+                PackageManifestFacts>.Available(dependencies.Manifest),
+            new EcosystemDependencyInputComponent<
+                PackageDependencyGroups>.Available(dependencies.Value),
+            new EcosystemDependencyInputComponent<
+                EcosystemDependencyPackageCompileSelection>.Available(compile));
+
     private static PackageManifestFacts Manifest(
         params DeclaredPackageDependencyGroup[] groups) =>
         new(
@@ -635,6 +799,51 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             ZipArchiveMode.Create,
             leaveOpen: true))
         {
+            foreach (string path in entries)
+            {
+                ZipArchiveEntry entry = archive.CreateEntry(path);
+                using Stream stream = entry.Open();
+                stream.Write([1, 2, 3]);
+            }
+        }
+
+        return new InMemoryPackageContent(
+            buffer.ToArray(),
+            fromCache: false,
+            producerKey: "tests");
+    }
+
+    private static InMemoryPackageContent PackageWithManifest(
+        string dependencies,
+        params string[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            ZipArchiveEntry manifest =
+                archive.CreateEntry("sample.package.nuspec");
+            using (Stream stream = manifest.Open())
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(
+                    $$"""
+                    <package>
+                      <metadata>
+                        <id>sample.package</id>
+                        <version>1.0.0</version>
+                        <authors>Tests</authors>
+                        <description>Tests</description>
+                        <dependencies>
+                          {{dependencies}}
+                        </dependencies>
+                      </metadata>
+                    </package>
+                    """);
+                stream.Write(bytes);
+            }
+
             foreach (string path in entries)
             {
                 ZipArchiveEntry entry = archive.CreateEntry(path);

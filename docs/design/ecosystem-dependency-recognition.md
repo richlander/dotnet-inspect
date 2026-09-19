@@ -359,6 +359,13 @@ available component. An unavailable or not-attempted component, incomplete
 selected-asset/Library correspondence, or a mismatch among available
 components cannot produce a complete Document.
 
+The dependency query may issue either one selected manifest group or a
+compatible-policy logical group that coalesces several implicit manifest runs.
+Recognition accepts both owner-issued forms and does not independently
+coalesce or reselect them. Universal group target spelling may be `any` or
+empty; the original spelling remains evidence while both forms correspond to
+the concrete effective target request.
+
 The semantic subject is not a display header. Two complete empty Documents for
 different subjects remain distinct and attributable. Hosts must not use
 `InspectionShare`, a rendered command, or a display label to repair missing

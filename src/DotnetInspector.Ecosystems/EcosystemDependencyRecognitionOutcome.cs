@@ -617,11 +617,12 @@ public abstract record EcosystemDependencyObservationBatch
         {
             case PackageDependencyGroupSelectionStatus.Selected:
                 if (selection.SelectedGroup is null
-                    || string.IsNullOrWhiteSpace(
-                        selection.SelectedTargetFramework)
                     || selection.SelectedGroupIndex is not int selectedIndex
                     || selectedIndex < 0
                     || selectedIndex >= selection.Groups.Length
+                    || !SelectionTargetCorresponds(
+                        selection.SelectedTargetFramework,
+                        selection.SelectedGroup)
                     || !SelectedGroupCorresponds(selection, selectedIndex))
                 {
                     throw new ArgumentException(
@@ -658,13 +659,16 @@ public abstract record EcosystemDependencyObservationBatch
         int selectedIndex)
     {
         DeclaredPackageDependencyGroup selected = selection.SelectedGroup!;
+        if (GroupsEqual(selected, selection.Groups[selectedIndex]))
+            return true;
+
         if (!selected.IsImplicitManifestGroup)
-            return GroupsEqual(selected, selection.Groups[selectedIndex]);
+            return false;
 
         if (!selection.Groups[selectedIndex].IsImplicitManifestGroup
-            || !selected.TargetFramework.Equals(
-                "any",
-                StringComparison.OrdinalIgnoreCase))
+            || selection.Groups.Take(selectedIndex).Any(
+                static group => group.IsImplicitManifestGroup)
+            || !IsUniversalGroup(selected))
         {
             return false;
         }
@@ -673,6 +677,26 @@ public abstract record EcosystemDependencyObservationBatch
             selection.Groups
                 .Where(static group => group.IsImplicitManifestGroup)
                 .SelectMany(static group => group.Dependencies));
+    }
+
+    private static bool SelectionTargetCorresponds(
+        string? selectedTargetFramework,
+        DeclaredPackageDependencyGroup selectedGroup)
+    {
+        if (IsUniversalGroup(selectedGroup))
+        {
+            return selectedTargetFramework is not null
+                && (string.IsNullOrWhiteSpace(selectedTargetFramework)
+                || selectedTargetFramework.Equals(
+                    "any",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        if (string.IsNullOrWhiteSpace(selectedTargetFramework))
+            return false;
+
+        return TfmSelector.NormalizeTfm(selectedTargetFramework).Equals(
+            TfmSelector.NormalizeTfm(selectedGroup.TargetFramework),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ValidateTargetFrameworkCorrespondence(
