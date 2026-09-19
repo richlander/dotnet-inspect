@@ -2110,6 +2110,22 @@ public class ResearchDiffTests
         Assert.Equal(1, change.Delta);
         Assert.True(change.OldIsComplete);
         Assert.True(change.NewIsComplete);
+
+        // The retained profiles expose the full structural evidence behind
+        // the single complexity number: V2 adds a loop wrapping the second
+        // allocation (fixtures/diff/DiffFixtures.V2/DiffSample.cs), so the
+        // loop and allocation counts each increase by one alongside the
+        // conditional-branch increase already reflected in Delta.
+        var oldProfile = change.OldProfile;
+        var newProfile = change.NewProfile;
+        Assert.NotNull(oldProfile);
+        Assert.NotNull(newProfile);
+        Assert.Equal(1, newProfile.LoopCount - oldProfile.LoopCount);
+        Assert.Equal(1, newProfile.AllocationCount - oldProfile.AllocationCount);
+        Assert.Equal(
+            change.Delta,
+            newProfile.NormalFlowCyclomaticComplexity
+                - oldProfile.NormalFlowCyclomaticComplexity);
     }
 
     [Fact]
@@ -2142,14 +2158,18 @@ public class ResearchDiffTests
         var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
 
         Assert.True(result.Complexity.IsAvailable);
-        Assert.Contains(
+        var removed = Assert.Single(
             result.Complexity.Changes,
             change => change.Kind == ImplementationComplexityChangeKind.Removed
                 && change.Subject.MemberName == "Read");
-        Assert.Contains(
+        Assert.NotNull(removed.OldProfile);
+        Assert.Null(removed.NewProfile);
+        var added = Assert.Single(
             result.Complexity.Changes,
             change => change.Kind == ImplementationComplexityChangeKind.Added
                 && change.Subject.MemberName == "Read");
+        Assert.Null(added.OldProfile);
+        Assert.NotNull(added.NewProfile);
     }
 
     [Fact]
@@ -2256,6 +2276,15 @@ public class ResearchDiffTests
         Assert.All(
             result.Changes,
             change => Assert.Equal(ImplementationComplexityChangeKind.Incomplete, change.Kind));
+        // Incomplete rows still retain both sides' profiles: the pairing is
+        // untrustworthy, not the underlying evidence.
+        Assert.All(
+            result.Changes,
+            change =>
+            {
+                Assert.NotNull(change.OldProfile);
+                Assert.NotNull(change.NewProfile);
+            });
     }
 
     [Fact]
