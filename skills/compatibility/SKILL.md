@@ -205,25 +205,28 @@ version/feed pair when source identity matters. Source declaration order is not
 precedence; load the `private-feeds` skill for source and credential workflows.
 Pin with `@`: `Foo@9.0.0`, `Foo@latest`.
 
-For caller-driven onset or bisect work, resolve an inclusive addressable vector,
-then probe only the cells you choose:
+For bounded onset or bisect work, let Timeline evaluate the endpoints and
+adaptively refine observed changed gaps:
 
 ```bash
 dnx dotnet-inspect -y -- package Foo@1.0.0..2.0.0 --versions
 dnx dotnet-inspect -y -- type TargetType --package Foo@1.0.0..2.0.0 --at '#5'
 dnx dotnet-inspect -y -- member TargetType TargetMember --package Foo@1.0.0..2.0.0 --at 1.6.0
 dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
-  --type TargetType --members --at first --at last
+  --type TargetType --members --max-probes 8
 dnx dotnet-inspect -y -- timeline --package Foo@1.0.0..2.0.0 \
   --type TargetType --member TargetMember \
-  --finding analysis.unsafety --at first --at last
+  --finding analysis.unsafety --max-probes 8
 ```
 
 `--at` accepts an exact version, one-based `#N`, `first`, or `last`. Vector
 resolution does not download every package; only the selected probe is
-acquired. The agent owns the search policy and bound. For recurrence-safe
-current onset, walk backward from the bad version until the first successful
-absence; use binary search only for a predicate known to be monotonic.
+acquired. `--max-probes N` instead evaluates both endpoints and automatically
+bisects only observed changed gaps, counting the endpoints in its total
+acquisition budget. Equal endpoint states end ordinary migration investigation
+without pushing interior sampling. For recurrence-safe current onset, walk
+backward from the bad version until the first successful absence; use automatic
+bisection only when endpoint comparison answers the question.
 
 Online API/timeline ranges support configured folder and HTTP feeds. Discovery
 must be complete, and each probe can acquire only from a source that reported
@@ -233,17 +236,22 @@ unlisted coordinate. Local payload caches retain configured authority; HTTP
 payloads use temporary storage and are downloaded again on a later invocation.
 
 `timeline` renders `Evaluations` and `Transitions` over the same vector. Omit
-`--at` for a zero-payload address view and midpoint recommendation, repeat
-`--at` for sparse probes, or pass `--at all` for explicit dense traversal.
+both selection modes for a zero-payload address view, pass `--max-probes N` for
+bounded automatic bisection, or repeat `--at` for manual sparse probes.
+`--at all` is the expensive forensic mode for a complete chronological census,
+including transient changes later reverted; do not recommend it for an
+ordinary migration whose selected endpoint states are equal.
 Choose the type-focused census with `--type-presence`, `--members`, or
 `--attributes` (aliases for `api.type`, `api.member`, and `api.attribute`).
 Add `--member` to `api.member` for one exact member identity track. The same
 member selector scopes `analysis.allocation`, `analysis.call-site`, and
 `analysis.unsafety` timelines to one method body.
 Gap-spanning transitions are evidence across the selected probes, not claims
-about the exact introduction or removal version.
-Online recommendations retain source/configuration, TFM, prerelease, and
-visibility options so the next probe can run from a different working directory.
+about the exact introduction or removal version. Automatic bisection recommends
+the exact adjacent Finding Diff when it locates a boundary, or names the
+remaining changed interval when its budget expires. Online recommendations
+retain source/configuration, TFM, prerelease where applicable, and visibility
+options.
 
 The range and point probes identify a candidate boundary. Confirm the adjacent
 pair with Metadata's real Finding comparison rather than inferring introduction

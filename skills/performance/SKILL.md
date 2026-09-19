@@ -278,12 +278,15 @@ cells:
 ```bash
 dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
   -t MyType -m HotPath \
-  --finding analysis.allocation --at first --at last
+  --finding analysis.allocation --max-probes 8
 ```
 
-Repeat `--at` for sparse probes or use `--at all` for an explicitly bounded
-dense traversal. These probes locate a candidate old/new boundary; they do not
-establish onset. Confirm one method's adjacent pair with Analysis's native
+The budget includes both endpoints. Timeline stops when their allocation
+Findings are equal and automatically bisects observed changed gaps otherwise.
+Repeat `--at` only for manually selected sparse probes. `--at all` is the
+expensive forensic mode for a complete chronological census, not ordinary
+migration guidance. These probes locate a candidate old/new boundary; they do
+not establish onset. Confirm one method's adjacent pair with Analysis's native
 allocation Findings:
 
 ```bash

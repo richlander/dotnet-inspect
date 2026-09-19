@@ -442,39 +442,60 @@ listed; use an exact caller pin to inspect an unlisted package. Metadata-only
 ordinals are not addresses in the listed-only API/timeline vector.
 
 `timeline` uses the same vector without changing that authorization rule. With
-no `--at`, it renders every address as `Unevaluated` and recommends a probe
-without downloading package payloads. Repeated `--at` selectors perform sparse
-correlation; `--at all` is the explicit dense-traversal opt-in. Type focus may
-select the type-presence (`api.type`), owned-member (`api.member`), or applied
-attribute (`api.attribute`) census. Adding `--member` to `api.member` selects
-one exact member identity track. The same member focus composes with
-`analysis.allocation`, `analysis.call-site`, and `analysis.unsafety`; only the
-selected method body is decoded at each evaluated address. Sparse transitions
-spanning unevaluated cells are labeled as gaps and do not claim the exact
-version of a change.
+no `--at`, it renders every address as `Unevaluated` without downloading
+package payloads. `--max-probes N` is the explicit automatic-bisection gesture:
+it evaluates both endpoints, then evaluates the midpoint of the largest
+observed changed gap until every observed changed gap is adjacent, no changed
+gap remains, or the total evaluation count reaches `N`. The minimum budget is
+two and includes the endpoints. Equal endpoint states end ordinary migration
+investigation without recommending interior sampling. A failed endpoint remains
+visible and does not authorize a bisection claim.
 
-Online timeline recommendations retain source and configuration arguments,
-including an absolute `--nugetconfig-directory` for ambient configuration.
-They also retain TFM, prerelease, and visibility choices. Exact `match --similar`
-replay retains the reporting configured sources for the selected coordinate,
-not a transient extraction path. Credential-sensitive sources must be selected
-through configuration when their URLs cannot be safely disclosed.
+Repeated `--at` selectors retain the explicit sparse-correlation mode and
+cannot be combined with `--max-probes`. When two consecutive manually evaluated
+cells differ and bracket unevaluated cells, the recommendation retains every
+evaluated selector and adds the midpoint of the largest changed gap. `--at all`
+is the explicit dense-traversal mode for a complete chronological census,
+including transient changes that later reverted; it is normally unnecessary
+when evaluating migration between equivalent endpoints.
+
+Type focus may select the type-presence (`api.type`), owned-member
+(`api.member`), or applied attribute (`api.attribute`) census. Adding
+`--member` to `api.member` selects one exact member identity track. The same
+member focus composes with `analysis.allocation`, `analysis.call-site`, and
+`analysis.unsafety`; only the selected method body is decoded at each evaluated
+address. Sparse transitions spanning unevaluated cells are labeled as gaps and
+do not claim the exact version of a change.
+
+When automatic bisection reaches an adjacent changed pair, Timeline recommends
+the exact Finding Diff that confirms and explains that boundary. When its
+budget ends first, it reports the remaining observed changed interval and
+allows the caller to increase `--max-probes`; it does not recommend dense
+traversal. Replayable Timeline and Diff recommendations retain source and
+configuration arguments, including an absolute `--nugetconfig-directory` for
+ambient configuration, plus applicable TFM and visibility choices. Exact
+`match --similar` replay retains the reporting configured sources for the
+selected coordinate, not a transient extraction path. Credential-sensitive
+sources must be selected through configuration when their URLs cannot be
+safely disclosed.
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
   --type Foo.Parser --member Parse \
-  --finding analysis.unsafety --at first --at last
+  --finding analysis.unsafety --max-probes 8
 ```
 
-This locates candidate unsafe-operation boundaries without replacing the final
-adjacent `diff --finding analysis.unsafety` introduction proof.
+This automatically locates a candidate unsafe-operation boundary within an
+eight-version acquisition budget without replacing the final adjacent
+`diff --finding analysis.unsafety` introduction proof.
 
 Stable endpoints exclude prereleases by default. A prerelease endpoint or
 `--preview` on `package --versions` includes prereleases within the range.
 Existing `diff --package Name@A..B` remains the two-endpoint projection of the
-same familiar range syntax. After caller-directed probes locate a candidate
-boundary, `diff -S "Finding Transitions"` confirms a focused type or member as
-the native `PairFinding.Added`, `Present`, `Removed`, or `Changed` transition:
+same familiar range syntax. After automatic bisection or caller-directed probes
+locate a candidate boundary, `diff -S "Finding Transitions"` confirms a focused
+type or member as the native `PairFinding.Added`, `Present`, `Removed`, or
+`Changed` transition:
 
 ```bash
 dotnet-inspect diff \

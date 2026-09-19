@@ -55,12 +55,16 @@ version boundary, first correlate caller-selected package cells:
 ```bash
 dnx dotnet-inspect -y -- timeline --package MyLib@1.0.0..2.0.0 \
   -t MyType -m Method \
-  --finding analysis.unsafety --at first --at last
+  --finding analysis.unsafety --max-probes 8
 ```
 
-Repeat `--at` for sparse probes or use `--at all` for an explicitly bounded
-dense traversal. A gap-spanning `Added` row locates a candidate boundary; it
-does not claim the exact introduction version. Confirm the adjacent pair:
+The probe budget includes both endpoints. Timeline stops when the selected
+endpoint states are equal, adaptively bisects observed changed gaps, and
+recommends the exact adjacent Diff when it locates the boundary. Repeat `--at`
+only for manually selected sparse probes. `--at all` is the expensive forensic
+mode for a complete chronological census, not ordinary migration guidance. A
+gap-spanning `Added` row locates a candidate boundary; it does not claim the
+exact introduction version. Confirm the adjacent pair:
 
 ```bash
 dnx dotnet-inspect -y -- diff --package MyLib@1.4.0..1.5.0 \

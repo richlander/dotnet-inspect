@@ -79,6 +79,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Theory]
     [InlineData("none", 0)]
     [InlineData("sparse", 2)]
+    [InlineData("bisect", 2)]
     [InlineData("all", 3)]
     public async Task TimelineRange_OneDiscoveryAcquiresOnlyExplicitAddresses(string selection, int payloadCount)
     {
@@ -91,6 +92,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--type", RangeType, "--finding", "api.type", "--source", FirstFeed, "--tips", "q"];
         if (selection == "sparse")
             args.AddRange(["--at", "first", "--at", "last"]);
+        else if (selection == "bisect")
+            args.AddRange(["--max-probes", "3"]);
         else if (selection == "all")
             args.AddRange(["--at", "all"]);
 
@@ -110,11 +113,147 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         else
         {
             Assert.Contains("Unevaluated", result.Output);
-            Assert.Contains($"--source {ShellCommandText.Quote(FirstFeed)}", result.Output);
-            Assert.Contains("--nugetconfig-directory", result.Output);
+            Assert.DoesNotContain("Recommendation", result.Output);
         }
         if (selection == "sparse")
             Assert.Contains("Gap (1)", result.Output);
+    }
+
+    [Theory]
+    [InlineData("1.0.0..5.0.0", "3.0.0..4.0.0")]
+    [InlineData("5.0.0..1.0.0", "4.0.0..3.0.0")]
+    public async Task TimelineRange_MaxProbesAutomaticallyLocatesAdjacentBoundary(
+        string range,
+        string boundary)
+    {
+        const string Id = "range.timeline.bisect";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    useV2: version is "4.0.0" or "5.0.0"),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@{range}",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--max-probes", "5",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            4,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            $"Confirm adjacent boundary {boundary}:",
+            result.Output);
+        Assert.Contains(
+            $"dotnet-inspect diff --package '{Id}@{boundary}'",
+            result.Output);
+        Assert.Contains($"-t '{RangeType}'", result.Output);
+        Assert.Contains(
+            $"--source {ShellCommandText.Quote(FirstFeed)}",
+            result.Output);
+        Assert.DoesNotContain("Probe #", result.Output);
+    }
+
+    [Fact]
+    public async Task TimelineRange_MaxProbesAdjacentBoundaryRetainsSourceConfiguration()
+    {
+        const string Id = "range.timeline.adjacent";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    useV2: version == "2.0.0"),
+                requests));
+        string workingDirectory = Directory.GetCurrentDirectory();
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..2.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--nugetconfig-directory", workingDirectory,
+                "--max-probes", "2",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            2,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            "Confirm adjacent boundary 1.0.0..2.0.0:",
+            result.Output);
+        Assert.Contains(
+            $"--source {ShellCommandText.Quote(FirstFeed)}",
+            result.Output);
+        Assert.Contains(
+            $"--nugetconfig-directory {ShellCommandText.Quote(workingDirectory)}",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task TimelineRange_MaxProbesStopsAtChangedGapWithoutSuggestingDenseTraversal()
+    {
+        const string Id = "range.timeline.budget";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    useV2: version is "4.0.0" or "5.0.0"),
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..5.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--max-probes", "3",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            3,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            "Bisection stopped after 3 of 3 probes",
+            result.Output);
+        Assert.Contains("changed interval 3.0.0..5.0.0", result.Output);
+        Assert.Contains("Increase --max-probes to continue.", result.Output);
+        Assert.DoesNotContain("--at all", result.Output);
     }
 
     [Fact]
@@ -238,14 +377,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         const string Id = "range.timeline.replay";
         string source = Path.Combine(_root, "timeline-feed");
         foreach (string version in new[] { "1.0.0", "2.0.0-preview.1", "3.0.0" })
-            WriteApiPackage(source, Id, version);
+            WriteApiPackage(source, Id, version, useV2: version == "3.0.0");
         string originalDirectory = Directory.GetCurrentDirectory();
         string replayDirectory = Directory.CreateDirectory(Path.Combine(_root, "replay")).FullName;
 
         var result = await RunCommandAsync(
             ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                 "--finding", "api.type", "--source", Path.GetRelativePath(originalDirectory, source),
-                "--preview", "--all", "--tfm", "net10.0", "--tips", "q"]);
+                "--preview", "--all", "--tfm", "net10.0",
+                "--at", "first", "--at", "last", "--tips", "q"]);
 
         Assert.True(result.Exit == 0, result.Error);
         string recommendation = result.Output.Split('\n').Single(line => line.Contains("Probe #2", StringComparison.Ordinal));
@@ -255,6 +395,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("--preview", recommendation);
         Assert.Contains("--all", recommendation);
         Assert.Contains("--tfm 'net10.0'", recommendation);
+        Assert.Contains("--at '#1' --at '#2' --at '#3'", recommendation);
 
         try
         {
@@ -263,7 +404,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 ["timeline", "--package", $"{Id}@1.0.0..3.0.0", "--type", RangeType,
                     "--finding", "api.type", "--source", source,
                     "--nugetconfig-directory", originalDirectory,
-                    "--preview", "--all", "--tfm", "net10.0", "--at", "#2", "--tips", "q"]);
+                    "--preview", "--all", "--tfm", "net10.0",
+                    "--at", "#1", "--at", "#2", "--at", "#3", "--tips", "q"]);
             Assert.True(replay.Exit == 0, replay.Error);
             Assert.Contains("| #2 | 2.0.0-preview.1 | Present |", replay.Output);
         }
@@ -271,6 +413,30 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             Directory.SetCurrentDirectory(originalDirectory);
         }
+    }
+
+    [Fact]
+    public async Task DiffRange_ConfigDirectoryErrorsBeforeAcquisition()
+    {
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            throw new InvalidOperationException(
+                "Invalid Diff config directory reached acquisition."));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--package", "range.diff.config-directory@1.0.0..2.0.0",
+                "-t", RangeType,
+                "--finding", "api.type",
+                "--nugetconfig-directory", Path.Combine(_root, "missing"),
+                "--tips", "q"
+            ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "NuGet config discovery directory not found",
+            result.Error);
     }
 
     [Fact]
@@ -387,18 +553,31 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Empty(Directory.EnumerateDirectories(temporary, "inspect-api*", SearchOption.TopDirectoryOnly));
     }
 
-    private static void WriteApiPackage(string source, string id, string version)
+    private static void WriteApiPackage(
+        string source,
+        string id,
+        string version,
+        bool useV2 = false)
     {
         Directory.CreateDirectory(source);
-        File.WriteAllBytes(Path.Combine(source, $"{id}.{version}.nupkg"), CreateApiPackage(id, version));
+        File.WriteAllBytes(
+            Path.Combine(source, $"{id}.{version}.nupkg"),
+            CreateApiPackage(id, version, useV2));
     }
 
-    private static byte[] CreateApiPackage(string id, string version)
+    private static byte[] CreateApiPackage(
+        string id,
+        string version,
+        bool useV2 = false)
     {
         using var buffer = new MemoryStream();
         buffer.Write(CreatePackage(id, version, version: version));
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Update, leaveOpen: true))
-            archive.CreateEntryFromFile(FixtureCatalog.DiffV1.AssemblyPath(), "lib/net10.0/RangeFixture.dll");
+        {
+            archive.CreateEntryFromFile(
+                (useV2 ? FixtureCatalog.DiffV2 : FixtureCatalog.DiffV1).AssemblyPath(),
+                "lib/net10.0/RangeFixture.dll");
+        }
         return buffer.ToArray();
     }
 }

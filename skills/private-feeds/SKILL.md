@@ -120,7 +120,7 @@ dnx dotnet-inspect -y -- type MyCompany.Widget --package MyCompany.Widget@1.2.3 
 dnx dotnet-inspect -y -- type MyCompany.Widget \
   --package MyCompany.Widget@1.0.0..2.0.0 --at last --source ./feed
 dnx dotnet-inspect -y -- timeline --package MyCompany.Widget@1.0.0..2.0.0 \
-  --type MyCompany.Widget --type-presence --at first --at last --source ./feed
+  --type MyCompany.Widget --type-presence --max-probes 8 --source ./feed
 ```
 
 Omitted and `@latest` API selection chooses the highest stable listed version.
@@ -129,15 +129,18 @@ semantics and may select a prerelease.
 
 Ranges require complete fresh discovery and acquire only from sources that
 reported each selected coordinate. A timeline retains one vector for all its
-probes. Omit `--at` for a metadata-only view; `--at all` explicitly acquires
-every address. An unreadable peer prevents selection.
+probes. `--max-probes N` explicitly authorizes bounded automatic bisection;
+omit it and `--at` for a metadata-only view. `--at all` explicitly acquires
+every address for a forensic chronological census and is normally unnecessary
+for endpoint migration. An unreadable peer prevents selection.
 
 API/timeline vectors exclude unlisted observations, including endpoints.
 An exact pin can still inspect an unlisted coordinate. Do not copy ordinals
 from a `--include-unlisted` metadata listing into a listed-only vector.
-Timeline probe recommendations retain source/configuration and selection
-options. `match --similar` retains the reporting configured sources in its
-exact-package replay, without depending on temporary extraction paths.
+Timeline boundary and manual-probe recommendations retain source/configuration
+and selection options. `match --similar` retains the reporting configured
+sources in its exact-package replay, without depending on temporary extraction
+paths.
 
 Exact API pins and range probes use the same local authority caches and HTTP
 temporary storage as package inspection. HTTP payloads are downloaded anew in

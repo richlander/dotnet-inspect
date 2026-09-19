@@ -218,7 +218,10 @@ present
 
 `Finding Transitions` requires `-t` or a type-qualified `-m` target. It confirms
 only the supplied pair; it does not traverse the version range. Use
-`package Name@A..B --versions` and `type`/`member --at` to choose the boundary.
+`timeline --max-probes N` to locate an observed endpoint difference
+automatically within a bounded package-acquisition budget, or use
+`package Name@A..B --versions` and `type`/`member --at` for explicit manual
+selection.
 `PairFinding.Present` means the target exists at both endpoints, while
 `PairFinding.Removed` means only the old endpoint contains it.
 

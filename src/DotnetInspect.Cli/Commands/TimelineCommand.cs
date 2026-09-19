@@ -48,14 +48,21 @@ public static class TimelineCommand
             var vector = rangeExtraction?.Vector ?? await PackageVersionVector.ResolveAsync(
                 context.HttpClient, range!, options.SourceOptions,
                 context.Logger.Log, options.IncludePrerelease);
-            if (!TrySelectAddresses(vector, options.At, out var selectedAddresses, out error))
+            if (!TrySelectAddresses(
+                    vector,
+                    options.At,
+                    options.MaxProbes,
+                    out var selectedAddresses,
+                    out error))
             {
                 CommandError.Write($"{error}");
                 return 1;
             }
 
-            string replayArguments = "";
-            if (rangeExtraction is not null && selectedAddresses.Length < vector.Addresses.Length)
+            string sourceReplayArguments = "";
+            if (rangeExtraction is not null
+                && (options.MaxProbes is not null
+                    || selectedAddresses.Length < vector.Addresses.Length))
             {
                 NuGetSourceOptions sourceOptions = options.SourceOptions ?? NuGetSourceOptions.Default;
                 if (sourceOptions.ConfigFile is null)
@@ -67,13 +74,7 @@ public static class TimelineCommand
                     CommandError.Write(error!);
                     return 1;
                 }
-                replayArguments = PackageReplaySourceArguments.Format(replaySources);
-                if (options.Tfm is not null)
-                    replayArguments += $" --tfm {ShellCommandText.Quote(options.Tfm)}";
-                if (options.IncludePrerelease)
-                    replayArguments += " --preview";
-                if (options.IncludeAll)
-                    replayArguments += " --all";
+                sourceReplayArguments = PackageReplaySourceArguments.Format(replaySources);
             }
 
             var evaluations = await EvaluateAsync(
@@ -90,16 +91,54 @@ public static class TimelineCommand
                     return 1;
                 }
 
-                var view = BuildView(
-                    vector,
-                    typeFullName!,
-                    descriptor!,
-                    evaluations,
-                    selectedSections,
-                    options.MemberName,
-                    options.IncludeAll);
-                if (view.Recommendation is not null && replayArguments.Length > 0)
-                    view.Recommendation += " " + replayArguments.TrimStart();
+                TimelineBuildResult result;
+                while (true)
+                {
+                    result = BuildViewResult(
+                        vector,
+                        typeFullName!,
+                        descriptor!,
+                        evaluations,
+                        selectedSections,
+                        options.MemberName,
+                        options.IncludeAll,
+                        disposeAnalysisEndpoints: false);
+                    if (options.MaxProbes is not int maxProbes
+                        || evaluations.Count >= maxProbes
+                        || SelectProbePosition(result.ChangedIntervals) is not int probe)
+                    {
+                        break;
+                    }
+
+                    evaluations.AddRange(await EvaluateAsync(
+                        context,
+                        vector.PackageId,
+                        [vector.Addresses[probe]],
+                        options,
+                        rangeExtraction));
+                }
+
+                TimelineDocumentView view = result.View;
+                if (options.MaxProbes is int probeLimit)
+                {
+                    view.Recommendation = BuildBisectRecommendation(
+                        vector,
+                        typeFullName!,
+                        options.MemberName,
+                        descriptor!,
+                        probeLimit,
+                        evaluations.Count,
+                        result.ChangedIntervals,
+                        BuildDiffReplayArguments(sourceReplayArguments, options));
+                }
+                else if (view.Recommendation is not null)
+                {
+                    string replayArguments = BuildTimelineReplayArguments(
+                        sourceReplayArguments,
+                        options);
+                    if (replayArguments.Length > 0)
+                        view.Recommendation += " " + replayArguments.TrimStart();
+                }
                 return Write(view, options, selectedSections);
             }
             finally
@@ -123,6 +162,25 @@ public static class TimelineCommand
         HashSet<string> selectedSections,
         string? memberName = null,
         bool includeAll = false)
+        => BuildViewResult(
+            vector,
+            typeFullName,
+            descriptor,
+            evaluated,
+            selectedSections,
+            memberName,
+            includeAll,
+            disposeAnalysisEndpoints: true).View;
+
+    static TimelineBuildResult BuildViewResult(
+        PackageVersionVector vector,
+        string typeFullName,
+        string descriptor,
+        IReadOnlyList<TimelineEvaluation> evaluated,
+        HashSet<string> selectedSections,
+        string? memberName = null,
+        bool includeAll = false,
+        bool disposeAnalysisEndpoints = false)
         => descriptor switch
         {
             var id when id == MetadataFindings.TypeDescriptor.Id =>
@@ -186,7 +244,7 @@ public static class TimelineCommand
                         Subject(typeFullName),
                         typeFullName)),
             var id when id == AnalysisFindings.AllocationDescriptor.Id =>
-                BuildAllocationView(
+                BuildAllocationResult(
                     vector,
                     typeFullName,
                     memberName!,
@@ -203,10 +261,11 @@ public static class TimelineCommand
                                 AnalysisFindings.InspectAllocations(
                                     occurrences.IsDefault ? [] : occurrences,
                                     subject));
-                        }),
+                        },
+                        disposeAnalysisEndpoints),
                     selectedSections),
             var id when id == AnalysisFindings.CallSiteDescriptor.Id =>
-                BuildCallSiteView(
+                BuildCallSiteResult(
                     vector,
                     typeFullName,
                     memberName!,
@@ -224,10 +283,11 @@ public static class TimelineCommand
                                 AnalysisFindings.InspectCallSites(
                                     calls.IsDefault ? [] : calls,
                                     subject));
-                        }),
+                        },
+                        disposeAnalysisEndpoints),
                     selectedSections),
             var id when id == AnalysisFindings.UnsafetyDescriptor.Id =>
-                BuildUnsafetyView(
+                BuildUnsafetyResult(
                     vector,
                     typeFullName,
                     memberName!,
@@ -244,13 +304,14 @@ public static class TimelineCommand
                                 AnalysisFindings.InspectUnsafety(
                                     occurrences.IsDefault ? [] : occurrences,
                                     subject));
-                        }),
+                        },
+                        disposeAnalysisEndpoints),
                     selectedSections),
             _ => throw new InvalidOperationException(
                 $"Unsupported Finding descriptor '{descriptor}'."),
         };
 
-    static TimelineDocumentView BuildMetadataView<T>(
+    static TimelineBuildResult BuildMetadataView<T>(
         PackageVersionVector vector,
         string typeFullName,
         string? memberName,
@@ -337,7 +398,20 @@ public static class TimelineCommand
         string memberName,
         IReadOnlyList<TimelineFindingEvaluation<AllocationOccurrence>> evaluated,
         HashSet<string> selectedSections)
-        => BuildAnalysisView(
+        => BuildAllocationResult(
+            vector,
+            typeFullName,
+            memberName,
+            evaluated,
+            selectedSections).View;
+
+    static TimelineBuildResult BuildAllocationResult(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<AllocationOccurrence>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisResult(
             vector,
             typeFullName,
             memberName,
@@ -352,7 +426,20 @@ public static class TimelineCommand
         string memberName,
         IReadOnlyList<TimelineFindingEvaluation<DirectCall>> evaluated,
         HashSet<string> selectedSections)
-        => BuildAnalysisView(
+        => BuildCallSiteResult(
+            vector,
+            typeFullName,
+            memberName,
+            evaluated,
+            selectedSections).View;
+
+    static TimelineBuildResult BuildCallSiteResult(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<DirectCall>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisResult(
             vector,
             typeFullName,
             memberName,
@@ -367,7 +454,20 @@ public static class TimelineCommand
         string memberName,
         IReadOnlyList<TimelineFindingEvaluation<UnsafetyOccurrence>> evaluated,
         HashSet<string> selectedSections)
-        => BuildAnalysisView(
+        => BuildUnsafetyResult(
+            vector,
+            typeFullName,
+            memberName,
+            evaluated,
+            selectedSections).View;
+
+    static TimelineBuildResult BuildUnsafetyResult(
+        PackageVersionVector vector,
+        string typeFullName,
+        string memberName,
+        IReadOnlyList<TimelineFindingEvaluation<UnsafetyOccurrence>> evaluated,
+        HashSet<string> selectedSections)
+        => BuildAnalysisResult(
             vector,
             typeFullName,
             memberName,
@@ -376,7 +476,7 @@ public static class TimelineCommand
             selectedSections,
             AnalysisFindings.CompareUnsafety);
 
-    static TimelineDocumentView BuildAnalysisView<T>(
+    static TimelineBuildResult BuildAnalysisResult<T>(
         PackageVersionVector vector,
         string typeFullName,
         string memberName,
@@ -434,7 +534,8 @@ public static class TimelineCommand
         string memberName,
         bool includeAll,
         FindingDescriptor descriptor,
-        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect,
+        bool disposeEndpoints)
         where T : notnull
     {
         var subject = MemberSubject(typeFullName, memberName);
@@ -471,7 +572,8 @@ public static class TimelineCommand
             }
             finally
             {
-                evaluation.Dispose();
+                if (disposeEndpoints)
+                    evaluation.Dispose();
             }
 
             results.Add(new TimelineFindingEvaluation<T>(evaluation.Address, inspection));
@@ -726,7 +828,7 @@ public static class TimelineCommand
             includeOpportunities: false,
             bodyScope: ImmutableHashSet.Create(token));
 
-    static TimelineDocumentView BuildCorrelatedView<T>(
+    static TimelineBuildResult BuildCorrelatedView<T>(
         PackageVersionVector vector,
         string typeFullName,
         string? memberName,
@@ -763,32 +865,36 @@ public static class TimelineCommand
             }).ToList()
             : null;
 
-        List<TimelineTransitionRow>? transitionRows = selectedSections.Contains(TransitionsSection)
-            ? BuildTransitionRows(
-                correlation,
-                descriptor.Id,
-                typeFullName,
-                memberName,
-                identityKey,
-                compare)
-            : null;
+        List<TimelineTransitionRow> transitionRows = BuildTransitionRows(
+            correlation,
+            descriptor.Id,
+            typeFullName,
+            memberName,
+            identityKey,
+            compare,
+            out List<TimelineChangedGap> changedGaps);
 
-        return new TimelineDocumentView
-        {
-            Title = $"Timeline: {vector.PackageId}",
-            Range = $"{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}",
-            Type = typeFullName,
-            Member = memberName,
-            Finding = descriptor.Id,
-            Recommendation = RecommendProbe(
-                vector,
-                typeFullName,
-                memberName,
-                descriptor.Id,
-                correlation.Inspections.Select(item => item.Version.Position)),
-            Evaluations = evaluationRows,
-            Transitions = transitionRows,
-        };
+        return new TimelineBuildResult(
+            new TimelineDocumentView
+            {
+                Title = $"Timeline: {vector.PackageId}",
+                Range = $"{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}",
+                Type = typeFullName,
+                Member = memberName,
+                Finding = descriptor.Id,
+                Recommendation = RecommendProbe(
+                    vector,
+                    typeFullName,
+                    memberName,
+                    descriptor.Id,
+                    correlation.Inspections.Select(item => item.Version.Position),
+                    changedGaps),
+                Evaluations = evaluationRows,
+                Transitions = selectedSections.Contains(TransitionsSection)
+                    ? transitionRows
+                    : null,
+            },
+            changedGaps);
     }
 
     static TimelineEvaluationRow BuildCensusEvaluationRow<T>(
@@ -878,12 +984,31 @@ public static class TimelineCommand
         FindingCorrelationKey? identityKey,
         Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare)
         where T : notnull
+        => BuildTransitionRows(
+            correlation,
+            descriptor,
+            typeFullName,
+            memberName,
+            identityKey,
+            compare,
+            out _);
+
+    static List<TimelineTransitionRow> BuildTransitionRows<T>(
+        FindingCensusCorrelation<T> correlation,
+        string descriptor,
+        string typeFullName,
+        string? memberName,
+        FindingCorrelationKey? identityKey,
+        Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare,
+        out List<TimelineChangedGap> changedGaps)
+        where T : notnull
     {
         var ordered = correlation.Inspections;
         string focusTarget = memberName is null
             ? typeFullName
             : $"{typeFullName}.{memberName}";
         List<TimelineTransitionRow> rows = [];
+        changedGaps = [];
         for (int i = 1; i < ordered.Length; i++)
         {
             var oldInspection = ordered[i - 1];
@@ -978,6 +1103,10 @@ public static class TimelineCommand
                     exact ? null : "No change was observed across the evaluated gap."));
                 continue;
             }
+
+            changedGaps.Add(new TimelineChangedGap(
+                oldInspection.Version.Position,
+                newInspection.Version.Position));
 
             rows.AddRange(changes.Select(pair => new TimelineTransitionRow(
                 oldInspection.Version.Key,
@@ -1185,9 +1314,22 @@ public static class TimelineCommand
     static bool TrySelectAddresses(
         PackageVersionVector vector,
         IReadOnlyList<string> selectors,
+        int? maxProbes,
         out ImmutableArray<PackageVersionAddress> addresses,
         out string? error)
     {
+        if (maxProbes is not null)
+        {
+            var endpoints = new Dictionary<int, PackageVersionAddress>
+            {
+                [vector.Addresses[0].Position] = vector.Addresses[0],
+                [vector.Addresses[^1].Position] = vector.Addresses[^1],
+            };
+            addresses = [.. endpoints.Values.OrderBy(address => address.Position)];
+            error = null;
+            return true;
+        }
+
         if (selectors.Count == 0)
         {
             addresses = [];
@@ -1231,42 +1373,120 @@ public static class TimelineCommand
         string typeFullName,
         string? memberName,
         string descriptor,
-        IEnumerable<int> evaluatedPositions)
+        IEnumerable<int> evaluatedPositions,
+        IReadOnlyList<TimelineChangedGap> changedGaps)
     {
         var evaluated = evaluatedPositions.ToHashSet();
-        if (evaluated.Count == vector.Addresses.Length)
+        if (SelectProbePosition(changedGaps) is not int probe)
             return null;
 
-        int bestStart = -1;
-        int bestLength = 0;
-        int start = -1;
-        for (int position = 0; position <= vector.Addresses.Length; position++)
-        {
-            bool unevaluated = position < vector.Addresses.Length && !evaluated.Contains(position);
-            if (unevaluated && start < 0)
-                start = position;
-            if (!unevaluated && start >= 0)
-            {
-                int length = position - start;
-                if (length > bestLength)
-                {
-                    bestStart = start;
-                    bestLength = length;
-                }
-                start = -1;
-            }
-        }
-
-        int probe = bestStart + ((bestLength - 1) / 2);
         var address = vector.Addresses[probe];
         string range = $"{vector.PackageId}@{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}";
+        string selections = string.Join(
+            " ",
+            evaluated
+                .Append(probe)
+                .Order()
+                .Select(position =>
+                    $"--at {ShellCommandText.Quote(vector.Addresses[position].Selector)}"));
         return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}): "
             + $"dotnet-inspect timeline --package {ShellCommandText.Quote(range)} "
             + $"--type {ShellCommandText.Quote(typeFullName)} "
             + (memberName is null ? "" : $"--member {ShellCommandText.Quote(memberName)} ")
             + $"--finding {ShellCommandText.Quote(descriptor)} "
-            + $"--at {ShellCommandText.Quote(address.Selector)}";
+            + selections;
     }
+
+    static int? SelectProbePosition(
+        IReadOnlyList<TimelineChangedGap> changedIntervals)
+    {
+        TimelineChangedGap? interval = changedIntervals
+            .Where(candidate => candidate.EndPosition - candidate.StartPosition > 1)
+            .OrderByDescending(candidate => candidate.EndPosition - candidate.StartPosition)
+            .ThenBy(candidate => candidate.StartPosition)
+            .FirstOrDefault();
+        return interval is null
+            ? null
+            : interval.StartPosition
+                + ((interval.EndPosition - interval.StartPosition) / 2);
+    }
+
+    static string? BuildBisectRecommendation(
+        PackageVersionVector vector,
+        string typeFullName,
+        string? memberName,
+        string descriptor,
+        int probeLimit,
+        int evaluatedCount,
+        IReadOnlyList<TimelineChangedGap> changedIntervals,
+        string replayArguments)
+    {
+        TimelineChangedGap? unresolved = changedIntervals
+            .Where(candidate => candidate.EndPosition - candidate.StartPosition > 1)
+            .OrderByDescending(candidate => candidate.EndPosition - candidate.StartPosition)
+            .ThenBy(candidate => candidate.StartPosition)
+            .FirstOrDefault();
+        if (unresolved is not null)
+        {
+            string start = vector.Addresses[unresolved.StartPosition]
+                .Version.ToNormalizedString();
+            string end = vector.Addresses[unresolved.EndPosition]
+                .Version.ToNormalizedString();
+            return $"Bisection stopped after {evaluatedCount} of {probeLimit} probes; "
+                + $"the changed interval {start}..{end} is not adjacent. "
+                + "Increase --max-probes to continue.";
+        }
+
+        TimelineChangedGap? boundary = changedIntervals
+            .Where(candidate => candidate.EndPosition - candidate.StartPosition == 1)
+            .OrderBy(candidate => candidate.StartPosition)
+            .FirstOrDefault();
+        if (boundary is null)
+            return null;
+
+        string oldVersion = vector.Addresses[boundary.StartPosition]
+            .Version.ToNormalizedString();
+        string newVersion = vector.Addresses[boundary.EndPosition]
+            .Version.ToNormalizedString();
+        string range = $"{vector.PackageId}@{oldVersion}..{newVersion}";
+        string command = "dotnet-inspect diff "
+            + $"--package {ShellCommandText.Quote(range)} "
+            + $"-t {ShellCommandText.Quote(typeFullName)} "
+            + (memberName is null
+                ? ""
+                : $"-m {ShellCommandText.Quote(memberName)} ")
+            + $"--finding {ShellCommandText.Quote(descriptor)}";
+        if (replayArguments.Length > 0)
+            command += " " + replayArguments;
+        return $"Confirm adjacent boundary {oldVersion}..{newVersion}: {command}";
+    }
+
+    static string BuildTimelineReplayArguments(
+        string sourceReplayArguments,
+        TimelineOptions options)
+        => JoinReplayArguments(
+            sourceReplayArguments,
+            options.Tfm is null
+                ? null
+                : $"--tfm {ShellCommandText.Quote(options.Tfm)}",
+            options.IncludePrerelease ? "--preview" : null,
+            options.IncludeAll ? "--all" : null);
+
+    static string BuildDiffReplayArguments(
+        string sourceReplayArguments,
+        TimelineOptions options)
+        => JoinReplayArguments(
+            sourceReplayArguments,
+            options.Tfm is null
+                ? null
+                : $"--tfm {ShellCommandText.Quote(options.Tfm)}",
+            options.IncludeAll ? "--all" : null);
+
+    static string JoinReplayArguments(params string?[] arguments)
+        => string.Join(
+            " ",
+            arguments.Where(static argument =>
+                !string.IsNullOrWhiteSpace(argument)));
 
     static bool TryValidate(
         TimelineOptions options,
@@ -1281,6 +1501,17 @@ public static class TimelineCommand
         if (!PackageVersionRange.TryParse(options.PackageVersionRange, out range, out error))
         {
             error ??= $"Invalid package version range '{options.PackageVersionRange}'. Expected Package@A..B.";
+            return false;
+        }
+
+        if (options.MaxProbes is not null && options.At.Length > 0)
+        {
+            error = "--max-probes cannot be combined with --at; use one automatic or manual selection mode.";
+            return false;
+        }
+        if (options.MaxProbes is < 2)
+        {
+            error = "--max-probes must be at least 2 so both range endpoints can be evaluated.";
             return false;
         }
 
@@ -1562,6 +1793,14 @@ public static class TimelineCommand
         PackageVersionAddress Address,
         FindingInspection<T> Inspection)
         where T : notnull;
+
+    sealed record TimelineBuildResult(
+        TimelineDocumentView View,
+        IReadOnlyList<TimelineChangedGap> ChangedIntervals);
+
+    internal sealed record TimelineChangedGap(
+        int StartPosition,
+        int EndPosition);
 }
 
 public sealed record TimelineOptions : IProjectionOptions
@@ -1571,6 +1810,7 @@ public sealed record TimelineOptions : IProjectionOptions
     public string? MemberName { get; init; }
     public string Finding { get; init; } = MetadataFindings.MemberDescriptor.Id;
     public string[] At { get; init; } = [];
+    public int? MaxProbes { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }
     public bool IncludePrerelease { get; init; }
