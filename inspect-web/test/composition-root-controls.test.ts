@@ -566,7 +566,27 @@ test("typed package view owns package navigation bindings", () => {
     /function bindLibrarySubjectNavEvents\(\) \{[\s\S]*selectAggregateLibrarySubject\(\{ preserveLens: true \}\)[\s\S]*selectLibrarySubject\(id, \{ preserveLens: true \}\)/);
   assert.match(
     appSource,
-    /function enterMemberScope\(\) \{[\s\S]*const preserveAggregate = aggregateLibrarySubjectIsActive\(\);[\s\S]*if \(!preserveAggregate\)\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+    /function enterMemberScope\([\s\S]*preserveAggregate\?: boolean[\s\S]*options\.preserveAggregate \?\? aggregateLibrarySubjectIsActive\(\);[\s\S]*if \(!preserveAggregate\)\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+  assert.match(
+    appSource,
+    /function enterRetainedLibrarySubject\([\s\S]*state\.libraryScope === null[\s\S]*selectAggregateLibrarySubject\(options\)[\s\S]*selectLibrarySubject\(selectedLibrary\(\)\?\.id \?\? "", options\)/);
+  assert.match(
+    appSource,
+    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember[\s\S]*spotlightPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*spotlightPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)/);
+  for (const spotlightEntry of [
+    appSource.match(/async function pickSpotlightMember[\s\S]*?\n}/)?.[0] ?? "",
+    appSource.match(/async function pickSpotlight\([\s\S]*?\n}/)?.[0] ?? "",
+  ]) {
+    assert.doesNotMatch(
+      spotlightEntry,
+      /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+  }
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
@@ -1236,21 +1256,9 @@ test("typed scope bar owns its rendered control bindings", () => {
                 if: 'target === "library"',
                 whenTrue: [
                   {
-                    if: 'state.rootKind !== "platform" && state.libraryScope === null',
-                    whenTrue: [
-                      {
-                        if: "!selectAggregateLibrarySubject({ preserveView: true })",
-                        whenTrue: ["statement:ReturnStatement:return;"],
-                        whenFalse: [],
-                      },
-                    ],
-                    whenFalse: [
-                      {
-                        if: '!selectLibrarySubject( selectedLibrary()?.id ?? "", { preserveView: true })',
-                        whenTrue: ["statement:ReturnStatement:return;"],
-                        whenFalse: [],
-                      },
-                    ],
+                    if: "!enterRetainedLibrarySubject({ preserveView: true })",
+                    whenTrue: ["statement:ReturnStatement:return;"],
+                    whenFalse: [],
                   },
                 ],
                 whenFalse: [

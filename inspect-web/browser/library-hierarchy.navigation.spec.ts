@@ -442,6 +442,38 @@ test("aggregate Library remains active through Member entry and return", async (
   await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
+test("aggregate Library remains active through Spotlight Type and Member results", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("Neighbor");
+  await page.locator(
+    '[data-sl-type*="Example.Neighbor"]:not([data-sl-member])',
+  ).first().click();
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("All libraries");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+
+  await page.locator("#open-search").dispatchEvent("click");
+  await page.locator("#spotlight-input").fill("Run");
+  await page.locator(
+    '[data-sl-member][data-sl-type*="Example.Widget"]',
+  ).first().click();
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("All libraries");
+
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("All libraries");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+});
+
 for (const subject of ["Package", "Library"]) {
   test(`both package icons retain the existing image fallback on ${subject} Overview`, async ({ page }) => {
     await installFacades(page);
@@ -609,6 +641,23 @@ test("direct Library subject entry scopes Types before and after refresh", async
   await expect(subjectTab(page, "type")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
   await expect(page.locator("#type-list")).toContainText("Widget");
+});
+
+test("Package Enter restores the retained exact Library subject", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "package", "Package");
+
+  await page.locator(".package-overview-surface h1").click();
+  await page.keyboard.press("Enter");
+
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(
+    `.library-subject-list [data-library-subject="${other.id}"]`))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
 });
 
 for (const width of [900, 390]) {

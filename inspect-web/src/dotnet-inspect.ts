@@ -3564,10 +3564,21 @@ function selectAggregateLibrarySubject(
   return true;
 }
 
-function enterTypeSubject(type: AppTypeSurface | null | undefined) {
+function enterRetainedLibrarySubject(
+  options: { preserveView?: boolean; preserveLens?: boolean } = {},
+) {
+  return state.rootKind !== "platform" && state.libraryScope === null
+    ? selectAggregateLibrarySubject(options)
+    : selectLibrarySubject(selectedLibrary()?.id ?? "", options);
+}
+
+function enterTypeSubject(
+  type: AppTypeSurface | null | undefined,
+  options: { preserveAggregate?: boolean } = {},
+) {
   if (!type) return false;
   const preserveAggregate =
-    aggregateLibrarySubjectIsActive();
+    options.preserveAggregate ?? aggregateLibrarySubjectIsActive();
   revealTypeInFilters(type);
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = false;
@@ -4500,10 +4511,13 @@ function openMemberGroup(key: string) {
   loadMemberSectionContent(state.memberSection);
 }
 
-function enterMemberScope() {
+function enterMemberScope(
+  options: { preserveAggregate?: boolean } = {},
+) {
   const type = selectedType();
   if (!type) return false;
-  const preserveAggregate = aggregateLibrarySubjectIsActive();
+  const preserveAggregate =
+    options.preserveAggregate ?? aggregateLibrarySubjectIsActive();
   const groups = memberGroups(type);
   if (!groups.length) {
     state.memberBrowseTypeId = "";
@@ -4723,14 +4737,7 @@ function drillIn() {
     return;
   }
   if (state.atPackageRoot) {
-    if (state.rootKind !== "platform") {
-      if (!selectAggregateLibrarySubject()) return;
-      showContentDetailAfterRender();
-      render();
-      return;
-    }
-    const library = selectedLibrary()?.id;
-    if (!library || !selectLibrarySubject(library)) return;
+    if (!enterRetainedLibrarySubject()) return;
     showContentDetailAfterRender();
     render();
     return;
@@ -8438,11 +8445,7 @@ function bindScopeBarEvents() {
         state.atPackageRoot = true;
         state.atLibraryRoot = false;
       } else if (target === "library") {
-        if (state.rootKind !== "platform" && state.libraryScope === null) {
-          if (!selectAggregateLibrarySubject({ preserveView: true })) return;
-        } else if (!selectLibrarySubject(
-          selectedLibrary()?.id ?? "",
-          { preserveView: true })) return;
+        if (!enterRetainedLibrarySubject({ preserveView: true })) return;
       } else if (target === "type") {
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
@@ -10361,6 +10364,11 @@ function activateSpotlightTypePackage(pkg: AppPackage) {
     withPlatformRootParentHistory(history.state, platformRootParent));
 }
 
+function spotlightPreservesAggregateLibraryScope(pkg: AppPackage) {
+  return packageIdentityEquals(state.package, pkg)
+    && aggregateLibrarySubjectIsActive();
+}
+
 async function pickSpotlightMember(
   result: Extract<SpotlightResult, { kind: "member" }>,
 ) {
@@ -10384,17 +10392,14 @@ async function pickSpotlightMember(
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
+  const preserveAggregate = spotlightPreservesAggregateLibraryScope(pkg);
   state.home = false;
   activateSpotlightTypePackage(pkg);
-  state.atPackageRoot = false;
-  state.atLibraryRoot = false;
-  state.libraryScope = new Set([libraryKey(type)]);
-  state.selectedTypeId = type.id;
-  state.lens = "api";
+  enterTypeSubject(type, { preserveAggregate });
   resetMemberFilters();
-  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
+  enterMemberScope({ preserveAggregate });
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
@@ -10434,12 +10439,10 @@ async function pickSpotlight(
   const rollbackSnapshot = retainedWorkspaces.activeWorkspaceId === null
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
+  const preserveAggregate = spotlightPreservesAggregateLibraryScope(pkg);
   state.home = false;
   activateSpotlightTypePackage(pkg);
-  state.atPackageRoot = false;
-  state.atLibraryRoot = false;
-  state.libraryScope = new Set([libraryKey(type)]);
-  state.selectedTypeId = type.id;
+  enterTypeSubject(type, { preserveAggregate });
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   resetMemberFilters();
