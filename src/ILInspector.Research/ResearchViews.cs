@@ -53,6 +53,16 @@ public static partial class ResearchViews
         public FindingInstanceKey InstanceKey { get; }
     }
 
+    public enum AllocationExceptionPathKind
+    {
+        ThrownValue,
+        ExceptionHandler,
+    }
+
+    public sealed record AnnotatedSourceAllocationExceptionPath(
+        int FactId,
+        AllocationExceptionPathKind Kind);
+
     public sealed record CostOverlayResult(
         DecompilerResult Body,
         IReadOnlyList<ResearchHeaderFact> HeaderFacts);
@@ -133,7 +143,14 @@ public static partial class ResearchViews
         /// Product-issued C# node ids for classic awaits whose inline and
         /// suspension/resume paths were proven by reconstruction.
         /// </summary>
-        IReadOnlyList<int>? AwaitCompletionPathNodeIds = null);
+        IReadOnlyList<int>? AwaitCompletionPathNodeIds = null,
+
+        /// <summary>
+        /// Exact allocation facts Analysis placed on a thrown-value or
+        /// exception-handler path.
+        /// </summary>
+        IReadOnlyList<AnnotatedSourceAllocationExceptionPath>?
+            AllocationExceptionPaths = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -194,6 +211,8 @@ public static partial class ResearchViews
             AnnotatedSourceDocument? sourceDocument = null;
             IReadOnlyList<AnnotatedSourceFactIdentity>? sourceDocumentFactIdentities = null;
             IReadOnlyList<int>? awaitCompletionPathNodeIds = null;
+            IReadOnlyList<AnnotatedSourceAllocationExceptionPath>?
+                allocationExceptionPaths = null;
             DecompilerResult? sourceDocumentFailure = null;
             if (request.SourceDocument)
             {
@@ -229,6 +248,8 @@ public static partial class ResearchViews
                         sourceProjection.FactIdentities;
                     awaitCompletionPathNodeIds =
                         sourceProjection.AwaitCompletionPathNodeIds;
+                    allocationExceptionPaths =
+                        sourceProjection.AllocationExceptionPaths;
                     return sourceProjection.Document;
                 });
             }
@@ -331,7 +352,8 @@ public static partial class ResearchViews
                 imported.MetadataToken,
                 sourceDocumentFactIdentities,
                 factProjection.Receipt,
-                awaitCompletionPathNodeIds);
+                awaitCompletionPathNodeIds,
+                allocationExceptionPaths);
         }
         catch (Exception ex)
         {
@@ -585,12 +607,39 @@ public static partial class ResearchViews
             annotations,
             provenanceOffsetAllowList,
             InstanceKey);
+        var allocationExceptionPaths =
+            new Dictionary<FindingInstanceKey, AllocationExceptionPathKind>();
+        foreach (ResearchFactAnnotation annotation in facts.Annotations)
+        {
+            if (annotation.Entry.Finding.Payload
+                    is not Annotation<AllocationOccurrence>
+                    {
+                        Payload: var occurrence,
+                    })
+            {
+                continue;
+            }
+
+            AllocationExceptionPathKind? kind =
+                occurrence.Escape == AllocationEscape.ThrowPath
+                    ? AllocationExceptionPathKind.ThrownValue
+                    : occurrence.PathContext == AllocationPathContext.ErrorPath
+                        ? AllocationExceptionPathKind.ExceptionHandler
+                        : null;
+            if (kind is { } positiveKind)
+            {
+                allocationExceptionPaths.Add(
+                    annotation.Entry.Key,
+                    positiveKind);
+            }
+        }
         return MakeDocument(
             stream,
             csharpMap,
             headerFacts,
             documentSource,
-            facts.Receipt);
+            facts.Receipt,
+            allocationExceptionPaths);
     }
 
     internal static string RequireSuccessfulDocumentOutput(DecompilerResult result)
@@ -737,7 +786,9 @@ public static partial class ResearchViews
         PrintedBodyMap csharpMap,
         IReadOnlyList<ResearchHeaderFact> headerFacts,
         AnnotatedSourceDocumentSource? source,
-        FindingCensusReceipt censusReceipt)
+        FindingCensusReceipt censusReceipt,
+        IReadOnlyDictionary<FindingInstanceKey, AllocationExceptionPathKind>
+            allocationExceptionPaths)
     {
         int csharpLineCount = stream.Count(line => line.Kind == SourceLineKind.CSharp);
         if (csharpLineCount != csharpMap.Lines.Count)
@@ -854,6 +905,8 @@ public static partial class ResearchViews
 
         var facts = new AnnotatedSourceFact[ordered.Count];
         var factIdentities = new List<AnnotatedSourceFactIdentity>();
+        var projectedAllocationExceptionPaths =
+            new List<AnnotatedSourceAllocationExceptionPath>();
         var targets = new List<AnnotatedSourceTarget>(ordered.Count);
         for (int id = 0; id < ordered.Count; id++)
         {
@@ -873,6 +926,15 @@ public static partial class ResearchViews
                     id,
                     censusReceipt,
                     instanceKey));
+                if (allocationExceptionPaths.TryGetValue(
+                        instanceKey,
+                        out AllocationExceptionPathKind kind))
+                {
+                    projectedAllocationExceptionPaths.Add(
+                        new AnnotatedSourceAllocationExceptionPath(
+                            id,
+                            kind));
+                }
             }
 
             foreach (int nodeId in collected[identity])
@@ -900,7 +962,8 @@ public static partial class ResearchViews
                     .Where(static node =>
                         node.ProvesClassicAwaitCompletionPaths)
                     .Select(static node => node.Id),
-            ]);
+            ],
+            projectedAllocationExceptionPaths);
 
         IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
         {
@@ -1091,7 +1154,9 @@ public static partial class ResearchViews
     sealed record AnnotatedSourceProjection(
         AnnotatedSourceDocument Document,
         IReadOnlyList<AnnotatedSourceFactIdentity> FactIdentities,
-        IReadOnlyList<int> AwaitCompletionPathNodeIds);
+        IReadOnlyList<int> AwaitCompletionPathNodeIds,
+        IReadOnlyList<AnnotatedSourceAllocationExceptionPath>
+            AllocationExceptionPaths);
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
     // resolved annotations, and the IL instruction lines into one ordered

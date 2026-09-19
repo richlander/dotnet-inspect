@@ -111,6 +111,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
             SynchronousCompletions,
         BrowserAnnotatedSourceAwaitCompletionPathInspection
             AwaitCompletionPaths,
+        BrowserAnnotatedSourceAllocationExceptionPathInspection
+            AllocationExceptionPaths,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -122,6 +124,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(CallCycles);
         ArgumentNullException.ThrowIfNull(SynchronousCompletions);
         ArgumentNullException.ThrowIfNull(AwaitCompletionPaths);
+        ArgumentNullException.ThrowIfNull(AllocationExceptionPaths);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -140,6 +143,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.CallCycles = CallCycles;
         this.SynchronousCompletions = SynchronousCompletions;
         this.AwaitCompletionPaths = AwaitCompletionPaths;
+        this.AllocationExceptionPaths = AllocationExceptionPaths;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -155,6 +159,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         SynchronousCompletions { get; }
     public BrowserAnnotatedSourceAwaitCompletionPathInspection
         AwaitCompletionPaths { get; }
+    public BrowserAnnotatedSourceAllocationExceptionPathInspection
+        AllocationExceptionPaths { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -376,6 +382,62 @@ public sealed record BrowserAnnotatedSourceAwaitCompletionPathInspection
         [.. _observations];
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<
+    BrowserAllocationExceptionPathKind>))]
+public enum BrowserAllocationExceptionPathKind
+{
+    ThrownValue,
+    ExceptionHandler,
+}
+
+/// <summary>
+/// One exact allocation Finding Analysis placed on exception-related control
+/// flow.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAllocationExceptionPath(
+    int FactId,
+    BrowserAllocationExceptionPathKind Kind);
+
+/// <summary>
+/// Positive allocation exception-path observations. Empty carries no absence
+/// claim about allocations or exception behavior.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAllocationExceptionPathInspection
+{
+    private readonly BrowserAnnotatedSourceAllocationExceptionPath[]
+        _observations;
+
+    public BrowserAnnotatedSourceAllocationExceptionPathInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceAllocationExceptionPath[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Allocation exception-path availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable allocation exception paths cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason
+    {
+        get;
+    }
+    public BrowserAnnotatedSourceAllocationExceptionPath[] Observations =>
+        [.. _observations];
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
 {
@@ -505,6 +567,11 @@ public sealed record BrowserMemberFindingCensus
             awaitCompletionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -632,7 +699,9 @@ public sealed record BrowserMemberFindingCensus
                 synchronousCompletions,
                 synchronousCompletionsUnavailableReason,
                 awaitCompletionPaths,
-                awaitCompletionPathsUnavailableReason),
+                awaitCompletionPathsUnavailableReason,
+                allocationExceptionPaths,
+                allocationExceptionPathsUnavailableReason),
             projectedIdentities);
     }
 
@@ -1071,6 +1140,11 @@ public sealed record BrowserAnnotatedSource
             awaitCompletionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -1094,7 +1168,9 @@ public sealed record BrowserAnnotatedSource
                 synchronousCompletions,
                 synchronousCompletionsUnavailableReason,
                 awaitCompletionPaths,
-                awaitCompletionPathsUnavailableReason),
+                awaitCompletionPathsUnavailableReason,
+                allocationExceptionPaths,
+                allocationExceptionPathsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],
