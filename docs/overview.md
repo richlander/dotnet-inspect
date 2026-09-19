@@ -49,11 +49,11 @@ substrates, and inspection producers that will extend that space.
   without introducing one universal operation plan.
   [Query Operation Infrastructure](design/query-operation-infrastructure.md)
   owns the executable registration of an operation vocabulary, applicable
-  subject roles, result grains, facet bindings, plan resolver, and declared
-  row sets. Commands and operation-backed sections explicitly bind one
-  operation role and facet profile; shared infrastructure then derives query
-  discovery and host lowering without inferring facets from schemas or
-  rendered fields.
+  subject roles, result grains, query-term and order bindings, plan resolver,
+  and declared row sets. Commands and operation-backed sections explicitly
+  bind one operation role and query profile; shared infrastructure then
+  derives query discovery and host lowering without inferring facets from
+  schemas or rendered fields.
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md)
   owns the cross-command placement of top-level Diff, Graph, and Depends
   operations and equivalent curated subject sections, while each operation,

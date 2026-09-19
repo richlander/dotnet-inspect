@@ -23,16 +23,16 @@ adopter complete.
 here. Its exact claim is:
 
 > One query-capable operation registers its canonical vocabulary, applicable
-> subject roles, result grain, facet bindings, plan resolver, and declared row
-> sets once. A command or section route explicitly binds that operation to one
-> admitted subject role and facet profile, after which shared infrastructure
-> derives query discovery and host lowering without redefining the operation's
-> semantics.
+> subject roles, result grain, query-term and order bindings, plan resolver,
+> and declared row sets once. A command or section route explicitly binds that
+> operation to one admitted subject role and query profile, after which shared
+> infrastructure derives query discovery and host lowering without redefining
+> the operation's semantics.
 
 This owner defines:
 
 - the composition of an operation definition, route binding, and executable
-  facet registration;
+  query-capability registration;
 - the condition under which a command or operation-backed section inherits a
   facet;
 - the separation among subject binding, operation planning, and result-row
@@ -82,7 +82,7 @@ dotnet-inspect package Aspire.Hosting.Redis@13.5.3 \
   -S "Dependency Hierarchy"
 ```
 
-When both routes bind the same operation role and facet profile, they receive
+When both routes bind the same operation role and query profile, they receive
 the same query capabilities automatically. The section does not copy the
 Depends facet inventory.
 
@@ -198,7 +198,8 @@ One query-capable operation supplies one definition containing:
 | Subject roles | The finite roles through which roots, candidates, seeds, peers, or an already resolved subject may enter the operation. |
 | Result grains | The owner-issued semantic units returned by the operation, such as Package, Library, Type, Member, dependency evidence, hierarchy node, edge, or graph occurrence. |
 | Declared row sets | Typed row vocabularies that may be filtered, ordered, selected, projected, or counted after operation execution. |
-| Facet bindings | Executable associations from canonical terms or orders to owner plan construction. |
+| Query-term bindings | Executable associations from canonical terms to owner plan construction. |
+| Order bindings | Executable associations from named or field orders to typed owner order resolution. |
 | Resolver | The atomic transition from canonical intent and a valid subject binding to one executable owner plan or one structured failure. |
 | Effects | Required capabilities, work dimensions, acquisition tiers, and completion consequences retained by the owner plan. |
 
@@ -208,37 +209,57 @@ execute producers, or inspect content during discovery.
 
 An operation may compose a subject-qualification vocabulary with one or more
 declared row vocabularies. That composition does not merge their semantic
-stages. The definition records which facet belongs to which stage and row set.
+stages. The definition records which query term or order belongs to which
+stage and row set.
 
-## Facet binding
+## Query capability bindings
 
-A query facet is executable owner-issued capability, not a heading or a help
-row. One facet binding records:
+A query capability is executable owner-issued behavior, not a heading or a
+help row. Every query-term or order binding records:
 
-- a stable facet identity and canonical query key;
-- admitted operators and value domain;
+- a stable owner-issued binding identity;
 - one semantic role;
 - the subject roles and result grains to which it applies;
 - the owner-issued binder used during atomic plan resolution;
 - any capability, acquisition-tier, cost, or work-bound consequences;
-- composition and incompatibility rules; and
 - the structural description projected to discovery.
 
-The supported semantic roles are:
+The binding is then one of two disjoint shapes.
+
+A **query-term binding** additionally records:
+
+- its canonical query key;
+- admitted operators and value domain; and
+- composition and incompatibility rules.
+
+Its supported semantic roles are:
 
 | Role | Meaning |
 | --- | --- |
 | Subject qualification | Determines whether a candidate subject belongs in the operation result. |
 | Operation selector | Selects an owner-defined mode, occurrence population, traversal projection, or other pre-result plan input. |
 | Result predicate | Filters one declared typed result-row set. |
+
+An **order binding** instead records:
+
+- either one named-order identity or one orderable row-key identity;
+- whether it supplies deterministic sequence order, Top ranking, or both;
+- admitted directions; and
+- the typed comparer resolver required by L2 row planning.
+
+Its supported semantic roles are:
+
+| Role | Meaning |
+| --- | --- |
 | Baseline order | Defines deterministic sequence order for one declared row set. |
 | Ranking order | Defines the ranking consumed by a Top stage for one declared row set. |
 
 Execution bounds and selection stages are carried by canonical intent but are
-not facets. They retain the contracts of their existing owners.
+not query-term or order bindings. They retain the contracts of their existing
+owners.
 
-A key may have more than one role only through separate explicit bindings.
-Sharing spelling does not merge the stages.
+A query key or order identity may have more than one role only through separate
+explicit bindings. Sharing spelling does not merge the stages.
 
 ## Route binding and automatic inheritance
 
@@ -251,15 +272,16 @@ registering one route binding:
 | Subject role | The route by which its input participates in that operation. |
 | Result grain | The semantic unit the route exposes. |
 | Declared row sets | The operation result rows the route may project. |
-| Facet profile | An owner-issued named subset or preset over applicable facet bindings. |
+| Query profile | An owner-issued named subset or preset over applicable query-term and order bindings. |
 | Host lowering | The adapter from the host gesture to canonical intent and the adapter from the owner result to host presentation. |
 
 The shared registry validates the binding at construction time:
 
 1. The operation owns the named subject role, result grain, row sets, and
-   facet profile.
-2. Every inherited facet is applicable to that exact combination.
-3. Every advertised facet has an executable binder.
+   query profile.
+2. Every inherited query term and order is applicable to that exact
+   combination.
+3. Every advertised query term and order has an executable binder.
 4. Every admitted order resolves to a typed order binding.
 5. Required capabilities and work dimensions are representable by the route.
 6. The route cannot add a key, operator, value, or meaning outside the
@@ -267,7 +289,7 @@ The shared registry validates the binding at construction time:
 
 After that explicit binding, the registry derives:
 
-- the effective facet set;
+- the effective query-term and order sets;
 - `-Q` discovery rows;
 - accepted shared query gestures;
 - host control metadata;
@@ -279,8 +301,8 @@ This is the automatic inheritance boundary. Registering an arbitrary subject,
 section, schema, or output view is insufficient.
 
 A route may intentionally expose a narrower owner-issued profile. It may not
-copy a facet into a route-local descriptor, change its meaning, or advertise a
-descriptive facet that has no binder.
+copy a query term or order into a route-local descriptor, change its meaning,
+or advertise a descriptive capability that has no binder.
 
 ## When a section facet applies to a population query
 
@@ -297,7 +319,7 @@ Reuse is valid only when all of these are true:
    contract.
 4. Its binder preserves the same value, failure, completion, and ordering
    semantics.
-5. The operation owner includes it in an applicable facet profile.
+5. The operation owner includes it in an applicable query profile.
 
 For example:
 
@@ -364,12 +386,13 @@ protocol and result envelope, not a common internal representation.
 
 ## Discovery
 
-Query discovery is a projection of the effective executable route binding.
-It must not be maintained as a second capability inventory.
+Query discovery is a projection of the effective executable route binding. It
+must not be maintained as a second term or order capability inventory.
 
 For the CLI:
 
-- bare `-Q` lists only routes or sections with at least one effective facet;
+- bare `-Q` lists only routes or sections with at least one effective query
+  term or order;
 - named `-Q` describes the applicable keys, gestures, operators, values,
   comparisons, orders, and costs;
 - discovery performs no acquisition or producer execution; and
@@ -402,7 +425,7 @@ the same canonical intent through the same operation definition and retain the
 same result, completion, diagnostics, and Share outcome.
 
 An operation-backed section may contribute an owner-issued preset. The preset
-may select a result projection, default facet profile, or fixed operation
+may select a result projection, default query profile, or fixed operation
 parameter. It may not define route-local query semantics.
 
 Ordinary sections that only render producer evidence remain ordinary sections.
@@ -520,7 +543,7 @@ The migration begins from useful but separate systems:
 - Graph Libraries parses and advertises its Cluster selector through a
   command-specific path.
 - Find exposes its Results and Members sections to discovery but currently has
-  no executable facet inventory.
+  no executable query-term or order inventory.
 
 The new registry replaces parallel route-local capability descriptions. It
 does not replace the implemented intent, row, producer, or operation plans.
@@ -531,8 +554,8 @@ does not replace the implemented intent, row, producer, or operation plans.
 eight-step path:
 
 1. Lock this pattern and its authority map.
-2. Implement executable operation, facet, profile, and route registration;
-   derive `-Q` from the effective binding.
+2. Implement executable operation, query-term, order, profile, and route
+   registration; derive `-Q` from the effective binding.
 3. Adopt Package Query in CLI and Inspect Web without changing its vocabulary,
    package aggregation, evidence, bounds, failures, or result rows.
 4. Adopt Graph query surfaces and operation-backed Graph sections without
@@ -561,8 +584,8 @@ on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/iss
 
 The implementation and adopter slices must provide Release gates for:
 
-- construction-time rejection of descriptive facets without executable
-  binders;
+- construction-time rejection of descriptive query terms or orders without
+  executable binders;
 - rejection of route bindings naming inapplicable subject roles, result
   grains, row sets, facets, bounds, or orders;
 - exact `-Q` derivation from effective registrations;
