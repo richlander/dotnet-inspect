@@ -349,7 +349,7 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
-    public void ZeroEvaluationVector_RemainsUnevaluatedAndRecommendsProbe()
+    public void ZeroEvaluationVector_RemainsUnevaluatedWithoutClaimingChangedGap()
     {
         var vector = Vector("1.0.0", "1.0.1", "1.0.2");
 
@@ -363,14 +363,7 @@ public sealed class TimelineCommandTests
         Assert.Equal(3, view.Evaluations!.Count);
         Assert.All(view.Evaluations, row => Assert.Equal("Unevaluated", row.State));
         Assert.Empty(view.Transitions!);
-        Assert.Contains(
-            "dotnet-inspect timeline --package 'Sample@1.0.0..1.0.2'",
-            view.Recommendation,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--type 'Sample.Widget' --finding 'api.member' --at '#2'",
-            view.Recommendation,
-            StringComparison.Ordinal);
+        Assert.Null(view.Recommendation);
     }
 
     [Fact]
@@ -394,6 +387,70 @@ public sealed class TimelineCommandTests
         Assert.Equal("Gap (1)", row.Span);
         Assert.Equal("Added", row.Transition);
         Assert.Contains("exact transition version is unknown", row.Detail, StringComparison.Ordinal);
+        Assert.Contains(
+            "--at '#1' --at '#2' --at '#3'",
+            view.Recommendation,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SparseMemberTimeline_RecommendationRetainsPriorProbeAndRefinesChangedGap()
+    {
+        var vector = Vector("1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.0.4");
+        var oldSurface = Surface(Type("Widget"));
+        var newSurface = Surface(Type("Widget", members: [Method("Run", "void Run()")]));
+
+        var initial = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [
+                Evaluation(vector, 0, oldSurface),
+                Evaluation(vector, 4, newSurface),
+            ],
+            Sections());
+
+        Assert.StartsWith("Probe #3", initial.Recommendation, StringComparison.Ordinal);
+        Assert.Contains(
+            "--at '#1' --at '#3' --at '#5'",
+            initial.Recommendation,
+            StringComparison.Ordinal);
+
+        var refined = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [
+                Evaluation(vector, 0, oldSurface),
+                Evaluation(vector, 2, oldSurface),
+                Evaluation(vector, 4, newSurface),
+            ],
+            Sections());
+
+        Assert.StartsWith("Probe #4", refined.Recommendation, StringComparison.Ordinal);
+        Assert.Contains(
+            "--at '#1' --at '#3' --at '#4' --at '#5'",
+            refined.Recommendation,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SparseMemberTimeline_UnchangedGapHasNoRecommendation()
+    {
+        var vector = Vector("1.0.0", "1.0.1", "1.0.2");
+        var surface = Surface(Type("Widget"));
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "api.member",
+            [
+                Evaluation(vector, 0, surface),
+                Evaluation(vector, 2, surface),
+            ],
+            Sections());
+
+        Assert.Null(view.Recommendation);
     }
 
     [Fact]

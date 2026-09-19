@@ -763,15 +763,14 @@ public static class TimelineCommand
             }).ToList()
             : null;
 
-        List<TimelineTransitionRow>? transitionRows = selectedSections.Contains(TransitionsSection)
-            ? BuildTransitionRows(
-                correlation,
-                descriptor.Id,
-                typeFullName,
-                memberName,
-                identityKey,
-                compare)
-            : null;
+        List<TimelineTransitionRow> transitionRows = BuildTransitionRows(
+            correlation,
+            descriptor.Id,
+            typeFullName,
+            memberName,
+            identityKey,
+            compare,
+            out List<TimelineChangedGap> changedGaps);
 
         return new TimelineDocumentView
         {
@@ -785,9 +784,12 @@ public static class TimelineCommand
                 typeFullName,
                 memberName,
                 descriptor.Id,
-                correlation.Inspections.Select(item => item.Version.Position)),
+                correlation.Inspections.Select(item => item.Version.Position),
+                changedGaps),
             Evaluations = evaluationRows,
-            Transitions = transitionRows,
+            Transitions = selectedSections.Contains(TransitionsSection)
+                ? transitionRows
+                : null,
         };
     }
 
@@ -878,12 +880,31 @@ public static class TimelineCommand
         FindingCorrelationKey? identityKey,
         Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare)
         where T : notnull
+        => BuildTransitionRows(
+            correlation,
+            descriptor,
+            typeFullName,
+            memberName,
+            identityKey,
+            compare,
+            out _);
+
+    static List<TimelineTransitionRow> BuildTransitionRows<T>(
+        FindingCensusCorrelation<T> correlation,
+        string descriptor,
+        string typeFullName,
+        string? memberName,
+        FindingCorrelationKey? identityKey,
+        Func<int, int, FindingInspection<T>, FindingInspection<T>, FindingComparison<T>> compare,
+        out List<TimelineChangedGap> changedGaps)
+        where T : notnull
     {
         var ordered = correlation.Inspections;
         string focusTarget = memberName is null
             ? typeFullName
             : $"{typeFullName}.{memberName}";
         List<TimelineTransitionRow> rows = [];
+        changedGaps = [];
         for (int i = 1; i < ordered.Length; i++)
         {
             var oldInspection = ordered[i - 1];
@@ -977,6 +998,13 @@ public static class TimelineCommand
                     focusTarget,
                     exact ? null : "No change was observed across the evaluated gap."));
                 continue;
+            }
+
+            if (!exact && (topologyTransition is not null || changes.Length > 0))
+            {
+                changedGaps.Add(new TimelineChangedGap(
+                    oldInspection.Version.Position,
+                    newInspection.Version.Position));
             }
 
             rows.AddRange(changes.Select(pair => new TimelineTransitionRow(
@@ -1231,41 +1259,34 @@ public static class TimelineCommand
         string typeFullName,
         string? memberName,
         string descriptor,
-        IEnumerable<int> evaluatedPositions)
+        IEnumerable<int> evaluatedPositions,
+        IReadOnlyList<TimelineChangedGap> changedGaps)
     {
         var evaluated = evaluatedPositions.ToHashSet();
-        if (evaluated.Count == vector.Addresses.Length)
+        TimelineChangedGap? gap = changedGaps
+            .Where(candidate => candidate.EndPosition - candidate.StartPosition > 1)
+            .OrderByDescending(candidate => candidate.EndPosition - candidate.StartPosition)
+            .ThenBy(candidate => candidate.StartPosition)
+            .FirstOrDefault();
+        if (gap is null)
             return null;
 
-        int bestStart = -1;
-        int bestLength = 0;
-        int start = -1;
-        for (int position = 0; position <= vector.Addresses.Length; position++)
-        {
-            bool unevaluated = position < vector.Addresses.Length && !evaluated.Contains(position);
-            if (unevaluated && start < 0)
-                start = position;
-            if (!unevaluated && start >= 0)
-            {
-                int length = position - start;
-                if (length > bestLength)
-                {
-                    bestStart = start;
-                    bestLength = length;
-                }
-                start = -1;
-            }
-        }
-
-        int probe = bestStart + ((bestLength - 1) / 2);
+        int probe = gap.StartPosition + ((gap.EndPosition - gap.StartPosition) / 2);
         var address = vector.Addresses[probe];
         string range = $"{vector.PackageId}@{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}";
+        string selections = string.Join(
+            " ",
+            evaluated
+                .Append(probe)
+                .Order()
+                .Select(position =>
+                    $"--at {ShellCommandText.Quote(vector.Addresses[position].Selector)}"));
         return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}): "
             + $"dotnet-inspect timeline --package {ShellCommandText.Quote(range)} "
             + $"--type {ShellCommandText.Quote(typeFullName)} "
             + (memberName is null ? "" : $"--member {ShellCommandText.Quote(memberName)} ")
             + $"--finding {ShellCommandText.Quote(descriptor)} "
-            + $"--at {ShellCommandText.Quote(address.Selector)}";
+            + selections;
     }
 
     static bool TryValidate(
@@ -1562,6 +1583,10 @@ public static class TimelineCommand
         PackageVersionAddress Address,
         FindingInspection<T> Inspection)
         where T : notnull;
+
+    internal sealed record TimelineChangedGap(
+        int StartPosition,
+        int EndPosition);
 }
 
 public sealed record TimelineOptions : IProjectionOptions

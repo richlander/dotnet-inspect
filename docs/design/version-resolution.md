@@ -442,9 +442,12 @@ listed; use an exact caller pin to inspect an unlisted package. Metadata-only
 ordinals are not addresses in the listed-only API/timeline vector.
 
 `timeline` uses the same vector without changing that authorization rule. With
-no `--at`, it renders every address as `Unevaluated` and recommends a probe
-without downloading package payloads. Repeated `--at` selectors perform sparse
-correlation; `--at all` is the explicit dense-traversal opt-in. Type focus may
+no `--at`, it renders every address as `Unevaluated` without downloading
+package payloads. Repeated `--at` selectors perform sparse correlation;
+`--at all` is the explicit dense-traversal opt-in. When two consecutive
+evaluated cells differ and bracket unevaluated cells, the recommendation
+retains every evaluated selector and adds the midpoint of the largest changed
+gap. An unchanged or failed gap produces no recommendation. Type focus may
 select the type-presence (`api.type`), owned-member (`api.member`), or applied
 attribute (`api.attribute`) census. Adding `--member` to `api.member` selects
 one exact member identity track. The same member focus composes with
