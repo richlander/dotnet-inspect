@@ -1021,6 +1021,13 @@ public static class TypeCommand
                     result.Failures.FirstOrDefault()?.Detail
                     ?? "Could not extract API from library.");
             }
+            else if (wrote && execution.Surface is not null)
+            {
+                WriteExactLibraryTips(
+                    options,
+                    request,
+                    execution.Surface);
+            }
             return wrote && result.IsComplete ? 0 : 1;
         }
 
@@ -1045,36 +1052,47 @@ public static class TypeCommand
         if (!options.FormatExplicitlySet
             && !options.IsRawOutput)
         {
-            ApiType? exampleType = execution.Surface.Types
-                .OrderByDescending(type => type.Members.Count)
-                .FirstOrDefault();
-            if (exampleType is not null)
-            {
-                string sourceFlag =
-                    $"--package {request.PackageId} "
-                    + $"--library {request.Library}";
-                string simpleName =
-                    TypeMatcher.GetSimpleName(exampleType.FullName);
-                Hints.WriteTips(
-                    options.TipLevel,
-                    [
-                        new(
-                            MemberCommand.Name,
-                            $"{simpleName} {sourceFlag}",
-                            "inspect type members"),
-                        new(
-                            Name,
-                            $"{sourceFlag} --shape",
-                            "view type shape"),
-                        new(
-                            Name,
-                            $"-t \"*Writer*\" {sourceFlag}",
-                            "filter types by pattern"),
-                    ]);
-            }
+            WriteExactLibraryTips(
+                options,
+                request,
+                execution.Surface);
         }
 
         return result.IsComplete ? 0 : 1;
+    }
+
+    static void WriteExactLibraryTips(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        ApiSurface surface)
+    {
+        ApiType? exampleType = surface.Types
+            .OrderByDescending(type => type.Members.Count)
+            .FirstOrDefault();
+        if (exampleType is null)
+            return;
+
+        string sourceFlag =
+            $"--package {request.PackageId} "
+            + $"--library {request.Library}";
+        string simpleName =
+            TypeMatcher.GetSimpleName(exampleType.FullName);
+        Hints.WriteTips(
+            options.TipLevel,
+            [
+                new(
+                    MemberCommand.Name,
+                    $"{simpleName} {sourceFlag}",
+                    "inspect type members"),
+                new(
+                    Name,
+                    $"{sourceFlag} --shape",
+                    "view type shape"),
+                new(
+                    Name,
+                    $"-t \"*Writer*\" {sourceFlag}",
+                    "filter types by pattern"),
+            ]);
     }
 
     static Task<int> ExecuteSharedExactTypeAsync(

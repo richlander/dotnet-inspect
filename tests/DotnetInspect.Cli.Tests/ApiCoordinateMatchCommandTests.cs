@@ -362,6 +362,7 @@ public sealed class ApiCoordinateMatchCommandTests
     [InlineData("--tree")]
     [InlineData("--count")]
     [InlineData("-v:n")]
+    [InlineData("-v:d")]
     public async Task TypeEnvelopeRejectsPresentationOptions(
         string incompatibleOption)
     {
@@ -381,6 +382,32 @@ public sealed class ApiCoordinateMatchCommandTests
             result.Error,
             StringComparison.Ordinal);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Theory]
+    [InlineData("-v:q")]
+    [InlineData("-v:m")]
+    public async Task TypeEnvelopeAdmitsCompleteVerbosityBeforeAcquisition(
+        string verbosity)
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--tfm", "net8.0",
+            "--envelope",
+            verbosity,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "exact-type",
+            document.RootElement.GetProperty("result_kind").GetString());
+        Assert.DoesNotContain(
+            "--envelope cannot be combined with",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

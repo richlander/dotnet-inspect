@@ -161,6 +161,28 @@ public class TypeOptionsParserTests
         }
     }
 
+    [Theory]
+    [InlineData("q", TipLevel.Quiet)]
+    [InlineData("m", TipLevel.Minimal)]
+    [InlineData("d", TipLevel.Detailed)]
+    public async Task Envelope_PreservesExplicitTipLevel(
+        string value,
+        TipLevel expected)
+    {
+        var options = await ParseSuccessAsync(
+            "type",
+            "JsonSerializer",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--envelope",
+            "--tips",
+            value);
+
+        Assert.Equal(expected, options.TipLevel);
+    }
+
     [Fact]
     public async Task ProjectSource_SetsProjectPathAndTypeName()
     {

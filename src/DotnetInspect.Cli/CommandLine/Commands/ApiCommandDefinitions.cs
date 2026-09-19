@@ -105,7 +105,6 @@ public static class ApiCommandDefinitions
             typeCommand,
             opts.Discover,
             opts.Select,
-            opts.Verbosity,
             opts.Limit,
             opts.Rows,
             opts.Head,
@@ -151,6 +150,18 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(opts.Envelope)
+                && parseResult.GetResult(opts.Verbosity)
+                    is { Implicit: false }
+                && opts.ParseVerbosity(parseResult)
+                    is Verbosity.Normal or Verbosity.Detailed)
+            {
+                CommandError.Write(
+                    "--envelope cannot be combined with normal or detailed "
+                        + "verbosity.");
+                return 1;
+            }
+
             if (parseResult.GetValue(workspaceOption) is not null
                 && parseResult.GetValue(matchOption))
             {

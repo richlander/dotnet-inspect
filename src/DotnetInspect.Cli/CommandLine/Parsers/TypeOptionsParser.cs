@@ -515,7 +515,10 @@ public static class TypeOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
+            TipLevel = options.EnvelopeOutput
+                && parseResult.GetResult(opts.Tips) is { Implicit: false }
+                ? opts.ParseTipLevel(parseResult)
+                : options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 

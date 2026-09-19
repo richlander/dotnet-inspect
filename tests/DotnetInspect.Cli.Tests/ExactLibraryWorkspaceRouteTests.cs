@@ -64,6 +64,47 @@ public sealed class ExactLibraryWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task EnvelopePreservesExplicitTipsOnStderr()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            AssemblyPath = Library,
+            Tfm = Framework,
+            EnvelopeOutput = true,
+            CompactJson = true,
+            TipLevel = TipLevel.Detailed,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    new WorkspaceContextLoadOptions
+                    {
+                        HttpClient = client,
+                        SourceAuthorization =
+                            new UniformPackageSourceAuthorization([Source]),
+                        PackageStore = store,
+                    }));
+
+        Assert.Equal(0, exitCode);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "exact-library-api",
+            document.RootElement.GetProperty("result_kind").GetString());
+        Assert.Contains("Tips:", error, StringComparison.Ordinal);
+        Assert.Contains(
+            "inspect type members",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RicherAndNonExactRequestsRemainOnCompatibilityPath()
     {
         var options = new TypeOptions
