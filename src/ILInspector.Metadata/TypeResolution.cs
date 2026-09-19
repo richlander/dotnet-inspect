@@ -413,6 +413,21 @@ public abstract class TypeResolutionFailure
         public MetadataTypeNameFailure Rejection { get; }
     }
 
+    /// <summary>
+    /// The single-image declaration scan exceeded a configured work bound.
+    /// </summary>
+    public sealed class DeclarationBudgetExceeded : TypeResolutionFailure
+    {
+        internal DeclarationBudgetExceeded(int budget, string detail)
+        {
+            Budget = budget;
+            Detail = detail;
+        }
+
+        public int Budget { get; }
+        public string Detail { get; }
+    }
+
     /// <summary>A forwarding chain revisited a catalog candidate.</summary>
     public sealed class ForwarderCycle : TypeResolutionFailure;
 

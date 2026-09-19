@@ -464,7 +464,11 @@ public sealed class ViewFacetRegistryTests
             registry.Discover(workspace, facts)
                 .Select(option => option.Descriptor.Id.Value));
         Assert.Equal(
-            ["package.overview", "package.dependencies"],
+            [
+                "package.overview",
+                "package.dependencies",
+                "package.dependency-hierarchy",
+            ],
             registry.Discover(package, facts)
                 .Select(option => option.Descriptor.Id.Value));
         Assert.IsType<ViewFacetResolution.Inapplicable>(
@@ -480,6 +484,11 @@ public sealed class ViewFacetRegistryTests
         Assert.IsType<ViewFacetResolution.Inapplicable>(
             registry.Resolve(
                 "package.dependencies",
+                workspace,
+                ThrowingFacts.Instance));
+        Assert.IsType<ViewFacetResolution.Inapplicable>(
+            registry.Resolve(
+                "package.dependency-hierarchy",
                 workspace,
                 ThrowingFacts.Instance));
     }
@@ -564,6 +573,10 @@ public sealed class ViewFacetRegistryTests
             new("package.dependencies", StructuralSubjectKind.Package, "Dependencies",
                 "Declared package dependencies for the selected target framework.",
                 200),
+            new("package.dependency-hierarchy", StructuralSubjectKind.Package,
+                "Dependency Hierarchy",
+                "Rooted transitive package dependencies for the selected target framework.",
+                300),
             new("library.references", StructuralSubjectKind.Library, "References",
                 "Direct assembly references for the active Library.",
                 100, ViewFacetRole.LibraryReferences),
@@ -632,6 +645,8 @@ public sealed class ViewFacetRegistryTests
                     InspectionViewFacetExecution.PackageOverview),
                 ("package.dependencies",
                     InspectionViewFacetExecution.PackageDependencies),
+                ("package.dependency-hierarchy",
+                    InspectionViewFacetExecution.PackageDependencyHierarchy),
                 ("library.references",
                     InspectionViewFacetExecution.LibraryReferences),
                 ("library.integrations",

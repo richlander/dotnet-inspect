@@ -25,6 +25,9 @@ public static class AnnotatedSourceNodeKinds
     /// <summary>A producer-recognized node whose syntax has no more specific catalog entry.</summary>
     public const string Unknown = nameof(Unknown);
 
+    /// <summary>A recovered C# <c>await</c> expression.</summary>
+    public const string AwaitExpression = nameof(AwaitExpression);
+
     private static readonly FrozenSet<string> Known =
         new[]
         {
@@ -57,7 +60,7 @@ public static class AnnotatedSourceNodeKinds
             "ConditionalExpression",
             "UnaryExpression",
             "UnsafeExpression",
-            "AwaitExpression",
+            AwaitExpression,
             "IncrementOrDecrementExpression",
             "CheckedStatement",
             "ConversionExpression",

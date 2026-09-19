@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
 using DotnetInspector.Platforms.Installed;
@@ -233,7 +235,8 @@ public static class InstalledPlatformLibraryMaterializer
             PlatformViewDemand.Reference,
             reference,
             out IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> items);
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    items);
         PlatformPopulationArtifactMaterializationOutcome outcome =
             await PlatformHousePopulationArtifactMaterializer
                 .MaterializeReferencesAsync(
@@ -270,13 +273,15 @@ public static class InstalledPlatformLibraryMaterializer
             PlatformViewDemand.ReferenceAndImplementation,
             reference,
             out IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> references);
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    references);
         bool implementationPrepared = TryPrepareImplementationPopulation(
             request,
             PlatformViewDemand.ReferenceAndImplementation,
             implementation,
             out IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> implementations);
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    implementations);
         PlatformPopulationArtifactMaterializationOutcome outcome =
             await PlatformHousePopulationArtifactMaterializer
                 .MaterializeReferenceAndImplementationAsync(
@@ -310,7 +315,8 @@ public static class InstalledPlatformLibraryMaterializer
             PlatformViewDemand.Implementation,
             implementation,
             out IReadOnlyList<
-                PlatformLibraryArtifactMaterializationItem> items);
+                PlatformPopulationLibraryArtifactMaterializationItem>
+                    items);
         PlatformPopulationArtifactMaterializationOutcome outcome =
             await PlatformHousePopulationArtifactMaterializer
                 .MaterializeImplementationsAsync(
@@ -478,7 +484,8 @@ public static class InstalledPlatformLibraryMaterializer
         PlatformViewDemand expectedView,
         InstalledPlatformHouseResult<
             InstalledReferenceRealization>.Succeeded reference,
-        out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
     {
         items = [];
         if (expectedView is not PlatformViewDemand.Reference
@@ -508,7 +515,8 @@ public static class InstalledPlatformLibraryMaterializer
         var identities = new HashSet<AssemblyReferenceIdentity>(
             AssemblyReferenceIdentity.EquivalentComparer);
         var prepared =
-            new List<PlatformLibraryArtifactMaterializationItem>(
+            new List<
+                PlatformPopulationLibraryArtifactMaterializationItem>(
                 reference.Value.Libraries.Count);
         foreach (InstalledReferenceLibrary library
             in reference.Value.Libraries)
@@ -516,9 +524,13 @@ public static class InstalledPlatformLibraryMaterializer
             if (!identities.Add(library.Identity))
                 return false;
             prepared.Add(
-                CreateReferenceItem(
-                    reference,
-                    library));
+                new PlatformPopulationLibraryArtifactMaterializationItem(
+                    CreateReferenceItem(
+                        reference,
+                        library),
+                    new PlatformPopulationMemberAttribution(
+                        exact.Target,
+                        PlatformPopulationMemberRole.Focus)));
         }
 
         items = prepared;
@@ -557,7 +569,8 @@ public static class InstalledPlatformLibraryMaterializer
         PlatformViewDemand expectedView,
         InstalledPlatformHouseResult<
             InstalledImplementationRealization>.Succeeded implementation,
-        out IReadOnlyList<PlatformLibraryArtifactMaterializationItem> items)
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
     {
         items = [];
         if (expectedView is not PlatformViewDemand.Implementation
@@ -587,32 +600,104 @@ public static class InstalledPlatformLibraryMaterializer
         var identities = new HashSet<AssemblyReferenceIdentity>(
             AssemblyReferenceIdentity.EquivalentComparer);
         var prepared =
-            new List<PlatformLibraryArtifactMaterializationItem>(
+            new List<
+                PlatformPopulationLibraryArtifactMaterializationItem>(
                 implementation.Value.Libraries.Count);
         foreach (InstalledImplementationLibrary library
             in implementation.Value.Libraries)
         {
-            if (!identities.Add(library.Identity))
+            if (!identities.Add(library.Identity)
+                || !TryPopulationAttribution(
+                    exact.Target,
+                    implementation.Value,
+                    library,
+                    out PlatformPopulationMemberAttribution attribution))
+            {
                 return false;
+            }
             prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        implementation.Contribution,
-                    new InstalledImplementationArtifactProvenance(
-                        implementation.Value.Generation,
-                        implementation.Value.Coordinate,
-                        library.FrameworkName,
-                        library.FrameworkVersion,
-                        library.ManifestCoordinate,
+                new PlatformPopulationLibraryArtifactMaterializationItem(
+                    new PlatformLibraryArtifactMaterializationItem(
+                        (PlatformSourceContribution.Realization)
+                            implementation.Contribution,
+                        new InstalledImplementationArtifactProvenance(
+                            implementation.Value.Generation,
+                            implementation.Value.Coordinate,
+                            library.FrameworkName,
+                            library.FrameworkVersion,
+                            library.ManifestCoordinate,
+                            library.Identity,
+                            library.ContentDigest),
                         library.Identity,
-                        library.ContentDigest),
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+                        library.ContentLength,
+                        _ => library.OpenRead()),
+                    attribution));
         }
 
         items = prepared;
         return true;
+    }
+
+    static bool TryPopulationAttribution(
+        PlatformFamilyTarget requestedTarget,
+        InstalledImplementationRealization realization,
+        InstalledImplementationLibrary library,
+        out PlatformPopulationMemberAttribution attribution)
+    {
+        if (!TrySingle(
+                realization.Frameworks,
+                candidate =>
+                    candidate.Name.Equals(library.FrameworkName)
+                    && candidate.Version == library.FrameworkVersion,
+                out InstalledImplementationFramework? framework)
+            || framework.Family is not { } family)
+        {
+            attribution = null!;
+            return false;
+        }
+
+        PlatformPopulationMemberRole role;
+        if (family == requestedTarget.Family)
+        {
+            role = PlatformPopulationMemberRole.Focus;
+        }
+        else if (requestedTarget.Family == PlatformFamily.AspNetCore
+            && family == PlatformFamily.DotNetRuntime)
+        {
+            role = PlatformPopulationMemberRole.BindingSupport;
+        }
+        else
+        {
+            attribution = null!;
+            return false;
+        }
+
+        if (!TryTargetFramework(
+                library.FrameworkVersion,
+                out PlatformTargetFramework? targetFramework))
+        {
+            attribution = null!;
+            return false;
+        }
+
+        attribution = new PlatformPopulationMemberAttribution(
+            new PlatformFamilyTarget(
+                family,
+                targetFramework,
+                library.FrameworkVersion),
+            role);
+        return true;
+    }
+
+    static bool TryTargetFramework(
+        PlatformVersion version,
+        [NotNullWhen(true)] out PlatformTargetFramework? targetFramework)
+    {
+        string prefix = version.Major >= 5 ? "net" : "netcoreapp";
+        string value = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{prefix}{version.Major}.{version.Minor}");
+        return PlatformTargetFramework.TryParse(value, out targetFramework);
     }
 
     static InstalledPlatformPopulationMaterializationResult
@@ -693,7 +778,7 @@ public static class InstalledPlatformLibraryMaterializer
     static bool TrySingle<T>(
         IEnumerable<T> values,
         Func<T, bool> predicate,
-        out T? value)
+        [NotNullWhen(true)] out T? value)
         where T : class
     {
         value = null;

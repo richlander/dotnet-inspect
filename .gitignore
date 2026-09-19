@@ -296,6 +296,8 @@ FakesAssemblies/
 .ntvs_analysis.dat
 node_modules/
 inspect-web/dist/
+inspect-web/src/facades/
+inspect-web/DotnetInspect.Web/wwwroot/inspect-web-*.js
 
 # Visual Studio 6 build log
 *.plg

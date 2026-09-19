@@ -53,7 +53,6 @@ public static class ApiCommandDefinitions
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
-        var shapeOption = new Option<bool>("--shape") { Description = "Output type shape (inheritance, interfaces, members)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter types with unsafe signatures (pointers)" };
         var repoOption = new Option<string[]>("--repo")
         {
@@ -62,7 +61,7 @@ public static class ApiCommandDefinitions
         };
         var memberOption = new Option<string[]>("-m")
         {
-            Description = "Filter members by name or limit count (-m 5)",
+            Description = "Filter members by name or glob",
             AllowMultipleArgumentsPerToken = false
         };
         memberOption.Aliases.Add("--member");
@@ -89,7 +88,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(compactOption);
         typeCommand.Options.Add(opts.PreferRenderedUrls);
         opts.AddTableOptionsTo(typeCommand);
-        typeCommand.Options.Add(shapeOption);
         typeCommand.Options.Add(unsafeOption);
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
@@ -111,7 +109,7 @@ public static class ApiCommandDefinitions
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
-            opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption,
+            opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption);
         structuralArgs = commandArgs;
 
@@ -135,6 +133,27 @@ public static class ApiCommandDefinitions
                     result,
                     opts,
                     commandArgs),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            typeCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -322,11 +341,6 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
-        var shapeOption = new Option<bool>("--shape")
-        {
-            Description = "Output type shape when the routed target resolves as a type",
-            Hidden = true
-        };
         var routerDeferredTargetOption =
             new Option<string?>(
                 RouterCommandDefinition.DeferredTypeOrMemberOptionName)
@@ -358,7 +372,6 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
         memberCommand.Options.Add(kindOption);
-        memberCommand.Options.Add(shapeOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
@@ -395,6 +408,27 @@ public static class ApiCommandDefinitions
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
                     lowering));
+        CliRowSelectionCommandRegistry.Register(
+            memberCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         var commandArgs = new MemberOptionsParser.MemberCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
@@ -402,7 +436,7 @@ public static class ApiCommandDefinitions
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            shapeOption, routerDeferredTargetOption);
+            routerDeferredTargetOption);
         structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>

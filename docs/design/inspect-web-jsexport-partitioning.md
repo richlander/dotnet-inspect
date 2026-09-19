@@ -880,8 +880,8 @@ DotnetInspect.Web.Interop.Package.dll
         v
 DotnetInspect.Web/facades/inspect-web-package.ts
         |
-        +-- src/facades/inspect-web-package.d.ts
-        `-- DotnetInspect.Web/wwwroot/inspect-web-package.js
+        +-- src/facades/inspect-web-package.d.ts (transient)
+        `-- DotnetInspect.Web/wwwroot/inspect-web-package.js (transient)
 ```
 
 The generation command executes the compiled `JsExportRoot` recipe once using
@@ -894,10 +894,13 @@ map cannot add or omit membership: its domain must equal the complete context
 output set before TypeScript compilation begins.
 
 A single `--check` command regenerates the context into fresh scratch space,
-requires exact set equality with the seven canonical artifact names, then
-compares every mapped source, declaration, and JavaScript artifact. It fails if
-context resolution, generated membership, the consumer map, or any derived
-artifact differs.
+requires exact set equality with the seven canonical artifact names, and
+compares the mapped sources with the checked-in snapshots. It compiles those
+freshly generated sources into exact transient declaration and JavaScript
+inventories, rejects SDK runtime-type leakage, and type-checks authored
+TypeScript against the fresh declarations. It fails if context resolution,
+generated membership, the consumer map, canonical source, derived inventory,
+or consumer compatibility differs.
 
 Application files import DTOs from their owning facade declaration. Runtime
 composition imports JavaScript modules only in the coordinator. A small
@@ -907,10 +910,16 @@ new monolithic facade. The proposed page-facing client adapts invocation
 placement through the existing Worker boundary; it does not reconstruct the
 managed dispatch wrappers that generation owns.
 
-Generated sources, declarations, JavaScript outputs, compiler programs, lint
-targets, and generated-file relaxations remain exact inventories. The
-toolchain gate fails for an unowned generated artifact or a source admitted
-only through a broad directory glob.
+Generated sources, transient declarations, transient JavaScript outputs,
+compiler programs, lint targets, and generated-file relaxations remain exact
+inventories. Frontend and .NET build and publish paths derive the two transient
+sets from the canonical sources before consuming them. The .NET project
+excludes wildcard-discovered facade modules from its evaluated content and
+admits only the exact generated module set after derivation, so clean
+replacement cannot leave a dangling static-web-asset item. The toolchain gate
+fails for an unowned generated artifact or a source admitted only through a
+broad directory glob, and the managed build and publish probes begin with an
+extra stale module.
 
 ## Async deployment contract
 

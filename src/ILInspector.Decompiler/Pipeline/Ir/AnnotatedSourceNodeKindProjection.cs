@@ -55,7 +55,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(Conditional)] = "ConditionalExpression",
             [typeof(LogicalNot)] = "UnaryExpression",
             [typeof(Unary)] = "UnaryExpression",
-            [typeof(AwaitExpression)] = "AwaitExpression",
+            [typeof(AwaitExpression)] = AnnotatedSourceNodeKinds.AwaitExpression,
             [typeof(IncrementDecrement)] = "IncrementOrDecrementExpression",
             [typeof(Coerce)] = "ConversionExpression",
             [typeof(Convert)] = "ConversionExpression",

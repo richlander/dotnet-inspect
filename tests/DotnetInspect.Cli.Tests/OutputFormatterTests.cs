@@ -1860,8 +1860,14 @@ public class OutputFormatterTests
         PerformanceTriageOptions? options = null)
     {
         string path = typeof(OutputFormatterTests).Assembly.Location;
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
         var result = OptimizationOpportunitiesQuery.Execute(
-            LibraryBodyIndex.Open(path),
+            analysis.Optimization,
             includeAllocationFanout:
                 options?.IncludesAllocationFanout == true);
         var inspection = new LibraryInspection

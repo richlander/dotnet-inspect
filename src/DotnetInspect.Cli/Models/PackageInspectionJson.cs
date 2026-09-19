@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -13,14 +15,19 @@ internal sealed class PackageInspectionJson
 {
     private readonly InspectionResult _data;
     private readonly PackageInspectionText _text;
+    private readonly RowWindow? _rows;
 
-    private PackageInspectionJson(InspectionResult data)
+    private PackageInspectionJson(InspectionResult data, RowWindow? rows)
     {
         _data = data;
         _text = new PackageInspectionText(data);
+        _rows = rows;
     }
 
-    public static PackageInspectionJson Create(InspectionResult data) => new(data);
+    public static PackageInspectionJson Create(
+        InspectionResult data,
+        RowWindow? rows = null) =>
+        new(data, rows);
 
     public string PackageName => _text.PackageName.ToString();
     public string? ManifestVersion => Render(_text.ManifestVersion);
@@ -77,6 +84,10 @@ internal sealed class PackageInspectionJson
     public List<PackageDependencyGroupJson>? DependencyGroups => _text.DependencyGroups?
         .Select(value => new PackageDependencyGroupJson(value))
         .ToList();
+    public PackageDependencyHierarchyJson? DependencyHierarchy =>
+        _data.DependencyHierarchyProjection is { } projection
+            ? PackageDependencyHierarchyJson.Create(projection, _rows)
+            : null;
     public List<PackageDependencyJson>? RuntimeDependencies => _text.RuntimeDependencies?
         .Select(value => new PackageDependencyJson(value))
         .ToList();
@@ -147,6 +158,37 @@ internal sealed class PackageInfoMeasurementsJson(
     private static List<string>? Render(
         IReadOnlyList<InertString>? values) =>
         values?.Select(static value => value.ToString()).ToList();
+}
+
+internal sealed record PackageDependencyHierarchyJson(
+    DependsAssetSummaryJson Summary,
+    DependencyHierarchyJsonRoot[] Roots,
+    DependencyHierarchyJsonOccurrence[] Occurrences,
+    DependencyHierarchyJsonDepthBoundary[] DepthBoundaries,
+    DependencyGraphJsonPackageProjection[] PackageProjections)
+{
+    internal static PackageDependencyHierarchyJson Create(
+        DependsAssetProjection projection,
+        RowWindow? rows)
+    {
+        var sections = new HashSet<string>(
+            [DependsAssetSections.DependencyHierarchy],
+            StringComparer.OrdinalIgnoreCase);
+        DependsAssetDocument document = DependsAssetDocument.Create(
+            projection,
+            sections,
+            rows);
+        DependencyHierarchyJsonDocument hierarchy =
+            document.DependencyHierarchy
+            ?? throw new InvalidOperationException(
+                "The Package dependency hierarchy projection was not created.");
+        return new PackageDependencyHierarchyJson(
+            document.Summary,
+            hierarchy.Roots,
+            hierarchy.Occurrences,
+            hierarchy.DepthBoundaries,
+            hierarchy.PackageProjections);
+    }
 }
 
 internal sealed class PackageDeprecationJson(PackageDeprecationText text)

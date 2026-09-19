@@ -8,6 +8,9 @@ reference half of production-adoption step 4 in
 [PlatformHouse Realization and Reference Processing](platform-house-reference-processing.md)
 and is tracked by
 [#6012](https://github.com/richlander/dotnet-inspect/issues/6012).
+Family-wide installed target discovery is the second focused slice of
+[#7742](https://github.com/richlander/dotnet-inspect/issues/7742) and is tracked
+by [#7749](https://github.com/richlander/dotnet-inspect/issues/7749).
 
 The first production consumer is
 `DotnetInspector.PlatformHouse.Installed`, which translates an authorized
@@ -25,14 +28,16 @@ with byte interpretation owned by
 **Installed Reference-Pack Realization** owns:
 
 > Given one host-selected dotnet hive, one installed platform family, one
-> canonical base target framework, and finite work bounds, discover the exact
-> installed targeting-pack versions that contain that framework or atomically
-> snapshot the exact requested reference-pack population.
+> typed framework-scoped or family-wide discovery demand, and finite work
+> bounds, discover the complete immutable inventory of canonical exact
+> installed targeting-pack coordinates in that scope or atomically snapshot
+> the exact requested reference-pack population.
 
 The owner establishes:
 
 - the installed reference-pack coordinate and family-to-pack projection;
-- version and target-framework discovery within one explicit hive;
+- version and target-framework discovery within one explicit hive and typed
+  framework scope;
 - reference-pack population membership;
 - exact-library coordinate projection;
 - immutable assembly snapshots and Metadata identity validation;
@@ -146,18 +151,29 @@ Paths and pack names are source coordinates. They are not
 
 ## Target discovery
 
-Discovery receives one installed family, one canonical base TFM, and a maximum
-candidate count.
+Discovery receives one installed family, one typed framework scope, and a
+maximum candidate count. The closed scope is either one canonical base TFM or
+every canonical base TFM for the family in the selected hive.
 
 It:
 
 1. examines only the selected hive's exact pack root;
 2. observes version directories under a finite source-owned entry limit;
-3. retains a directory only when its exact `ref/<tfm>` directory exists;
-4. accepts only canonical SemVer directory names whose major and minor match
-   the requested TFM;
-5. sorts candidates by SemVer precedence and then exact version identity; and
-6. returns one immutable inventory tied to one source generation.
+3. for framework-scoped discovery, retains a version directory only when its
+   exact `ref/<tfm>` directory exists;
+4. for family-wide discovery, observes every bounded entry beneath each
+   version's `ref` directory and retains only canonical supported base TFMs;
+5. accepts only canonical SemVer directory names whose major and minor match
+   the retained TFM;
+6. sorts candidates by SemVer precedence, exact version identity, and exact
+   TFM identity; and
+7. returns one immutable inventory tied to one source generation.
+
+Files, platform-qualified or unsupported TFMs, and version/TFM feature-band
+mismatches remain charged observations but are not candidates. A non-canonical
+version directory containing a canonical supported base TFM is rejected rather
+than normalized or silently omitted. Non-canonical or unsupported TFM entries
+remain non-candidates.
 
 An absent pack root produces a successful empty inventory. It is authoritative
 evidence that this source generation supplied no candidate; it is not evidence
@@ -255,7 +271,7 @@ during source work and maps a duration expiry to an incomplete contribution.
 
 The source bounds:
 
-- observed version or population entries;
+- observed version, framework, or population entries;
 - discovered candidates;
 - realized assembly count;
 - bytes per file;
@@ -297,9 +313,12 @@ plan.
 The focused executable suite
 `DotnetInspector.PlatformHouse.Installed.Tests` proves:
 
-- explicit-root, family-specific, TFM-specific discovery;
-- deterministic canonical candidate ordering;
+- explicit-root, family-specific, framework-scoped discovery;
+- complete family-wide discovery across installed feature bands;
+- deterministic canonical exact-target ordering;
 - candidate and observation limit behavior;
+- malformed candidate visibility and feature-band correspondence;
+- authoritative empty family inventory and pre-canceled discovery;
 - atomic complete-population rejection;
 - immutable post-acquisition snapshots;
 - exact assembly-name projection plus Metadata identity validation;
@@ -328,6 +347,18 @@ PlatformFamilyTarget(
   net11.0,
   11.0.0)
 ```
+
+Given neighboring installed packs:
+
+```text
+Microsoft.NETCore.App.Ref/9.0.11/ref/net9.0/
+Microsoft.NETCore.App.Ref/10.0.0/ref/net10.0/
+Microsoft.NETCore.App.Ref/11.0.0-rc.1/ref/net11.0/
+```
+
+a family-wide `DotNetRuntime` discovery returns all three exact coordinates.
+It does not apply a version floor or choose one target; the PlatformHouse
+policy owns those decisions.
 
 and a complete reference realization returns immutable snapshots of both
 assemblies plus one authoritative `PlatformSourceContribution.Realization`.

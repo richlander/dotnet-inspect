@@ -85,6 +85,17 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
                                 request.Work.MaxDuration)));
         await environment.AssertSettledAsync();
         PlatformHouseConsumedWork consumed = Consumed(reference.Value);
+        PlatformHouseCandidateIdentity candidate =
+            PlatformHouseCandidateIdentity.Create("package-candidate");
+        var attempt = Assert.IsType<
+            PlatformAssemblyReferenceSourceAttempt.Succeeded>(
+                PackagePlatformAssemblyReferenceResolver.PrepareAttempt(
+                    request,
+                    reference,
+                    candidate));
+
+        Assert.Same(candidate, attempt.Candidate);
+        Assert.Same(reference.Contribution, attempt.Contribution);
 
         var completed = Assert.IsType<
             PlatformHouseOutcome<AssemblyBindingDecision>.Completed>(
@@ -221,6 +232,10 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
             PackagePlatformHouseResult<
                 PackageReferenceRealization>.NotSucceeded>(result);
         await environment.AssertSettledAsync();
+        var attempt = Assert.IsType<
+            PlatformAssemblyReferenceSourceAttempt.NotSucceeded>(
+                PackagePlatformAssemblyReferenceResolver.PrepareAttempt(
+                    terminal));
         int payloadRequests =
             environment.Clients.Sum(
                 static client => client.PayloadRequests);
@@ -234,6 +249,12 @@ public sealed class PackagePlatformAssemblyReferenceResolverTests
         Assert.Equal(
             ExpectedDiagnostic(terminalCase),
             terminal.Diagnostic.Kind);
+        Assert.Same(terminal.Contribution, attempt.Contribution);
+        Assert.Equal(
+            terminalCase == PackageSourceTerminalCase.Rejected
+                ? PlatformHouseRejectionKind.InvalidOwnerResult
+                : null,
+            attempt.RejectionKind);
         Assert.Equal(payloadRequests,
             environment.Clients.Sum(
                 static client => client.PayloadRequests));
