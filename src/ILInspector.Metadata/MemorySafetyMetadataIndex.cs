@@ -113,6 +113,7 @@ public enum MemorySafetyMemberContractFailureKind
     AttributeUnavailable,
     MalformedRequiresUnsafeAttribute,
     AmbiguousAssociation,
+    BudgetExceeded,
 }
 
 public sealed record MemorySafetyMemberContractFailure(
@@ -385,7 +386,8 @@ public sealed class MemorySafetyMetadataIndex
         {
             return Unavailable(
                 EmptyEvidence(member, rulesState: null),
-                MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+                ProjectMetadataFailure(
+                    unavailableRules.Failure.Kind),
                 unavailableRules.Failure.Detail);
         }
 
@@ -462,12 +464,11 @@ public sealed class MemorySafetyMetadataIndex
                 direct,
                 associatedAttributes,
                 associated);
-        if (direct.IsUnavailable)
+        if (direct.Failure is not null)
         {
-            return Unavailable(
+            return new MemorySafetyMemberContractResult.Unavailable(
                 directEvidence,
-                MemorySafetyMemberContractFailureKind.AttributeUnavailable,
-                "RequiresUnsafeAttribute metadata could not be read.");
+                direct.Failure);
         }
         if (direct.Evidence.HasMalformedRow)
         {
@@ -505,7 +506,11 @@ public sealed class MemorySafetyMetadataIndex
             {
                 return Unavailable(
                     directEvidence,
-                    MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+                    AssociationFailure is null
+                        ? MemorySafetyMemberContractFailureKind
+                            .MetadataUnavailable
+                        : ProjectMetadataFailure(
+                            AssociationFailure.Kind),
                     AssociationFailure?.Detail
                         ?? "Memory-safety accessor associations are unavailable.");
             }
@@ -518,12 +523,11 @@ public sealed class MemorySafetyMetadataIndex
                 direct,
                 associatedAttributes,
                 associated);
-        if (associatedAttributes.IsUnavailable)
+        if (associatedAttributes.Failure is not null)
         {
-            return Unavailable(
+            return new MemorySafetyMemberContractResult.Unavailable(
                 evidence,
-                MemorySafetyMemberContractFailureKind.AttributeUnavailable,
-                "RequiresUnsafeAttribute metadata could not be read.");
+                associatedAttributes.Failure);
         }
 
         if (associatedAttributes.Evidence.HasMalformedRow)
@@ -660,7 +664,7 @@ public sealed class MemorySafetyMetadataIndex
         CustomAttributeHandleCollection attributes)
     {
         if (attributes.Count > _attributeRowBudget)
-            return AttributeReadResult.Unavailable;
+            return AttributeReadResult.BudgetExceeded;
 
         var nameBudget = new MetadataNameWorkBudget(_nameWorkBudget);
         int validRows = 0;
@@ -711,7 +715,7 @@ public sealed class MemorySafetyMetadataIndex
             }
             catch (MetadataBudgetException)
             {
-                return AttributeReadResult.Unavailable;
+                return AttributeReadResult.BudgetExceeded;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -727,7 +731,7 @@ public sealed class MemorySafetyMetadataIndex
                 RequiresUnsafeAttributeEvidenceState.Read,
                 validRows,
                 malformed),
-            IsUnavailable: false);
+            Failure: null);
     }
 
     CustomAttributeHandleCollection GetCustomAttributes(
@@ -780,6 +784,12 @@ public sealed class MemorySafetyMetadataIndex
         MemorySafetyMemberContractFailureKind kind,
         string detail)
         => new(evidence, new(kind, detail));
+
+    static MemorySafetyMemberContractFailureKind ProjectMetadataFailure(
+        MemorySafetyMetadataFailureKind kind)
+        => kind == MemorySafetyMetadataFailureKind.BudgetExceeded
+            ? MemorySafetyMemberContractFailureKind.BudgetExceeded
+            : MemorySafetyMemberContractFailureKind.MetadataUnavailable;
 
     static MemorySafetyRulesResult ReadRules(
         MetadataReader reader,
@@ -1410,22 +1420,31 @@ public sealed class MemorySafetyMetadataIndex
 
     readonly record struct AttributeReadResult(
         RequiresUnsafeAttributeEvidence Evidence,
-        bool IsUnavailable)
+        MemorySafetyMemberContractFailure? Failure)
     {
         public static AttributeReadResult NotExamined =>
             new(
                 RequiresUnsafeAttributeEvidence.NotExamined,
-                IsUnavailable: false);
+                Failure: null);
 
         public static AttributeReadResult None =>
             new(
                 RequiresUnsafeAttributeEvidence.None,
-                IsUnavailable: false);
+                Failure: null);
 
         public static AttributeReadResult Unavailable =>
             new(
                 RequiresUnsafeAttributeEvidence.Unavailable,
-                IsUnavailable: true);
+                new(
+                    MemorySafetyMemberContractFailureKind.AttributeUnavailable,
+                    "RequiresUnsafeAttribute metadata could not be read."));
+
+        public static AttributeReadResult BudgetExceeded =>
+            new(
+                RequiresUnsafeAttributeEvidence.Unavailable,
+                new(
+                    MemorySafetyMemberContractFailureKind.BudgetExceeded,
+                    "RequiresUnsafeAttribute metadata exceeded its scan budget."));
     }
 
     sealed class MetadataNameWorkBudget(int remaining)
