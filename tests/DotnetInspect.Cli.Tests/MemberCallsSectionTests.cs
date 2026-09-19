@@ -135,6 +135,34 @@ public class MemberCallsSectionTests
     }
 
     [Fact]
+    public async Task CallsSection_EmptyStructuredJsonPreservesRowArray()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberCallsFixture).FullName!,
+            "--library",
+            typeof(MemberCallsFixture).Assembly.Location,
+            "-m",
+            nameof(MemberCallsFixture.Overloaded),
+            "--index",
+            "1",
+            "-S",
+            SectionNames.Calls,
+            "-n",
+            "1",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        JsonElement calls = document.RootElement.GetProperty("calls");
+        Assert.Equal(JsonValueKind.Array, calls.ValueKind);
+        Assert.Empty(calls.EnumerateArray());
+    }
+
+    [Fact]
     public async Task CallsSection_UnavailableWindowWithholdsOutput()
     {
         var result = await RunCliAsync(

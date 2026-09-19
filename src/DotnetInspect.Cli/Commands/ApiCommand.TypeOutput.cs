@@ -626,12 +626,24 @@ public partial class ApiCommand
                 (writer, formatter, writerOptions) =>
                 {
                     writerOptions.IncludeSections = [SectionNames.Calls];
-                    MarkoutSerializer.Serialize(
-                        memberCode,
-                        writer,
-                        formatter,
-                        ApiViewContext.Default,
-                        writerOptions);
+                    if (memberCode.CallRows.Count == 0)
+                    {
+                        MarkoutSerializer.Serialize(
+                            new EmptyMemberCallsView(),
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
+                    }
+                    else
+                    {
+                        MarkoutSerializer.Serialize(
+                            memberCode,
+                            writer,
+                            formatter,
+                            ApiViewContext.Default,
+                            writerOptions);
+                    }
                 },
                 !options.CompactJson);
             return 0;
