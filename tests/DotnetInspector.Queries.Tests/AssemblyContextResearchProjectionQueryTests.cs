@@ -954,6 +954,119 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     }
 
     [Fact]
+    public async Task MemberProjection_ProjectsBoundedLocalThrowPaths()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        var targetParticipant = new AssemblyContextParticipant(
+            ResolvedAssembly(image, "local-throw-target"),
+            policy);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([targetParticipant]);
+
+        AssemblyMemberProjection projection =
+            Assert.IsType<
+                    AssemblyContextEntry<AssemblyMemberProjection>
+                        .Available>(
+                AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                    group,
+                    targetParticipant,
+                    LocalThrowPathRequest(image)))
+                .Value;
+
+        AssemblyMemberLocalThrowPathInspection inspection =
+            Assert.IsType<AssemblyMemberLocalThrowPathInspection>(
+                projection.LocalThrowPaths);
+        Assert.True(
+            inspection.Paths.Count == 1,
+            $"Boundaries: {string.Join(", ", inspection.Boundaries)}; "
+                + $"receipt: {inspection.Receipt}");
+        AssemblyMemberLocalThrowPath path = inspection.Paths[0];
+        Assert.Equal(
+            ["Forward", "Throw"],
+            path.Targets.Select(target => target.Member.Name));
+        Assert.Equal(2, path.FactIds.Count);
+        Assert.Equal(
+            path.FactIds.Order(),
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                    projection.CallRelationships)
+                .Relationships
+                .Where(relationship =>
+                    relationship.Target.Member.Name == "Forward")
+                .Select(relationship =>
+                    relationship.Occurrence.FactId)
+                .Order());
+        AssemblyMemberLocalThrowSite terminal =
+            Assert.Single(path.TerminalThrows);
+        Assert.Equal(
+            "LocalThrowPathException",
+            terminal.ExceptionType.Name);
+        Assert.True(terminal.ConstructionOffset < terminal.ThrowOffset);
+        Assert.True(terminal.ConstructorToken > 0);
+        Assert.Equal(
+            0x02000000,
+            terminal.Definition.Definition.Value & 0xFF000000);
+        Assert.DoesNotContain(
+            path.Targets,
+            target => target.Member.Name == "Entry");
+    }
+
+    [Fact]
+    public async Task MemberProjection_PreservesCoreLibThrowHelperDistinction()
+    {
+        MethodInfo helper =
+            typeof(ArgumentNullException).GetMethod(
+                "ThrowIfNull",
+                [typeof(object), typeof(string)])
+            ?? throw new InvalidOperationException(
+                "CoreLib has no ArgumentNullException.ThrowIfNull overload.");
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    typeof(ArgumentNullException).Assembly.Location));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                new AssemblyContextMemberProjectionRequest(
+                    "System.ArgumentNullException",
+                    "ThrowIfNull",
+                    MethodToken: helper.MetadataToken,
+                    SourceDocument: true,
+                    FactRows: true,
+                    AnalysisFeatures:
+                        LibraryBodyAnalysisFeatures.Default
+                            | LibraryBodyAnalysisFeatures.LocalThrows,
+                    CallRelationships: true,
+                    LocalThrowPaths: true)));
+
+        AssemblyMemberLocalThrowPath path =
+            Assert.Single(
+                Assert.IsType<AssemblyMemberLocalThrowPathInspection>(
+                        projection.LocalThrowPaths)
+                    .Paths,
+                candidate =>
+                    candidate.Targets[^1].Member.Name == "Throw");
+        Assert.DoesNotContain(
+            path.Targets,
+            target => target.Member.Name == "ThrowIfNull");
+        Assert.Contains(
+            path.TerminalThrows,
+            site =>
+                site.ExceptionType.Name
+                    == nameof(ArgumentNullException));
+    }
+
+    [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
         ImmutableArray<byte> image = BuildVersionedInvocationImage();
@@ -1083,6 +1196,40 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.Contains(
             "exact call relationships",
             missingSynchronousRelationships.Message,
+            StringComparison.Ordinal);
+
+        ArgumentException missingLocalThrowRelationships =
+            Assert.Throws<ArgumentException>(() =>
+                AssemblyContextMemberProjectionQuery.Execute(
+                    group,
+                    InvocationRequest(
+                        nameof(ResearchProjectionProbe.InvokeLocal))
+                        with
+                        {
+                            AnalysisFeatures =
+                                LibraryBodyAnalysisFeatures.Default
+                                    | LibraryBodyAnalysisFeatures.LocalThrows,
+                            LocalThrowPaths = true,
+                        }));
+        Assert.Contains(
+            "exact call relationships and local-throw analysis",
+            missingLocalThrowRelationships.Message,
+            StringComparison.Ordinal);
+
+        ArgumentException missingLocalThrowAnalysis =
+            Assert.Throws<ArgumentException>(() =>
+                AssemblyContextMemberProjectionQuery.Execute(
+                    group,
+                    InvocationRequest(
+                        nameof(ResearchProjectionProbe.InvokeLocal))
+                        with
+                        {
+                            CallRelationships = true,
+                            LocalThrowPaths = true,
+                        }));
+        Assert.Contains(
+            "exact call relationships and local-throw analysis",
+            missingLocalThrowAnalysis.Message,
             StringComparison.Ordinal);
     }
 
@@ -1440,6 +1587,25 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             FactRows: true,
             AllocationExceptionPaths: true);
 
+    static AssemblyContextMemberProjectionRequest
+        LocalThrowPathRequest(
+            ImmutableArray<byte> image) =>
+        new(
+            "Target.LocalThrowPathApi",
+            "Entry",
+            MethodToken: MethodToken(
+                image,
+                "Target",
+                "LocalThrowPathApi",
+                "Entry"),
+            SourceDocument: true,
+            FactRows: true,
+            AnalysisFeatures:
+                LibraryBodyAnalysisFeatures.Default
+                    | LibraryBodyAnalysisFeatures.LocalThrows,
+            CallRelationships: true,
+            LocalThrowPaths: true);
+
     static string NodeText(
         AnnotatedSourceDocument document,
         AnnotatedSourceNode node) =>
@@ -1594,15 +1760,31 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         ImmutableArray<byte> image,
         AssemblyReferenceIdentity identity,
         IAssemblyBindingPolicy policy)
-        => new(
-            ResolvedAssemblyReference.Create(
-                identity,
-                path: null,
-                () => new MemoryStream(
-                    ImmutableCollectionsMarshal.AsArray(image)!,
-                    writable: false),
-                AssemblyResolutionProvenance.Package("probe", "1.0.0", "net11.0", rid: null)),
-            policy);
+        => new(ResolvedAssembly(image, identity, "probe"), policy);
+
+    static ResolvedAssemblyReference ResolvedAssembly(
+        ImmutableArray<byte> image,
+        string packageId) =>
+        ResolvedAssembly(
+            image,
+            ContentIdentity(image),
+            packageId);
+
+    static ResolvedAssemblyReference ResolvedAssembly(
+        ImmutableArray<byte> image,
+        AssemblyReferenceIdentity identity,
+        string packageId) =>
+        ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => new MemoryStream(
+                ImmutableCollectionsMarshal.AsArray(image)!,
+                writable: false),
+            AssemblyResolutionProvenance.Package(
+                packageId,
+                "1.0.0",
+                "net11.0",
+                rid: null));
 
     static ImmutableArray<byte> SelfImage() =>
         ImmutableCollectionsMarshal.AsImmutableArray(
@@ -1668,6 +1850,7 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             }
         }
     }
+
 }
 
 /// <summary>Probe members the group-scoped Research projections address.</summary>

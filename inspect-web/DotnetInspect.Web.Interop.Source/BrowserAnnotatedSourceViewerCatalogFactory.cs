@@ -79,6 +79,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             allocationExceptionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             allocationExceptionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceLocalThrowPathInspection?
+            localThrowPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            localThrowPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -120,6 +125,18 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             ValidateAllocationExceptionPaths(
                 document,
                 allocationExceptionPaths);
+        }
+        if (localThrowPaths is not null)
+        {
+            if (callRelationships is null)
+            {
+                throw new ArgumentException(
+                    "Local throw paths require projected call relationships.",
+                    nameof(localThrowPaths));
+            }
+            ValidateLocalThrowPaths(
+                callRelationships,
+                localThrowPaths);
         }
 
         var targetedFacts = new bool[document.Facts.Count];
@@ -218,6 +235,15 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     Available: true,
                     UnavailableReason: null,
                     Observations: allocationExceptionPaths),
+            localThrowPaths
+                ?? new BrowserAnnotatedSourceLocalThrowPathInspection(
+                    Available: false,
+                    localThrowPathsUnavailableReason,
+                    IsComplete: false,
+                    Boundaries: [],
+                    Limits: null,
+                    Receipt: null,
+                    Paths: []),
             projectedDestinations);
     }
 
@@ -452,6 +478,109 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 throw new ArgumentException(
                     $"Allocation exception-path observation {index} does not name a body allocation fact.",
                     nameof(observations));
+            }
+        }
+    }
+
+    private static void ValidateLocalThrowPaths(
+        IReadOnlyList<BrowserAnnotatedSourceCallRelationship> relationships,
+        BrowserAnnotatedSourceLocalThrowPathInspection inspection)
+    {
+        if (!inspection.Available
+            || inspection.Limits is not { } limits
+            || inspection.Receipt is not { } receipt)
+        {
+            throw new ArgumentException(
+                "Projected local throw paths must be available with limits and a receipt.",
+                nameof(inspection));
+        }
+        if (limits.MaximumDepth < 0
+            || limits.MaximumNodes < 1
+            || limits.MaximumEdges < 1
+            || limits.MaximumPaths < 1
+            || receipt.DestinationSearches < 0
+            || receipt.SearchNodes < 0
+            || receipt.SearchedEdges < 0
+            || receipt.ObservedReachablePairs < 0
+            || receipt.ReturnedPaths != inspection.Paths.Length)
+        {
+            throw new ArgumentException(
+                "Local throw path limits or receipt are invalid.",
+                nameof(inspection));
+        }
+        if (inspection.Boundaries.Any(boundary =>
+                boundary is null
+                || !Enum.IsDefined(boundary.Kind)
+                || boundary.Value < 0)
+            || inspection.Boundaries
+                .Select(static boundary => boundary.Kind)
+                .Distinct()
+                .Count() != inspection.Boundaries.Length)
+        {
+            throw new ArgumentException(
+                "Local throw path boundaries must be defined and unique.",
+                nameof(inspection));
+        }
+
+        Dictionary<int, int> edgeByFact = relationships.ToDictionary(
+            static relationship => relationship.FactId,
+            static relationship => relationship.EdgeRow);
+        for (int index = 0; index < inspection.Paths.Length; index++)
+        {
+            BrowserAnnotatedSourceLocalThrowPath path =
+                inspection.Paths[index]
+                    ?? throw new ArgumentException(
+                        $"Local throw path {index} is null.",
+                        nameof(inspection));
+            if (path.FactIds.Length == 0
+                || path.FactIds.Distinct().Count() != path.FactIds.Length
+                || path.FactIds.Any(factId =>
+                    !edgeByFact.ContainsKey(factId))
+                || path.FactIds
+                    .Select(factId => edgeByFact[factId])
+                    .Distinct()
+                    .Count() != 1
+                || path.Targets.Length == 0
+                || path.Targets.Length > limits.MaximumDepth
+                || path.Targets.Any(static target => target is null)
+                || path.TerminalThrows.Length == 0)
+            {
+                throw new ArgumentException(
+                    $"Local throw path {index} has invalid source or member evidence.",
+                    nameof(inspection));
+            }
+            int firstEdgeRow = edgeByFact[path.FactIds[0]];
+            int[] expectedFactIds =
+            [
+                .. relationships
+                    .Where(relationship =>
+                        relationship.EdgeRow == firstEdgeRow)
+                    .Select(relationship => relationship.FactId),
+            ];
+            if (expectedFactIds.Length != path.FactIds.Length
+                || expectedFactIds.Any(factId =>
+                    !path.FactIds.Contains(factId)))
+            {
+                throw new ArgumentException(
+                    $"Local throw path {index} does not retain every physical first-edge occurrence.",
+                    nameof(inspection));
+            }
+            foreach (
+                BrowserAnnotatedSourceLocalThrowSite site
+                in path.TerminalThrows)
+            {
+                if (site is null
+                    || string.IsNullOrWhiteSpace(site.ExceptionType)
+                    || site.DefinitionModuleVersionId == Guid.Empty
+                    || (site.DefinitionToken & 0xFF000000) != 0x02000000
+                    || site.ConstructionOffset < 0
+                    || site.ConstructorToken <= 0
+                    || site.ThrowOffset < 0)
+                {
+                    throw new ArgumentException(
+                        $"Local throw path {index} has invalid terminal throw evidence.",
+                        nameof(inspection));
+                }
             }
         }
     }

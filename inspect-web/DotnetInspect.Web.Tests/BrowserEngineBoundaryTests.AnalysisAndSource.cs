@@ -1120,6 +1120,114 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task MemberFindingCensus_ProjectsBoundedLocalThrowPath()
+    {
+        const string PackageId = "Browser.Member.LocalThrowPath";
+        byte[] image = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphTarget
+                .AssemblyPath());
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackagePair(
+                    image,
+                    image,
+                    $"{PackageId}.dll"),
+                fromCache: false));
+
+        string surfaceJson = await QueryPackageSurfaceJson(
+            PackageId,
+            "1.0.0",
+            "net11.0");
+        using JsonDocument surfaceDocument =
+            JsonDocument.Parse(surfaceJson);
+        JsonElement type = Assert.Single(
+            surfaceDocument.RootElement
+                .GetProperty("types")
+                .EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("definitionId").GetString()
+                    == "Target.LocalThrowPathApi");
+        JsonElement member = Assert.Single(
+            type.GetProperty("api").EnumerateArray(),
+            candidate =>
+                candidate.GetProperty("name").GetString()
+                    == "Entry");
+
+        string censusJson =
+            await DotnetInspect.Web.Interop.Source.SourceExports
+                .QueryMemberFindingCensus(
+                    PackageId,
+                    "1.0.0",
+                    "net11.0",
+                    type.GetProperty("assembly").GetString()!,
+                    type.GetProperty("definitionId").GetString()!,
+                    type.GetProperty("queryId").GetString()!,
+                    member.GetProperty("name").GetString()!,
+                    member.GetProperty("signature").GetString()!,
+                    member.GetProperty("graphSelectorKey")
+                        .GetString()!,
+                    member.GetProperty("metadataToken").GetInt32(),
+                    "[]");
+
+        using JsonDocument censusDocument =
+            JsonDocument.Parse(censusJson);
+        JsonElement annotatedSource =
+            censusDocument.RootElement
+                .GetProperty("annotatedSource");
+        JsonElement inspection = annotatedSource
+            .GetProperty("viewerCatalog")
+            .GetProperty("localThrowPaths");
+        Assert.True(inspection.GetProperty("available").GetBoolean());
+        JsonElement[] paths = inspection.GetProperty("paths")
+            .EnumerateArray()
+            .ToArray();
+        Assert.True(paths.Length == 1, inspection.GetRawText());
+        JsonElement path = paths[0];
+        int[] factIds =
+        [
+            .. path.GetProperty("factIds")
+                .EnumerateArray()
+                .Select(value => value.GetInt32()),
+        ];
+        Assert.Equal(2, factIds.Length);
+        Assert.Equal(
+            "Throw",
+            path.GetProperty("targets")
+                .EnumerateArray()
+                .Last()
+                .GetProperty("memberName").GetString());
+        JsonElement terminal = Assert.Single(
+            path.GetProperty("terminalThrows").EnumerateArray());
+        Assert.EndsWith(
+            ".LocalThrowPathException",
+            terminal.GetProperty("exceptionType").GetString(),
+            StringComparison.Ordinal);
+        Assert.True(
+            terminal.GetProperty("constructionOffset").GetInt32()
+                < terminal.GetProperty("throwOffset").GetInt32());
+        Assert.Equal(
+            0x02000000,
+            terminal.GetProperty("definitionToken").GetInt32()
+                & 0xFF000000);
+        Assert.All(factIds, factId =>
+            Assert.Contains(
+                annotatedSource.GetProperty("callRelationships")
+                    .EnumerateArray(),
+                relationship =>
+                    relationship.GetProperty("factId").GetInt32()
+                        == factId));
+        Assert.DoesNotContain(
+            factIds,
+            factId => annotatedSource
+                .GetProperty("viewerCatalog")
+                .GetProperty("defaultFindingIds")
+                .EnumerateArray()
+                .Any(value => value.GetInt32() == factId));
+    }
+
+    [Fact]
     public async Task MemberFindingCensus_ProjectsMethodLevelCostEvidence()
     {
         const string PackageId = "Browser.Member.CostCalleeEvidence";

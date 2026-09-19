@@ -80,7 +80,10 @@ public static partial class SourceExports
             allocationExceptionPaths:
                 source.AllocationExceptionPaths,
             allocationExceptionPathsUnavailableReason:
-                source.AllocationExceptionPathsUnavailableReason);
+                source.AllocationExceptionPathsUnavailableReason,
+            localThrowPaths: source.LocalThrowPaths,
+            localThrowPathsUnavailableReason:
+                source.LocalThrowPathsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -138,7 +141,9 @@ public static partial class SourceExports
             source.AwaitCompletionPaths,
             source.AwaitCompletionPathsUnavailableReason,
             source.AllocationExceptionPaths,
-            source.AllocationExceptionPathsUnavailableReason);
+            source.AllocationExceptionPathsUnavailableReason,
+            source.LocalThrowPaths,
+            source.LocalThrowPathsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -187,12 +192,17 @@ public static partial class SourceExports
                         FactRows: factRows,
                         FindingEvidence: factRows,
                         InvocationDestinations: true,
+                        AnalysisFeatures: factRows
+                            ? Analysis.LibraryBodyAnalysisFeatures.Default
+                                | Analysis.LibraryBodyAnalysisFeatures.LocalThrows
+                            : Analysis.LibraryBodyAnalysisFeatures.Default,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
                         CallRelationships: factRows,
                         CallCycles: factRows,
                         SynchronousCompletions: factRows,
                         AwaitCompletionPaths: factRows,
-                        AllocationExceptionPaths: factRows))),
+                        AllocationExceptionPaths: factRows,
+                        LocalThrowPaths: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -362,6 +372,62 @@ public static partial class SourceExports
                             observation.Kind))),
             ];
         }
+        BrowserAnnotatedSourceLocalThrowPathInspection? localThrowPaths = null;
+        if (projection.LocalThrowPaths is { } projectedLocalThrowPaths)
+        {
+            localThrowPaths =
+                new BrowserAnnotatedSourceLocalThrowPathInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    projectedLocalThrowPaths.IsComplete,
+                    [
+                        .. projectedLocalThrowPaths.Boundaries
+                            .GroupBy(static boundary => boundary.Kind)
+                            .Select(group =>
+                                new BrowserAnnotatedSourceLocalThrowPathBoundary(
+                                    ProjectLocalThrowPathBoundaryKind(
+                                        group.Key),
+                                    group.Max(static boundary =>
+                                        boundary.Value))),
+                    ],
+                    new BrowserAnnotatedSourceLocalThrowPathLimits(
+                        projectedLocalThrowPaths.Limits.MaximumDepth,
+                        projectedLocalThrowPaths.Limits.MaximumNodes,
+                        projectedLocalThrowPaths.Limits.MaximumEdges,
+                        projectedLocalThrowPaths.Limits.MaximumPaths),
+                    new BrowserAnnotatedSourceLocalThrowPathReceipt(
+                        projectedLocalThrowPaths.Receipt.DestinationSearches,
+                        projectedLocalThrowPaths.Receipt.SearchNodes,
+                        projectedLocalThrowPaths.Receipt.SearchedEdges,
+                        projectedLocalThrowPaths.Receipt
+                            .ObservedReachablePairs,
+                        projectedLocalThrowPaths.Paths.Count),
+                    [
+                        .. projectedLocalThrowPaths.Paths.Select(path =>
+                            new BrowserAnnotatedSourceLocalThrowPath(
+                                [.. path.FactIds],
+                                [
+                                    .. path.Targets.Select(target =>
+                                        BrowserSourceWireProjection.Project(
+                                            BrowserCallGraphProjection.Target(
+                                                target,
+                                                [participant.Assembly.Identity],
+                                                null,
+                                                scope.SurfaceParticipants))),
+                                ],
+                                [
+                                    .. path.TerminalThrows.Select(site =>
+                                        new BrowserAnnotatedSourceLocalThrowSite(
+                                            site.ExceptionType
+                                                .ToQualifiedDisplayString(),
+                                            site.Definition.ModuleVersionId,
+                                            site.Definition.Definition.Value,
+                                            site.ConstructionOffset,
+                                            site.ConstructorToken,
+                                            site.ThrowOffset)),
+                                ])),
+                    ]);
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -403,6 +469,12 @@ public static partial class SourceExports
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             allocationExceptionPaths,
             allocationExceptionPaths is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            localThrowPaths,
+            localThrowPaths is null
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
@@ -507,6 +579,47 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+        ProjectLocalThrowPathBoundaryKind(
+            AssemblyMemberLocalThrowPathBoundaryKind kind) =>
+        kind switch
+        {
+            AssemblyMemberLocalThrowPathBoundaryKind.AnalysisIncomplete =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .AnalysisIncomplete,
+            AssemblyMemberLocalThrowPathBoundaryKind.TraversalBoundary =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .TraversalBoundary,
+            AssemblyMemberLocalThrowPathBoundaryKind
+                .PartialMethodEvidenceScope =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .PartialMethodEvidenceScope,
+            AssemblyMemberLocalThrowPathBoundaryKind.UnresolvedLocalCalls =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .UnresolvedLocalCalls,
+            AssemblyMemberLocalThrowPathBoundaryKind
+                .UnattributedGeneratedBodies =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .UnattributedGeneratedBodies,
+            AssemblyMemberLocalThrowPathBoundaryKind.DepthLimit =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind.DepthLimit,
+            AssemblyMemberLocalThrowPathBoundaryKind.NodeBudget =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind.NodeBudget,
+            AssemblyMemberLocalThrowPathBoundaryKind.EdgeBudget =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind.EdgeBudget,
+            AssemblyMemberLocalThrowPathBoundaryKind.PathBudget =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind.PathBudget,
+            AssemblyMemberLocalThrowPathBoundaryKind
+                .IncompleteLocalThrowEvidence =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .IncompleteLocalThrowEvidence,
+            AssemblyMemberLocalThrowPathBoundaryKind
+                .IncompleteCorrespondence =>
+                BrowserAnnotatedSourceLocalThrowPathBoundaryKind
+                    .IncompleteCorrespondence,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     static IEnumerable<BrowserAnnotatedSourceCallCycleLimit> CycleLimits(
         AnnotatedCallGraphCycleLimit limits)
     {
@@ -571,5 +684,9 @@ public static partial class SourceExports
         BrowserAnnotatedSourceAllocationExceptionPath[]?
             AllocationExceptionPaths,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            AllocationExceptionPathsUnavailableReason);
+            AllocationExceptionPathsUnavailableReason,
+        BrowserAnnotatedSourceLocalThrowPathInspection?
+            LocalThrowPaths,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            LocalThrowPathsUnavailableReason);
 }
