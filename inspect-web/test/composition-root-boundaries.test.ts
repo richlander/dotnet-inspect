@@ -155,7 +155,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onFrameworkSelect\(framework\.value\)/);
   assert.match(
     appSource,
-    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
+    /selectFramework: framework => \{\s*if \(contentFrameUsesPush\(\)\) contentFramePane = "detail";\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\);\s*\}/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,
