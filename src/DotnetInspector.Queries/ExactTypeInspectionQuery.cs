@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -355,9 +356,19 @@ internal sealed record ExactTypeDefiningSource(
     MetadataTypeDefinitionName Type,
     WorkspaceDeclarationMember Member);
 
+internal sealed record ExactTypeInspectionTarget(
+    AssemblyApiSurface Surface,
+    ApiType Type,
+    AssemblyBindingOccurrence Occurrence,
+    IAssemblyBindingPolicy BindingPolicy,
+    string? AssemblyPath,
+    string? PackageExtractPath,
+    Func<long, Stream?>? OpenCompiledDocumentation);
+
 internal sealed record ExactTypeInspectionExecution(
     ExactTypeInspectionResult Result,
-    ImmutableArray<ExactTypeDefiningSource> DefiningSources);
+    ImmutableArray<ExactTypeDefiningSource> DefiningSources,
+    ExactTypeInspectionTarget? Target);
 
 /// <summary>
 /// Resolves and projects one exact Type through an admitted Workspace
@@ -406,6 +417,8 @@ internal static class ExactTypeInspectionQuery
             participants,
             definingSource: null,
             definingSources: null,
+            selectedTarget: null,
+            ApiSurfaceScope.PublicWithNonPublicTypes,
             projectionLimits);
     }
 
@@ -413,6 +426,7 @@ internal static class ExactTypeInspectionQuery
         WorkspaceRealizationOperationLease authority,
         WorkspaceDeclarationContext context,
         SelectedContextExactTypeInspectionRequest request,
+        ApiSurfaceScope scope = ApiSurfaceScope.PublicWithNonPublicTypes,
         ApiSurfaceProjectionLimits? projectionLimits = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
@@ -425,7 +439,8 @@ internal static class ExactTypeInspectionQuery
                 ExactTypeInspectionResult.RuntimeUnavailable(
                     request.Type,
                     "The selected Workspace context was not realized."),
-                []);
+                [],
+                Target: null);
         }
         if (!ReferenceEquals(
                 context.Receipt.Workspace,
@@ -457,6 +472,7 @@ internal static class ExactTypeInspectionQuery
 
         var definingSources =
             ImmutableArray.CreateBuilder<ExactTypeDefiningSource>();
+        ExactTypeInspectionTarget? target = null;
         ExactTypeInspectionResult result = ExecuteCore(
             authority,
             new ExactTypeInspectionContext(loaded),
@@ -465,6 +481,8 @@ internal static class ExactTypeInspectionQuery
             loaded.Group.Participants,
             DefiningSource,
             definingSources,
+            selected => target = selected,
+            scope,
             projectionLimits);
         return new(
             result,
@@ -472,7 +490,13 @@ internal static class ExactTypeInspectionQuery
                 is ExactTypeInspectionOutcome.Available
                 or ExactTypeInspectionOutcome.Ambiguous
                     ? DistinctSources(definingSources)
-                    : []);
+                    : [],
+            result.IsAvailable
+                ? target
+                    ?? throw new InvalidOperationException(
+                        "An available exact Type result requires one live "
+                            + "inspection target.")
+                : null);
     }
 
     static ExactTypeInspectionResult ExecuteCore(
@@ -484,6 +508,8 @@ internal static class ExactTypeInspectionQuery
         Func<AssemblyContextParticipant, WorkspaceDeclarationMember?>?
             definingSource,
         ImmutableArray<ExactTypeDefiningSource>.Builder? definingSources,
+        Action<ExactTypeInspectionTarget>? selectedTarget,
+        ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits)
     {
         ArgumentNullException.ThrowIfNull(authority);
@@ -508,7 +534,7 @@ internal static class ExactTypeInspectionQuery
                 ? null
                 : AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved(
                     loaded.Group,
-                    ApiSurfaceScope.PublicWithNonPublicTypes,
+                    scope,
                     projectionLimits,
                     participants);
         ImmutableArray<Projection> projections =
@@ -522,7 +548,7 @@ internal static class ExactTypeInspectionQuery
                                 .ExecuteParticipantResolved(
                                 loaded.Group,
                                 participant,
-                                ApiSurfaceScope.PublicWithNonPublicTypes))),
+                                scope))),
                 ]
                 : [
                     .. boundedProjection.Assemblies.Assemblies.Select(
@@ -930,6 +956,22 @@ internal static class ExactTypeInspectionQuery
         AddDefiningSource(
             supplier.Participant,
             terminal.Type);
+        (
+            string? assemblyPath,
+            string? packageExtractPath,
+            Func<long, Stream?>? openCompiledDocumentation) =
+            MaterializedContent(
+                loaded,
+                supplier.Participant);
+        selectedTarget?.Invoke(
+            new ExactTypeInspectionTarget(
+                supplierSurface.Value,
+                type,
+                terminal.Occurrence,
+                supplier.Participant.BindingPolicy,
+                assemblyPath,
+                packageExtractPath,
+                openCompiledDocumentation));
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
             requestedType,
@@ -962,6 +1004,76 @@ internal static class ExactTypeInspectionQuery
             if (source is not null && definingSources is not null)
                 definingSources.Add(new(type, source));
         }
+    }
+
+    static (
+        string? AssemblyPath,
+        string? PackageExtractPath,
+        Func<long, Stream?>? OpenCompiledDocumentation)
+        MaterializedContent(
+            WorkspaceContextLoadOutcome.Loaded loaded,
+            AssemblyContextParticipant participant)
+    {
+        string? assemblyPath = participant.Assembly.Path;
+        string? packageExtractPath = null;
+        if (participant.Assembly.Provenance
+                is not AssemblyResolutionProvenance.PackageAsset
+                {
+                    AssetPath: { } assetPath,
+                })
+        {
+            return (
+                assemblyPath,
+                packageExtractPath,
+                OpenCompiledDocumentation: null);
+        }
+
+        WorkspaceContextMember? member =
+            loaded.Members.SingleOrDefault(candidate =>
+                ReferenceEquals(
+                    candidate.Participant,
+                    participant));
+        if (member?.Realized
+                is not RealizedMemberCoordinate.Package package)
+        {
+            return (
+                assemblyPath,
+                packageExtractPath,
+                OpenCompiledDocumentation: null);
+        }
+
+        PackageRootBinding? root =
+            loaded.PackageRoots.SingleOrDefault(candidate =>
+                candidate.Coordinate == package);
+        IPackageContent? content = root?.Root.Content;
+        packageExtractPath = content?.RootPath;
+        if (packageExtractPath is not null)
+        {
+            assemblyPath = Path.GetFullPath(
+                Path.Combine(
+                    packageExtractPath,
+                    assetPath.Replace(
+                        '/',
+                        Path.DirectorySeparatorChar)));
+        }
+
+        string documentationAssetPath =
+            Path.ChangeExtension(assetPath, ".xml")
+                .Replace('\\', '/');
+        Func<long, Stream?>? openCompiledDocumentation =
+            content is null
+                ? null
+                : maximumBytes =>
+                    content.TryOpenEntry(
+                        documentationAssetPath,
+                        maximumBytes,
+                        out Stream? stream)
+                            ? stream
+                            : null;
+        return (
+            assemblyPath,
+            packageExtractPath,
+            openCompiledDocumentation);
     }
 
     static ImmutableArray<AssemblyContextParticipant> PackageParticipants(
