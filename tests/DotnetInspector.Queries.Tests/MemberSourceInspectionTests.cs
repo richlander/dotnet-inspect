@@ -81,6 +81,43 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Single(host.SourceRequests);
     }
 
+    [Fact]
+    public async Task MemberSourceInspection_AuthoredOnlyDeclarationDoesNotDecompile()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            "not the checksum-verified declaration"u8.ToArray());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        AssemblyMemberSourceRequest request =
+            assembly.MemberRequest("Value", "Counter")
+                .WithoutDecompiledFallback();
+
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                inspection.Content);
+        Assert.False(unavailable.Request.IncludeAuthoredParts);
+        Assert.False(unavailable.Request.AllowDecompiledFallback);
+        Assert.Equal(
+            AssemblySourceFailureKind.AuthoredMemberUnavailable,
+            unavailable.Failure.Kind);
+        Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumMismatch,
+            unavailable.PdbAttempt!.Outcome);
+    }
+
     [Theory]
     [InlineData("deadline")]
     [InlineData("source-bytes")]

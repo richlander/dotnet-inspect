@@ -30,8 +30,9 @@ CLI and Browser/Wasm, adopted under #7448. Shared
 member Source and CLI Source Diff through `MemberSourceInspection` under #7497.
 Shared [type acquisition](type-source-acquisition.md) supplies Browser Type
 Source through `TypeSourceInspection` under #7522, CLI type-document printing
-under #7546, and member Source Locations document printing under #7679.
-Broader CLI enrichment and the full source-policy contract remain later adoption.
+under #7546, and member Source Locations document printing under #7679. CLI
+ordinary PDB Source adopts the shared member operation under #7819. Broader CLI
+enrichment and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
@@ -223,6 +224,45 @@ PR-fast Release `AuthoredSourceHouseTests` and
 association, checksum rejection, native evidence, explicit fallback policy,
 and unchanged ordinary member acquisition. The lexical contract and its
 boundary gates remain owned by CSharpText.
+
+#### CLI ordinary PDB Source adoption
+
+The focused CLI consumer slice is #7819. For an exact ordinal-selected member,
+the CLI lowers a property or event to the selected accessor MethodDef, creates
+the ordinary declaration-text `AssemblyMemberSourceRequest`, disables
+decompiled fallback, and consumes the completed
+`InspectionEnvelope<AssemblyMemberSourceEntry>` from
+`MemberSourceInspection.ExecuteAsync`. The selected assembly participant and
+MethodDef token retain the same forwarded or implementation assembly identity.
+Both accessor ordinals continue to render the whole authored property.
+
+This host route authorizes source-content capabilities only when PDB Source is
+explicitly selected. Decompiled and analysis sections may still acquire and
+reuse a PDB, but do not authorize source text. The CLI projects only
+`AssemblyMemberSource.Pdb` as PDB Source and retains the House-issued
+`PdbMemberSourceInspection` outcome for bodyless, unmapped, lexical-complexity,
+invalid-coordinate, acquisition, and checksum failures. Source Diff continues
+to use `MemberSourceInspection.CompareAsync`; Source Locations whole-document
+printing and authored member parts are unchanged.
+
+The cutover retires the CLI-private `ResolveMethodSourceAsync` acquisition,
+local/repository/network source selection, checksum verification, and
+declaration slicing pipeline. `AuthoredSourceDocumentPrinter.CreateContext`
+remains the CLI adapter for exact assembly participation, dependency binding,
+PDB stores, source capabilities, package fallback, and logging. The separate
+on-disk PDB acquisition path remains for analysis and decompiler reuse because
+the completed member envelope intentionally exposes no disk path.
+
+The real repository gate uses
+`richlander/dotnet-inspect@9e5c35b3bd269a1a99d287cbc59e80fc2d6c1d5b`,
+its compiled `CSharpText.MemberSlicing` assembly and Portable PDB, and
+`src/CSharpText.MemberSlicing/MemberTextSlicer.cs`
+`ExtractMemberText` declaration. The real-platform parity gate uses
+`System.Text.Json.JsonSerializerOptions.MaxDepth` getter and setter ordinals.
+Focused Release CLI cases gate exact Markdown preservation, whole-property
+accessor parity, local source without SourceLink, checksum-mismatch visibility,
+bodyless co-selection, and unchanged Source Diff comparison. Shared query
+Release cases continue to gate the detached House outcome and finite bounds.
 
 ## Authority and exact claim
 
@@ -859,7 +899,11 @@ reach the first production consumers without combining the adapter's companion
 contract with query adoption. Shared member Source/comparison (#7497) and type
 acquisition (#7522) extend that path to six deliveries. Each retires only the
 composition it replaces; House-owned fallback, acquisition/decompiler modes,
-broader CLI enrichment, and remaining callers stay tracked by the twelve steps above.
+broader CLI enrichment, and remaining callers stay tracked by the twelve steps
+above. CLI ordinary PDB Source (#7819) consumes that completed member operation
+with authored-only declaration demand and retires its duplicated acquisition,
+verification, and slicing path without changing Source Diff or PDB-assisted
+decompilation.
 
 Step 2 is the design correction tracked by
 [#6934](https://github.com/richlander/dotnet-inspect/issues/6934). SourceHouse

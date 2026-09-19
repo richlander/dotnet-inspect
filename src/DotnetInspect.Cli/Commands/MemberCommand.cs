@@ -824,13 +824,6 @@ public static class MemberCommand
                         && sourceAssembly?.Path is { } supplierPath
                             ? supplierPath
                             : pdbLookupPath;
-                var sourceMetadataToken = LibraryMetadataService
-                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
-                    .Equals(
-                        Path.GetFullPath(methodSourceAssemblyPath),
-                        Path.GetFullPath(tokenOriginAssembly))
-                    ? (sourceMember?.MetadataToken ?? 0)
-                    : 0;
                 var requestedSourceSections =
                     ApiCommand.GetRequestedMemberSections(
                         apiType,
@@ -974,30 +967,170 @@ public static class MemberCommand
                 }
                 else
                 {
-                    var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                        methodSourceAssemblyPath, sourceTypeName,
-                        sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
-                        sourceOverloadIndex,
-                        effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                        sourceMetadataToken,
-                        tokenOriginAssembly,
-                        sourceMember?.MetadataToken ?? 0,
-                        sourceAssembly,
-                        packageName,
-                        packageVersion);
-
-                    effectiveOptions = effectiveOptions with
+                    bool? selectedMemberHasBody = null;
+                    if (sourceMember?.MetadataToken is { } sourceMemberToken)
                     {
-                        MethodSource = resolved.Source,
-                        MemberHasNoBody = resolved.MemberHasNoBody,
-                        MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
-                        MemberSourceTooComplex = resolved.MemberSourceTooComplex,
-                        MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
-                        PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
-                        PdbPath =
-                            effectiveOptions.PdbPath
-                            ?? resolved.PdbPath
-                    };
+                        selectedMemberHasBody =
+                            ApiCommand.ResolveMemberBodyState(
+                                methodSourceAssemblyPath,
+                                sourceTypeName,
+                                sourceMember.Name,
+                                sourceOverloadIndex,
+                                publicOnly,
+                                tokenOriginAssembly,
+                                sourceMemberToken,
+                                logger.Log);
+                        if (selectedMemberHasBody == false)
+                        {
+                            effectiveOptions = effectiveOptions with
+                            {
+                                MemberHasNoBody = true,
+                            };
+                        }
+                    }
+
+                    if (fetchSource
+                        && selectedMemberHasBody != false
+                        && sourceMember?.MetadataToken is not null)
+                    {
+                        ResolvedAssemblyReference? participantAssembly =
+                            sourceAssembly?.Path is { } sourceAssemblyPath
+                            && LibraryMetadataService
+                                .ReferenceTreePathComparer(
+                                    OperatingSystem.IsWindows())
+                                .Equals(
+                                    Path.GetFullPath(sourceAssemblyPath),
+                                    Path.GetFullPath(tokenOriginAssembly))
+                                ? sourceAssembly
+                                : null;
+                        var (participant, queryContext) =
+                            AuthoredSourceDocumentPrinter.CreateContext(
+                                tokenOriginAssembly,
+                                effectiveOptions,
+                                participantAssembly,
+                                packageName,
+                                packageVersion,
+                                context.HttpClient);
+                        InspectionEnvelope<AssemblyMemberSourceEntry> inspection;
+                        await using (var workspace = new InspectionWorkspace())
+                        {
+                            using AssemblyContextGroup group =
+                                workspace.CreateAssemblyContextGroup(
+                                    [participant]);
+                            inspection =
+                                await MemberSourceInspection.ExecuteAsync(
+                                    group,
+                                    participant,
+                                    AssemblyMemberSourceRequest
+                                        .From(
+                                            apiType,
+                                            sourceMember,
+                                            effectiveOptions.RenderOptions)
+                                        .WithoutDecompiledFallback(),
+                                    queryContext);
+                        }
+
+                        AssemblyMemberSourceEntry sourceResult =
+                            inspection.Content;
+                        AssemblyMemberSource.Pdb? pdbSource =
+                            sourceResult
+                            is AssemblyMemberSourceEntry.Available
+                            {
+                                Source:
+                                    AssemblyMemberSource.Pdb available,
+                            }
+                                ? available
+                                : null;
+                        PdbMemberSourceInspection? pdbAttempt =
+                            sourceResult switch
+                            {
+                                AssemblyMemberSourceEntry.Available
+                                {
+                                    Source:
+                                        AssemblyMemberSource.Decompiled
+                                            decompiled,
+                                } => decompiled.PdbAttempt,
+                                AssemblyMemberSourceEntry.Unavailable
+                                {
+                                    PdbAttempt: { } unavailable,
+                                } => unavailable,
+                                _ => null,
+                            };
+                        PdbMemberSourceOutcome? pdbOutcome =
+                            pdbAttempt?.Outcome;
+                        SourceDocumentObservation? document =
+                            pdbSource?.Inspection.Document;
+                        effectiveOptions = effectiveOptions with
+                        {
+                            MethodSource = pdbSource is null
+                                ? null
+                                : new MethodSourceContext(
+                                    pdbSource.Text,
+                                    document?.ResolvedUrl
+                                        ?? document?.OriginalPath,
+                                    document?.ChecksumAlgorithm,
+                                    document?.Checksum,
+                                    pdbSource.Inspection
+                                            .ChecksumVerification
+                                        ?? SourceChecksumVerification
+                                            .Unavailable),
+                            MemberHasNoPdbDeclaration =
+                                pdbOutcome
+                                == PdbMemberSourceOutcome
+                                    .NoVouchedDeclaration,
+                            MemberSourceTooComplex =
+                                pdbOutcome
+                                == PdbMemberSourceOutcome
+                                    .SourceTooComplex,
+                            MemberSourceCoordinatesInvalid =
+                                pdbOutcome
+                                == PdbMemberSourceOutcome
+                                    .InvalidSequencePointCoordinates,
+                            PdbSourceUnavailableReason =
+                                pdbSource is null
+                                    ? ApiCommand
+                                        .PdbSourceUnavailableReason(
+                                            sourceResult)
+                                    : null,
+                        };
+                    }
+                    else if (fetchSource
+                        && selectedMemberHasBody != false)
+                    {
+                        effectiveOptions = effectiveOptions with
+                        {
+                            PdbSourceUnavailableReason =
+                                ApiCommand.NoPdbSourceMappingReason,
+                        };
+                    }
+
+                    if (effectiveOptions.PdbPath is null
+                        && selectedMemberHasBody != false
+                        && NeedsMemberPipelinePdbPath(
+                            requestedSourceSections))
+                    {
+                        string? pdbPath = sourceAssembly is null
+                            ? await ApiCommand.TryAcquirePdbPathAsync(
+                                methodSourceAssemblyPath,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient)
+                            : await ApiCommand.TryAcquirePdbPathAsync(
+                                methodSourceAssemblyPath,
+                                sourceAssembly,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient,
+                                fallbackPackageName: packageName,
+                                fallbackPackageVersion: packageVersion);
+                        if (pdbPath is not null)
+                        {
+                            effectiveOptions = effectiveOptions with
+                            {
+                                PdbPath = pdbPath,
+                            };
+                        }
+                    }
                 }
             }
 
