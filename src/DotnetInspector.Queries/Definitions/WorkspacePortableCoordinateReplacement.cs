@@ -949,7 +949,8 @@ public static class WorkspacePortableCoordinateReplacement
         var library =
             (StructuralSubjectIdentity.LibrarySubject)context.Library;
         PortableLibraryIdentity identity =
-            ToPortableLibraryIdentity(library.Identity.Assembly);
+            PortableIdentityProjection.FromAssembly(
+                library.Identity.Assembly);
         if (context.Type is null)
             return new PortableRetainedSubjectContext.Library(identity);
         if (context.Member is null)
@@ -963,26 +964,6 @@ public static class WorkspacePortableCoordinateReplacement
             context.Type.Identity.Type,
             memberAnchor:
                 context.Member.Identity.Member.Fingerprint);
-    }
-
-    private static PortableLibraryIdentity ToPortableLibraryIdentity(
-        AssemblyReferenceIdentity identity)
-    {
-        Version version = identity.Version
-            ?? throw new InvalidOperationException(
-                "A destination Library requires an exact assembly version.");
-        return new PortableLibraryIdentity(
-            identity.Name,
-            version.ToString(4),
-            string.IsNullOrEmpty(identity.Culture)
-                || identity.Culture.Equals(
-                    "neutral",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? null
-                    : identity.Culture,
-            string.IsNullOrEmpty(identity.PublicKeyToken)
-                ? null
-                : identity.PublicKeyToken);
     }
 
     private static void ValidateDerivedDefinitions(

@@ -77,7 +77,7 @@ root README remains current without cataloging every focused capability.
 | --- | --- |
 | Layering and project families | [Inspection Layers](design/inspection-layers.md) and [Library Family Boundaries](design/library-family-boundaries.md) |
 | Cross-host operation composition | [Inspection Operation Composition](design/inspection-operation-composition.md) |
-| Portable query intent and payload | [Portable Query Intent](design/portable-query-intent.md) and [Portable Query Payload](design/portable-query-payload.md) |
+| Query operation registration, portable intent, and payload | [Query Operation Infrastructure](design/query-operation-infrastructure.md), [Portable Query Intent](design/portable-query-intent.md), and [Portable Query Payload](design/portable-query-payload.md) |
 | Retained state and service orientation | [Stateless Core Services](design/stateless-core-services.md) |
 | Resource ownership and current adoption | [Resource Ownership and Borrowing](design/resource-ownership-and-borrowing.md), [Resource Occurrence Analysis](design/resource-occurrence-analysis.md), and the [Resource-Owner Type Map](design/resource-owner-type-map.md) |
 | Command placement, names, defaults, and disclosure | [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md), [Relationship Section Naming](design/relationship-section-naming.md), [Progressive Disclosure](design/progressive-disclosure.md), and [CLI Host Architecture](cli-architecture.md) |

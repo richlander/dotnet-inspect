@@ -484,7 +484,7 @@ async function installFacades(
               packageVersion: selectedVersion,
               compressedPackageBytes: 4096,
               selectedTargetFramework: framework || surface.activeFramework,
-              availableTargetFrameworkCount: surface.frameworks.length,
+              availableTargetFrameworks: surface.frameworks,
               selectedTargetFrameworkFolders: ["lib", "runtimes"],
               selectedLibraryPayloadBytes: 2048,
               selectedLibraryCount: surface.assemblies.length,
@@ -4437,7 +4437,7 @@ for (const width of [1440, 800, 390]) {
       "Selected-TFM Folders",
       "Selected-TFM Library Count",
       "Selected-TFM Size",
-      "TFM Count",
+      "TFMs",
     ]);
     if (width === 1440) {
       const inventory = await overview.locator(".package-overview-inventory").boundingBox();

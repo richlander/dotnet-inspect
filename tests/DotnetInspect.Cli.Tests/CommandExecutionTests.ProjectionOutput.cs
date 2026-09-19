@@ -1580,11 +1580,11 @@ public partial class CommandExecutionTests
         {
             var tfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var projectedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
                 "--columns", "TFM",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
                 "--count", "--rows", "1", "--tips", "q");
@@ -1593,7 +1593,7 @@ public partial class CommandExecutionTests
                 "--count", "--rows", "1", "--tips", "q");
             var renderedTfms = await RunAppAsync(
                 "package", packagePath, "--tfms",
-                "--jsonl", "--rows", "1", "--tips", "q");
+                "--jsonl", "--rows", "1..1", "--tips", "q");
             var renderedDiscovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--jsonl", "--rows", "1", "--tips", "q");

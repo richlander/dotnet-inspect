@@ -75,8 +75,8 @@ public sealed class PackageHouseCompilePackageMeasurements
     public NuGetFetch.PackageSourceCoordinate Coordinate =>
         Acquisition.Candidate.Coordinate;
 
-    public int AvailableTargetFrameworkCount =>
-        Realization.Selection.AvailableSlices.Count;
+    public IReadOnlyList<string> AvailableTargetFrameworks =>
+        Realization.Selection.AvailableTargetFrameworks;
 
     public long CompressedPackageBytes { get; }
 }
@@ -159,8 +159,8 @@ public sealed class PackageHouseCompileSliceMeasurements
     public string SelectedTargetFramework =>
         Realization.Selection.TargetFramework!;
 
-    public int AvailableTargetFrameworkCount =>
-        Package.AvailableTargetFrameworkCount;
+    public IReadOnlyList<string> AvailableTargetFrameworks =>
+        Package.AvailableTargetFrameworks;
 
     public long CompressedPackageBytes => Package.CompressedPackageBytes;
 

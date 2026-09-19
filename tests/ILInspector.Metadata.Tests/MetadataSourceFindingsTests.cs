@@ -607,7 +607,7 @@ public sealed class MetadataSourceFindingsTests
 
         var indexes =
             SourceLinkResolver.BuildTypeIndexes(
-                [topLevelInfo, nestedInfo]);
+                [nestedInfo, topLevelInfo]);
 
         Assert.Same(
             topLevelInfo,
@@ -615,6 +615,9 @@ public sealed class MetadataSourceFindingsTests
         Assert.Same(
             nestedInfo,
             indexes.ExactDefinitionNames[nested]);
+        Assert.Same(
+            nestedInfo,
+            indexes.FullNames["A.B.C"]);
 
         var duplicate = topLevelInfo with
         {
