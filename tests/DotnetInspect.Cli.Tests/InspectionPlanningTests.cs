@@ -153,28 +153,6 @@ public sealed class InspectionPlanningTests
             projection.Schema.SectionNames);
     }
 
-    [Theory]
-    [InlineData(StructuralOutputShape.Count)]
-    [InlineData(StructuralOutputShape.Document)]
-    [InlineData(StructuralOutputShape.Rows)]
-    public void PackageAllLibrariesSchema_ExcludesExactLibraryReferenceHierarchy(
-        StructuralOutputShape outputShape)
-    {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(
-                    StructuralViewIdentity.PackageAllLibraries,
-                    InspectionCatalogIdentity.LibraryAggregate),
-                outputShape);
-
-        Assert.DoesNotContain(
-            SectionNames.ReferenceHierarchy,
-            projection.Schema.SectionNames);
-        Assert.DoesNotContain(
-            SectionNames.ReferenceHierarchy,
-            projection.SelectableSectionNames);
-    }
-
     [Fact]
     public void PackageAllLibrariesStructuralSchema_OmitsExactOnlyReferenceHierarchy()
     {
