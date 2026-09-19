@@ -1576,7 +1576,7 @@ static partial class FidelityCheck
 
     static bool IsGeneratedMethod(MetadataReader reader, MethodDefinition method, string name)
     {
-        if (name.Contains('<')
+        if (name.StartsWith('<')
             || name.StartsWith("__", StringComparison.Ordinal)
             || AttributeReader.HasAttribute(reader, method.GetCustomAttributes(), "System.CodeDom.Compiler.GeneratedCodeAttribute"))
             return true;

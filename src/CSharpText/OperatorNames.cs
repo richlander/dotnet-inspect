@@ -94,6 +94,17 @@ public static class OperatorNames
         };
 
     /// <summary>
+    /// Returns the parameter count for an explicit-interface operator declaration.
+    /// The authenticated interface relationship supplies the surrounding-type
+    /// evidence that standalone conversion declarations require.
+    /// </summary>
+    public static int? GetExplicitInterfaceDeclarationParameterCount(
+        string methodName) =>
+        methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit"
+            ? 1
+            : GetStandaloneDeclarationParameterCount(methodName);
+
+    /// <summary>
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.
     /// </summary>

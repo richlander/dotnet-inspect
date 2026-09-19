@@ -24,18 +24,7 @@ public static class SourceMemberSignatureShape
 
         try
         {
-            string[] lines = declarationText.ReplaceLineEndings("\n").Split('\n');
-            List<ScanToken> scanned = CSharpLexer.ScanTokens(lines);
-            var tokens = scanned
-                .Where(token => token.Kind is ScanTokenKind.Word
-                    or ScanTokenKind.Punctuator
-                    or ScanTokenKind.Directive)
-                .Select(token => new SourceToken(
-                    token.Kind,
-                    token.TextIn(lines[token.Line]).ToString(),
-                    token.Depth,
-                    token.BracketDepth))
-                .ToArray();
+            SourceToken[] tokens = Tokenize(declarationText);
 
             return Parse(
                 tokens,
@@ -51,6 +40,54 @@ public static class SourceMemberSignatureShape
         {
             return MemberSignatureShapeResult.Unavailable(ex.Message);
         }
+    }
+
+    internal static bool IsTypeNameRepresentable(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)
+            || typeName.Length > MaxDeclarationLength)
+        {
+            return false;
+        }
+
+        try
+        {
+            SourceToken[] tokens = Tokenize(typeName);
+            return tokens.All(token => token.Kind != ScanTokenKind.Directive)
+                && SourceTypeShapeParser.TryParse(
+                    tokens,
+                    Array.Empty<string>(),
+                    Array.Empty<string>(),
+                    new HashSet<string>(StringComparer.Ordinal),
+                    new HashSet<string>(StringComparer.Ordinal),
+                    out _,
+                    out _,
+                    allowUnqualifiedNamedTypes: true);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    static SourceToken[] Tokenize(string text)
+    {
+        string[] lines = text.ReplaceLineEndings("\n").Split('\n');
+        List<ScanToken> scanned = CSharpLexer.ScanTokens(lines);
+        return scanned
+            .Where(token => token.Kind is ScanTokenKind.Word
+                or ScanTokenKind.Punctuator
+                or ScanTokenKind.Directive)
+            .Select(token => new SourceToken(
+                token.Kind,
+                token.TextIn(lines[token.Line]).ToString(),
+                token.Depth,
+                token.BracketDepth))
+            .ToArray();
     }
 
     static MemberSignatureShapeResult Parse(
@@ -530,7 +567,8 @@ static class SourceTypeShapeParser
         IReadOnlySet<string> typeValueParameters,
         IReadOnlySet<string> methodValueParameters,
         out TypeSignatureShape? shape,
-        out string? reason)
+        out string? reason,
+        bool allowUnqualifiedNamedTypes = false)
     {
         try
         {
@@ -539,7 +577,8 @@ static class SourceTypeShapeParser
                 typeParameters,
                 methodParameters,
                 typeValueParameters,
-                methodValueParameters);
+                methodValueParameters,
+                allowUnqualifiedNamedTypes);
             shape = parser.ParseType();
             parser.End();
             reason = null;
@@ -560,6 +599,7 @@ static class SourceTypeShapeParser
         readonly IReadOnlyList<string> _methodParameters;
         readonly IReadOnlySet<string> _typeValueParameters;
         readonly IReadOnlySet<string> _methodValueParameters;
+        readonly bool _allowUnqualifiedNamedTypes;
         int _position;
         int _depth;
 
@@ -568,13 +608,15 @@ static class SourceTypeShapeParser
             IReadOnlyList<string> typeParameters,
             IReadOnlyList<string> methodParameters,
             IReadOnlySet<string> typeValueParameters,
-            IReadOnlySet<string> methodValueParameters)
+            IReadOnlySet<string> methodValueParameters,
+            bool allowUnqualifiedNamedTypes)
         {
             _tokens = tokens;
             _typeParameters = typeParameters;
             _methodParameters = methodParameters;
             _typeValueParameters = typeValueParameters;
             _methodValueParameters = methodValueParameters;
+            _allowUnqualifiedNamedTypes = allowUnqualifiedNamedTypes;
         }
 
         internal TypeSignatureShape ParseType()
@@ -664,19 +706,31 @@ static class SourceTypeShapeParser
                     typePosition);
             }
 
-            if (escaped || identifier != "global" || !TakeIf(":") || !TakeIf(":"))
+            bool globallyQualified =
+                !escaped
+                && identifier == "global"
+                && TakeIf(":")
+                && TakeIf(":");
+            if (!globallyQualified && !_allowUnqualifiedNamedTypes)
                 throw new InvalidOperationException(
                     $"The source type '{identifier}' is not globally qualified and cannot be resolved safely.");
 
             var parts = new List<(string Name, SignatureShapeList<TypeSignatureShape> Arguments)>();
-            do
+            if (!globallyQualified)
+            {
+                SignatureShapeList<TypeSignatureShape> arguments =
+                    TakeIf("<") ? ParseTypeArguments() : SignatureShapeList<TypeSignatureShape>.Empty;
+                parts.Add((identifier, arguments));
+            }
+
+            while (globallyQualified || TakeIf("."))
             {
                 string name = TakeIdentifier();
                 SignatureShapeList<TypeSignatureShape> arguments =
                     TakeIf("<") ? ParseTypeArguments() : SignatureShapeList<TypeSignatureShape>.Empty;
                 parts.Add((name, arguments));
+                globallyQualified = false;
             }
-            while (TakeIf("."));
 
             // Syntax alone cannot distinguish a namespace from a non-generic containing type.
             // This collapse can miss a nested-type match, but cannot invent one when the
@@ -838,6 +892,8 @@ static class SourceTypeShapeParser
                     => new NullableTypeSignatureShape(type),
                 NullableTypeSignatureShape => throw new InvalidOperationException(
                     "A nullable type cannot be made nullable again."),
+                _ when _allowUnqualifiedNamedTypes =>
+                    new NullableTypeSignatureShape(type),
                 _ => throw new InvalidOperationException(
                     "Nullable syntax on an unresolved or unconstrained type is unavailable."),
             };

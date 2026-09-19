@@ -1434,6 +1434,157 @@ public partial class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_SelectsExplicitInterfaceConversionOperator()
+    {
+        var assemblyPath = CompileFixture("""
+            public readonly struct ExplicitConversionFixture
+                : IConversion<ExplicitConversionFixture>
+            {
+                static explicit IConversion<ExplicitConversionFixture>.operator int(
+                    ExplicitConversionFixture value)
+                {
+                    return 1;
+                }
+            }
+
+            public interface IConversion<TSelf>
+                where TSelf : IConversion<TSelf>
+            {
+                static abstract explicit operator int(TSelf value);
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.Name == "ExplicitConversionFixture");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name.EndsWith(
+                    ".op_Explicit",
+                    StringComparison.Ordinal));
+
+            Assert.True(member.MethodModifiersAreRepresentable);
+            Assert.True(member.MethodImplementationIsRepresentable);
+            Assert.True(member.AccessibilityIsRepresentable);
+            Assert.True(CSharpMemberArtifactEligibility.IsRepresentable(type, member));
+            Assert.Contains(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue),
+                target =>
+                    target.Type == "ExplicitConversionFixture"
+                    && target.Method == member.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SelectsKeywordQualifiedExplicitInterfaceOperator()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace @operator
+            {
+                public interface IAdd<TSelf>
+                    where TSelf : IAdd<TSelf>
+                {
+                    static abstract TSelf operator +(TSelf left, TSelf right);
+                }
+            }
+
+            public readonly struct KeywordOperatorFixture
+                : @operator.IAdd<KeywordOperatorFixture>
+            {
+                static KeywordOperatorFixture
+                    @operator.IAdd<KeywordOperatorFixture>.operator +(
+                        KeywordOperatorFixture left,
+                        KeywordOperatorFixture right)
+                {
+                    return left;
+                }
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.Name == "KeywordOperatorFixture");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name.EndsWith(
+                    ".op_Addition",
+                    StringComparison.Ordinal));
+
+            Assert.True(member.MethodImplementationIsRepresentable);
+            Assert.True(CSharpMemberArtifactEligibility.IsRepresentable(type, member));
+            Assert.Contains(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue),
+                target =>
+                    target.Type == "KeywordOperatorFixture"
+                    && target.Method == member.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_SelectsReadonlyExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public struct ReadonlyExplicitFixture : IReadOnlyExplicit
+            {
+                readonly int IReadOnlyExplicit.Read()
+                {
+                    return 42;
+                }
+            }
+
+            public interface IReadOnlyExplicit
+            {
+                int Read();
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.Name == "ReadonlyExplicitFixture");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "IReadOnlyExplicit.Read");
+
+            Assert.True(member.IsReadOnly);
+            Assert.True(member.ReadOnlyMarkerIsRepresentable);
+            Assert.True(member.MethodImplementationIsRepresentable);
+            Assert.True(CSharpMemberArtifactEligibility.IsRepresentable(type, member));
+            Assert.Contains(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue),
+                target =>
+                    target.Type == "ReadonlyExplicitFixture"
+                    && target.Method == member.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public async Task CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
     {
         // Close positive case for the operator discriminator (#3112, adversarial review):

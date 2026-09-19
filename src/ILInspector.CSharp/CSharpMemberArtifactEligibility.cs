@@ -61,9 +61,13 @@ public static class CSharpMemberArtifactEligibility
                 member.Name,
                 out string? qualifier,
                 out string operatorName)
-                && (qualifier is null || IsQualifiedName(qualifier))
-                && OperatorNames.GetStandaloneDeclarationParameterCount(
-                    operatorName) is not null;
+                && (qualifier is null
+                    || CSharpIdentifier.IsQualifiedTypeName(qualifier))
+                && (qualifier is null
+                    ? OperatorNames.GetStandaloneDeclarationParameterCount(
+                        operatorName)
+                    : OperatorNames.GetExplicitInterfaceDeclarationParameterCount(
+                        operatorName)) is not null;
         }
 
         string name = member.Kind is "method" or "extension-method"
@@ -78,7 +82,8 @@ public static class CSharpMemberArtifactEligibility
         {
             int memberSeparator = name.LastIndexOf('.');
             return memberSeparator > 0
-                && IsQualifiedName(name[..memberSeparator])
+                && CSharpIdentifier.IsQualifiedTypeName(
+                    name[..memberSeparator])
                 && (name[(memberSeparator + 1)..] == "this[]"
                     || IsIdentifier(name[(memberSeparator + 1)..]));
         }
@@ -132,7 +137,8 @@ public static class CSharpMemberArtifactEligibility
                 && (member.ReadOnlyMarkerIsRepresentable != true
                     || type.Kind != "struct"
                     || type.IsStatic
-                    || member.Kind != "method"
+                    || member.Kind is not (
+                        "method" or "explicit-interface-implementation")
                     || member.IsStatic))
         {
             return false;
@@ -282,8 +288,11 @@ public static class CSharpMemberArtifactEligibility
             || signature.TypeParameters.Count != 0
             || signature.ReturnTypeShape is null
             || IsVoid(signature.ReturnTypeShape)
-            || OperatorNames.GetStandaloneDeclarationParameterCount(
-                operatorName) is not int parameterCount
+            || (qualifier is null
+                ? OperatorNames.GetStandaloneDeclarationParameterCount(
+                    operatorName)
+                : OperatorNames.GetExplicitInterfaceDeclarationParameterCount(
+                    operatorName)) is not int parameterCount
             || signature.Parameters.Count != parameterCount
             || signature.Parameters.Any(
                 parameter => !string.IsNullOrEmpty(parameter.Modifier)))

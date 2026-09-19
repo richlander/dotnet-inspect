@@ -1171,10 +1171,9 @@ public static partial class ApiSurfaceExtractor
                         out string? interfaceName)
                     && !ambiguousImplementedInterfaceNames.Contains(
                         interfaceName)
-                    && string.Equals(
+                    && CSharpIdentifier.DeclarationSpellingsEqual(
                         methodName[..explicitSeparator],
-                        interfaceName,
-                        StringComparison.Ordinal);
+                        interfaceName);
 
                 // A class finalizer is the destructor-shaped `object.Finalize`
                 // override the C# `~Type()` declaration compiles to. Both the

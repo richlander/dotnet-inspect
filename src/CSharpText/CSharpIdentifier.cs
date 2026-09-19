@@ -138,6 +138,62 @@ public static class CSharpIdentifier
     public static string ContainIdentifierForDeclaration(string name)
         => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
 
+    /// <summary>
+    /// Compares composed declaration names by identifier identity, ignoring the
+    /// optional <c>@</c> prefix that C# permits on an identifier token.
+    /// </summary>
+    public static bool DeclarationSpellingsEqual(string left, string right)
+        => string.Equals(
+            RemoveVerbatimIdentifierPrefixes(left),
+            RemoveVerbatimIdentifierPrefixes(right),
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether a composed named-type spelling can be emitted in a declaration,
+    /// including constructed generic arguments, nullable suffixes, and arrays.
+    /// </summary>
+    public static bool IsQualifiedTypeName(string value)
+        => SourceMemberSignatureShape.IsTypeNameRepresentable(value);
+
+    static string RemoveVerbatimIdentifierPrefixes(string value)
+    {
+        if (!value.Contains('@'))
+            return value;
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        bool atIdentifierBoundary = true;
+        for (int index = 0; index < value.Length; index++)
+        {
+            char current = value[index];
+            if (current == '@'
+                && atIdentifierBoundary
+                && index + 1 < value.Length
+                && IsIdentifierStart(value[index + 1]))
+            {
+                continue;
+            }
+
+            builder.Append(current);
+            atIdentifierBoundary = !IsIdentifierPart(current);
+        }
+
+        return builder.ToString();
+    }
+
+    static bool IsIdentifierStart(char value) =>
+        value == '_'
+        || char.IsLetter(value)
+        || char.GetUnicodeCategory(value) == UnicodeCategory.LetterNumber;
+
+    static bool IsIdentifierPart(char value) =>
+        IsIdentifierStart(value)
+        || char.IsDigit(value)
+        || char.GetUnicodeCategory(value) is
+            UnicodeCategory.NonSpacingMark
+                or UnicodeCategory.SpacingCombiningMark
+                or UnicodeCategory.ConnectorPunctuation
+                or UnicodeCategory.Format;
+
     /// <summary>Rewrites an unspellable metadata name into a legal C# identifier:
     /// a non-identifier start gets a leading underscore, and every non-identifier
     /// character becomes <c>_</c>. The result is keyword-escaped for completeness.</summary>

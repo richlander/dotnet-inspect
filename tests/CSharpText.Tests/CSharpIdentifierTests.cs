@@ -70,4 +70,35 @@ public sealed class CSharpIdentifierTests
     [InlineData("", false)]
     public void IsIdentifierLike_UsesUnicodeGrammar(string input, bool expected)
         => Assert.Equal(expected, CSharpIdentifier.IsIdentifierLike(input));
+
+    [Theory]
+    [InlineData("@operator.IAdd<Value>", "operator.IAdd<Value>", true)]
+    [InlineData("N.@event.IAdd", "N.event.IAdd", true)]
+    [InlineData("N.IAdd<@operator.Value>", "N.IAdd<operator.Value>", true)]
+    [InlineData("N.IAdd", "N.IOther", false)]
+    [InlineData("N.Foo@Bar", "N.FooBar", false)]
+    public void DeclarationSpellingsEqual_IgnoresOnlyVerbatimIdentifierPrefixes(
+        string left,
+        string right,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            CSharpIdentifier.DeclarationSpellingsEqual(left, right));
+
+    [Theory]
+    [InlineData("IContract", true)]
+    [InlineData("@operator.IAdd<Value>", true)]
+    [InlineData("N.IContract<System.Collections.Generic.List<int[]>>", true)]
+    [InlineData("N.IContract<T?>", true)]
+    [InlineData("N.IContract<>", false)]
+    [InlineData("N.IContract<T", false)]
+    [InlineData("N..IContract", false)]
+    [InlineData("N.IContract<T;>", false)]
+    [InlineData("int", true)]
+    [InlineData("N.int", false)]
+    [InlineData("N.IContract<void>", true)]
+    public void IsQualifiedTypeName_ValidatesConstructedNamedTypeGrammar(
+        string value,
+        bool expected)
+        => Assert.Equal(expected, CSharpIdentifier.IsQualifiedTypeName(value));
 }
