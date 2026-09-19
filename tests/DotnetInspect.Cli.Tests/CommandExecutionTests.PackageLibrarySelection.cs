@@ -465,6 +465,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageAllLibraries_ReferenceHierarchyIsAbsentFromDiscovery()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-D", SectionNames.ReferenceHierarchy,
+                "--schema",
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Section 'Reference Hierarchy' not found",
+                result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageLibrary_ReferenceHierarchyUsesSharedLibraryRendering()
     {
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
