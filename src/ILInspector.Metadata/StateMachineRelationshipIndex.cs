@@ -136,7 +136,7 @@ public sealed class StateMachineRelationshipIndex
         TypeDefinitionHandle stateMachineType)
     {
         if (!IsValidTypeHandle(stateMachineType))
-            return MalformedHandle("The state-machine TypeDef handle is invalid.");
+            return InvalidHandle("The state-machine TypeDef handle is invalid.");
 
         return _globalFailure
             ?? _byStateMachine.GetValueOrDefault(
@@ -153,7 +153,7 @@ public sealed class StateMachineRelationshipIndex
         IReadOnlyDictionary<int, StateMachineRelationshipResult> index)
     {
         if (!IsValidMethodHandle(handle))
-            return MalformedHandle("The MethodDef handle is invalid.");
+            return InvalidHandle("The MethodDef handle is invalid.");
 
         return _globalFailure
             ?? index.GetValueOrDefault(
@@ -173,10 +173,10 @@ public sealed class StateMachineRelationshipIndex
         return row > 0 && row <= _typeRowCount;
     }
 
-    static StateMachineRelationshipResult.Rejected MalformedHandle(
+    static StateMachineRelationshipResult.Rejected InvalidHandle(
         string detail) =>
         Rejected(
-            StateMachineRelationshipFailureKind.Malformed,
+            StateMachineRelationshipFailureKind.InvalidHandle,
             detail);
 
     static bool IsRecoverableMetadataFailure(Exception exception) =>
@@ -551,7 +551,7 @@ public sealed class StateMachineRelationshipIndex
                 case ClaimValueShape.Oversized:
                     return ClaimCandidate.Rejected(
                         kind,
-                        StateMachineRelationshipFailureKind.Malformed,
+                        StateMachineRelationshipFailureKind.BudgetExceeded,
                         "The state-machine type name exceeds its encoded byte budget.");
                 case ClaimValueShape.Malformed:
                     return ClaimCandidate.Rejected(
@@ -582,26 +582,9 @@ public sealed class StateMachineRelationshipIndex
                     "The state-machine attribute value is malformed.");
             }
 
-            if (!TryGetCurrentAssemblyTypeName(
-                    serializedType,
-                    out MetadataTypeDefinitionName? stateMachineName,
-                    out bool malformed))
-            {
-                return ClaimCandidate.Rejected(
-                    kind,
-                    malformed
-                        ? StateMachineRelationshipFailureKind.Malformed
-                        : StateMachineRelationshipFailureKind.Unresolved,
-                    malformed
-                        ? "The state-machine type name is malformed."
-                        : "The state-machine type is outside the indexed module.");
-            }
-
-            return new(
+            return ReadCurrentAssemblyTypeName(
                 kind,
-                stateMachineName,
-                Failure: null,
-                Detail: null);
+                serializedType);
         }
 
         /// <summary>
@@ -663,18 +646,17 @@ public sealed class StateMachineRelationshipIndex
             }
         }
 
-        bool TryGetCurrentAssemblyTypeName(
-            string serializedType,
-            out MetadataTypeDefinitionName? name,
-            out bool malformed)
+        ClaimCandidate ReadCurrentAssemblyTypeName(
+            StateMachineClaimKind kind,
+            string serializedType)
         {
-            name = null;
-            malformed = false;
             if (serializedType.Length
                 > MetadataSafetyPolicy.MaxTypeNameCharacters)
             {
-                malformed = true;
-                return false;
+                return ClaimCandidate.Rejected(
+                    kind,
+                    StateMachineRelationshipFailureKind.BudgetExceeded,
+                    "The state-machine type name exceeds its character budget.");
             }
 
             var options = new TypeNameParseOptions
@@ -687,26 +669,49 @@ public sealed class StateMachineRelationshipIndex
                     out TypeName? parsed,
                     options))
             {
-                malformed = true;
-                return false;
+                var relaxedOptions = new TypeNameParseOptions
+                {
+                    MaxNodes = serializedType.Length + 1,
+                };
+                bool exceedsNodeBudget =
+                    TypeName.TryParse(
+                        serializedType,
+                        out _,
+                        relaxedOptions);
+                return ClaimCandidate.Rejected(
+                    kind,
+                    exceedsNodeBudget
+                        ? StateMachineRelationshipFailureKind.BudgetExceeded
+                        : StateMachineRelationshipFailureKind.Malformed,
+                    exceedsNodeBudget
+                        ? "The state-machine type name exceeds its parse node budget."
+                        : "The state-machine type name is malformed.");
             }
 
             if (parsed.AssemblyName is { } assembly
                 && !AssemblyQualificationMatches(assembly))
             {
-                return false;
+                return ClaimCandidate.Rejected(
+                    kind,
+                    StateMachineRelationshipFailureKind.Unresolved,
+                    "The state-machine type is outside the indexed module.");
             }
 
             if (MetadataTypeDefinitionName
                     .FromParsedSerializedName(parsed)
                 is not MetadataTypeDefinitionNameResult.Valid valid)
             {
-                malformed = true;
-                return false;
+                return ClaimCandidate.Rejected(
+                    kind,
+                    StateMachineRelationshipFailureKind.Malformed,
+                    "The state-machine type name is malformed.");
             }
 
-            name = valid.Name;
-            return true;
+            return new(
+                kind,
+                valid.Name,
+                Failure: null,
+                Detail: null);
         }
 
         /// <summary>
