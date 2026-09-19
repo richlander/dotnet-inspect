@@ -364,6 +364,315 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Tfms_SemanticTailSelectsTheSameFrameworkAcrossFormats()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string[] args =
+            [
+                "package",
+                packagePath,
+                "--tfms",
+                "-n",
+                "1",
+                "--tail",
+                "--tips",
+                "q",
+            ];
+
+            var markdown = await RunAppAsync(args);
+            var table = await RunAppAsync([.. args, "--table"]);
+            var tsv = await RunAppAsync([.. args, "--tsv"]);
+            var jsonl = await RunAppAsync([.. args, "--jsonl"]);
+            var json = await RunAppAsync([.. args, "--json"]);
+            var count = await RunAppAsync([.. args, "--count"]);
+
+            foreach (var result in new[]
+            {
+                markdown,
+                table,
+                tsv,
+                jsonl,
+                json,
+            })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+                Assert.Contains("net8.0", result.Output, StringComparison.Ordinal);
+                Assert.DoesNotContain("net10.0", result.Output, StringComparison.Ordinal);
+            }
+
+            Assert.Single(
+                jsonl.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var document = JsonDocument.Parse(json.Output);
+            JsonElement tfm = Assert.Single(
+                document.RootElement.EnumerateArray());
+            Assert.Equal(
+                "net8.0",
+                tfm.GetProperty("tfm").GetString());
+
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("1", count.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Tfms_UnavailableWindowWithholdsOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfms",
+                "--rows",
+                "2..3",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Package TFM row selection stage 1 requires row 3, "
+                    + "but only 2 TFM rows are available.",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Tfms_LinesMakesRenderedClippingExplicit()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--tfms",
+                "--lines",
+                "-n",
+                "1",
+                "--tail",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("net8.0", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Tfms_RejectInvalidSelectionBeforePackageResolution()
+    {
+        var legacyCount = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--tfms",
+            "--rows",
+            "1",
+            "--json");
+        var jsonLines = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--tfms",
+            "--lines",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, legacyCount.Exit);
+        Assert.Empty(legacyCount.Output);
+        Assert.Contains(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            legacyCount.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, jsonLines.Exit);
+        Assert.Empty(jsonLines.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            jsonLines.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Tfms_CompetingLayoutRetainsRenderedLineFallback()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--tfms",
+            "--layout",
+            "--rows",
+            "..1");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "Package.That.Must.Not.Resolve",
+        "--tree",
+        "--tree requires exactly one tree-shaped section (-S Dependencies).")]
+    [InlineData(
+        "Newtonsoft.Json@1.0.0..2.0.0",
+        null,
+        "Package range 'Newtonsoft.Json@1.0.0..2.0.0' requires --versions for package inspection.")]
+    [InlineData(
+        "Example@bad..2.0.0",
+        null,
+        "Invalid package version 'bad' in range 'Example@bad..2.0.0'.")]
+    public async Task Tfms_CompetingTreeAndRangesRetainOwnedDiagnostics(
+        string package,
+        string? competingOption,
+        string expectedError)
+    {
+        var args = new List<string>
+        {
+            "--offline",
+            "package",
+            package,
+            "--tfms",
+        };
+        if (competingOption is not null)
+            args.Add(competingOption);
+        args.AddRange(["--rows", "1", "--tips", "q"]);
+
+        var (exit, output, error) =
+            await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            expectedError,
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--frontmatter", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData("--body", null, "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData("--print", null, "--print is not available with --tfms")]
+    [InlineData("--value", null, "--value is not available with --tfms")]
+    [InlineData("--urls", null, "--urls is not available with --tfms")]
+    [InlineData("--paths", null, "--paths is not available with --tfms")]
+    [InlineData("--json-array", null, "--json-array requires --value, --urls, --paths, or --print.")]
+    [InlineData("--row", "1", "--row requires --print, --value, --urls, or --paths.")]
+    [InlineData("--columns", "count", "--fields/--columns are not available with --tfms")]
+    [InlineData("--fields", "count", "--fields/--columns are not available with --tfms")]
+    [InlineData("--envelope", null, "--envelope cannot be combined with --tfms.")]
+    public async Task Tfms_CompetingProjectionsRetainOwnedDiagnostics(
+        string option,
+        string? value,
+        string expectedError)
+    {
+        var args = new List<string>
+        {
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--tfms",
+            option,
+        };
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["--rows", "1", "--tips", "q"]);
+
+        var (exit, output, error) =
+            await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--type", "Example")]
+    [InlineData("--lib", null)]
+    [InlineData("--tools", null)]
+    [InlineData("--tfm", "net8.0")]
+    [InlineData("--match", "first")]
+    [InlineData("--skip-empty", null)]
+    [InlineData("--prefer-rendered-urls", null)]
+    [InlineData("--schema", null)]
+    [InlineData("--include-unlisted", null)]
+    public async Task Tfms_CompetingModifiersRetainLegacyWindow(
+        string option,
+        string? value)
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var args = new List<string>
+            {
+                "package",
+                packagePath,
+                "--tfms",
+                option,
+            };
+            if (value is not null)
+                args.Add(value);
+            args.AddRange(["--rows", "1", "--tips", "q"]);
+
+            var (exit, output, error) =
+                await RunAppAsync([.. args]);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("net10.0", output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Tfms_ShapeProjection_IsRefused()
     {
         var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--value");

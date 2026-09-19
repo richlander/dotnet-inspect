@@ -508,7 +508,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         packageVersion: "8.0.5",
         compressedPackageBytes: 2048,
         selectedTargetFramework: "net10.0",
-        availableTargetFrameworkCount: 1,
+        availableTargetFrameworks: ["net10.0"],
         selectedTargetFrameworkFolders: ["lib"],
         selectedLibraryPayloadBytes: 1024,
         selectedLibraryCount: 1,

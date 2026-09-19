@@ -71,7 +71,7 @@ Version
 Package Size (compressed)
 Selected TFM
 Selected-TFM Folders
-TFM Count
+TFMs
 Selected-TFM Size
 Selected-TFM Library Count
 Built

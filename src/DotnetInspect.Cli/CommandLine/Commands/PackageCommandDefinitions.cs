@@ -45,7 +45,11 @@ public static class PackageCommandDefinitions
         };
         var pathMatchOption = new Option<string?>("--match") { Description = "For repeated --path: all (default) or first matching selector per package" };
         var skipEmptyOption = new Option<bool>("--skip-empty") { Description = "With multi-package Files rows, omit packages with no matching files" };
-        var tfmsOption = new Option<bool>("--tfms") { Description = "List target frameworks in the package" };
+        var tfmsOption = new Option<bool>("--tfms")
+        {
+            Description =
+                "List target frameworks in the package; use -n N to select N TFM rows"
+        };
         var libOption = new Option<bool>("--lib") { Description = "Scope to lib/ folder (use with --layout)" };
         var toolsOption = new Option<bool>("--tools") { Description = "Scope to tools/ folder (use with --layout)" };
         var libraryOption = new Option<string?>("--library")
@@ -125,6 +129,10 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 && !PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                && !PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
                     commandArgs));
@@ -225,6 +233,10 @@ public static class PackageCommandDefinitions
                     opts,
                     commandArgs)
                 || PackageOptionsParser.IsPackageFileRowSelection(
+                    result,
+                    opts,
+                    commandArgs)
+                || PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
                     commandArgs),
