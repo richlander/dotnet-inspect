@@ -792,7 +792,6 @@ public static class TypeCommand
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
-            || options.UseLocalDocs
             || options.ShowSamples
             || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
@@ -866,7 +865,6 @@ public static class TypeCommand
             || options.IncludeAll
             || options.ShowDocs
             || options.DocsExplicitlySet
-            || options.UseLocalDocs
             || options.ShowSamples
             || options.PreferRenderedUrls
             || options.MemberFilter.Count > 0
