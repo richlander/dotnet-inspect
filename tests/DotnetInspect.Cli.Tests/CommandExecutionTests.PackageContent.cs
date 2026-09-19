@@ -620,6 +620,20 @@ public partial class CommandExecutionTests
                 "--path", "runtimes/*",
                 "--roots",
                 "--tips", "q");
+            var reversedSelectorPaths = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--paths",
+                "--tips", "q");
+            var reversedSelectorRoots = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--roots",
+                "--tips", "q");
 
             foreach (var result in new[]
             {
@@ -702,6 +716,25 @@ public partial class CommandExecutionTests
             Assert.Equal(0, rootIntersection.Exit);
             Assert.Empty(rootIntersection.Error);
             Assert.Equal("runtimes", rootIntersection.Output.Trim());
+
+            Assert.Equal(0, reversedSelectorPaths.Exit);
+            Assert.Empty(reversedSelectorPaths.Error);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                reversedSelectorPaths.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, reversedSelectorRoots.Exit);
+            Assert.Empty(reversedSelectorRoots.Error);
+            Assert.Equal(
+                ["build", "runtimes"],
+                reversedSelectorRoots.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {

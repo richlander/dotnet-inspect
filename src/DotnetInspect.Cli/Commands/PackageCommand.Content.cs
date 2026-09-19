@@ -537,19 +537,20 @@ public partial class PackageCommand
             return [];
         }
 
-        var selected = new List<PackageFile>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectedPaths = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var selector in selectors)
         {
             foreach (var match in PackageFileLister.Filter(
                 scopedFiles,
                 selector))
             {
-                if (seen.Add(match.Path))
-                    selected.Add(match);
+                selectedPaths.Add(match.Path);
             }
         }
-        return selected;
+        return scopedFiles
+            .Where(file => selectedPaths.Contains(file.Path))
+            .ToList();
     }
 
     private static string[] PathSelectors(InspectionOptions options)
