@@ -35,6 +35,7 @@ public sealed class LoadField : IrExpression
 
     public FieldRef Field { get; }
     public bool IsVolatile { get; init; }
+    internal bool UsesAccessorStorage { get; set; }
     public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
     public override TypeRef? ResultType => Field.Type;
     public override IEnumerable<TypeRef> DirectTypes => [Field.DeclaringType, Field.Type];

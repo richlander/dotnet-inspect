@@ -34,6 +34,30 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(envelope.Diagnostics);
     }
 
+    [Theory]
+    [InlineData("SelectedFieldPropertySamples", "field + 1")]
+    [InlineData("FieldKeywordGetterSamples", "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)")]
+    public async Task MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition(
+        string typeName, string expression)
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.DecompilerUnsafeLegacy);
+        var (type, property) = assembly.MemberTarget("Count", typeName);
+        var getter = Assert.Single(ApiMemberAccessors.Create(property, type));
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant, AssemblyMemberSourceRequest.From(type, getter),
+            host.Context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.Contains($"public int Count => {expression};", source.Text);
+        Assert.DoesNotContain("get_Count()", source.Text);
+        Assert.DoesNotContain("this.Count", source.Text);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
     // These member-level production outcomes are PR-fast.
     [Fact]
     public async Task MemberSourceInspection_RealRepositoryAuthoredResultIsDetached()
