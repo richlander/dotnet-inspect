@@ -125,6 +125,12 @@ public sealed class InspectionPlanningTests
     {
         string target =
             $"Missing.Package.{Guid.NewGuid():N}";
+        string archive = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
         var references = await RunAppAsync(
             "package",
             target,
@@ -132,6 +138,15 @@ public sealed class InspectionPlanningTests
             "-D",
             SectionNames.References,
             "--schema",
+            "--table",
+            "--tips",
+            "q");
+        var namedReferences = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "-D",
+            SectionNames.References,
             "--table",
             "--tips",
             "q");
@@ -164,6 +179,8 @@ public sealed class InspectionPlanningTests
                         ' ',
                         StringSplitOptions.RemoveEmptyEntries))));
         Assert.Empty(references.Error);
+        Assert.Equal(references.Output, namedReferences.Output);
+        Assert.Empty(namedReferences.Error);
 
         Assert.Equal(1, metadata.Exit);
         Assert.Empty(metadata.Output);

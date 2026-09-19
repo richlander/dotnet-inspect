@@ -87,6 +87,14 @@ public partial class CommandExecutionTests
                 "--tsv", "--columns", "Value",
                 "--rows", "1",
                 "--tips", "q");
+            var mixedProjection = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", "Library Info",
+                "--tsv",
+                "--fields", "Name",
+                "--columns", "Library,Value",
+                "--tips", "q");
 
             Assert.Equal(0, markdown.Exit);
             Assert.StartsWith(
@@ -178,6 +186,25 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "lib/net10.0/Latest.Two.dll\t",
                 valueOnly.Output);
+
+            Assert.Equal(0, mixedProjection.Exit);
+            Assert.Empty(mixedProjection.Error);
+            Assert.StartsWith(
+                "library\tvalue\n",
+                mixedProjection.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.One.dll\t",
+                mixedProjection.Output);
+            Assert.Contains(
+                "lib/net10.0/Latest.Two.dll\t",
+                mixedProjection.Output);
+            Assert.All(
+                mixedProjection.Output
+                    .ReplaceLineEndings("\n")
+                    .Split(
+                        '\n',
+                        StringSplitOptions.RemoveEmptyEntries),
+                line => Assert.Equal(2, line.Split('\t').Length));
         }
         finally
         {
@@ -373,13 +400,57 @@ public partial class CommandExecutionTests
                 LibraryCommand.RejectIncompleteAggregateCount(
                     [inspection],
                     options,
+                    LibrarySections.CreatePipeline(),
                     participantIncomplete: false));
 
         Assert.True(rejected);
+        Assert.Equal(
+            1,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                LibrarySections.CreatePipeline(),
+                inspection));
         Assert.Empty(output);
         Assert.Contains(
             "Array Pool Escapes inspection failed "
             + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Contains(
+            "Count output is unavailable because one or more "
+            + "selected package Libraries could not be inspected.",
+            error);
+    }
+
+    [Fact]
+    public async Task PackageAllLibraries_BareCountRejectsSelectedInspectionFailure()
+    {
+        var options = new LibraryOptions
+        {
+            Count = true,
+            FixedOverview = true,
+        };
+        var inspection = FailedClassifiedMethodsInspection();
+        bool rejected = false;
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => rejected =
+                LibraryCommand.RejectIncompleteAggregateCount(
+                    [inspection],
+                    options,
+                    LibrarySections.CreatePipeline(),
+                    participantIncomplete: false));
+
+        Assert.True(rejected);
+        Assert.Equal(
+            1,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                LibrarySections.CreatePipeline(),
+                inspection));
+        Assert.Empty(output);
+        Assert.Contains(
+            "Classified Methods inspection failed "
+            + "(Classified method): method scan failed",
             error);
         Assert.Contains(
             "Count output is unavailable because one or more "

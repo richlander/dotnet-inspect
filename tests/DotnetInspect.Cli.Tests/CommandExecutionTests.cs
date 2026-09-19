@@ -2322,6 +2322,20 @@ public partial class CommandExecutionTests
         };
     }
 
+    static LibraryInspection FailedClassifiedMethodsInspection()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        return new LibraryInspection
+        {
+            ClassifiedMethodInspection =
+                new FindingInspection<ClassifiedMethodObservation>.Failed(
+                    new InspectionError(
+                        subject,
+                        MetadataFindings.ClassifiedMethodDescriptor,
+                        "method scan failed")),
+        };
+    }
+
     /// <summary>
     /// A package exercising every <c>Files:</c> family root at once: <c>lib/</c>, <c>ref/</c>,
     /// <c>runtimes/</c>, a markdown file, and the <c>.nuspec</c> manifest.

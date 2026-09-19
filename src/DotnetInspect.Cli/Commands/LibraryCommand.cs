@@ -177,14 +177,16 @@ public class LibraryCommand
         var queryCatalog = catalog.QueryCatalog;
         var groupQueryCatalog = catalog.GroupQueryCatalog;
 
-        var schemaMap = aggregatePackageSelection
+        DocumentSchema librarySchema =
+            CreateStructuralSchema();
+        DocumentSchema columnSchema = aggregatePackageSelection
             ? PackageCommand.PackageAllLibrariesDiscoverySchema(
                 options.Count
                     ? StructuralOutputShape.Count
                     : options.TabularExplicitlySet
                         ? StructuralOutputShape.Rows
                         : StructuralOutputShape.Document)
-            : CreateStructuralSchema();
+            : librarySchema;
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -220,15 +222,29 @@ public class LibraryCommand
             return 1;
         }
 
+        StructuralRoute structuralRoute = aggregatePackageSelection
+            ? StructuralViewRegistry.Route(
+                StructuralViewIdentity.PackageAllLibraries,
+                InspectionCatalogIdentity.LibraryAggregate)
+            : StructuralViewRegistry.Route(
+                options.CoordinateRequest is null
+                    ? StructuralViewIdentity.DirectLibrary
+                    : StructuralViewIdentity.LibraryCoordinate,
+                InspectionCatalogIdentity.Library);
+        StructuralOutputShape structuralOutputShape =
+            aggregatePackageSelection
+                ? options.Count
+                    ? StructuralOutputShape.Count
+                    : options.TabularExplicitlySet
+                        ? StructuralOutputShape.Rows
+                        : StructuralOutputShape.Document
+                : StructuralOutputShape.Document;
         if (options.Discover is not null && options.Schema)
         {
             return StructuralViewRegistry.Execute(
-                StructuralViewRegistry.Route(
-                    options.CoordinateRequest is null
-                        ? StructuralViewIdentity.DirectLibrary
-                        : StructuralViewIdentity.LibraryCoordinate,
-                    InspectionCatalogIdentity.Library),
-                StructuralDiscoveryRequest.From(options));
+                structuralRoute,
+                StructuralDiscoveryRequest.From(options),
+                structuralOutputShape);
         }
 
         // Schema and named discovery are structural by default. They describe the catalog without
@@ -248,12 +264,9 @@ public class LibraryCommand
             else
             {
                 return StructuralViewRegistry.Execute(
-                    StructuralViewRegistry.Route(
-                        options.CoordinateRequest is null
-                            ? StructuralViewIdentity.DirectLibrary
-                            : StructuralViewIdentity.LibraryCoordinate,
-                        InspectionCatalogIdentity.Library),
-                    StructuralDiscoveryRequest.From(options));
+                    structuralRoute,
+                    StructuralDiscoveryRequest.From(options),
+                    structuralOutputShape);
             }
         }
 
@@ -652,11 +665,16 @@ public class LibraryCommand
             && projectionSections is { Count: > 0 }
             && !CloneCandidatesCommand.IsSelected(
                 options.IncludeSections)
-            && !ProjectionDiagnostics.ValidateProjection(
-                schemaMap,
-                projectionSections,
-                options.Fields,
-                options.Columns))
+            && (!ProjectionDiagnostics.ValidateProjection(
+                    librarySchema,
+                    projectionSections,
+                    options.Fields,
+                    columns: null)
+                || !ProjectionDiagnostics.ValidateProjection(
+                    columnSchema,
+                    projectionSections,
+                    fields: null,
+                    options.Columns)))
         {
             return 1;
         }
@@ -1147,6 +1165,7 @@ public class LibraryCommand
                     if (RejectIncompleteAggregateCount(
                             inspections,
                             options,
+                            pipeline,
                             participantIncomplete))
                     {
                         return 1;
@@ -1484,7 +1503,9 @@ public class LibraryCommand
         SectionPipeline<LibraryInspection> pipeline,
         params LibraryInspection[] inspections)
     {
-        if (options.IncludeSections is not { Count: > 0 })
+        HashSet<string>? selectedSections =
+            EffectiveSelectedSections(options, pipeline);
+        if (selectedSections is not { Count: > 0 })
             return 0;
 
         return inspections.Any(inspection =>
@@ -1492,7 +1513,7 @@ public class LibraryCommand
             var empty = pipeline.GetEmptySections(
                 inspection,
                 options.Verbosity,
-                options.IncludeSections).Empty;
+                selectedSections).Empty;
             return (inspection.InspectionFailures ?? []).Any(failure =>
                 empty.Any(section =>
                     FailureAffectsSection(
@@ -1506,13 +1527,16 @@ public class LibraryCommand
     internal static bool RejectIncompleteAggregateCount(
         IReadOnlyList<LibraryInspection> inspections,
         LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
         bool participantIncomplete)
     {
         if (!options.Count)
             return false;
 
         var selectedFailures =
-            SelectedInspectionFailures(inspections, options);
+            SelectedInspectionFailures(
+                inspections,
+                EffectiveSelectedSections(options, pipeline));
         if (!participantIncomplete
             && selectedFailures.Count == 0)
         {
@@ -3751,9 +3775,9 @@ public class LibraryCommand
         LibraryInspection Inspection,
         LibraryInspectionFailureJson Failure)> SelectedInspectionFailures(
             IReadOnlyList<LibraryInspection> inspections,
-            LibraryOptions options)
+            IReadOnlyCollection<string>? selectedSections)
     {
-        if (options.IncludeSections is not { Count: > 0 } sections)
+        if (selectedSections is not { Count: > 0 })
             return [];
 
         return
@@ -3761,7 +3785,7 @@ public class LibraryCommand
             .. inspections
                 .SelectMany(inspection =>
                     (inspection.InspectionFailures ?? [])
-                        .Where(failure => sections.Any(section =>
+                        .Where(failure => selectedSections.Any(section =>
                             FailureAffectsSection(
                                 failure.Section,
                                 section)))
@@ -3773,6 +3797,17 @@ public class LibraryCommand
                     entry.Failure)),
         ];
     }
+
+    private static HashSet<string>? EffectiveSelectedSections(
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline) =>
+        options.IncludeSections is { Count: > 0 } includeSections
+            ? includeSections
+            : options.FixedOverview
+                ? new HashSet<string>(
+                    pipeline.BareSelectSectionNames,
+                    StringComparer.OrdinalIgnoreCase)
+                : null;
 
     private static void WriteInspectionFailureWarnings(
         int inspectionCount,
