@@ -34,37 +34,8 @@ internal static class AuthoredSourceDocumentPrinter
             return 1;
         }
 
-        ResolvedAssemblyReference assembly =
-            sourceAssembly ?? ResolvedAssemblyReference.CreateFromPath(
-                assemblyPath,
-                AssemblyResolutionProvenance.Local("authored source document"));
-        var bindingPolicy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ProjectAssetsPath = options.ProjectAssetsPath,
-                TargetFramework = options.Tfm,
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
-        var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
-        var logger = new VerboseLogger(options.Verbose);
-        var context = new AssemblyContextSourceQueryContext(
-            symbolClient,
-            FileSystemPdbStore.CreateDefault(),
-            new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
-            new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
-        {
-            RepositoryPaths = options.SourceRepositories,
-            NuGetSourceOptions = options.SourceOptions,
-            PdbFallbackPackage = packageName is not null && packageVersion is not null
-                ? new(packageName, packageVersion)
-                : null,
-            AllowLocalSourceReads = true,
-            AllowAdjacentPdbReads = true,
-            Log = logger.Log,
-        };
+        var (participant, context) = CreateContext(
+            assemblyPath, options, sourceAssembly, packageName, packageVersion, symbolClient);
         InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
         await using (var workspace = new InspectionWorkspace())
         {
@@ -116,5 +87,48 @@ internal static class AuthoredSourceDocumentPrinter
                 options.JsonArray,
                 options.Bare,
                 new ProjectionDestination(null, options.Rows)));
+    }
+
+    internal static (AssemblyContextParticipant Participant, AssemblyContextSourceQueryContext Context)
+        CreateContext(
+            string assemblyPath,
+            ApiOptions options,
+            ResolvedAssemblyReference? sourceAssembly,
+            string? packageName,
+            string? packageVersion,
+            HttpClient symbolClient)
+    {
+        ResolvedAssemblyReference assembly =
+            sourceAssembly ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("authored source document"));
+        var bindingPolicy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ProjectAssetsPath = options.ProjectAssetsPath,
+                TargetFramework = options.Tfm,
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+        var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
+        var logger = new VerboseLogger(options.Verbose);
+        var context = new AssemblyContextSourceQueryContext(
+            symbolClient,
+            FileSystemPdbStore.CreateDefault(),
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
+            new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
+        {
+            RepositoryPaths = options.SourceRepositories,
+            NuGetSourceOptions = options.SourceOptions,
+            PdbFallbackPackage = packageName is not null && packageVersion is not null
+                ? new(packageName, packageVersion)
+                : null,
+            AllowLocalSourceReads = true,
+            AllowAdjacentPdbReads = true,
+            Log = logger.Log,
+        };
+        return (participant, context);
     }
 }

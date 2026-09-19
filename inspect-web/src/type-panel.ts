@@ -21,7 +21,12 @@ const EXACT_TYPE_AMBIGUOUS = 2;
 // relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
-import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type {
+  BrowserMemberSource,
+  BrowserMemberSourcePart,
+  BrowserMemberSourcePartKind,
+  BrowserSource,
+} from "./facades/inspect-web-source.d.ts";
 
 export interface TypeSummary {
   id: string;
@@ -72,6 +77,46 @@ export interface TypeMetadata {
 }
 
 export type TypeSourceResult = BrowserSource;
+export type MemberSourcePartSelection =
+  Exclude<BrowserMemberSourcePartKind, number>;
+
+export interface MemberSourcePartSelector {
+  current(
+    signature: string,
+    source: BrowserMemberSource | null,
+  ): MemberSourcePartSelection;
+  select(
+    signature: string,
+    source: BrowserMemberSource,
+    part: MemberSourcePartSelection,
+  ): boolean;
+}
+
+export function createMemberSourcePartSelector(): MemberSourcePartSelector {
+  let selectedSignature = "";
+  let selectedPart: MemberSourcePartSelection = "Member";
+  return {
+    current(signature, source) {
+      if (selectedSignature !== signature) {
+        selectedSignature = signature;
+        selectedPart = "Member";
+      }
+      if (source !== null
+        && !source.parts.some(
+          part => part.kind === selectedPart && part.spans.length > 0)) {
+        selectedPart = "Member";
+      }
+      return selectedPart;
+    },
+    select(signature, source, part) {
+      if (!source.parts.some(candidate => candidate.kind === part))
+        return false;
+      selectedSignature = signature;
+      selectedPart = part;
+      return true;
+    },
+  };
+}
 
 type EscapeHtml = (value: unknown) => string;
 
@@ -83,6 +128,7 @@ export interface TypePanelBindingActions {
     anchor: "selector" | "digest" | "canonical" | undefined,
   ) => void;
   onCopyMemberSource: () => void;
+  onMemberSourcePartSelect: (part: MemberSourcePartSelection) => void;
   onCopySignature: () => void;
   onCopyTypeSource: () => void;
   onExploreSource: () => void;
@@ -211,6 +257,12 @@ export function bindTypePanel(
   root.querySelector("#copy-source")?.addEventListener(
     "click",
     actions.onCopyMemberSource);
+  const memberSourcePart =
+    root.querySelector<HTMLSelectElement>("#member-source-part");
+  memberSourcePart?.addEventListener("change", () => {
+    const part = memberSourcePartSelection(memberSourcePart.value);
+    if (part !== null) actions.onMemberSourcePartSelect(part);
+  });
   root.querySelector("#copy-type-source")?.addEventListener(
     "click",
     actions.onCopyTypeSource);
@@ -725,20 +777,23 @@ export interface RenderTypeSourceOptions {
 
 export interface RenderSourceResultOptions {
   source: TypeSourceResult;
+  text?: string;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
 }
 
 export function renderSourceResult(options: RenderSourceResultOptions): string {
-  const { source, escapeHtml, highlightCSharp } = options;
+  const { source, text = source.text, escapeHtml, highlightCSharp } = options;
   return `<section class="source-result" aria-label="Source">
-      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(source.text)}</code></pre>
+      <pre class="language-csharp" role="region" tabindex="0" aria-label="Source code"><code class="language-csharp">${highlightCSharp(text)}</code></pre>
       <footer class="source-provenance"><strong>${source.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(source.provenance)}</span>${pdbSourceLimitationHtml(source)}</footer>
     </section>`;
 }
 
 export interface RenderSourcePageActionsOptions {
   source: TypeSourceResult | null;
+  memberSource?: BrowserMemberSource | null;
+  selectedMemberPart?: MemberSourcePartSelection;
   copyButtonId: "copy-source" | "copy-type-source";
   escapeHtml: EscapeHtml;
 }
@@ -746,14 +801,110 @@ export interface RenderSourcePageActionsOptions {
 export function renderSourcePageActions(
   options: RenderSourcePageActionsOptions,
 ): string {
-  const { source, copyButtonId, escapeHtml } = options;
+  const {
+    source,
+    memberSource = null,
+    selectedMemberPart = "Member",
+    copyButtonId,
+    escapeHtml,
+  } = options;
+  const selectableParts = memberSource === null
+    ? []
+    : availableMemberSourceParts(memberSource.parts);
   return `
+    ${selectableParts.length > 1
+      ? `<label class="source-part-picker">
+          <span>View</span>
+          <select id="member-source-part" aria-label="Select member source part">
+            ${selectableParts.map(part =>
+              `<option value="${part.kind}"${part.kind === selectedMemberPart ? " selected" : ""}>${memberSourcePartLabel(part.kind)}</option>`).join("")}
+          </select>
+        </label>`
+      : ""}
     <button id="${copyButtonId}" type="button"${source ? "" : " disabled"}>Copy</button>
     ${source?.url
       ? `<a class="shell-action-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">Open</a>`
       : ""}
     <button id="explore-source" class="primary-action" type="button"
       title="Explore source options">Explore</button>`;
+}
+
+export function memberSourceText(
+  memberSource: BrowserMemberSource,
+  selectedPart: MemberSourcePartSelection,
+): string {
+  const available = availableMemberSourceParts(memberSource.parts);
+  const selected = available.find(part => part.kind === selectedPart)
+    ?? available.find(part => part.kind === "Member");
+  if (selected === undefined) {
+    if (memberSource.parts.length === 0)
+      return memberSource.source.text;
+    throw new Error("Member source has no complete-member part.");
+  }
+  return selected.spans.map(span => {
+    if (!Number.isInteger(span.start)
+      || !Number.isInteger(span.length)
+      || !Number.isInteger(span.end)
+      || span.start < 0
+      || span.length < 0
+      || span.end !== span.start + span.length
+      || span.end > memberSource.source.text.length) {
+      throw new Error(`Member source ${selected.kind} span is invalid.`);
+    }
+    return span.leadingIndentation
+      + memberSource.source.text.slice(span.start, span.end);
+  }).join("\n");
+}
+
+function availableMemberSourceParts(
+  parts: readonly BrowserMemberSourcePart[],
+): Array<BrowserMemberSourcePart & {
+  readonly kind: MemberSourcePartSelection;
+}> {
+  return parts.flatMap(part => {
+    const kind = memberSourcePartSelection(part.kind);
+    return kind === null || part.spans.length === 0
+      ? []
+      : [{ ...part, kind }];
+  });
+}
+
+function memberSourcePartSelection(
+  value: BrowserMemberSourcePartKind,
+): MemberSourcePartSelection | null;
+function memberSourcePartSelection(
+  value: string,
+): MemberSourcePartSelection | null;
+function memberSourcePartSelection(
+  value: string | number,
+): MemberSourcePartSelection | null {
+  switch (value) {
+    case "Member":
+    case "XmlDocumentation":
+    case "Attributes":
+    case "Signature":
+    case "Body":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function memberSourcePartLabel(part: MemberSourcePartSelection): string {
+  switch (part) {
+    case "Member":
+      return "Member";
+    case "XmlDocumentation":
+      return "XML docs";
+    case "Attributes":
+      return "Attributes";
+    case "Signature":
+      return "Signature";
+    case "Body":
+      return "Body";
+    default:
+      return assertNever(part, "member source part selection");
+  }
 }
 
 export function renderTypeSource(options: RenderTypeSourceOptions): string {
