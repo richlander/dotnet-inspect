@@ -1115,6 +1115,48 @@ public sealed class PlatformAssemblyReferenceResolverTests
 
     [Fact]
     public async Task
+        ResolveAsync_ObservesCancellationDuringAttemptEnumeration()
+    {
+        using var cancellation = CancellationTokenSource
+            .CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [capability],
+            PlatformSourceSelectionMode.Precedence,
+            cancellation.Token,
+            maxSourceOperations: 1,
+            maxAssemblies: 0,
+            maxBytes: 0);
+        var unavailable = TerminalAttempt(
+            request,
+            capability,
+            PlatformSourceContributionKind.Unavailable);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () =>
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    Attempts(),
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 0,
+                        bytes: 0)));
+
+        IEnumerable<PlatformAssemblyReferenceSourceAttempt> Attempts()
+        {
+            cancellation.Cancel();
+            yield return unavailable;
+        }
+    }
+
+    [Fact]
+    public async Task
         ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement()
     {
         CancellationToken cancellationToken =

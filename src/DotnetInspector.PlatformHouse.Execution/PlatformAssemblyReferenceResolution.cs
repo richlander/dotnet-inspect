@@ -144,7 +144,16 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.invalid-request");
         }
 
-        PlatformAssemblyReferenceSourceAttempt[] snapshot = [.. attempts];
+        var acceptedAttempts =
+            new List<PlatformAssemblyReferenceSourceAttempt>();
+        foreach (PlatformAssemblyReferenceSourceAttempt attempt in attempts)
+        {
+            request.CancellationToken.ThrowIfCancellationRequested();
+            acceptedAttempts.Add(attempt);
+        }
+        request.CancellationToken.ThrowIfCancellationRequested();
+        PlatformAssemblyReferenceSourceAttempt[] snapshot =
+            [.. acceptedAttempts];
         if (!TryValidateAttempts(
                 request,
                 operation,

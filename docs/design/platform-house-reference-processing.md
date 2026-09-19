@@ -1084,7 +1084,8 @@ receipt construction unchanged.
 
 Terminal precedence is:
 
-1. observe cancellation before accepting attempts;
+1. observe cancellation before and throughout attempt acceptance, including
+   once after enumeration completes;
 2. validate the request before enumerating attempts, using `Incomplete`
    without settlement when work is already exhausted and `Rejected` otherwise;
 3. validate attempt correspondence under the same exhausted-work precedence
@@ -1125,6 +1126,8 @@ and finite-work precedence.
 coverage for failure and shadowed attempts.
 `ResolveAsync_InvalidRequestDoesNotEnumerateAttempts` gates request rejection
 before attempt production.
+`ResolveAsync_ObservesCancellationDuringAttemptEnumeration` gates typed
+cancellation from a lazy attempt producer before policy settlement.
 `ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration` and
 `ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement` gate
 receipt-compatible exhausted-work closure without unsupported settlement.
