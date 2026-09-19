@@ -724,6 +724,13 @@ public static class SearchCommandDefinitions
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
             }
+            if (evidenceEnvelope
+                && !typeMode
+                && result.GetValue(opts.Envelope))
+            {
+                RejectAssetEnvelopeRowOption(opts.Rows, "--rows");
+                RejectAssetEnvelopeRowOption(opts.Limit, "-n");
+            }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
                 result.GetResult(opts.Discover)
@@ -790,6 +797,17 @@ public static class SearchCommandDefinitions
             {
                 if (result.GetResult(option) is { Implicit: false })
                     result.AddError($"{name} is available only with a positional type.");
+            }
+
+            void RejectAssetEnvelopeRowOption(
+                Option option,
+                string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {name} for asset dependency inspection.");
+                }
             }
         });
 

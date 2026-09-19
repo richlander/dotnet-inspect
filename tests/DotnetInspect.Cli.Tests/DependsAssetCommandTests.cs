@@ -625,6 +625,49 @@ public sealed class DependsAssetCommandTests
         Assert.False(File.Exists(sidecar));
     }
 
+    [Theory]
+    [InlineData("--rows")]
+    [InlineData("-n")]
+    public async Task PairedEnvelopeRejectsPostServiceRowSelectionBeforeAcquisition(
+        string rowOption)
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-paired-envelope-rows-");
+        string baseline = Path.Combine(
+            directory.FullName,
+            "baseline.json");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            "No.Such.Package@1.0.0",
+            "--envelope",
+            "--out",
+            baseline,
+            "--evidence-envelope",
+            sidecar,
+            rowOption,
+            "1",
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--envelope cannot be combined with {rowOption}",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No.Such.Package",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(baseline));
+        Assert.False(File.Exists(sidecar));
+    }
+
     [Fact]
     public async Task EvidenceEnvelopeCountUsesOrdinaryOutputDestination()
     {
