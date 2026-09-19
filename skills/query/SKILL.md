@@ -373,11 +373,12 @@ Member `Call Graph` is the current exception: its legacy command-owned
 an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `package query`, package activity, package `--versions` /
-`--versions-with-feed`, `demo list`, Workspace inventory, Integration graph
-edges, selected package file/SourceLink inventories, selected Project document
-inventories, and explicit-source Type catalogs have semantic adoption in their
-supported modes. Partially adopted modes fall back to rendered lines.
+`timeline`, `match --similar`, `package query`, package activity, package
+`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+Integration graph edges, selected package file/SourceLink inventories,
+selected Project document inventories, and explicit-source Type catalogs have
+semantic adoption in their supported modes. Partially adopted modes fall back
+to rendered lines.
 
 Where a route supports it, `--count` is a terminal projection over the selected
 semantic rows. On sectioned output, select one concrete table for a scalar
