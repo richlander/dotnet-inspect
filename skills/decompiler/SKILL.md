@@ -119,7 +119,10 @@ with `csharp_style_var_for_built_in_types = true`,
 `--taste`. Object creation is target-typed by default; set
 `csharp_style_implicit_object_creation_when_type_is_apparent = false` to retain
 the explicit constructed type. A `var` declaration keeps `new T(...)` because
-`var x = new()` has no target type.
+`var x = new()` has no target type. Compiler-shaped `long` constants use
+uppercase `L` by default; set
+`dotnet_inspect_style_prefer_long_literal_suffix = false` to retain explicit
+`(long)N` casts.
 
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \

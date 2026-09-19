@@ -11,9 +11,10 @@ public enum EnumCaseLabelOrder
 }
 
 /// <summary>
-/// Opt-in render knobs for <see cref="CSharpPrinter"/>. Every field defaults to
-/// the shipped behavior. This is the single home for render-quality options,
-/// keeping them off the printer's positional signature.
+/// Render knobs for <see cref="CSharpPrinter"/>. The zero-initialized record is
+/// the low-level fidelity/harness contract; <see cref="StyleOptionCatalog"/>
+/// derives user-facing product defaults from it. This is the single home for
+/// render-quality options, keeping them off the printer's positional signature.
 /// </summary>
 public sealed record PrinterOptions
 {
@@ -208,26 +209,23 @@ public sealed record PrinterOptions
     public bool PreferBranchlessBoolean { get; init; }
 
     /// <summary>
-    /// When set, a <c>long</c> constant the IL spells <c>ldc.i4(.s) N; conv.i8</c> —
-    /// the widening the printer sees as <c>Convert(→Int64, Int32 Constant)</c>, and
-    /// the shape csc emits for every small <c>long</c> literal — renders as the
-    /// idiomatic <c>NL</c> literal (<c>10L</c>) instead of the <c>(long)N</c> cast
-    /// the default view spells (#3347). A raise-completeness gap, not a fidelity
-    /// gap: the cast is already opcode-faithful, it is simply not fully raised.
+    /// When set, compiler-shaped <c>long</c> constants render with the idiomatic
+    /// <c>NL</c> suffix instead of an explicit <c>(long)N</c> cast. This includes
+    /// <c>ldc.i4(.s) N; conv.i8</c> and the first positive value beyond
+    /// <see cref="int.MaxValue"/>, which csc encodes as
+    /// <c>ldc.i4 int.MinValue; conv.u8</c> (#3347, #7763).
     ///
-    /// <para>Like the guarded-return lenses this is a <b>byte-divergent</b> opt-in
-    /// <b>style lens</b>, and for a specific reason: the fold is opcode-neutral for
-    /// <em>csc</em> output (<c>10L</c> and <c>(long)10</c> compile to the same
-    /// <c>ldc.i4.s 10; conv.i8</c>), but a hand-authored or non-csc assembly may
-    /// encode the same value as <c>ldc.i8 &lt;small&gt;</c> — a distinct opcode —
-    /// and a blanket default fold would put the two shapes on one spelling. The
-    /// printer keeps them apart structurally: a genuine <c>ldc.i8</c> arrives as a
-    /// bare <c>Int64</c> <c>Constant</c> with no <c>Convert</c> over it, so it can
-    /// never match the fold and renders exactly as today with the lens on or off.
-    /// Off by default; the default view stays byte-faithful.</para>
+    /// <para>The fold is byte-neutral for every accepted shape and declines a
+    /// genuine <c>ldc.i8</c>, which arrives as a bare <c>Int64</c>
+    /// <c>Constant</c> with no <c>Convert</c>. The user-facing catalog enables the
+    /// terse suffix by default; the low-level fidelity/harness default leaves this
+    /// option off so conversion structure remains explicit.</para>
     /// </summary>
     public bool PreferLongLiteralSuffix { get; init; }
 
-    /// <summary>The shipped rendering defaults.</summary>
+    /// <summary>
+    /// Low-level fidelity and harness defaults. User-facing hosts consume
+    /// <see cref="StyleOptionCatalog.DefaultOptions"/>.
+    /// </summary>
     public static PrinterOptions Default { get; } = new();
 }
