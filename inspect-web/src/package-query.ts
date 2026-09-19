@@ -8,7 +8,7 @@
 // by the caller so this module can be built and tested against fake sources
 // independently from the Browser engine adapter.
 
-export type QueryExecutionClass =
+type QueryExecutionClass =
   | "search-metadata"
   | "nuspec"
   | "nuspec-expensive"
