@@ -526,6 +526,7 @@ public static class ResearchTargetResolver
                 return Failed(
                     ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
             case TypeDeclarationResult.ExportedFromModule:
+            case TypeDeclarationResult.BudgetExceeded:
             case TypeDeclarationResult.Rejected:
                 return Failed(
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);

@@ -492,12 +492,25 @@ public class CommandLineTests
         Assert.Equal("type", result.CommandResult.Command.Name);
     }
 
-    [Fact]
-    public void TypeCommand_WithShape_ParsesCorrectly()
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task RemovedShapeOption_IsUnrecognized(string command)
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "JsonSerializer", "--package", "System.Text.Json", "--shape"]);
+        string[] tokens =
+            [command, "JsonSerializer", "--package", "System.Text.Json", "--shape"];
+        var root = CommandLineBuilder.CreateRootCommand();
 
-        Assert.Empty(result.Errors);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Unrecognized option '--shape'",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("--tree", error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -625,7 +638,7 @@ public class CommandLineTests
     [Fact]
     public void TypeCommand_WithPlatform_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--shape"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--tree"]);
 
         Assert.Empty(result.Errors);
         Assert.Equal("type", result.CommandResult.Command.Name);
@@ -634,7 +647,7 @@ public class CommandLineTests
     [Fact]
     public void TypeCommand_WithPlatformAndFramework_ParsesCorrectly()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--framework", "runtime", "--shape"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["type", "List`1", "--platform", "System.Collections", "--framework", "runtime", "--tree"]);
 
         Assert.Empty(result.Errors);
     }

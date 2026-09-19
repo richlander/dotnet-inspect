@@ -41,6 +41,10 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// Includes framework-authenticated synchronous task-completion observations
 /// joined to their exact physical <c>call.edge</c> Findings.
 /// </param>
+/// <param name="AwaitCompletionPaths">
+/// Includes Decompiler-proven inline and suspension/resume paths for each
+/// reconstructed classic <c>await</c>.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -57,7 +61,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     LibraryBodyAnalysisFeatures AnalysisFeatures = LibraryBodyAnalysisFeatures.Default,
     bool CallRelationships = false,
     bool CallCycles = false,
-    bool SynchronousCompletions = false);
+    bool SynchronousCompletions = false,
+    bool AwaitCompletionPaths = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -150,6 +155,12 @@ public sealed record AssemblyMemberSynchronousCompletion(
     int FactId,
     SynchronousCompletionKind Kind);
 
+/// <summary>
+/// One Decompiler-issued classic <c>await</c> node whose inline and
+/// suspension/resume paths were proven before reconstruction.
+/// </summary>
+public sealed record AssemblyMemberAwaitCompletionPath(int NodeId);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
@@ -159,7 +170,9 @@ public sealed record AssemblyMemberProjection(
     AssemblyMemberCallRelationshipOverlay? CallRelationships = null,
     AssemblyMemberCallCycleInspection? CallCycles = null,
     IReadOnlyList<AssemblyMemberSynchronousCompletion>?
-        SynchronousCompletions = null);
+        SynchronousCompletions = null,
+    IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+        AwaitCompletionPaths = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -299,6 +312,13 @@ public static class AssemblyContextMemberProjectionQuery
         {
             throw new ArgumentException(
                 "Synchronous completions require exact call relationships.",
+                nameof(request));
+        }
+        if (request.AwaitCompletionPaths
+            && (!request.SourceDocument || request.MethodToken is null))
+        {
+            throw new ArgumentException(
+                "Await completion paths require a source document and an exact MethodDef token.",
                 nameof(request));
         }
         if (request.FindingEvidence
@@ -448,6 +468,14 @@ public static class AssemblyContextMemberProjectionQuery
                             callRelationships,
                             relationshipOverlay)
                         : null;
+            IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
+                awaitCompletionPaths =
+                    request.AwaitCompletionPaths
+                        && projection.SourceDocument is { } awaitDocument
+                        ? ProjectAwaitCompletionPaths(
+                            projection,
+                            awaitDocument)
+                        : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
@@ -455,7 +483,8 @@ public static class AssemblyContextMemberProjectionQuery
                 destinations,
                 relationshipOverlay,
                 cycleInspection,
-                synchronousCompletions);
+                synchronousCompletions,
+                awaitCompletionPaths);
             resolver.ValidateForPublication();
             return result;
         }
@@ -1052,6 +1081,31 @@ public static class AssemblyContextMemberProjectionQuery
                             call.ILOffset,
                             call.OperandToken)],
                         observation.Kind);
+                }),
+        ];
+    }
+
+    static IReadOnlyList<AssemblyMemberAwaitCompletionPath>
+        ProjectAwaitCompletionPaths(
+            ResearchViews.MemberProjectionResult projection,
+            AnnotatedSourceDocument document)
+    {
+        return
+        [
+            .. (projection.AwaitCompletionPathNodeIds ?? [])
+                .Select(nodeId =>
+                {
+                    AnnotatedSourceNode node = document.Nodes[nodeId];
+                    if (node.Medium != SourceLineKind.CSharp
+                        || !string.Equals(
+                            node.Kind,
+                            AnnotatedSourceNodeKinds.AwaitExpression,
+                            StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Classic await completion path names non-await node {nodeId}.");
+                    }
+                    return new AssemblyMemberAwaitCompletionPath(nodeId);
                 }),
         ];
     }

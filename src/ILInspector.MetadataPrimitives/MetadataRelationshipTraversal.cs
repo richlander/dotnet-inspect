@@ -70,6 +70,25 @@ public static class MetadataSafetyPolicy
     public const int MaxCorrespondenceMethodRows = 256 * 1024;
 
     /// <summary>
+    /// Maximum TypeDef and ExportedType rows scanned or indexed by one type
+    /// declaration operation. Gated by
+    /// <c>ProbeDefinition_RejectsRowsBeforeScanning</c>,
+    /// <c>Probe_RejectsCombinedDeclarationRowsBeforeScanning</c>, and
+    /// <c>DeclarationIndex_RejectsRowsBeforeConstruction</c>.
+    /// </summary>
+    public const int MaxTypeDeclarationRows =
+        MaxCorrespondenceMethodRows;
+
+    /// <summary>
+    /// Maximum cumulative UTF-8 type-name work used by one type declaration
+    /// scan or index construction. Gated by
+    /// <c>Probe_RejectsRepeatedLeafComparisonWork</c> and
+    /// <c>DeclarationIndex_DiscardsPartialStateAfterNameWorkExhaustion</c>.
+    /// </summary>
+    public const int MaxTypeDeclarationNameWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum matching MethodDef addresses materialized before malformed
     /// duplicate metadata is rejected. Gated by
     /// <c>Resolve_DuplicateCandidatesFailClosedAtCap</c>.

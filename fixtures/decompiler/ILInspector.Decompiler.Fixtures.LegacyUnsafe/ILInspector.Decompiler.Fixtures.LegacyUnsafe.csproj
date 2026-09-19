@@ -32,6 +32,7 @@
     <Compile Include="../ScalarSelfUpdateSamples.cs" Link="ScalarSelfUpdateSamples.cs" />
     <Compile Include="../CheckedIntegerOperandSamples.cs" Link="CheckedIntegerOperandSamples.cs" />
     <Compile Include="../OrderedBinarySpillSamples.cs" Link="OrderedBinarySpillSamples.cs" />
+    <Compile Include="../SingleCaseValueSwitchSamples.cs" Link="SingleCaseValueSwitchSamples.cs" />
   </ItemGroup>
 
 </Project>

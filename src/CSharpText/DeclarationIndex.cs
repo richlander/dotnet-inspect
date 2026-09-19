@@ -324,6 +324,8 @@ public sealed record DeclarationSpan(
     int ParentIndex,
     bool SpanKnown)
 {
+    internal DeclarationTextCoordinates? TextCoordinates { get; init; }
+
     /// <summary>
     /// The attribute lists applied to this declaration, one range per <c>[...]</c> list, in source
     /// order. Empty when none.
@@ -415,15 +417,18 @@ public sealed class DeclarationIndex
 {
     private const int MaxLineCount = 500_000;
     private readonly ImmutableArray<string> sourceLines;
+    private readonly ImmutableArray<int> sourceLineStarts;
 
     private DeclarationIndex(
         ImmutableArray<string> sourceLines,
+        ImmutableArray<int> sourceLineStarts,
         ImmutableArray<DeclarationSpan> declarations,
         ImmutableArray<TransparentScopeSpan> transparentScopes,
         ImmutableArray<ConditionalGroupSpan> conditionalGroups,
         bool hasLineDirectives)
     {
         this.sourceLines = sourceLines;
+        this.sourceLineStarts = sourceLineStarts;
         Declarations = declarations;
         TransparentScopes = transparentScopes;
         ConditionalGroups = conditionalGroups;
@@ -463,10 +468,17 @@ public sealed class DeclarationIndex
 
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
-        Build(CSharpSourceText.SplitLines(sourceText, MaxLineCount));
+        BuildCore(
+            CSharpSourceText.SplitLines(sourceText, MaxLineCount),
+            [.. CSharpSourceText.GetLineStarts(sourceText)]);
 
     /// <summary>Builds the index for a file already split into lines.</summary>
-    public static DeclarationIndex Build(IReadOnlyList<string> lines)
+    public static DeclarationIndex Build(IReadOnlyList<string> lines) =>
+        BuildCore(lines, []);
+
+    private static DeclarationIndex BuildCore(
+        IReadOnlyList<string> lines,
+        ImmutableArray<int> sourceLineStarts)
     {
         if (lines.Count > MaxLineCount)
             throw new CSharpTextComplexityException(MaxLineCount, "lines");
@@ -480,6 +492,7 @@ public sealed class DeclarationIndex
                 out bool hasLineDirectives);
         return new DeclarationIndex(
             sourceLines,
+            sourceLineStarts,
             declarations,
             transparentScopes,
             conditionalGroups,
@@ -552,7 +565,7 @@ public sealed class DeclarationIndex
                 projected[i] = string.Empty;
         }
 
-        return Build(projected);
+        return BuildCore(projected, sourceLineStarts);
 
         void MarkLine(int line) => MarkRange(line, line + 1);
 
@@ -612,6 +625,73 @@ public sealed class DeclarationIndex
     /// </summary>
     public ImmutableArray<DeclarationSpan> FindByName(DeclarationKind kind, string name) =>
         [.. Declarations.Where(d => d.Kind == kind && d.Name == name)];
+
+    /// <summary>
+    /// Binds one declaration's lexer-issued coordinates to the original decoded source buffer
+    /// supplied to <see cref="Build(string)"/>.
+    /// </summary>
+    /// <returns>
+    /// Exact zero-based UTF-16 spans and one-based physical line ranges, or
+    /// <see langword="null"/> when the declaration is unvouched or this index was built from
+    /// pre-split lines that do not identify an original buffer.
+    /// </returns>
+    public MemberTextParts? GetMemberTextParts(DeclarationSpan declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        if (!Declarations.Any(candidate => ReferenceEquals(candidate, declaration)))
+        {
+            throw new ArgumentException(
+                "The declaration must belong to this declaration index.",
+                nameof(declaration));
+        }
+
+        if (sourceLineStarts.IsDefaultOrEmpty
+            || declaration.Kind is DeclarationKind.Namespace
+                or DeclarationKind.Class
+                or DeclarationKind.Struct
+                or DeclarationKind.Interface
+                or DeclarationKind.Record
+                or DeclarationKind.Enum
+                or DeclarationKind.Delegate
+            || declaration.TextCoordinates is not { IsKnown: true } coordinates)
+        {
+            return null;
+        }
+
+        MemberTextPart Convert(SourceTextRange range)
+        {
+            int start = sourceLineStarts[range.Start.Line] + range.Start.Column;
+            int end = sourceLineStarts[range.End.Line] + range.End.Column;
+            return new MemberTextPart(start, end - start, range.Lines);
+        }
+
+        var signature = Convert(coordinates.Signature);
+        var documentation = coordinates.XmlDocumentation.Select(Convert).ToImmutableArray();
+        var attributes = coordinates.Attributes.Select(Convert).ToImmutableArray();
+        int memberStart = signature.Start;
+        int memberStartLine = coordinates.Signature.Start.Line + 1;
+        foreach (var part in documentation.Concat(attributes))
+        {
+            if (part.Start >= memberStart)
+                continue;
+            memberStart = part.Start;
+            memberStartLine = part.Lines.StartLine;
+        }
+
+        int memberEnd =
+            sourceLineStarts[coordinates.TerminalEnd.Line] + coordinates.TerminalEnd.Column;
+        var member = new MemberTextPart(
+            memberStart,
+            memberEnd - memberStart,
+            new LineRange(memberStartLine, coordinates.TerminalEnd.Line + 1));
+
+        return new MemberTextParts(
+            member,
+            documentation,
+            attributes,
+            signature,
+            coordinates.Body is { } body ? Convert(body) : null);
+    }
 
     /// <summary>The declaration enclosing <paramref name="span"/>, or null at file scope.</summary>
     public DeclarationSpan? ParentOf(DeclarationSpan span) =>

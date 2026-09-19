@@ -76,6 +76,10 @@ public sealed class LibraryBodyAnalysisExecution
                 Receipt,
                 analysis,
                 _moduleName);
+        Optimization = new(
+            Receipt,
+            _moduleName,
+            analysis);
     }
 
     /// <summary>
@@ -91,6 +95,9 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryImplementationProfileAnalysisResult
         ImplementationProfiles { get; }
 
+    /// <summary>Focused optimization-opportunity result.</summary>
+    public LibraryOptimizationAnalysisResult Optimization { get; }
+
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
     /// consumers that have not yet migrated to focused results.
@@ -102,7 +109,8 @@ public sealed class LibraryBodyAnalysisExecution
             _moduleName,
             _analysis,
             Receipt.Features,
-            Receipt.HasFullMethodEvidenceScope);
+            Receipt.HasFullMethodEvidenceScope,
+            Optimization);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
