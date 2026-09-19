@@ -15,9 +15,9 @@ using ActivationResult =
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationRequest,
         DotnetInspect.Web.BrowserPreparedWorkspaceActivation,
         DotnetInspector.Queries.Definitions.CompleteRestorationFailure,
-        DotnetInspect.Web.BrowserRetainedWorkspaceInstallation,
+        DotnetInspect.Web.BrowserRetainedWorkspacePosting,
         DotnetInspect.Web.BrowserRetainedWorkspaceActivationRejection,
-        DotnetInspect.Web.BrowserRetainedWorkspaceNonInstallResult>;
+        DotnetInspect.Web.BrowserRetainedWorkspaceNonPostingResult>;
 using Descriptor = DotnetInspect.Web.BrowserSpotlightDestinationDescriptor<
     DotnetInspect.Web.BrowserSpotlightExternalPackageWorkspaceRequest,
     DotnetInspect.Web.TestNavigationAction,
@@ -70,21 +70,21 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             Assert.Fail(failed.Result.Message);
         var published = Assert.IsType<ActivationResult.Published>(result);
 
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             published.Publication;
-        Assert.Equal("external", installation.RetainedDefinitionId);
+        Assert.Equal("external", posting.RetainedDefinitionId);
         Assert.Same(
             external.Activation.RestorationRequest,
-            installation.RestorationRequest);
+            posting.RestorationRequest);
         Assert.IsType<CompleteRestorationProjection.NonProjectable>(
-            installation.Projection);
-        Assert.Null(installation.CanonicalPacket);
-        Assert.Same(installation, owner.Active);
-        Assert.NotNull(installation.Predecessor);
+            posting.Projection);
+        Assert.Null(posting.CanonicalPacket);
+        Assert.Same(posting, owner.Active);
+        Assert.NotNull(posting.Predecessor);
         var settled = Assert.IsType<
             BrowserRetainedWorkspaceSettlementResult.Settled>(
                 await owner.ObserveSettlementAsync(
-                    installation.Predecessor.SettlementId,
+                    posting.Predecessor.SettlementId,
                     TestContext.Current.CancellationToken));
         Assert.True(settled.Settlement.Succeeded);
 
@@ -107,10 +107,10 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             curated.TraversalTargetPolicy,
             operation.Definition.Plan.TraversalTargetPolicy);
         NavigationConsumerPackageDescriptor navigationPackage =
-            Assert.Single(installation.Navigation.Snapshot.Packages);
+            Assert.Single(posting.Navigation.Snapshot.Packages);
         Assert.Equal(
             navigationPackage.Subject.Id,
-            installation.Navigation.Snapshot.ActivePackage);
+            posting.Navigation.Snapshot.ActivePackage);
         Assert.Equal(
             ExternalPackageId.ToLowerInvariant(),
             navigationPackage.PackageId);
@@ -156,7 +156,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         };
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation sourceInstallation =
+        BrowserRetainedWorkspacePosting sourcePosting =
             await ActivateSourceAsync(owner);
         BrowserSpotlightExternalPackageWorkspaceRequest external =
             ExternalRequest(curated);
@@ -188,9 +188,9 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         Assert.Equal(
             BrowserSpotlightActivationStaleReason.RegistrationRevision,
             reason.Reason);
-        Assert.True(stale.NonInstall.Settlement!.Succeeded);
-        Assert.Null(stale.NonInstall.Failure);
-        Assert.Same(sourceInstallation, owner.Active);
+        Assert.True(stale.NonPosting.Settlement!.Succeeded);
+        Assert.Null(stale.NonPosting.Failure);
+        Assert.Same(sourcePosting, owner.Active);
         Assert.Equal(1, owner.Capacity.Charged);
     }
 
@@ -200,7 +200,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
         CompleteRestorationExecutionOptions options = await OptionsAsync();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation sourceInstallation =
+        BrowserRetainedWorkspacePosting sourcePosting =
             await ActivateSourceAsync(owner);
         BrowserSpotlightExternalPackageWorkspaceRequest external =
             ExternalRequest(EcosystemPackCatalog.CreatePlatformWorkspacePlan());
@@ -223,10 +223,10 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             BrowserSpotlightFreshWorkspaceBlock<
                 BrowserRetainedWorkspaceActivationRejection>.Host>(
                     cancelled.Reason);
-        Assert.True(cancelled.NonInstall.Settlement!.Succeeded);
-        Assert.Null(cancelled.NonInstall.Failure);
+        Assert.True(cancelled.NonPosting.Settlement!.Succeeded);
+        Assert.Null(cancelled.NonPosting.Failure);
         Assert.False(cancelled.Activation.IsPending);
-        Assert.Same(sourceInstallation, owner.Active);
+        Assert.Same(sourcePosting, owner.Active);
         Assert.Equal(1, owner.Capacity.Charged);
     }
 
@@ -301,7 +301,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
             Assert.IsType<WorkspaceRegistrationReadResult.Available>(
                 source.Workspace.GetRegistrationSnapshot()).Revision);
 
-    static async Task<BrowserRetainedWorkspaceInstallation>
+    static async Task<BrowserRetainedWorkspacePosting>
         ActivateSourceAsync(
             BrowserRetainedWorkspaceActivationOwner owner)
     {
@@ -314,7 +314,7 @@ public sealed class BrowserSpotlightRetainedWorkspaceActivationTests
                         "/workspace/source",
                         Packet()),
                     TestContext.Current.CancellationToken));
-        return activated.Installation;
+        return activated.Posting;
     }
 
     static async ValueTask<WorkspaceRealizationOperationLease> EnterAsync(

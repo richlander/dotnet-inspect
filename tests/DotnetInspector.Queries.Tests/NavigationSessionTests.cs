@@ -34,7 +34,7 @@ public sealed partial class NavigationSessionTests
         NavigationConsumerResult result = await fixture.Session.ExecuteAsync(rows[1].Action!, TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Applied, result.Outcome.Kind);
         Assert.Same(fixture.Scope.Packages[1].Occurrence, fixture.LastRequest!.Occurrence);
-        Assert.Same(fixture.Scope.Packages[1].Occurrence, fixture.Session.InstalledSnapshot.ActiveOccurrence);
+        Assert.Same(fixture.Scope.Packages[1].Occurrence, fixture.Session.CurrentSnapshot.ActiveOccurrence);
         Assert.Equal(StructuralSubjectKind.Library, result.Snapshot.ActiveSubject.Kind);
         Assert.True(result.Snapshot.Packages[1].IsCurrent);
         Assert.Null(result.Snapshot.Packages[1].Action);
@@ -67,11 +67,11 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
-    public async Task ExactLens_SameEffectiveLensInstallsExactBasisOnce()
+    public async Task ExactLens_SameEffectiveLensPostsExactBasisOnce()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
-        NavigationLensIdentity lens = session.InstalledSnapshot.LensOutcome.EffectiveLens!;
+        NavigationLensIdentity lens = session.CurrentSnapshot.LensOutcome.EffectiveLens!;
         NavigationConsumerResult first = await session.ActivateLensAsync(lens, TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Applied, first.Outcome.Kind);
         Assert.Equal(NavigationLensBasisKind.ExactRequest, first.Snapshot.LensOutcome.Basis);
@@ -87,7 +87,7 @@ public sealed partial class NavigationSessionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ExactNonSuccess_InstallsEvidenceAndRefreshPreservesExactRequest(bool failed)
+    public async Task ExactNonSuccess_PostsEvidenceAndRefreshPreservesExactRequest(bool failed)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
@@ -104,7 +104,7 @@ public sealed partial class NavigationSessionTests
         Assert.NotEqual(session.Initialization.Authority!.Revision, result.Authority!.Revision);
         Assert.Null(result.Snapshot.Lenses.First(row => row.Facet.Id == "library.metadata").Action);
         NavigationLensIdentity exact = ((NavigationLensEvaluationBasis.ExactRequest)
-            session.InstalledSnapshot.LensOutcome.Basis).Request;
+            session.CurrentSnapshot.LensOutcome.Basis).Request;
         NavigationConsumerResult unchanged = await session.ActivateLensAsync(exact, TestContext.Current.CancellationToken);
         Assert.Equal(result.Authority.Revision, unchanged.Authority!.Revision);
         Assert.Same(result.Snapshot, unchanged.Snapshot);
@@ -126,7 +126,7 @@ public sealed partial class NavigationSessionTests
         fixture.Prepare = _ => ValueTask.FromResult<NavigationPreparation>(
             new NavigationPreparation.Unavailable("not ready"));
         NavigationConsumerResult unavailable = await session.ExecuteAsync(action, TestContext.Current.CancellationToken);
-        NavigationWorkspaceSnapshot installed = session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = session.CurrentSnapshot;
         fixture.Prepare = _ => throw new InvalidOperationException("No provider or Registry work is allowed.");
         foreach ((NavigationAction invalid, NavigationRejectionKind expected) in new[]
         {
@@ -141,7 +141,7 @@ public sealed partial class NavigationSessionTests
             NavigationConsumerResult rejected = await session.ExecuteAsync(invalid, TestContext.Current.CancellationToken);
             Assert.Equal(NavigationOutcomeKind.Rejected, rejected.Outcome.Kind);
             Assert.Equal(expected, rejected.Outcome.Rejection);
-            Assert.Same(installed, session.InstalledSnapshot);
+            Assert.Same(current, session.CurrentSnapshot);
             Assert.Same(unavailable.Snapshot, rejected.Snapshot);
             Assert.Equal(unavailable.Authority!.Revision, rejected.Authority!.Revision);
             Assert.True(session.ValidateAuthority(rejected.Authority));
@@ -168,11 +168,11 @@ public sealed partial class NavigationSessionTests
         await using Fixture fixture = await Fixture.CreateAsync();
         await using Fixture foreign = await Fixture.CreateAsync();
         fixture.Prepare = _ => throw new InvalidOperationException("Invalid subject must not gather.");
-        NavigationWorkspaceSnapshot installed = fixture.Session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = fixture.Session.CurrentSnapshot;
         foreach (StructuralSubjectIdentity subject in new[]
         {
-            fixture.Session.InstalledSnapshot.Types[0].Row.Subject,
-            foreign.Session.InstalledSnapshot.Types[0].Row.Subject,
+            fixture.Session.CurrentSnapshot.Types[0].Row.Subject,
+            foreign.Session.CurrentSnapshot.Types[0].Row.Subject,
         })
         {
             NavigationConsumerResult result = await fixture.Session.ActivateLensAsync(
@@ -181,7 +181,7 @@ public sealed partial class NavigationSessionTests
             Assert.Equal("type.api", result.Outcome.Request!.Lens!.Facet);
             Assert.Equal(StructuralSubjectKind.Type, result.Outcome.Request.Destination.Kind);
             Assert.Equal(fixture.Session.Snapshot.ActiveSubject.Id, result.Outcome.Request.Source.Id);
-            Assert.Same(installed, fixture.Session.InstalledSnapshot);
+            Assert.Same(current, fixture.Session.CurrentSnapshot);
         }
     }
 
@@ -214,20 +214,20 @@ public sealed partial class NavigationSessionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task DescendantNonSuccess_InstallsNeitherHalf(bool failed)
+    public async Task DescendantNonSuccess_PostsNeitherHalf(bool failed)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
         NavigationAction action = session.Snapshot.Types[0].DescendantLenses
             .First(item => item.Facet.Id == "type.compare").Action!;
-        NavigationWorkspaceSnapshot installed = session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = session.CurrentSnapshot;
         ViewFacetAvailability unavailable = failed
             ? new ViewFacetAvailability.Failed("compare failed", new Diagnostic())
             : new ViewFacetAvailability.Unavailable(ViewFacetUnavailableReason.CapabilityAbsent("compare absent"));
         fixture.Override = id => id.Value == "type.compare" ? unavailable : null;
         NavigationConsumerResult result = await session.ExecuteAsync(action, TestContext.Current.CancellationToken);
         Assert.Equal(failed ? NavigationOutcomeKind.Failed : NavigationOutcomeKind.Unavailable, result.Outcome.Kind);
-        Assert.Same(installed, session.InstalledSnapshot);
+        Assert.Same(current, session.CurrentSnapshot);
         Assert.NotEqual(session.Initialization.Snapshot.Generation, result.Snapshot.Generation);
         Assert.Equal(session.Initialization.Snapshot.ActiveSubject, result.Snapshot.ActiveSubject);
         Assert.Equal(session.Initialization.Snapshot.LensOutcome, result.Snapshot.LensOutcome);
@@ -262,18 +262,18 @@ public sealed partial class NavigationSessionTests
         Task<NavigationConsumerResult> older = session.ExecuteAsync(old, TestContext.Current.CancellationToken).AsTask();
         Assert.False(session.ValidateAuthority(session.Initialization.Authority));
         NavigationConsumerResult newer = await session.ExecuteAsync(latest, TestContext.Current.CancellationToken);
-        NavigationWorkspaceSnapshot installed = session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = session.CurrentSnapshot;
         pending.SetResult(fixture.Ready(fixture.LastRequest!));
         NavigationConsumerResult superseded = await older.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Superseded, superseded.Outcome.Kind);
         Assert.Null(superseded.Authority);
-        Assert.Same(installed, session.InstalledSnapshot);
+        Assert.Same(current, session.CurrentSnapshot);
         Assert.Same(newer.Snapshot, superseded.Snapshot);
         Assert.True(session.ValidateAuthority(newer.Authority));
     }
 
     [Fact]
-    public async Task Maintenance_RequestOrderAndUnconsumedAuthorityBlockInstallation()
+    public async Task Maintenance_RequestOrderAndUnconsumedAuthorityBlockPosting()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
@@ -311,7 +311,7 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
-    public async Task Maintenance_InvalidatedByExplicitIntentRegathersSameRequestFromInstalledState()
+    public async Task Maintenance_InvalidatedByExplicitIntentRegathersSameRequestFromPostedState()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
@@ -359,13 +359,13 @@ public sealed partial class NavigationSessionTests
         })
         {
             Assert.False(session.ValidateAuthority(wrong));
-            Assert.Equal(NavigationAuthorityResult.InvalidAuthority, session.RecordConsumerInstallation(wrong));
+            Assert.Equal(NavigationAuthorityResult.InvalidAuthority, session.RecordConsumerPosting(wrong));
             Assert.Equal(NavigationAuthorityResult.InvalidAuthority, session.Acknowledge(wrong));
             Assert.Equal(NavigationAuthorityResult.InvalidAuthority, session.Abandon(wrong));
         }
         Assert.True(session.ValidateAuthority(authority));
-        Assert.Equal(NavigationAuthorityResult.InstallationRequired, session.Acknowledge(authority));
-        Assert.Equal(NavigationAuthorityResult.Accepted, session.RecordConsumerInstallation(authority));
+        Assert.Equal(NavigationAuthorityResult.PostingRequired, session.Acknowledge(authority));
+        Assert.Equal(NavigationAuthorityResult.Accepted, session.RecordConsumerPosting(authority));
         Assert.True(session.ValidateAuthority(authority));
         Assert.Equal(NavigationAuthorityResult.Accepted, session.Acknowledge(authority));
         Assert.False(session.ValidateAuthority(authority));
@@ -375,34 +375,34 @@ public sealed partial class NavigationSessionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task InstallationAndAbandonment_DoNotAdvanceReceipt(bool install)
+    public async Task PostingAndAbandonment_DoNotAdvanceReceipt(bool post)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
         fixture.Acknowledge(session.Initialization);
         NavigationConsumerResult applied = await session.ExecuteAsync(session.Snapshot.Types[0].Navigation.Action!, TestContext.Current.CancellationToken);
-        if (install)
-            Assert.Equal(NavigationAuthorityResult.Accepted, session.RecordConsumerInstallation(applied.Authority!));
+        if (post)
+            Assert.Equal(NavigationAuthorityResult.Accepted, session.RecordConsumerPosting(applied.Authority!));
         Assert.Equal(NavigationAuthorityResult.Accepted, session.Abandon(applied.Authority!));
         NavigationConsumerResult rejected = await session.ExecuteAsync(
             applied.Snapshot.Hierarchy[0].Action! with { Id = "unknown" }, TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Rejected, rejected.Outcome.Kind);
         Assert.Equal(NavigationSynchronizationDisposition.SynchronizationRequired, rejected.Synchronization);
         Assert.Same(applied.Snapshot, rejected.Snapshot);
-        Assert.Equal(NavigationAuthorityResult.InstallationRequired, session.Acknowledge(rejected.Authority!));
+        Assert.Equal(NavigationAuthorityResult.PostingRequired, session.Acknowledge(rejected.Authority!));
         fixture.Acknowledge(rejected);
         NavigationConsumerResult again = await session.ExecuteAsync(
             rejected.Snapshot.Hierarchy[0].Action! with { Id = "unknown" }, TestContext.Current.CancellationToken);
         Assert.Equal(NavigationOutcomeKind.Rejected, again.Outcome.Kind);
         Assert.Equal(NavigationSynchronizationDisposition.Current, again.Synchronization);
-        Assert.Equal(NavigationAuthorityResult.InstallationRequired, session.Acknowledge(again.Authority!));
+        Assert.Equal(NavigationAuthorityResult.PostingRequired, session.Acknowledge(again.Authority!));
     }
 
     [Theory]
     [InlineData(NavigationOutcomeKind.Unavailable)]
     [InlineData(NavigationOutcomeKind.Failed)]
     [InlineData(NavigationOutcomeKind.Aborted)]
-    public async Task SynchronizationDisposition_IsIndependentOfNonInstallingSemanticOutcome(NavigationOutcomeKind kind)
+    public async Task SynchronizationDisposition_IsIndependentOfNonReplacingSemanticOutcome(NavigationOutcomeKind kind)
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
@@ -424,7 +424,7 @@ public sealed partial class NavigationSessionTests
         Assert.Equal(result.Authority!.Revision, current.Authority!.Revision);
         fixture.Acknowledge(current);
         NavigationConsumerResult noProjectionChange = await session.ActivateLensAsync(
-            session.InstalledSnapshot.LensOutcome.EffectiveLens!, TestContext.Current.CancellationToken);
+            session.CurrentSnapshot.LensOutcome.EffectiveLens!, TestContext.Current.CancellationToken);
         Assert.Equal(kind, noProjectionChange.Outcome.Kind);
         Assert.Equal(NavigationSynchronizationDisposition.Current, noProjectionChange.Synchronization);
     }
@@ -444,7 +444,7 @@ public sealed partial class NavigationSessionTests
             Assert.Same(applied.Snapshot, sync.Snapshot);
             Assert.Equal(applied.Authority!.Revision, sync.Authority!.Revision);
             Assert.NotEqual(applied.Authority.Epoch, sync.Authority.Epoch);
-            session.RecordConsumerInstallation(sync.Authority);
+            session.RecordConsumerPosting(sync.Authority);
             if (remount == 2)
                 Assert.Equal(NavigationAuthorityResult.Accepted, session.Acknowledge(sync.Authority));
             else
@@ -480,7 +480,7 @@ public sealed partial class NavigationSessionTests
     }
 
     [Fact]
-    public async Task Reconciliation_UsesInstalledContextAndDoesNotPromoteAnAncestor()
+    public async Task Reconciliation_UsesPostedContextAndDoesNotPromoteAnAncestor()
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
@@ -524,7 +524,7 @@ public sealed partial class NavigationSessionTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationTestHost session = fixture.Session;
-        NavigationWorkspaceSnapshot installed = session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = session.CurrentSnapshot;
         foreach ((string id, NavigationResolutionKind kind) in new[]
         {
             ("library.unknown", NavigationResolutionKind.Unknown),
@@ -532,11 +532,11 @@ public sealed partial class NavigationSessionTests
         })
         {
             NavigationConsumerResult result = await session.ActivateLensAsync(
-                new(installed.ActiveSubject, new ViewFacetId(id)), TestContext.Current.CancellationToken);
+                new(current.ActiveSubject, new ViewFacetId(id)), TestContext.Current.CancellationToken);
             Assert.Equal(NavigationOutcomeKind.Rejected, result.Outcome.Kind);
             Assert.Equal(kind, result.Outcome.Resolution!.Kind);
             Assert.Equal(id, result.Outcome.Request!.Lens!.Facet);
-            Assert.Same(installed, session.InstalledSnapshot);
+            Assert.Same(current, session.CurrentSnapshot);
             Assert.Equal(session.Initialization.Authority!.Revision, result.Authority!.Revision);
         }
     }
@@ -546,12 +546,12 @@ public sealed partial class NavigationSessionTests
     {
         await using Fixture fixture = await Fixture.CreateAsync();
         await using Fixture foreign = await Fixture.CreateAsync();
-        NavigationWorkspaceSnapshot installed = fixture.Session.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = fixture.Session.CurrentSnapshot;
         Assert.Throws<ArgumentException>(() => NavigationWorkspaceSnapshotEvaluation.WithSubject(
-            installed, foreign.Session.InstalledSnapshot.ActiveSubject, InspectionViewFacetCatalog.Registry, ThrowingAvailability));
-        NavigationLensOutcome foreignLens = foreign.Session.InstalledSnapshot.LensOutcome;
+            current, foreign.Session.CurrentSnapshot.ActiveSubject, InspectionViewFacetCatalog.Registry, ThrowingAvailability));
+        NavigationLensOutcome foreignLens = foreign.Session.CurrentSnapshot.LensOutcome;
         Assert.Throws<ArgumentException>(() => NavigationWorkspaceSnapshotEvaluation.WithLensOutcome(
-            installed, foreignLens, InspectionViewFacetCatalog.Registry, ThrowingAvailability));
+            current, foreignLens, InspectionViewFacetCatalog.Registry, ThrowingAvailability));
 
         static IViewFacetAvailabilityFacts ThrowingAvailability(
             StructuralSubjectIdentity subject, NavigationSubjectInventory? inventory) =>
@@ -863,7 +863,7 @@ public sealed partial class NavigationSessionTests
 
         public void Acknowledge(NavigationConsumerResult result)
         {
-            Assert.Equal(NavigationAuthorityResult.Accepted, Session.RecordConsumerInstallation(result.Authority!));
+            Assert.Equal(NavigationAuthorityResult.Accepted, Session.RecordConsumerPosting(result.Authority!));
             Assert.Equal(NavigationAuthorityResult.Accepted, Session.Acknowledge(result.Authority!));
         }
 
