@@ -127,7 +127,6 @@ public static class TypeCommand
             Discover = options.Discover,
             Tree = options.Tree,
             ShapeOutput = options.ShapeOutput,
-            ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema,
             Count = options.Count,
             Rows = options.Rows,
@@ -361,7 +360,7 @@ public static class TypeCommand
                         List<Tip> tips =
                         [
                             new(MemberCommand.Name, $"{simpleName} {sourceFlag}", "inspect type members"),
-                            new(Name, $"{sourceFlag} --shape", "view type shape"),
+                            new(Name, $"{sourceFlag} --tree", "view type tree"),
                             new(Name, $"-t \"*Writer*\" {sourceFlag}", "filter types by pattern"),
                         ];
 
@@ -520,24 +519,11 @@ public static class TypeCommand
                         return 1;
                     }
 
-                    // Default --shape on for single-type view when the user is not running a
-                    // section/projection query and did not explicitly choose another renderer.
+                    // Default to the tree renderer for a single Type when the user is not running
+                    // a section/projection query and did not explicitly choose another renderer.
                     // Verbosity grows the tree view; --markdown opts into the section/document view.
-                    if (!effectiveOptions.ShapeExplicitlySet && ShouldDefaultToShape(effectiveOptions))
+                    if (ShouldDefaultToShape(effectiveOptions))
                         effectiveOptions = effectiveOptions with { ShapeOutput = true };
-
-                    // Explicit --shape cannot honor a section/projection query; warn rather than
-                    // silently dropping the selection.
-                    bool shapeProjectionWillReject =
-                        LensProjection.IsRequested(effectiveOptions)
-                        || effectiveOptions.JsonOutput
-                            && (effectiveOptions.Fields is { Length: > 0 }
-                                || effectiveOptions.Columns is { Length: > 0 });
-                    if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false }
-                        && !shapeProjectionWillReject)
-                    {
-                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields or --where Kind=...; selection was ignored.");
-                    }
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -657,7 +643,7 @@ public static class TypeCommand
                         if (overloadGroups.Any(g => g.Count() > 1))
                             tips.Add(new(MemberCommand.Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
 
-                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                        tips.Add(new(Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
                         tips.Add(new(MemberCommand.Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
                         if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
@@ -963,8 +949,8 @@ public static class TypeCommand
                             "inspect type members"),
                         new(
                             Name,
-                            $"{sourceFlag} --shape",
-                            "view type shape"),
+                            $"{sourceFlag} --tree",
+                            "view type tree"),
                         new(
                             Name,
                             $"-t \"*Writer*\" {sourceFlag}",
@@ -1775,7 +1761,6 @@ public static class TypeCommand
             PlatformPrefixQuery = null,
             TypeFilter = null,
             ShapeOutput = false,
-            ShapeExplicitlySet = false,
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
@@ -2066,7 +2051,6 @@ public static class TypeCommand
         {
             TypeFilter = null,
             ShapeOutput = false,
-            ShapeExplicitlySet = false,
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 

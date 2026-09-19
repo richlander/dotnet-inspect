@@ -10,6 +10,38 @@ namespace DotnetInspector.PlatformHouse.Packages;
 public static class PackagePlatformAssemblyReferenceResolver
 {
     /// <summary>
+    /// Prepares one successful package-backed result for source-neutral policy
+    /// settlement.
+    /// </summary>
+    public static PlatformAssemblyReferenceSourceAttempt PrepareAttempt(
+        PlatformHouseRequest request,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        PlatformHouseCandidateIdentity candidate)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(candidate);
+        return new PlatformAssemblyReferenceSourceAttempt.Succeeded(
+            candidate,
+            ReferenceItem(request, reference));
+    }
+
+    /// <summary>
+    /// Prepares one terminal package-backed result for source-neutral policy
+    /// settlement.
+    /// </summary>
+    public static PlatformAssemblyReferenceSourceAttempt PrepareAttempt(
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.NotSucceeded reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return new PlatformAssemblyReferenceSourceAttempt.NotSucceeded(
+            reference.Contribution,
+            RejectionKind(reference));
+    }
+
+    /// <summary>
     /// Projects either a successful package reference snapshot or its
     /// resource-free source-terminal result.
     /// </summary>
@@ -52,6 +84,17 @@ public static class PackagePlatformAssemblyReferenceResolver
         ArgumentNullException.ThrowIfNull(consumedWork);
         request.CancellationToken.ThrowIfCancellationRequested();
 
+        return PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+            request,
+            ReferenceItem(request, reference),
+            consumedWork);
+    }
+
+    static PlatformLibraryArtifactMaterializationItem ReferenceItem(
+        PlatformHouseRequest request,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference)
+    {
         AssemblyReferenceIdentity? requestedIdentity =
             request.Operation
                 is PlatformHouseOperation.ResolveAssemblyReference
@@ -77,14 +120,9 @@ public static class PackagePlatformAssemblyReferenceResolver
                 nameof(reference));
         }
 
-        PlatformLibraryArtifactMaterializationItem item =
-            PackagePlatformLibraryMaterializer.ReferenceItem(
-                reference,
-                library);
-        return PlatformHouseAssemblyReferenceResolver.ResolveAsync(
-            request,
-            item,
-            consumedWork);
+        return PackagePlatformLibraryMaterializer.ReferenceItem(
+            reference,
+            library);
     }
 
     static PlatformHouseRejectionKind? RejectionKind(

@@ -240,6 +240,148 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
+        InstalledAspNetPopulation_PreservesRuntimeBindingSupport()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string runtimeAssembly =
+            typeof(JsonSerializer).Assembly.Location;
+        string aspNetAssembly =
+            typeof(InstalledPlatformLibraryMaterializerTests)
+                .Assembly.Location;
+        (string runtime, string aspNetCore) =
+            hive.CreateAspNetImplementationFrameworks(
+                runtimeAssembly,
+                aspNetAssembly);
+        hive.CopyAssembly(runtime, runtimeAssembly);
+        hive.CopyAssembly(aspNetCore, aspNetAssembly);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformFamilyTarget target = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation,
+            target);
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        PlatformHouseConsumedWork consumed = Consumed(
+            sourceOperations: 1,
+            assemblies: implementation.Value.Libraries.Count,
+            bytes: implementation.Value.Libraries.Sum(
+                static library => library.ContentLength));
+
+        var completed = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        consumed));
+
+        Assert.Equal(
+            [
+                PlatformPopulationMemberRole.Focus,
+                PlatformPopulationMemberRole.BindingSupport,
+            ],
+            completed.Population.Value.Members.Select(
+                static member => member.Role));
+        Assert.Equal(
+            [
+                PlatformFamily.AspNetCore,
+                PlatformFamily.DotNetRuntime,
+            ],
+            completed.Population.Value.Members.Select(
+                static member => member.Target.Family));
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        foreach (LibraryContentOwner owner
+            in completed.Population.Owners)
+        {
+            await owner.DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        InstalledAspNetPopulation_PreservesRolledRuntimeSupportTarget()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string runtimeAssembly =
+            typeof(JsonSerializer).Assembly.Location;
+        string aspNetAssembly =
+            typeof(InstalledPlatformLibraryMaterializerTests)
+                .Assembly.Location;
+        (string runtime, string aspNetCore) =
+            hive.CreateAspNetImplementationFrameworks(
+                runtimeAssembly,
+                aspNetAssembly,
+                runtimeVersion: "12.0.0",
+                runtimeReferenceVersion: "11.0.0",
+                rollForward: "Major");
+        hive.CopyAssembly(runtime, runtimeAssembly);
+        hive.CopyAssembly(aspNetCore, aspNetAssembly);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformFamilyTarget target = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation,
+            target);
+        var implementation = Assert.IsType<
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(request));
+        PlatformHouseConsumedWork consumed = Consumed(
+            sourceOperations: 1,
+            assemblies: implementation.Value.Libraries.Count,
+            bytes: implementation.Value.Libraries.Sum(
+                static library => library.ContentLength));
+
+        var completed = Assert.IsType<
+            InstalledPlatformPopulationMaterializationResult.Completed>(
+                await InstalledPlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        consumed));
+
+        PlatformPopulationMember support = Assert.Single(
+            completed.Population.Value.Members,
+            static member =>
+                member.Role
+                    == PlatformPopulationMemberRole.BindingSupport);
+        Assert.Equal(
+            PlatformTargetFramework.Parse("net12.0"),
+            support.Target.TargetFramework);
+        Assert.Equal(
+            PlatformVersion.Parse("12.0.0"),
+            support.Target.Version);
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        foreach (LibraryContentOwner owner
+            in completed.Population.Owners)
+        {
+            await owner.DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
         InstalledPairedPopulation_TransfersLosslessUnionAuthorities()
     {
         CancellationToken cancellationToken =
@@ -1160,7 +1302,8 @@ public sealed class InstalledPlatformLibraryMaterializerTests
     static PlatformHouseRequest PopulationRequest(
         InstalledPlatformHouseAdapter adapter,
         CancellationToken cancellationToken,
-        PlatformViewDemand view = PlatformViewDemand.Reference)
+        PlatformViewDemand view = PlatformViewDemand.Reference,
+        PlatformFamilyTarget? target = null)
     {
         var selections = new List<PlatformSourceSelection>();
         if (view is PlatformViewDemand.Reference
@@ -1189,7 +1332,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         new(
             PlatformHouseRequestIdentity.Create(
                 "installed-population"),
-            new PlatformTargetDemand.Exact(Target()),
+            new PlatformTargetDemand.Exact(target ?? Target()),
             new PlatformHouseRequestOrigin.Standalone(
                 PlatformStandaloneOperationIdentity.Create("test")),
             new PlatformHouseOperation.Realize(

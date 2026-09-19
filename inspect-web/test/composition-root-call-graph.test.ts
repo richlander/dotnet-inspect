@@ -987,7 +987,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /class="learn-section member-overview-intro">\s*\$\{documentationSummary\}[\s\S]*?class="signature-panel"/);
   assert.match(
     memberOverview,
-    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in the package XML documentation/);
+    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in compiled XML documentation/);
   assert.match(
     memberOverview,
     /aria-labelledby="member-declaration-title"[\s\S]*?\$\{copyDeclaration\}[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);

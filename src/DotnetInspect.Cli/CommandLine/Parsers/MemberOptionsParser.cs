@@ -153,14 +153,6 @@ public static class MemberOptionsParser
         error = GetMemberSelectorConflictError(members);
         if (error is not null)
             return true;
-        if (parseResult.GetResult(args.ShapeOption)
-            is { Implicit: false })
-        {
-            error = new OptionError(
-                "--shape is only valid for type targets.");
-            return true;
-        }
-
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
             options,
@@ -305,7 +297,6 @@ public static class MemberOptionsParser
         Option<string[]> CallerPackageOption,
         Option<string[]> RepoOption,
         Option<string?> AtOption,
-        Option<bool> ShapeOption,
         Option<string?> RouterDeferredTargetOption);
 
     /// <summary>
@@ -359,9 +350,15 @@ public static class MemberOptionsParser
         SharedOptions opts,
         MemberCommandArgs args)
     {
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
-                "Member Facts",
+                selectsCloneCandidateRows
+                    ? "Clone Candidates"
+                    : "Member Facts",
                 out RowSelectionIntent<string>? rowSelection,
                 out string? rowSelectionError))
         {
@@ -385,11 +382,6 @@ public static class MemberOptionsParser
         }
 
         bool routerDeferredTypeOrMember = deferredRouteValue is not null;
-        bool shapeExplicitlySet =
-            parseResult.GetResult(args.ShapeOption) is { Implicit: false };
-        if (shapeExplicitlySet && !routerDeferredTypeOrMember)
-            return new VersionError("--shape is only valid for type targets.");
-
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
         {
@@ -666,8 +658,6 @@ public static class MemberOptionsParser
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = shapeExplicitlySet,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -678,7 +668,13 @@ public static class MemberOptionsParser
             Rows = rowSelection is null
                 ? opts.ParseRows(parseResult)
                 : null,
-            FactsRowSelection = rowSelection,
+            FactsRowSelection = selectsCloneCandidateRows
+                ? null
+                : rowSelection,
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? rowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

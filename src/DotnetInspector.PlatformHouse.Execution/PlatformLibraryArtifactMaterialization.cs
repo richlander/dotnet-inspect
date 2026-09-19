@@ -76,6 +76,25 @@ public sealed class PlatformLibraryArtifactMaterializationItem
     internal ArtifactIdentity? ArtifactIdentity { get; set; }
 }
 
+/// <summary>
+/// One source-prepared assembly snapshot and its exact population membership.
+/// </summary>
+public sealed class PlatformPopulationLibraryArtifactMaterializationItem
+{
+    public PlatformPopulationLibraryArtifactMaterializationItem(
+        PlatformLibraryArtifactMaterializationItem library,
+        PlatformPopulationMemberAttribution attribution)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(attribution);
+        Library = library;
+        Attribution = attribution;
+    }
+
+    internal PlatformLibraryArtifactMaterializationItem Library { get; }
+    internal PlatformPopulationMemberAttribution Attribution { get; }
+}
+
 internal sealed class PlatformLibraryArtifactMaterializationPlan
 {
     private PlatformLibraryArtifactMaterializationPlan(

@@ -695,33 +695,6 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
-    public async Task TypeKindPredicate_ExplicitShapeWarnsThatSelectionIsIgnored()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        var result = await ConsoleCapture.RunAsync(() =>
-            root.Parse(
-                [
-                    "type",
-                    typeof(BodyShapeFixture).FullName!,
-                    "--library",
-                    FixturePath,
-                    "--where",
-                    "Kind=ObjectCreationExpression",
-                    "--shape",
-                ])
-                .InvokeAsync());
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Contains(
-            "--where Kind=...",
-            result.Error,
-            StringComparison.Ordinal);
-        Assert.Contains("├─", result.Output, StringComparison.Ordinal);
-        Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task TypeKindPredicate_QuietVerbosityFailsVisibly()
     {
         var root = CommandLineBuilder.CreateRootCommand();

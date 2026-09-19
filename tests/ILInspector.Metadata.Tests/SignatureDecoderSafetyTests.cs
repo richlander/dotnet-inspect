@@ -615,6 +615,7 @@ public class SignatureDecoderSafetyTests
     public void GuardedGateways_RejectEveryUnsafeSignatureKind()
     {
         MethodDefinitionHandle methodHandle = default;
+        MemberReferenceHandle memberRefHandle = default;
         FieldDefinitionHandle fieldHandle = default;
         PropertyDefinitionHandle propertyHandle = default;
         MethodSpecificationHandle methodSpecHandle = default;
@@ -628,6 +629,13 @@ public class SignatureDecoderSafetyTests
                 metadata.GetOrAddBlob(DeepMethodSignature()),
                 bodyOffset: -1,
                 parameterList: MetadataTokens.ParameterHandle(1));
+
+            var memberRefParent = metadata.AddModuleReference(
+                metadata.GetOrAddString("M"));
+            memberRefHandle = metadata.AddMemberReference(
+                memberRefParent,
+                metadata.GetOrAddString("MR"),
+                metadata.GetOrAddBlob(DeepMethodSignature()));
 
             var fieldSignature = new BlobBuilder();
             fieldSignature.WriteByte(0x06); // FIELD
@@ -669,6 +677,12 @@ public class SignatureDecoderSafetyTests
                 context: null),
             SignatureDecodeRejectionKind.UnsafeStructure);
         AssertRejected(
+            GuardedSignatureText.MemberRefMethodText(
+                reader,
+                reader.GetMemberReference(memberRefHandle),
+                context: null),
+            SignatureDecodeRejectionKind.UnsafeStructure);
+        AssertRejected(
             GuardedSignatureText.FieldText(
                 reader,
                 reader.GetFieldDefinition(fieldHandle),
@@ -689,6 +703,33 @@ public class SignatureDecoderSafetyTests
         AssertRejected(
             GuardedSignatureText.TypeSpecText(reader, typeSpecHandle, context: null),
             SignatureDecodeRejectionKind.UnsafeStructure);
+    }
+
+    [Fact]
+    public void MemberRefMethodGateway_DecodesValidSignature()
+    {
+        MemberReferenceHandle memberRefHandle = default;
+        var reader = BuildAssembly(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00); // default method signature
+            signature.WriteByte(0x00); // zero parameters
+            signature.WriteByte(0x08); // I4 return type
+            var parent = metadata.AddModuleReference(metadata.GetOrAddString("M"));
+            memberRefHandle = metadata.AddMemberReference(
+                parent,
+                metadata.GetOrAddString("MR"),
+                metadata.GetOrAddBlob(signature));
+        });
+
+        var decoded = Assert.IsType<SignatureDecodeResult<MethodSignature<string>>.Decoded>(
+            GuardedSignatureText.MemberRefMethodText(
+                reader,
+                reader.GetMemberReference(memberRefHandle),
+                context: null));
+
+        Assert.Equal("int", decoded.Value.ReturnType);
+        Assert.Empty(decoded.Value.ParameterTypes);
     }
 
     [Fact]

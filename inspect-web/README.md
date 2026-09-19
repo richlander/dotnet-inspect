@@ -2165,12 +2165,12 @@ The focused Type and Member Source state contract is
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
 publication, loading/error/result transitions, annotated selection reset,
-runtime documentation suppression, and focus-preserving completion.
+package/platform documentation routing, and focus-preserving completion.
 `dotnet-inspect.ts` validates the selected overload, constructs exact engine
 requests, and retains mutable state, rendering, and annotated-source
 interaction handlers. `test/member-detail-inspection.test.ts` gates current and
-stale completion, cached failures, runtime documentation, exact request
-coordinates, cross-surface invalidation, and focus restoration;
+stale completion, cached failures, platform reference-pack documentation, exact
+request coordinates, cross-surface invalidation, and focus restoration;
 `test/composition-root-member-source.test.ts` gates composition-root wiring.
 
 `src/call-graph-inspection.ts` owns member call-graph request coordination:
@@ -2255,7 +2255,8 @@ data bar.
 `test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
 `test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
 history marker, and static hosting inventory. The Diagnostics cases in
-`browser/library-hierarchy.spec.ts` exercise Settings and data-bar routing,
+`browser/library-hierarchy.home-diagnostics.spec.ts` exercise Settings and
+data-bar routing,
 Spotlight absence, destination focus, Back restoration, loading and failure
 states, package-cache failure disclosure, and the 390-pixel vertical layout
 against the built app.
@@ -2280,13 +2281,13 @@ public types remain in the Package inventory and support Library inspectors.
 The platform Library omits References until a platform reference-query
 transport is available; the existing platform Analysis limitation stays visible.
 
-`browser/library-hierarchy.spec.ts` exercises the built application and its real
-navigation bindings with deterministic facade responses: the four-level
-hierarchy, exact-library requests, empty-library refresh/history, and a
-single-library neighboring case. It also covers opening another package,
+The `browser/library-hierarchy.*.spec.ts` family exercises the built application
+and its real navigation bindings with deterministic facade responses: the
+four-level hierarchy, exact-library requests, empty-library refresh/history,
+and a single-library neighboring case. It also covers opening another package,
 Search switches between retained packages with distinct Library IDs, and
 cross-Library Type commands, including history and refresh.
-Run `npm run build` before this browser test.
+Run `npm run build` before these browser tests.
 The engine boundary tests separately exercise product queries and the share
 codec; facade responses in the browser test are not engine evidence.
 
