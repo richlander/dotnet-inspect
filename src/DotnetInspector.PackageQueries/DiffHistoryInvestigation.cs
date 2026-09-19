@@ -195,11 +195,13 @@ public sealed record DiffHistoryProbeLearning
                 "Changed-interval learning requires at least one interval.",
                 nameof(changedIntervals));
         }
-        if (kind != DiffHistoryProbeLearningKind.ChangedIntervals
+        if (kind is not (
+                DiffHistoryProbeLearningKind.ChangedIntervals
+                or DiffHistoryProbeLearningKind.BlockedByFailure)
             && !ChangedIntervals.IsEmpty)
         {
             throw new ArgumentException(
-                "Only changed-interval learning can retain intervals.",
+                "Only changed or blocked learning can retain intervals.",
                 nameof(changedIntervals));
         }
 
@@ -342,6 +344,7 @@ public abstract record DiffHistoryTerminalOutcome
     {
         internal BlockedByFailure(
             ImmutableArray<DiffHistoryInterval> resolvedBoundaries,
+            ImmutableArray<DiffHistoryInterval> unresolvedIntervals,
             ImmutableArray<PackageVersionAddress> failedAddresses,
             ImmutableArray<DiffHistoryInterval> blockedIntervals)
         {
@@ -354,6 +357,16 @@ public abstract record DiffHistoryTerminalOutcome
                 throw new ArgumentException(
                     "Resolved boundaries must be population-adjacent.",
                     nameof(resolvedBoundaries));
+            }
+            UnresolvedIntervals = unresolvedIntervals.IsDefault
+                ? []
+                : unresolvedIntervals;
+            if (UnresolvedIntervals.Any(
+                    static interval => interval.IsAdjacent))
+            {
+                throw new ArgumentException(
+                    "Unresolved intervals must contain an unevaluated address.",
+                    nameof(unresolvedIntervals));
             }
             FailedAddresses = failedAddresses.IsDefault
                 ? []
@@ -369,6 +382,11 @@ public abstract record DiffHistoryTerminalOutcome
         }
 
         public ImmutableArray<DiffHistoryInterval> ResolvedBoundaries { get; }
+
+        public ImmutableArray<DiffHistoryInterval> UnresolvedIntervals
+        {
+            get;
+        }
 
         public ImmutableArray<PackageVersionAddress> FailedAddresses { get; }
 

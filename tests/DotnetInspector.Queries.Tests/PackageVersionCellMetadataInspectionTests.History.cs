@@ -481,13 +481,100 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
         var outcome = Assert.IsType<
             DiffHistoryTerminalOutcome.BlockedByFailure>(
                 document.TerminalOutcome);
+        Assert.Empty(outcome.UnresolvedIntervals);
         Assert.Equal(2, outcome.BlockedIntervals.Length);
         Assert.Equal(
             DiffHistoryProbeLearningKind.BlockedByFailure,
             document.Probes[2].Learning.Kind);
+        Assert.Empty(document.Probes[2].Learning.ChangedIntervals);
         Assert.Same(
             population[2].Cell.Address,
             Assert.Single(outcome.FailedAddresses));
+    }
+
+    [Fact]
+    public async Task
+        AdaptiveHistoryFailureRetainsUnaffectedChangedInterval()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0",
+                "2.0.0",
+                "3.0.0",
+                "4.0.0",
+                "5.0.0",
+                "6.0.0",
+                "7.0.0");
+        byte[] firstImage =
+            File.ReadAllBytes(FixtureCatalog.DiffV1.AssemblyPath());
+        byte[] middleImage =
+            File.ReadAllBytes(
+                FixtureCatalog.LibraryApiDiffV1.AssemblyPath());
+        byte[] lastImage =
+            File.ReadAllBytes(FixtureCatalog.DiffV2.AssemblyPath());
+        var executor = new SettlementExecutor(execution =>
+        {
+            int position = execution.Cell.Address.Position;
+            if (position == 1)
+            {
+                return new PackageHouseSettlement.ResourceFree(
+                    new PackageHouseResult.Rejected(
+                        new PackageHouseEvidence(execution.Request),
+                        Reason("Fixture rejection.")));
+            }
+
+            byte[] image = position switch
+            {
+                0 => firstImage,
+                3 => middleImage,
+                6 => lastImage,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected probe at position {position}."),
+            };
+            CellFixture fixture = population[position];
+            return fixture.Realize(
+                execution,
+                fixture.Content(
+                    ($"lib/{Framework}/DiffFixtureSample.dll", image)));
+        });
+
+        DiffHistoryApiMemberDocument document =
+            await InspectHistoryAsync(
+                HistoryRequest(
+                    population,
+                    HistoryType,
+                    maximumEvaluations: 8,
+                    evaluationPlan:
+                        new DiffHistoryEvaluationPlan.AdaptiveBisect(8)),
+                executor);
+
+        Assert.Equal([0, 6, 3, 1], executor.Positions);
+        DiffHistoryProbeLearning learning =
+            document.Probes[^1].Learning;
+        Assert.Equal(
+            DiffHistoryProbeLearningKind.BlockedByFailure,
+            learning.Kind);
+        DiffHistoryInterval learned =
+            Assert.Single(learning.ChangedIntervals);
+        Assert.Equal(
+            (3, 6),
+            (learned.Source.Position, learned.Destination.Position));
+
+        var outcome = Assert.IsType<
+            DiffHistoryTerminalOutcome.BlockedByFailure>(
+                document.TerminalOutcome);
+        Assert.Empty(outcome.ResolvedBoundaries);
+        DiffHistoryInterval unresolved =
+            Assert.Single(outcome.UnresolvedIntervals);
+        Assert.Equal(
+            (3, 6),
+            (unresolved.Source.Position,
+                unresolved.Destination.Position));
+        Assert.Same(
+            population[1].Cell.Address,
+            Assert.Single(outcome.FailedAddresses));
+        Assert.Equal(2, outcome.BlockedIntervals.Length);
     }
 
     [Fact]

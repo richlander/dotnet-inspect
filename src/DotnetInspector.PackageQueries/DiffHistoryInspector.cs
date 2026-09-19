@@ -242,7 +242,8 @@ public static class DiffHistoryInspector
         if (HasFailedTransition(transitions))
         {
             return new(
-                DiffHistoryProbeLearningKind.BlockedByFailure);
+                DiffHistoryProbeLearningKind.BlockedByFailure,
+                ChangedIntervals(transitions));
         }
 
         ImmutableArray<DiffHistoryInterval> changed =
@@ -259,9 +260,15 @@ public static class DiffHistoryInspector
         ImmutableArray<EvaluatedApiMembers> points,
         ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions)
     {
+        ImmutableArray<DiffHistoryInterval> changed =
+            ChangedIntervals(transitions);
         ImmutableArray<DiffHistoryInterval> boundaries =
-            ChangedIntervals(transitions)
+            changed
                 .Where(static interval => interval.IsAdjacent)
+                .ToImmutableArray();
+        ImmutableArray<DiffHistoryInterval> unresolved =
+            changed
+                .Where(static interval => !interval.IsAdjacent)
                 .ToImmutableArray();
         ImmutableArray<PackageVersionAddress> failedAddresses =
         [
@@ -277,6 +284,7 @@ public static class DiffHistoryInspector
         {
             return new DiffHistoryTerminalOutcome.BlockedByFailure(
                 boundaries,
+                unresolved,
                 failedAddresses,
                 failed);
         }
@@ -294,10 +302,6 @@ public static class DiffHistoryInspector
                 .ExplicitCheckpointsCompleted();
         }
 
-        ImmutableArray<DiffHistoryInterval> unresolved =
-            ChangedIntervals(transitions)
-                .Where(static interval => !interval.IsAdjacent)
-                .ToImmutableArray();
         if (!unresolved.IsEmpty)
         {
             return new DiffHistoryTerminalOutcome.BudgetExhausted(
