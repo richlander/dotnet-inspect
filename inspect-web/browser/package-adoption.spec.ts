@@ -1656,7 +1656,7 @@ test.describe("Package Activity website over real Wasm", () => {
     expect(requests).toHaveLength(0);
     await maximumRows.fill("100");
 
-    const dateTimeInput = (value: Date) => value.toISOString().slice(0, 19);
+    const dateTimeInput = (value: Date) => value.toISOString().slice(0, 16);
     await page.locator("#package-changes-custom-interval").check();
     await page.locator("#package-changes-from")
       .fill(dateTimeInput(new Date(now.getTime() - 10 * 24 * 60 * 60 * 1_000)));
