@@ -98,6 +98,37 @@ export function healthyNupkg(
   ]);
 }
 
+/** A platform runtime pack carrying one implementation assembly. */
+export function platformRuntimeNupkg(
+  assemblyBytes: Uint8Array,
+  assemblyFileName: string,
+): Buffer {
+  return storedZip([{
+    name: `runtimes/linux-x64/lib/${fixtureFramework}/${assemblyFileName}`,
+    bytes: assemblyBytes,
+  }]);
+}
+
+/** A platform reference pack carrying one assembly and its compiled XML. */
+export function platformReferenceNupkg(
+  assemblyBytes: Uint8Array,
+  documentationBytes: Uint8Array,
+  assemblyFileName: string,
+): Buffer {
+  const documentationFileName =
+    `${assemblyFileName.replace(/\.dll$/i, "")}.xml`;
+  return storedZip([
+    {
+      name: `ref/${fixtureFramework}/${assemblyFileName}`,
+      bytes: assemblyBytes,
+    },
+    {
+      name: `ref/${fixtureFramework}/${documentationFileName}`,
+      bytes: documentationBytes,
+    },
+  ]);
+}
+
 /** One declared NuGet dependency in a fixture package's root manifest. */
 export interface ManifestDependency {
   readonly id: string;

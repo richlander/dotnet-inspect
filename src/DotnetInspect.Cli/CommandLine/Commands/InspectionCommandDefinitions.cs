@@ -258,6 +258,7 @@ public static class InspectionCommandDefinitions
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -282,6 +283,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(unavailableCountOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -319,6 +321,14 @@ public static class InspectionCommandDefinitions
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(unavailableCountOption) is { Implicit: false })
+            {
+                CommandError.Write(
+                    "--count is not supported by the 'diff' command because "
+                    + "its current modes do not declare countable row semantics.");
+                return 1;
+            }
+
             var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
 
             switch (result)
@@ -562,6 +572,20 @@ public static class InspectionCommandDefinitions
             {
                 select = [.. select ?? [], SectionNames.CloneCandidates];
             }
+            RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+            if (CloneCandidateRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Clone Candidates",
+                        out cloneCandidateRowSelection,
+                        out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
@@ -643,7 +667,11 @@ public static class InspectionCommandDefinitions
                 JsonArray = parseResult.GetValue(opts.JsonArray),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
-                Rows = opts.ParseRows(parseResult),
+                Rows = cloneCandidateRowSelection is null
+                    ? opts.ParseRows(parseResult)
+                    : null,
+                CloneCandidateRowSelection =
+                    cloneCandidateRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -655,6 +683,28 @@ public static class InspectionCommandDefinitions
 
             return await LibraryCommand.ExecuteAsync(options);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => CloneCandidateRowSelectionAdoption.IsActive(
+                result,
+                opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return assemblyCommand;
     }

@@ -110,12 +110,17 @@ dnx dotnet-inspect -y -- depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 \
   --tree
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S Dependencies
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S "Dependency Hierarchy" --tree
 ```
 
 For asset roots, `Dependency Hierarchy` preserves one occurrence per
 root-relative parent relationship. Use `Dependencies` for direct declaration
 evidence; use hierarchy table or JSON output when repeated targets and their
-parent context matter.
+parent context matter. On `package`, selecting `Dependency Hierarchy` invokes
+the same Depends operation, while `--tree` only chooses its projection.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
@@ -150,6 +155,12 @@ the call sites that reach it. With an explicit source, widen the caller search
 with `--bin`, `--project`, or `--caller-package`. With no explicit source, the
 first `--project` is the source context; repeated `--project` values after it
 remain caller scopes.
+
+With exactly `-S Callers`, `-n`, `--tail`, and strict `--rows A..B` select
+complete deduplicated call-site rows after every authorized caller scope has
+been scanned. Markdown, table, TSV, JSONL, JSON, and Count consume that same
+selected vector. Add `--lines` only for rendered-text clipping; `@Calls`, mixed
+sections, and scope-implied Callers retain rendered-line fallback.
 
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls

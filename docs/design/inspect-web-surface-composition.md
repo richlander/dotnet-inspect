@@ -159,10 +159,10 @@ current Home-bar action inventory remains unchanged by this composition.
 
 `Demos is a dedicated page reached from Home and the data bar` and
 `Package navigation retains the shared System.Text.Json packet and Workspace
-stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
-page composition and motivating navigation flow using the existing typed
-facade fixtures. Product demo execution remains covered by the neighboring
-package and Platform Methods and Call Graph cases.
+stays separate from Demos` in `library-hierarchy.demos.spec.ts` gate the
+production page composition and motivating navigation flow using the existing
+typed facade fixtures. Product demo execution remains covered by the
+neighboring package and Platform Methods and Call Graph cases.
 
 This composition gate begins from a settled canonical inspection and ordinary
 successful browser-history writes. Atomicity while a URL projection is pending,
@@ -776,24 +776,25 @@ Overview identity.
 
 ```text
 Overview                                      type and member totals
-Version · Framework                         (Package only)
+Version                                     (Package only)
 platform compatibility warning              (when present)
 icon · subject name
 subject-specific identity details and content
 package@version                                    active framework
 ```
 
-The quiet header preserves the current subject's type and member totals. Existing
-Package Version and Framework controls occupy one compact row; Library Overview
-does not gain coordinate controls. One independently scrolling content region
-starts with a larger icon and readable name, the surface's single visible
-level-one heading. Both subjects reuse the package's existing icon selection and
-fallback. Library retains its own name, asset path and full assembly identity.
-The identity is part of the full-width content, not a new inset card.
+The quiet header preserves the current subject's type and member totals. The
+Package Version control occupies one compact row; the Package navigation pane
+owns TFM selection, and Library Overview does not gain coordinate controls.
+One independently scrolling content region starts with a larger icon and
+readable name, the surface's single visible level-one heading. Both subjects
+reuse the package's existing icon selection and fallback. Library retains its
+own name, asset path and full assembly identity. The identity is part of the
+full-width content, not a new inset card.
 
 When the product classifies the package/platform target relation as
 incompatible, Package Overview renders one warning immediately below the
-Version and Framework controls:
+Version control:
 
 > This package is incompatible with the Workspace platform. Some operations may
 > be blocked, and some results may be incorrect.
@@ -818,6 +819,10 @@ sections return to one ordered stack: Libraries, Documentation, then Comparison
 targets. Package documents precede comparison setup because they describe the
 current package, while comparison choices prepare a later operation. The
 platform library picker remains with the Libraries section.
+The admitted-library placement is a staged migration exception: retaining it
+in this Package slice keeps every exact Library reachable. The Library-subject
+slice moves that inventory to Library and removes the duplicate from Package
+Overview.
 Library rows enter the existing Library subject, whose Overview retains kind
 and namespace navigation. At wide inspector widths, Library Overview makes
 Namespaces the primary region and Type kinds a compact secondary region. This
@@ -835,30 +840,34 @@ the primary navigation while five type-kind counts remain a compact secondary
 summary.
 
 The bottom context row preserves the exact package/version and active
-framework. At narrow widths the Libraries (Package) or Types (Library) return
+framework. At narrow widths the Frameworks (Package) or Types (Library) return
 control shares the quiet header; the local name and icon remain visible in the
-content below it. Controls wrap within their row, and header/footer values may
-elide as complete strings. Local subject names wrap rather than disappearing.
+content below it. The legacy Library inventory remains in Overview content only
+during the staged migration above. Controls wrap within their row, and
+header/footer values may elide as complete strings. Local subject names wrap
+rather than disappearing.
 Long identifiers, asset paths, and document names remain contained without
 page-level horizontal overflow. Many rows scroll inside Overview while its
 header, any controls, and coordinates remain in place.
 
-Overview presents the already-loaded package. Changing its selected TFM or
-version keeps the package shell, inspected target, navigation, and data bar
-visible, whether the target is cached or needs acquisition. Only the
+Overview presents the already-loaded package. Changing its selected TFM from
+the Package navigation pane or its version from the working surface keeps the
+package shell, inspected target, navigation, and data bar visible, whether the
+target is cached or needs acquisition. Only the
 inspector content becomes busy, with a compact text-and-spinner status rather
 than the full-page bot interstitial. Pending content does not publish a new URL
 or expose the previous coordinate's results as the requested coordinate.
-Completion refreshes the content and library navigation from the returned
-package; keyboard focus returns to the initiating coordinate selector. Failure
-restores the previous content and coordinate with the existing visible retry
-notice. Opening a new package retains the acquisition interstitial.
+Completion refreshes the content and TFM navigation from the returned package;
+keyboard focus returns to the initiating coordinate control. Failure restores
+the previous content and coordinate with the existing visible retry notice.
+Opening a new package retains the acquisition interstitial.
 `System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
 `10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
 The production-composition browser gate in
-`library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
-away, immediate return to an inspected version, and neighboring initial-package
-loading. No cache-residency preflight is required to choose this presentation.
+`library-hierarchy.package-loading.spec.ts` covers pending, success,
+failure/retry, navigation away, immediate return to an inspected version, and
+neighboring initial-package loading. No cache-residency preflight is required
+to choose this presentation.
 Acquisition and partial-package notices otherwise retain their host
 presentation; this introduces no independent Overview query or acquisition
 state machine.
@@ -1088,10 +1097,10 @@ long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
 interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
 and the Integration tab scenarios in
-`inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
-single-row header geometry and full tab labels down to 320px, manual activation,
-same-Library mode changes, navigation retention, and an inactive scan settling
-without replacing the selected mode or keyboard focus.
+`inspect-web/browser/library-hierarchy.analysis.spec.ts` gate the consolidated
+frame, single-row header geometry and full tab labels down to 320px, manual
+activation, same-Library mode changes, navigation retention, and an inactive
+scan settling without replacing the selected mode or keyboard focus.
 
 #### Opportunities tab
 

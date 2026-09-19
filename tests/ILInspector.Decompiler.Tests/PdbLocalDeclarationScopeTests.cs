@@ -461,6 +461,200 @@ public sealed class PdbLocalDeclarationScopeTests
     [InlineData("conditional")]
     [InlineData("switch")]
     [InlineData("leave")]
+    public void ConsecutiveBasicBlockRanges_PreserveExactNames(
+        string transferKind)
+    {
+        var firstDeclaration = new Block(0);
+        firstDeclaration.Add(new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32)));
+        var firstUse = new Block(10);
+        firstUse.Add(Transfer(transferKind, 30));
+        firstUse.Add(Observe(0));
+        var secondDeclaration = new Block(30);
+        secondDeclaration.Add(Marker(30));
+        secondDeclaration.Add(new StoreLocal(
+            1,
+            Int32,
+            new Constant(2, Int32)));
+        var secondUse = new Block(40);
+        secondUse.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(firstDeclaration);
+        body.Add(firstUse);
+        body.Add(secondDeclaration);
+        body.Add(secondUse);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(2, function.Descendants.OfType<Block>().Count(
+            block => block.Parent is Block));
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "int same =", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void SameNamedLocalInsideBasicBlockRange_LeavesCollisionVisible()
+    {
+        var first = new Block(0);
+        var firstStore = new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32));
+        first.Add(firstStore);
+        var second = new Block(10);
+        second.Add(new StoreLocal(
+            1,
+            Int32,
+            new Constant(2, Int32)));
+        var firstUse = new Block(20);
+        firstUse.Add(Observe(0));
+        firstUse.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(first);
+        body.Add(second);
+        body.Add(firstUse);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Same(first, firstStore.Parent);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
+    public void TransferToConsumedBasicBlockLabel_LeavesCollisionVisible(
+        string transferKind)
+    {
+        var declaration = new Block(0);
+        var firstStore = new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32));
+        declaration.Add(firstStore);
+        declaration.Add(Transfer(transferKind, 20));
+        var firstUse = new Block(20);
+        firstUse.Add(Observe(0));
+        var second = new Block(30);
+        second.Add(new StoreLocal(
+            1,
+            Int32,
+            new Constant(2, Int32)));
+        second.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(declaration);
+        body.Add(firstUse);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Same(declaration, firstStore.Parent);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
+    public void ExternalTransferIntoBasicBlockRange_LeavesCollisionVisible(
+        string transferKind)
+    {
+        var entry = new Block(0);
+        entry.Add(Transfer(transferKind, 20));
+        var declaration = new Block(10);
+        var firstStore = new StoreLocal(
+            0,
+            Int32,
+            new Constant(1, Int32));
+        declaration.Add(firstStore);
+        declaration.Add(Marker(20));
+        var firstUse = new Block(30);
+        firstUse.Add(Observe(0));
+        var second = new Block(40);
+        second.Add(new StoreLocal(
+            1,
+            Int32,
+            new Constant(2, Int32)));
+        second.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        body.Add(declaration);
+        body.Add(firstUse);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Same(declaration, firstStore.Parent);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains("V_1", result.Output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
     public void ExternalTransferIntoCandidateRange_LeavesCollisionVisible(
         string transferKind)
     {

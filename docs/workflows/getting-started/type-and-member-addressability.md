@@ -215,7 +215,7 @@ Show me the shape of JsonSerializer — inheritance and members.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer --shape
+dotnet-inspect type System.Text.Json JsonSerializer --tree
 ```
 
 ```expect

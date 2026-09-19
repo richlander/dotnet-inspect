@@ -797,50 +797,6 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("--fields")]
-    [InlineData("--columns")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapeFailsClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "--json", projection, "ZZZNoSuchColumn", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "--fields/--columns are not available with --shape",
-            error);
-        Assert.Contains(
-            "Replace --json --shape with --table, --tsv, or --jsonl",
-            error);
-        Assert.Contains(
-            "omit --fields/--columns to keep tree output",
-            error);
-        Assert.DoesNotContain("selection was ignored", error);
-    }
-
-    [Theory]
-    [InlineData("--value")]
-    [InlineData("--urls")]
-    [InlineData("--paths")]
-    [InlineData("--print")]
-    public async Task ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed(
-        string projection)
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
-            "--shape", "-S", "Type Info",
-            "--json", "--fields", "Name", projection, "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains($"{projection} is not available with --shape", error);
-        Assert.DoesNotContain("produced unprojected output", error);
-        Assert.DoesNotContain("selection was ignored", error);
-    }
-
     [Fact]
     public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
     {
@@ -1789,6 +1745,69 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_MultiPackageRootsFailBeforeOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiRootProjection",
+            "README.md",
+            "# Test package",
+            extraFiles: [("lib/net8.0/Test.dll", "test")]);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package files",
+                "--roots", "--json", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Multiple package inspection cannot be combined with --roots",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageDiscoveryRootsFailBeforeOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-D", "-S", "Package files",
+            "--roots", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--roots cannot be combined with -D/--discover.",
+            error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
+    }
+
+    [Theory]
+    [InlineData("--library")]
+    [InlineData("--all-libraries")]
+    public async Task ProjectedJsonRoutingAudit_PackageLibraryRootsFailBeforeOutput(
+        string mode)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            mode,
+            "-S", "Library Info",
+            "--roots", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{mode} cannot be combined with --roots.", error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", error);
     }
 
     [Fact]

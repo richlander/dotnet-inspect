@@ -7,7 +7,10 @@ areas: [packages, dependencies, layout, search, metadata]
 
 # Package Inspection
 
-> Drill into NuGet package internals beyond basic metadata. The `package` command exposes dependency trees, file layouts, TFM targeting, README content, and NuGet search. These are essential for understanding what a package ships and how it's structured.
+> Drill into NuGet package internals beyond basic metadata. The `package`
+> command exposes direct dependency evidence, rooted dependency hierarchies,
+> file layouts, TFM targeting, README content, and NuGet search. These are
+> essential for understanding what a package ships and how it's structured.
 
 ## Preconditions
 
@@ -79,18 +82,19 @@ Source
 Tips:
 ```
 
-## 2. View dependency tree
+## 2. View dependencies and their hierarchy
 
-> Goal: See the transitive dependency graph for a package.
+> Goal: Distinguish direct package declarations from the rooted transitive
+> dependency hierarchy.
 
-### 2a. Package with dependencies
+### 2a. Direct dependencies
 
 ```prompt
 What does Microsoft.Extensions.AI depend on?
 ```
 
 ```bash
-dotnet-inspect package Microsoft.Extensions.AI@9.9.1 -S Dependencies --tree
+dotnet-inspect package Microsoft.Extensions.AI@9.9.1 -S Dependencies
 ```
 
 ```expect
@@ -100,10 +104,32 @@ Microsoft.Extensions.DependencyInjection.Abstractions
 Microsoft.Extensions.Logging.Abstractions
 ```
 
-### 2b. Package with no dependencies
+`Dependencies` reads direct declaration evidence only. It does not acquire
+transitive package manifests.
+
+### 2b. Rooted dependency hierarchy
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 -S Dependencies --tree
+dotnet-inspect package Microsoft.Extensions.AI@9.9.1 \
+  -S "Dependency Hierarchy" --tree
+```
+
+```expect
+Microsoft.Extensions.AI.Abstractions
+Microsoft.Extensions.Caching.Abstractions
+Microsoft.Extensions.DependencyInjection.Abstractions
+Microsoft.Extensions.Logging.Abstractions
+```
+
+`Dependency Hierarchy` invokes the shared Depends operation. `--tree` chooses
+the standalone tree projection; table, JSON, JSONL, row-window, and Count
+projections use the same root-relative occurrence rows.
+
+### 2c. Package with no dependencies
+
+```bash
+dotnet-inspect package System.CommandLine@2.0.3 \
+  -S "Dependency Hierarchy" --tree
 ```
 
 ```expect
@@ -168,12 +194,32 @@ lib/netstandard2.0/System.CommandLine.dll
 ### 4c. Files for a specific TFM
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --path 'lib/net8.0/**'
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --paths
 ```
 
 ```expect
-System.CommandLine.dll
-System.CommandLine.xml
+lib/net8.0/Microsoft.Data.SqlClient.dll
+ref/net8.0/Microsoft.Data.SqlClient.dll
+runtimes/unix/lib/net8.0/Microsoft.Data.SqlClient.dll
+runtimes/win/lib/net8.0/Microsoft.Data.SqlClient.dll
+```
+
+`--tfm` matches a complete directory segment at any depth, independent of
+NuGet asset selection. Combine it with `--path` when both predicates should
+apply.
+
+### 4d. Top-level roots containing files for a TFM
+
+```bash
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --roots
+```
+
+```expect
+lib
+ref
+runtimes
 ```
 
 ## 5. List target frameworks

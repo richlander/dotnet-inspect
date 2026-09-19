@@ -367,8 +367,10 @@ import {
 } from "./content-frame.ts";
 import {
   bindTypePanel,
+  createMemberSourcePartSelector,
   renderGraphMemberPending,
   renderMemberNav,
+  memberSourceText,
   renderSourcePageActions,
   renderSourceResult,
   renderTypeMetadata,
@@ -584,6 +586,9 @@ import type {
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
+  BrowserMemberSource,
+} from "./facades/inspect-web-source.d.ts";
+import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
   BrowserWorkspaceShareState,
@@ -607,6 +612,8 @@ let inspectPrefetchPlatformPacks:
 let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
+let inspectPlatformMemberDocumentation:
+  EngineClient["package"]["queryPlatformMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
@@ -742,6 +749,8 @@ async function loadEngineModule() {
       packageCacheStats: inspectPackageCacheStats,
       queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
+      queryPlatformMemberDocumentation:
+        inspectPlatformMemberDocumentation,
       queryPackage: inspectPackage,
       queryPackageRoot: inspectPackageRoot,
       queryPackageDependencies: inspectPackageDependencies,
@@ -1144,6 +1153,8 @@ const initialState = {
   diagnosticsCapturedAtUtc: null,
 };
 
+const memberSourcePartSelector = createMemberSourcePartSelector();
+
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
@@ -1158,7 +1169,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
-  memberSource: SourceResultState;
+  memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
@@ -2143,12 +2154,19 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.metadataToken,
           request.implementationMember),
   queryDocumentation: (request, documentationId) =>
-    inspectMemberDocumentation(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      documentationId),
+    request.isRuntimePack
+      ? inspectPlatformMemberDocumentation(
+          request.framework,
+          request.version,
+          request.assembly,
+          request.platformPack,
+          documentationId)
+      : inspectMemberDocumentation(
+          request.packageId,
+          request.version,
+          request.framework,
+          request.assembly,
+          documentationId),
   queryFindingCensus: async request => {
     const result = await inspectMemberFindingCensus(
       request.packageId,
@@ -2534,6 +2552,9 @@ const navigationHistory = createNavigationHistory({
 });
 const innerNavigationSequence = createNavigationSequence();
 let packageContentLoadingSequence: number | null = null;
+type PackageLoadingFocusControl =
+  "package-version" | "package-framework" | "framework";
+let packageContentLoadingFocusControl: PackageLoadingFocusControl | null = null;
 const navigationSequence = {
   begin(): number {
     if (packageContentLoadingSequence !== null
@@ -2541,6 +2562,7 @@ const navigationSequence = {
       state.loading = false;
     }
     packageContentLoadingSequence = null;
+    packageContentLoadingFocusControl = null;
     cancelPendingWorkspaceConstruction();
     settleInterruptedPlatformStatus(state);
     return innerNavigationSequence.begin();
@@ -3230,10 +3252,14 @@ function closeSpotlight() {
 }
 
 const packageControls = createPackageControls({
-  selectFramework: framework =>
+  selectFramework: (framework, source) => {
+    if (contentFrameUsesPush()) contentFramePane = "detail";
     observeAsync(
-      switchPackageFramework(framework),
-      "Switching the package framework"),
+      switchPackageFramework(
+        framework,
+        source === "legacy" ? "framework" : "package-framework"),
+      "Switching the package framework");
+  },
   selectVersion: version => {
     if (state.package?.isRuntimePack)
       observeAsync(
@@ -4506,8 +4532,34 @@ function stepMemberNav(delta: number, focusList: boolean) {
   if (entry) selectMemberNavEntry(entry, focusList);
 }
 
+function stepPackageFrameworkFocus(
+  delta: number,
+  eventTarget: EventTarget | null,
+) {
+  const target = eventTarget instanceof Element ? eventTarget : null;
+  const list = target?.closest<HTMLElement>('[data-nav-scope="frameworks"]');
+  if (!list) return false;
+  const rows = [
+    ...list.querySelectorAll<HTMLElement>("[data-package-framework]"),
+  ];
+  if (!rows.length) return true;
+  const focused = target?.closest<HTMLElement>("[data-package-framework]");
+  const focusedIndex = focused ? rows.indexOf(focused) : -1;
+  const activeIndex = rows.findIndex(
+    row => row.getAttribute("aria-current") === "page");
+  const currentIndex = focusedIndex >= 0
+    ? focusedIndex
+    : Math.max(activeIndex, 0);
+  const nextIndex = Math.max(
+    0,
+    Math.min(rows.length - 1, currentIndex + delta));
+  rows[nextIndex]?.focus({ preventScroll: true });
+  return true;
+}
+
 // ↑/↓ always act on the visible nav list, whatever depth you are at.
-function stepNav(delta: number) {
+function stepNav(delta: number, eventTarget: EventTarget | null) {
+  if (stepPackageFrameworkFocus(delta, eventTarget)) return;
   if (navMode() === "member") stepMemberNav(delta, false);
   else stepTypeSelection(delta);
 }
@@ -4768,10 +4820,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && navigationSequence.isCurrent(packageContentLoadingSequence);
   const packageLoadingHadFocus =
     focusedElement?.id === "package-content-loading";
+  const packageFrameworkHadFocus =
+    focusedElement?.dataset.packageFramework !== undefined;
   const packageLoadingControl = packageLoadingHadFocus
     ? focusedElement?.dataset.packageLoadingControl
-    : focusedElement?.id;
+    : packageFrameworkHadFocus
+      ? "package-framework"
+      : focusedElement?.id;
+  const packageLoadingFramework = packageLoadingHadFocus
+    ? focusedElement?.dataset.packageLoadingFramework
+    : focusedElement?.dataset.packageFramework;
   const packageControlHadFocus = packageLoadingControl === "framework"
+    || packageLoadingControl === "package-framework"
     || packageLoadingControl === "package-version";
   const packageRetryHadFocus = loadingPackageContent
     && focusedElement?.id === "retry-notice";
@@ -4965,6 +5025,16 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         && memberSourceHasConcreteOverload()
         ? "member"
         : null;
+  const currentMember = current ? selectedMember(current) : undefined;
+  const currentMemberOverload = currentMember
+    ? selectedConcreteOverload(
+        currentMember.overloads,
+        state.selectedOverloadIndex)
+    : undefined;
+  const currentMemberSourceSignature =
+    sourcePageKind === "member" && current && currentMemberOverload
+      ? memberRequestSignature(current, currentMemberOverload, false, true)
+      : "";
   const currentTypeSourceSignature = current
     ? typeSourceSignature(
         current,
@@ -4972,11 +5042,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         state.taste,
         memberRequestKey)
     : "";
+  const sourcePageMemberSource =
+    sourcePageKind === "member"
+      ? sourceResultForSignature(
+          state.memberSource,
+          currentMemberSourceSignature)
+      : null;
+  const selectedSourcePart = memberSourcePartSelector.current(
+    currentMemberSourceSignature,
+    sourcePageMemberSource);
   const sourcePageSource =
     sourcePageKind === "member"
-      ? state.memberSource.status === "ready"
-        ? state.memberSource.source
-        : null
+      ? sourcePageMemberSource?.source ?? null
       : sourcePageKind === "type"
         ? sourceResultForSignature(
             state.typeSource,
@@ -5006,7 +5083,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
-  const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
     && currentMember.overloads.length > 1
@@ -5032,7 +5108,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"
-      ? "Libraries"
+      ? "Frameworks"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
     apiWorkingSurface
@@ -5076,6 +5152,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
+                    memberSource: sourcePageMemberSource,
+                    selectedMemberPart: selectedSourcePart,
                     copyButtonId: sourcePageKind === "member"
                       ? "copy-source"
                       : "copy-type-source",
@@ -5125,7 +5203,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
             : ""}
           <article id="inspector-panel" ${loadingPackageContent ? 'aria-busy="true"' : ""} class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${overviewWorkingSurface ? " overview-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${libraryCompareWorkingSurface ? " library-api-diff-working-surface" : ""}${libraryMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${libraryReferencesWorkingSurface ? " library-references-working-surface" : ""}${libraryIntegrationsWorkingSurface ? " library-integrations-working-surface" : ""}${libraryOpportunitiesWorkingSurface ? " library-opportunities-working-surface" : ""}${libraryAnalysisWorkingSurface ? " library-analysis-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}">
             ${loadingPackageContent
-              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${state.requestedVersion !== pkg.version ? "package-version" : "framework"}"><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
+              ? `<div id="package-content-loading" class="package-content-loading" role="status" tabindex="-1" data-package-loading-control="${packageContentLoadingFocusControl ?? (state.requestedVersion !== pkg.version ? "package-version" : "package-framework")}"${state.requestedVersion !== pkg.version ? "" : ` data-package-loading-framework="${escapeHtml(state.requestedFramework)}"`}><span class="loader" aria-hidden="true"></span><span>Loading ${state.requestedVersion !== pkg.version ? `version ${escapeHtml(state.requestedVersion)}` : escapeHtml(state.requestedFramework)} content…</span></div>`
               : renderLens(current)}
           </article>
         </section>
@@ -5180,9 +5258,21 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   } else if (isIntegrationMode(integrationTabFocus)) {
     restoreIntegrationTabFocus(document, integrationTabFocus);
   } else if (packageRetryHadFocus || packageControlHadFocus) {
-    document.querySelector<HTMLElement>(
-      loadingPackageContent ? "#package-content-loading" : `#${packageLoadingControl}`)
-      ?.focus({ preventScroll: true });
+    const packageFrameworkControl = () =>
+      contentFrameMedia.matches
+        ? document.querySelector<HTMLElement>("#content-navigation-toggle")
+        : [...document.querySelectorAll<HTMLElement>("[data-package-framework]")]
+            .find(button =>
+              button.dataset.packageFramework === packageLoadingFramework);
+    const packageControl = loadingPackageContent
+      ? document.querySelector<HTMLElement>("#package-content-loading")
+      : packageLoadingControl === "package-framework"
+        ? packageFrameworkControl()
+        : document.querySelector<HTMLElement>(`#${packageLoadingControl}`)
+          ?? (packageLoadingControl === "framework"
+            ? packageFrameworkControl()
+            : null);
+    packageControl?.focus({ preventScroll: true });
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -5336,9 +5426,10 @@ function renderNavPane(
 ) {
   if (scope() === "workspace") return renderWorkspaceNavPane();
   if (scope() === "package") {
+    const pkg = currentPackage();
     return renderPackageNav({
-      libraries: packageLibraries(),
-      selectedLibrary: selectedLibrary()?.id ?? "",
+      frameworks: pkg.frameworks,
+      activeFramework: pkg.activeFramework,
       escapeHtml,
     });
   }
@@ -5609,7 +5700,7 @@ function renderScopeBar(
   return assertNever(sc, "workspace scope");
 }
 
-function packageCoordinateFields() {
+function packageVersionField() {
   if (state.rootKind === "platform") return "";
   const pkg = currentPackage();
   return `<label class="version-select">
@@ -5617,13 +5708,22 @@ function packageCoordinateFields() {
     <select id="package-version">
       ${versionOptionsHtml(pkg)}
     </select>
-  </label>
-  <label class="framework-select">
+  </label>`;
+}
+
+function packageFrameworkField() {
+  if (state.rootKind === "platform") return "";
+  const pkg = currentPackage();
+  return `<label class="framework-select">
     <span>Framework</span>
     <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
       ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
     </select>
   </label>`;
+}
+
+function packageCoordinateFields() {
+  return `${packageVersionField()}${packageFrameworkField()}`;
 }
 
 function renderPackageView() {
@@ -5750,7 +5850,7 @@ function renderPackageDependenciesSurface(content: string, status: string) {
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
     </header>
     <section class="package-dependencies-controls" aria-label="Dependency coordinate">
-      <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
+      <div class="package-coordinate-fields">${packageVersionField()}</div>
     </section>
     <div class="package-dependencies-scroll">
       ${content}
@@ -6970,7 +7070,7 @@ function renderPackageOverview() {
     activeFramework: pkg.activeFramework,
     totalTypes: pkg.totalTypes,
     totalMembers: pkg.totalMembers,
-    coordinateFieldsHtml: packageCoordinateFields(),
+    coordinateFieldsHtml: packageVersionField(),
     contentHtml,
     escapeHtml,
   });
@@ -7175,11 +7275,33 @@ function renderMemberSourceHtml() {
     case "loading":
       return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
     case "ready":
-      return renderSourceResult({
-        source: state.memberSource.source,
-        escapeHtml,
-        highlightCSharp,
-      });
+      {
+        const type = selectedType();
+        const member = selectedMember(type);
+        const overload = member
+          ? selectedConcreteOverload(
+              member.overloads,
+              state.selectedOverloadIndex)
+          : undefined;
+        const signature = type && overload
+          ? memberRequestSignature(type, overload, false, true)
+          : "";
+        const source = sourceResultForSignature(
+          state.memberSource,
+          signature);
+        if (source === null) {
+          return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+        }
+        const selectedPart = memberSourcePartSelector.current(
+          signature,
+          source);
+        return renderSourceResult({
+          source: source.source,
+          text: memberSourceText(source, selectedPart),
+          escapeHtml,
+          highlightCSharp,
+        });
+      }
     case "failed":
       return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSource.error || "No source result was returned.")}</p></section>`;
     default:
@@ -7360,12 +7482,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
     const documentationSummary = documentationLoading
-      ? '<p class="docs-loading">Loading package documentation…</p>'
+      ? '<p class="docs-loading">Loading compiled documentation…</p>'
       : documentationError
         ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
         : overload.summary
           ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
+          : '<p class="docs-unavailable">No summary was found in compiled XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
@@ -7883,8 +8005,45 @@ function bindTypePanelEvents() {
       if (value) void copyText(value, `${anchor} copied`);
     },
     onCopyMemberSource: () => {
-      if (state.memberSource.status === "ready")
-        void copyText(state.memberSource.source.text, "source copied");
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member
+        ? selectedConcreteOverload(
+            member.overloads,
+            state.selectedOverloadIndex)
+        : undefined;
+      const signature = type && overload
+        ? memberRequestSignature(type, overload, false, true)
+        : "";
+      const source = sourceResultForSignature(
+        state.memberSource,
+        signature);
+      if (source !== null) {
+        void copyText(
+          memberSourceText(
+            source,
+            memberSourcePartSelector.current(signature, source)),
+          "source copied");
+      }
+    },
+    onMemberSourcePartSelect: part => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member
+        ? selectedConcreteOverload(
+            member.overloads,
+            state.selectedOverloadIndex)
+        : undefined;
+      if (!type || !overload) return;
+      const signature =
+        memberRequestSignature(type, overload, false, true);
+      const source = sourceResultForSignature(
+        state.memberSource,
+        signature);
+      if (source !== null
+        && memberSourcePartSelector.select(signature, source, part)) {
+        render();
+      }
     },
     onCopySignature: () => {
       const type = selectedType();
@@ -9646,10 +9805,14 @@ async function switchPackageVersion(newVersion: string) {
     ...capturePackageCoordinateView(),
     invalidateWorkspaceShareBasis: true,
     loadingPresentation: "content",
+    loadingFocusControl: "package-version",
   });
 }
 
-async function switchPackageFramework(newFramework: string) {
+async function switchPackageFramework(
+  newFramework: string,
+  loadingFocusControl: PackageLoadingFocusControl = "package-framework",
+) {
   const pkg = state.package;
   if (!pkg || pkg.isRuntimePack) return;
   if (!newFramework
@@ -9663,6 +9826,7 @@ async function switchPackageFramework(newFramework: string) {
       ...capturePackageCoordinateView(),
       invalidateWorkspaceShareBasis: true,
       loadingPresentation: "content",
+      loadingFocusControl,
     });
 }
 
@@ -12936,6 +13100,9 @@ async function loadSelectedMemberDocumentation() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      platformPack: pkg.isRuntimePack
+        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
+        : "",
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
       isCurrent: () => memberRequestIsCurrent(signature),
@@ -15296,6 +15463,7 @@ interface LoadPackageOptions {
   rootRequest?: string;
   background?: boolean;
   loadingPresentation?: "content";
+  loadingFocusControl?: PackageLoadingFocusControl;
   navigationSeq?: number;
   queryNotice?: string;
   replacePackage?: AppPackage | null;
@@ -15336,6 +15504,12 @@ async function loadPackage(
       options.loadingPresentation === "content" && prevPackage
         ? navigationSeq
         : null;
+    packageContentLoadingFocusControl = packageContentLoadingSequence === null
+      ? null
+      : options.loadingFocusControl
+        ?? (version.toLowerCase() === prevPackage?.version.toLowerCase()
+          ? "package-framework"
+          : "package-version");
     state.loading = true;
     state.error = "";
     if (!options.retainFailureDetail) state.errorDetail = "";
@@ -17347,7 +17521,7 @@ keybindings.register({
     && !event.ctrlKey
     && !event.altKey,
   run: event => {
-    stepNav(event.key === "ArrowDown" ? 1 : -1);
+    stepNav(event.key === "ArrowDown" ? 1 : -1, event.target);
     return true;
   },
 });

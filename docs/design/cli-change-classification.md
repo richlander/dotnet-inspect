@@ -182,15 +182,23 @@ one manifest:
   section spellings. Their entry-by-entry current utility and removal status
   have not been classified, so that inventory is **unverified** under this
   policy;
-- visible library `--references` and `--dependencies`, plus package
-  `--dependencies`, identify themselves as legacy aliases. Their independent
-  current utility and removal status are likewise **unverified**;
+- visible library `--references` and `--dependencies` identify themselves as
+  legacy aliases. Their independent current utility and removal status are
+  **unverified**. Package `--dependencies` is removed and hidden; its focused
+  invalid-input guard directs users to
+  `-S "Dependency Hierarchy" --tree`, while `Dependencies --tree` separately
+  explains that direct evidence is not a hierarchy;
 - unadopted valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
   positional target. The `--tail N` outcome is gated; the symmetric `--head N`
   outcome is implemented but **unverified**. Adopted presence-only row
   modifiers use [common option-value validation](cli-option-value-validation.md)
   and its zero-arity diagnostic instead;
+- unsupported `diff --count` has a hidden focused guard because Diff's
+  variadic positional input would otherwise absorb the option as a package
+  range or Type filter and continue into unrelated acquisition. Diff Count
+  remains future focused adoption under #7703 and is not published by this
+  guard;
 - removed `package --readme` receives replacement guidance at the package parse
   boundary. No independent current-input ambiguity is recorded, so the special
   diagnostic's current-policy justification is **unverified**;
@@ -213,6 +221,10 @@ Existing gates prove parts of those behaviors:
   reach canonical behavior.
 - `CommandExecutionTests.ValuedTailFlag_IsReportedAsAMigration_NotBoundAsAPositional`
   proves the `--tail N` parser-rebinding guard. It does not gate `--head N`.
+- `CommandExecutionTests.Diff_CountGuardPreventsPositionalRebinding` proves
+  unsupported `diff --count` fails before source acquisition, while
+  `DiffHelp_UsesPdbSourceAndHidesLegacyAuthoredSourceFlag` proves the guard does
+  not publish Count in Diff help.
 - `CommandExecutionTests.Package_RemovedReadmeFlag_PointsAtItsReplacement`
   proves the package diagnostic behavior, not its independent current-product
   rationale.

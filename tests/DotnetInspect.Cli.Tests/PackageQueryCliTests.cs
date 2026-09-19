@@ -48,6 +48,7 @@ public class PackageQueryCliTests
                 PackageQuery.DependenciesTermKey,
                 PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
+                PackageQuery.DependsEcosystemTermKey,
                 PackageQuery.LicenseTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
@@ -94,6 +95,26 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void DependsEcosystemTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Aspire.Hosting.PostgreSQL",
+                ["depends-ecosystem=ecosystem.aspire"],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.DependsEcosystemTermKey, term.Key);
+        Assert.Equal("ecosystem.aspire", term.Value);
     }
 
     [Theory]
@@ -293,11 +314,16 @@ public class PackageQueryCliTests
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
+    [InlineData("depends-ecosystem=Aspire", "term value is invalid")]
+    [InlineData("depends-ecosystem=ecosystem.unknown", "Unknown ecosystem")]
+    [InlineData(
+        "depends-ecosystem=ecosystem.platform",
+        "Unknown ecosystem")]
     [InlineData("license=Apache-2.0", "term value is invalid")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
-        "requires a depends or dependencies term")]
+        "requires a depends")]
     [InlineData("", "Empty")]
     public void InvalidSelections_FailBeforeExecution(string expression, string message)
     {
@@ -581,18 +607,43 @@ public class PackageQueryCliTests
             PackageQueryCommand.ExecuteAsync(
                 options! with
                 {
-                    Tabular = true,
-                    Tsv = true,
+                    JsonOutput = true,
+                    CompactJson = true,
                 },
                 source,
                 null));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Contoso.Second", result.Output);
-        Assert.DoesNotContain("Contoso.First", result.Output);
-        Assert.DoesNotContain("Contoso.Third", result.Output);
-        Assert.Contains("Dependency.One 1.0.0", result.Output);
-        Assert.Contains("Dependency.Two 2.0.0", result.Output);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement match = Assert.Single(
+            document.RootElement.GetProperty("results").EnumerateArray());
+        Assert.Equal(
+            "Contoso.Second",
+            match.GetProperty("package").GetProperty("packageId").GetString());
+        JsonElement[] evidence =
+        [
+            .. match.GetProperty("evidence").EnumerateArray(),
+        ];
+        string[] dependencyPreviews =
+        [
+            .. evidence
+                .Where(item =>
+                    item.GetProperty("id").GetString()
+                        == PackageQuery.DependsTermKey)
+                .SelectMany(item =>
+                    item.GetProperty("summary")
+                        .GetProperty("preview")
+                        .EnumerateArray())
+                .Select(item => item.GetString()!),
+        ];
+        Assert.Contains(
+            dependencyPreviews,
+            item => item
+                .Contains("Dependency.One 1.0.0", StringComparison.Ordinal));
+        Assert.Contains(
+            dependencyPreviews,
+            item => item
+                .Contains("Dependency.Two 2.0.0", StringComparison.Ordinal));
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -629,11 +680,9 @@ public class PackageQueryCliTests
         Assert.DoesNotContain("Contoso.First", result.Output);
         Assert.DoesNotContain("Contoso.Third", result.Output);
         Assert.Contains(
-            "\tOSMF\t",
-            result.Output);
-        Assert.Contains(
-            "Nuspec license File: OSMFEULA.txt",
-            result.Output);
+            "\tOSMF\n",
+            result.Output.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain("Nuspec license", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -894,7 +943,9 @@ public class PackageQueryCliTests
             "Packages",
             "--json");
         Assert.Equal(0, query.ExitCode);
-        Assert.Contains("Evidence", query.Output);
+        Assert.Contains("Source", query.Output);
+        Assert.Contains("Answer", query.Output);
+        Assert.DoesNotContain("Evidence", query.Output);
 
         var summary = await Run(
             "package",
@@ -1092,7 +1143,10 @@ public class PackageQueryCliTests
         {
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal("1.0.0", json.RootElement.GetProperty("version").GetString());
-            Assert.NotEmpty(json.RootElement.GetProperty("evidence").GetString()!);
+            Assert.Equal(
+                "Dependency.One",
+                json.RootElement.GetProperty("answer").GetString());
+            Assert.False(json.RootElement.TryGetProperty("evidence", out _));
         }
     }
 
@@ -1140,9 +1194,9 @@ public class PackageQueryCliTests
     }
 
     [Theory]
-    [InlineData("markdown", "| Package | Version | Tier | Source | Answer | Evidence |")]
-    [InlineData("table", "Package  Version  Tier  Source  Answer  Evidence")]
-    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer\tevidence")]
+    [InlineData("markdown", "| Package | Version | Tier | Source | Answer |")]
+    [InlineData("table", "Package  Version  Tier  Source  Answer")]
+    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer")]
     [InlineData("jsonl", null)]
     [InlineData("json", "\"packages\": []")]
     public async Task ExplicitPackages_PreservesEmptyPackageShape(
@@ -1401,6 +1455,11 @@ public class PackageQueryCliTests
         Assert.Equal(
             "package-query",
             root.GetProperty("result_kind").GetString());
+        Assert.NotEmpty(
+            contentDocument.RootElement
+                .GetProperty("results")[0]
+                .GetProperty("evidence")
+                .EnumerateArray());
         Assert.True(
             JsonElement.DeepEquals(
                 contentDocument.RootElement,
