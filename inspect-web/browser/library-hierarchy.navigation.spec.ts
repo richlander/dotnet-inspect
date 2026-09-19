@@ -45,7 +45,8 @@ for (const [width, selectedLibrary, activation] of [
     await expect(page.locator("#inspector-panel")).toBeVisible();
     await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
     await expect(page.locator(width === 480
-      ? "#content-navigation-toggle" : ".library-subject-list")).toBeFocused();
+      ? "#content-navigation-toggle"
+      : '[data-package-framework][aria-current="page"]')).toBeFocused();
     const packageLocation = page.url();
     expect(packageLocation).not.toBe(libraryLocation);
 
@@ -145,6 +146,8 @@ for (const width of [1440, 800, 390]) {
     await expect(overview.getByRole("heading", { level: 1 })).toHaveText("Example.Package");
     expect((await overview.locator(".overview-identity h1").boundingBox())!.width).toBeGreaterThan(100);
     await expect(overview.locator(".overview-identity [data-package-icon]")).toBeVisible();
+    await expect(overview.locator("#package-version")).toBeVisible();
+    await expect(overview.locator("#framework")).toHaveCount(0);
     const packageIconSource = await overview.locator("[data-package-icon]").getAttribute("src");
     await expect(page.locator(".overview-surface-head p")).toHaveText("2 types · 2 members");
     await expect(page.locator(".overview-surface-footer span")).toHaveText([
@@ -206,8 +209,9 @@ for (const width of [1440, 800, 390]) {
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     if (width === 390) {
-      await page.getByRole("button", { name: "Libraries", exact: true }).click();
-      await expect(page.locator(".library-subject-list")).toBeFocused();
+      await page.getByRole("button", { name: "Frameworks", exact: true }).click();
+      await expect(page.locator('[data-package-framework][aria-current="page"]'))
+        .toBeFocused();
       await page.getByRole("button", { name: "Show details", exact: true }).click();
     }
     await overview.locator('[data-lib-scope="asset:other"]').click();
@@ -341,25 +345,25 @@ test("Library Overview retries a failed exact-Library request only on demand", a
 });
 
 for (const [selectedLibrary, activation] of [[core, "click"], [empty, "keyboard"]] as const) {
-  test(`narrow Library navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {
+  test(`narrow Package navigation returns to ${selectedLibrary.name} details with ${activation}`, async ({ page }) => {
     await page.setViewportSize({ width: 480, height: 900 });
     await installFacades(page);
     await page.goto(root);
     await expect(page.locator(".library-list")).toBeVisible();
 
-    const libraries = page.getByRole("button", { name: "Libraries", exact: true });
-    await libraries.click();
-    await expect(page.locator(".library-subject-list")).toBeFocused();
+    const frameworks = page.getByRole("button", { name: "Frameworks", exact: true });
+    await frameworks.click();
+    await expect(page.locator('[data-package-framework][aria-current="page"]'))
+      .toBeFocused();
     const location = page.url();
     const historyLength = await page.evaluate(() => history.length);
     await page.getByRole("button", { name: "Show details", exact: true }).click();
     await expect(page.locator("#inspector-panel")).toBeVisible();
-    await expect(libraries).toBeFocused();
+    await expect(frameworks).toBeFocused();
     expect(page.url()).toBe(location);
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
 
-    await libraries.click();
-    const row = page.locator(`.library-subject-list [data-lib-scope="${selectedLibrary.id}"]`);
+    const row = page.locator(`.library-list [data-lib-scope="${selectedLibrary.id}"]`);
     if (activation === "click") {
       await row.click();
     } else {
@@ -494,7 +498,7 @@ test("a single-library package retains a distinct Library level", async ({ page 
     totalMembers: 1,
   });
   await page.goto(root);
-  const button = page.locator('.package-library-nav [data-lib-scope="asset:core"]');
+  const button = page.locator('.library-list [data-lib-scope="asset:core"]');
   await button.focus();
   await page.keyboard.press("Enter");
   await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
