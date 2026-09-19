@@ -4,6 +4,10 @@ public sealed class Counter
 {
     const int BuildValue = 1;
 
+    /// <summary>
+    /// Returns the value represented by this fixture version.
+    /// </summary>
+    /// <returns>The fixture's counter value.</returns>
     public int Value() => 1 + 2;
 
     public int Unchanged() => 7;

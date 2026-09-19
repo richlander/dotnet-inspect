@@ -1104,7 +1104,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /onCopyAnchor: anchor => \{[\s\S]*selector: overload\?\.stableSelector,[\s\S]*digest: overload\?\.anchorDigest,[\s\S]*canonical: overload\?\.canonicalSignature[\s\S]*void copyText\(value, `\$\{anchor\} copied`\)/);
   assert.match(
     binding,
-    /onCopyMemberSource: \(\) => \{[\s\S]*state\.memberSource\.status === "ready"[\s\S]*void copyText\(state\.memberSource\.source\.text, "source copied"\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
+    /onCopyMemberSource: \(\) => \{[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\([\s\S]*memberSourcePartSelector\.current\(signature, source\)[\s\S]*"source copied"[\s\S]*onMemberSourcePartSelect: part => \{[\s\S]*memberSourcePartSelector\.select\(signature, source, part\)[\s\S]*render\(\)[\s\S]*onCopyTypeSource: \(\) => \{[\s\S]*state\.typeSource\.status === "ready"[\s\S]*void copyText\(state\.typeSource\.source\.text, "source copied"\)/);
   assert.match(
     binding,
     /onMemberFilterClear: \(\) => \{[\s\S]*resetMemberFilters\(\);[\s\S]*renderMemberFilterAndRestoreFocus\("#clear-member-filter"\)/);

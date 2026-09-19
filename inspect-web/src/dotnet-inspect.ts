@@ -367,8 +367,10 @@ import {
 } from "./content-frame.ts";
 import {
   bindTypePanel,
+  createMemberSourcePartSelector,
   renderGraphMemberPending,
   renderMemberNav,
+  memberSourceText,
   renderSourcePageActions,
   renderSourceResult,
   renderTypeMetadata,
@@ -584,6 +586,9 @@ import type {
   BrowserPackageOpportunities,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
+  BrowserMemberSource,
+} from "./facades/inspect-web-source.d.ts";
+import type {
   BrowserHomeDemoRunActivation,
   BrowserHomeDemoRunResult,
   BrowserWorkspaceShareState,
@@ -607,6 +612,8 @@ let inspectPrefetchPlatformPacks:
 let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
+let inspectPlatformMemberDocumentation:
+  EngineClient["package"]["queryPlatformMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
@@ -742,6 +749,8 @@ async function loadEngineModule() {
       packageCacheStats: inspectPackageCacheStats,
       queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
+      queryPlatformMemberDocumentation:
+        inspectPlatformMemberDocumentation,
       queryPackage: inspectPackage,
       queryPackageRoot: inspectPackageRoot,
       queryPackageDependencies: inspectPackageDependencies,
@@ -1144,6 +1153,8 @@ const initialState = {
   diagnosticsCapturedAtUtc: null,
 };
 
+const memberSourcePartSelector = createMemberSourcePartSelector();
+
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
@@ -1158,7 +1169,7 @@ interface StateOverrides {
   } | null;
   queryNoticeRetryAction: RetryAction;
   selectedOverloadIndex: number | null;
-  memberSource: SourceResultState;
+  memberSource: SourceResultState<BrowserMemberSource>;
   memberAnnotated: AnnotatedSourceResult | null;
   memberAnnotatedEmbedded: AnnotatedSourceSession | null;
   memberAnnotatedModal: AnnotatedSourceSession | null;
@@ -2143,12 +2154,19 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.metadataToken,
           request.implementationMember),
   queryDocumentation: (request, documentationId) =>
-    inspectMemberDocumentation(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      documentationId),
+    request.isRuntimePack
+      ? inspectPlatformMemberDocumentation(
+          request.framework,
+          request.version,
+          request.assembly,
+          request.platformPack,
+          documentationId)
+      : inspectMemberDocumentation(
+          request.packageId,
+          request.version,
+          request.framework,
+          request.assembly,
+          documentationId),
   queryFindingCensus: async request => {
     const result = await inspectMemberFindingCensus(
       request.packageId,
@@ -4965,6 +4983,16 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         && memberSourceHasConcreteOverload()
         ? "member"
         : null;
+  const currentMember = current ? selectedMember(current) : undefined;
+  const currentMemberOverload = currentMember
+    ? selectedConcreteOverload(
+        currentMember.overloads,
+        state.selectedOverloadIndex)
+    : undefined;
+  const currentMemberSourceSignature =
+    sourcePageKind === "member" && current && currentMemberOverload
+      ? memberRequestSignature(current, currentMemberOverload, false, true)
+      : "";
   const currentTypeSourceSignature = current
     ? typeSourceSignature(
         current,
@@ -4972,11 +5000,18 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         state.taste,
         memberRequestKey)
     : "";
+  const sourcePageMemberSource =
+    sourcePageKind === "member"
+      ? sourceResultForSignature(
+          state.memberSource,
+          currentMemberSourceSignature)
+      : null;
+  const selectedSourcePart = memberSourcePartSelector.current(
+    currentMemberSourceSignature,
+    sourcePageMemberSource);
   const sourcePageSource =
     sourcePageKind === "member"
-      ? state.memberSource.status === "ready"
-        ? state.memberSource.source
-        : null
+      ? sourcePageMemberSource?.source ?? null
       : sourcePageKind === "type"
         ? sourceResultForSignature(
             state.typeSource,
@@ -5006,7 +5041,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     libraryIntegrationsWorkingSurface && state.integrationMode === "opportunities";
   const libraryAnalysisWorkingSurface =
     activeScope === "library" && state.libraryLens === "analysis";
-  const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
     && currentMember.overloads.length > 1
@@ -5076,6 +5110,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${sourcePageKind
                 ? renderSourcePageActions({
                     source: sourcePageSource,
+                    memberSource: sourcePageMemberSource,
+                    selectedMemberPart: selectedSourcePart,
                     copyButtonId: sourcePageKind === "member"
                       ? "copy-source"
                       : "copy-type-source",
@@ -7175,11 +7211,33 @@ function renderMemberSourceHtml() {
     case "loading":
       return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
     case "ready":
-      return renderSourceResult({
-        source: state.memberSource.source,
-        escapeHtml,
-        highlightCSharp,
-      });
+      {
+        const type = selectedType();
+        const member = selectedMember(type);
+        const overload = member
+          ? selectedConcreteOverload(
+              member.overloads,
+              state.selectedOverloadIndex)
+          : undefined;
+        const signature = type && overload
+          ? memberRequestSignature(type, overload, false, true)
+          : "";
+        const source = sourceResultForSignature(
+          state.memberSource,
+          signature);
+        if (source === null) {
+          return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`;
+        }
+        const selectedPart = memberSourcePartSelector.current(
+          signature,
+          source);
+        return renderSourceResult({
+          source: source.source,
+          text: memberSourceText(source, selectedPart),
+          escapeHtml,
+          highlightCSharp,
+        });
+      }
     case "failed":
       return `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSource.error || "No source result was returned.")}</p></section>`;
     default:
@@ -7360,12 +7418,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
     const documentationSummary = documentationLoading
-      ? '<p class="docs-loading">Loading package documentation…</p>'
+      ? '<p class="docs-loading">Loading compiled documentation…</p>'
       : documentationError
         ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
         : overload.summary
           ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
+          : '<p class="docs-unavailable">No summary was found in compiled XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
@@ -7883,8 +7941,45 @@ function bindTypePanelEvents() {
       if (value) void copyText(value, `${anchor} copied`);
     },
     onCopyMemberSource: () => {
-      if (state.memberSource.status === "ready")
-        void copyText(state.memberSource.source.text, "source copied");
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member
+        ? selectedConcreteOverload(
+            member.overloads,
+            state.selectedOverloadIndex)
+        : undefined;
+      const signature = type && overload
+        ? memberRequestSignature(type, overload, false, true)
+        : "";
+      const source = sourceResultForSignature(
+        state.memberSource,
+        signature);
+      if (source !== null) {
+        void copyText(
+          memberSourceText(
+            source,
+            memberSourcePartSelector.current(signature, source)),
+          "source copied");
+      }
+    },
+    onMemberSourcePartSelect: part => {
+      const type = selectedType();
+      const member = selectedMember(type);
+      const overload = member
+        ? selectedConcreteOverload(
+            member.overloads,
+            state.selectedOverloadIndex)
+        : undefined;
+      if (!type || !overload) return;
+      const signature =
+        memberRequestSignature(type, overload, false, true);
+      const source = sourceResultForSignature(
+        state.memberSource,
+        signature);
+      if (source !== null
+        && memberSourcePartSelector.select(signature, source, part)) {
+        render();
+      }
     },
     onCopySignature: () => {
       const type = selectedType();
@@ -12936,6 +13031,9 @@ async function loadSelectedMemberDocumentation() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      platformPack: pkg.isRuntimePack
+        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
+        : "",
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
       isCurrent: () => memberRequestIsCurrent(signature),

@@ -6,8 +6,8 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > **Every interaction that inspects an assembly runs inside a workspace, through
 > a public product query that owns the session.** An operation with no such query
 > is exported as explicitly unsupported and reported as a product API gap. It is
-> never answered by opening a session, a metadata source, an analysis index, or a
-> retained image descriptor.
+> never answered by opening a session, a metadata source, an analysis index,
+> or a retained image descriptor.
 
 Opening a package without an explicit destination starts at Library Overview
 using the product-selected default Library. Package remains available one level
@@ -270,9 +270,10 @@ query operation; a different resident patch cannot satisfy it. A missing pin or
 the Browser `latest` sentinel remains floating and uses version discovery.
 `PlatformWorkspace_ExactVersionSkipsDiscoveryAndDoesNotReuseLatestState` and
 `PlatformWorkspace_LatestSentinelUsesVersionDiscovery` gate those behaviors.
-Initial member graphs use the same escaped definition identity
-as subsequent graph descent. Platform graph loads and descents also carry the target's complete
-assembly identity and reject an acquired root that is not binding-equivalent,
+Initial member graphs use the same escaped definition identity as subsequent
+graph descent. Platform graph loads and descents also carry the target's
+complete assembly identity and reject an acquired root that is not
+binding-equivalent,
 rather than applying a valid selector to a different assembly version or
 public-key token. A selected Platform coordinate that matches multiple full
 metadata identities fails typed rather than choosing by archive order. The
@@ -380,6 +381,8 @@ assemblies that receive a .NET platform lookup on click.
 
 ## Managed layout
 
+<!-- markdownlint-disable MD013 -->
+
 | Project | Owns |
 | --- | --- |
 | `DotnetInspect.Web` | Browser/Wasm entry point, host exports, build identity, compiled facade recipe, banned-symbol policy, and static assets |
@@ -391,6 +394,8 @@ assemblies that receive a .NET platform lookup on click.
 | `DotnetInspect.Web.Interop.CallGraph` | package and platform call-graph exports and wire contracts |
 | `DotnetInspect.Web.Interop.Catalog` | vocabulary, home-demo, and workspace-share exports and wire contracts |
 | `DotnetInspect.Web.Tests` | managed host, Core, facade-boundary, and wire-contract tests |
+
+<!-- markdownlint-enable MD013 -->
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
@@ -454,10 +459,15 @@ through the shared `CSharpText.XmlDocText` grammar and rejects nesting beyond
 its product-owned depth limit. Package Markdown is rendered through a narrow
 text-only element allow list with styling and resource-loading attributes
 removed.
+<!-- markdownlint-disable MD013 -->
+
 `XmlDocTextTests.GetNodeTextWithRefs_AcceptsTheDepthLimitAndRejectsTheNextElement`,
-`BrowserEngineBoundaryTests.XmlDocumentation_AcceptsTheDepthLimitAndRejectsTheNextElement`, and
+`BrowserEngineBoundaryTests.XmlDocumentation_AcceptsTheDepthLimitAndRejectsTheNextElement`,
+and
 the JavaScript `package Markdown has no styling or resource-loading authority`
 case gate those boundaries.
+
+<!-- markdownlint-enable MD013 -->
 
 Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
@@ -570,12 +580,12 @@ workspace-close exceptions and `ArtifactSessionCleanupFailures`, not merely
 whether its close task completed. Coordinated role-release diagnostics retain
 their lower-owner representation; converting those diagnostics into Browser
 exceptions is not part of this adoption. The primary operation failure and the
-observed cleanup failures remain observable together. If cleanup fails, the entry remains
-charged and unavailable, with its bounded failure record surfaced to awaiting
-callers and subsequent admissions; no retry silently clears it or allocates
-replacement resources against unproven capacity. An abandoned caller does not
-abandon this outcome. A runtime restart is the recovery boundary for such a
-terminal cleanup failure, not an in-place cache reset.
+observed cleanup failures remain observable together. If cleanup fails, the
+entry remains charged and unavailable, with its bounded failure record surfaced
+to awaiting callers and subsequent admissions; no retry silently clears it or
+allocates replacement resources against unproven capacity. An abandoned caller
+does not abandon this outcome. A runtime restart is the recovery boundary for
+such a terminal cleanup failure, not an in-place cache reset.
 
 **Bounded model evidence.** The
 [Browser scope retirement model](../docs/models/browser-scope-retirement/README.md)
@@ -630,6 +640,8 @@ and publishing `DotnetInspect.Web.csproj` in Release to
 
 ## Supported
 
+<!-- markdownlint-disable MD013 -->
+
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
@@ -650,6 +662,8 @@ and publishing `DotnetInspect.Web.csproj` in Release to
 | `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `ExpandPlatformCallGraph` | lazily acquired target in the cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
+<!-- markdownlint-enable MD013 -->
+
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
 them. It asks the API-surface query for the composed scope — the default consumer
@@ -665,11 +679,12 @@ invokes the whole-group or participant entry points, which are declared
 `InspectionCost.Unbounded`. `BannedSymbols.txt` makes that a compile error here.
 `QueryPackage` calls `ExecuteBounded` with `BrowserApiSurfacePolicy.Limits` and
 selects only the requested coordinate's participants, so another open package's
-surface is never materialized to be discarded. If a projection reaches a bound it
-stops at a whole participant — no type is returned with a shortened member list —
-and the response's `inspectionError` names the bound, what was projected, and how
-many assemblies were not. Types, members, retained metadata-row failures, type
-forwarders, and total inspected metadata rows each have an explicit ceiling.
+surface is never materialized to be discarded. If a projection reaches a bound,
+it stops at a whole participant — no type is returned with a shortened member
+list — and the response's `inspectionError` names the bound, what was projected,
+and how many assemblies were not. Types, members, retained metadata-row
+failures, type forwarders, and total inspected metadata rows each have an
+explicit ceiling.
 `BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
 gates the bound and its non-vacuity; the truncation contract itself is gated by
 `AssemblyContextApiSurfaceQueryTests`. Every accessibility
@@ -717,10 +732,10 @@ filesystem path, and resolves references through the participant's own binding
 policy rather than by matching simple names. Annotated source moves to its
 matching implementation participant and asks `CallGraphMemberResolver` to
 validate the surface's `MethodDef` token or remap it by the opaque structural
-selector when `ref/` and `lib/` row numbers differ. It then returns the product's portable
-`AnnotatedSourceDocument` serialized by its owning
-`AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and the
-[#3964] viewer validates — inside an envelope carrying provenance and, when the
+selector when `ref/` and `lib/` row numbers differ. It then returns the
+product's portable `AnnotatedSourceDocument` serialized by its owning
+`AnnotatedSourceDocumentJsonContext` — the same artifact the CLI writes and
+the [#3964] viewer validates — inside an envelope carrying provenance and, when
 whole-assembly fact context could not be built, a visible `contextLimitation` so
 a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
@@ -779,11 +794,21 @@ reuses the same physical acquisition in either mode.
 `CancelledWait_WithoutEpochSettlesBeforeObservedPhysicalFailure` gate the two
 contracts. This does not activate Source in the Worker or promise prompt
 physical release before reporter registration. Source lookup therefore adds
-no ambient filesystem dependency or unbounded retained cache. Typed rejection and unavailable
-outcomes become visible failures; only an `Available` result crosses the
-bridge. Decompiled results disclose why the PDB-source attempt was unavailable.
+no ambient filesystem dependency or unbounded retained cache. Typed rejection
+and unavailable outcomes become visible failures; only an `Available` result
+crosses the bridge. Decompiled results disclose why the PDB-source attempt was
+unavailable.
 `BrowserEngineBoundaryTests.DecompiledSources_CarryPdbAttemptLimitation` gates
 that adapter wiring.
+Member Source explicitly requests authored parts while permitting its existing
+visible decompiler fallback. An authored result crosses the Browser boundary as
+one flat `BrowserSource` plus a member-only catalog of rebased UTF-16 spans for
+the complete member, XML documentation groups, attribute lists, signature, and
+body. The transported text remains only the exact complete-member substring;
+the verified full document and native absolute spans stay managed. XML
+documentation and attributes may each carry multiple spans. Type Source and
+call-graph member Source retain the unchanged five-field `BrowserSource`
+contract, and decompiled member Source carries an empty part catalog.
 Reference-only type source is refused rather than presented as a body-free
 decompilation. Printer options apply to decompiled fallback and never rewrite
 PDB source. Whole-member source remains MethodDef-scoped: a
@@ -1019,9 +1044,13 @@ Each export keeps the signature the browser bridge binds and throws a
 `NotSupportedException` naming the gap, so the site reports the engine's refusal
 rather than fixture results or success-shaped empty output.
 
+<!-- markdownlint-disable MD013 -->
+
 | Unsupported export | Missing product query |
 | --- | --- |
 | `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
+
+<!-- markdownlint-enable MD013 -->
 
 Package and Platform Metadata use root-aware
 `AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and
@@ -1065,10 +1094,10 @@ owns browser-history behavior and destination focus.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
-UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
-span walk. `src/document-model.ts` provides typed aliases over that owner for
-Vite and the tests; Vite bundles the shared implementation into the deployable
-browser artifact without copying its logic.
+UTF-16 coordinates, line derivation, segmentation, and the fact → target →
+node → span walk. `src/document-model.ts` provides typed aliases over that owner
+for Vite and the tests; Vite bundles the shared implementation into the
+deployable browser artifact without copying its logic.
 
 The inline working surface shows complete product-issued, C#-highlighted source
 with the catalog's default Finding annotations and Finding detail. The
@@ -1395,19 +1424,20 @@ Package Activity discovers product-owned package sets from the managed startup
 catalog, submits the default 42-day interval or one validated paired UTC
 interval, and streams the existing `package-changes` Worker operation. That
 operation name, the same-origin bridge path, and the
-`BrowserPackageChanges*` wire records remain stable internal identifiers. Its bounded row window
-renders typed current-advisory, fixed-version, receipt, security-release,
-provider-failure, source-coverage, and completion evidence without inferring
-meaning from formatted text. Route exit, replacement, and explicit
-cancellation stop active work; explicit cancellation retains already admitted
-rows. Direct load and refresh start from session-local initial state, while
-ordinary in-app navigation preserves the current report. Saved reports and
-notifications are not part of this surface.
+`BrowserPackageChanges*` wire records remain stable internal identifiers. Its
+bounded row window renders typed current-advisory, fixed-version, receipt,
+security-release, provider-failure, source-coverage, and completion evidence
+without inferring meaning from formatted text. Route exit, replacement, and
+explicit cancellation stop active work; explicit cancellation retains already
+admitted rows. Direct load and refresh start from session-local initial state,
+while ordinary in-app navigation preserves the current report. Saved reports
+and notifications are not part of this surface.
 The focused contract is
 [The Package Activity experience](../docs/design/package-activity-experience.md).
 
-The Package Query scenarios in `browser/package-adoption.spec.ts` drive the published
-production page through the existing real-Wasm package-adoption harness.
+The Package Query scenarios in `browser/package-adoption.spec.ts` drive the
+published production page through the existing real-Wasm package-adoption
+harness.
 Deterministic responses cover blank idle behavior, exact-ID resource selection,
 literal-prefix boundaries, missing-ID non-fallback, metadata-only acquisition,
 and bounded completion.
@@ -1419,8 +1449,12 @@ and exercises Back/Forward before validating progressive report publication.
 The same harness's library-literal Package Query scenario uses the cataloged
 `analysis.string-literals` fixture to verify the package Result, bounded
 occurrence preview, and exact Root reopening from the real `/query` page. Run
-just that scenario with
-`eng/test-inspect-web-package-adoption-gate.sh --grep 'qualifies package Results by decoded library literal'`.
+just that scenario with:
+
+```bash
+eng/test-inspect-web-package-adoption-gate.sh \
+  --grep 'qualifies package Results by decoded library literal'
+```
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
@@ -1582,9 +1616,10 @@ document is measured against a file the linter refused to open. Where the two
 do diverge — an authored `src/bin/probe.html`, say — the set comparison fails
 loudly rather than passing quietly. The `bin` and `obj` entries matter only once
 the engine project has been built, which is why they went unnoticed locally and
-surfaced on CI: without them html-validate was linting `DotnetInspect.Web/bin/**` and
-`DotnetInspect.Web/obj/**` — MSBuild static-web-asset placeholders and copied `wwwroot`
-output that no one authored and no one can fix.
+surfaced on CI: without them html-validate was linting
+`DotnetInspect.Web/bin/**` and `DotnetInspect.Web/obj/**` — MSBuild
+static-web-asset placeholders and copied `wwwroot` output that no one authored
+and no one can fix.
 
 Eight toolchain tests hold that wiring honest. They pin the preset list, the
 `root: true` setting, the absence of project-wide rule changes, and the file's
@@ -1879,12 +1914,13 @@ The gate derives its vocabulary roster from every exported type alias in
 formatting or indexing shape.
 
 Nothing at runtime can observe that property — an unhandled value would simply
-take whichever branch the consumer fell through to — so the gate is the compiler, and
-`widening a UI vocabulary catalog fails compilation until every consumer handles it`
-in `test/vocabulary-exhaustiveness.test.ts` is that gate. It widens each catalog
-in a throwaway copy of the real TypeScript source graph and asserts `tsc`
-reports the expected `assertNever` location in every named dispatch, with no
-unrelated diagnostic. Deleting any one exhaustive dispatch turns it red.
+take whichever branch the consumer fell through to — so the gate is the
+compiler, and `widening a UI vocabulary catalog fails compilation until every
+consumer handles it` in `test/vocabulary-exhaustiveness.test.ts` is that gate.
+It widens each catalog in a throwaway copy of the real TypeScript source graph
+and asserts `tsc` reports the expected `assertNever` location in every named
+dispatch, with no unrelated diagnostic. Deleting any one exhaustive dispatch
+turns it red.
 `packageLensBody` is exhaustive too: an unwired package lens used to render a
 placeholder that was indistinguishable from an empty lens, but now fails
 compilation until its behavior is explicit.
@@ -1904,9 +1940,10 @@ dotnet run --project inspect-web/DotnetInspect.Web.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
-central-directory entry limit before archive enumeration, role preflight before identity decoding, malformed selected-participant
-visibility, reference-only retained-image budget, duplicate XML parameter
-handling, Mermaid label containment, and complete call-graph navigation targets.
+central-directory entry limit before archive enumeration, role preflight before
+identity decoding, malformed selected-participant visibility, reference-only
+retained-image budget, duplicate XML parameter handling, Mermaid label
+containment, and complete call-graph navigation targets.
 The frontend tests gate the Annotated Source session/action matrix against the
 shared sample document and keep Spotlight candidate/cache identity
 coordinate-complete. The Playwright Firefox gate exercises real pointer
@@ -1931,13 +1968,13 @@ The shared product paths are gated by:
   participant minted from in-memory content is acquired by the group, and one
   minted with a placeholder identity is rejected — which is why acquisition must
   decode identity first.
-- `ContentShapedMemberProjectionTests` in `tests/ILInspector.Research.Tests` gates
-  the two product seams the Research queries stand on: projecting a member from a
-  path-less, stream-backed assembly reference, and supplying the whole-assembly
-  analysis context that path-keyed resolution cannot provide.
+- `ContentShapedMemberProjectionTests` in `tests/ILInspector.Research.Tests`
+  gates the two product seams the Research queries stand on: projecting a member
+  from a path-less, stream-backed assembly reference, and supplying the
+  whole-assembly analysis context that path-keyed resolution cannot provide.
 
-`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering rule described
-above on every browser-engine CI run.
+`BrowserEngineLayeringTests` in `DotnetInspect.Web.Tests` gates the layering
+rule described above on every browser-engine CI run.
 
 Pull requests that change Inspect Web, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
@@ -1990,8 +2027,8 @@ not answer report the engine's failure rather than fixture results.
 
 `src/workspace-navigation.ts` owns the in-memory view history, monotonic
 navigation generation, URL routing and building, typed adaptation to the
-generated workspace-state bridge, the browser-history port, and the single delegated click listener
-that intercepts same-origin in-app anchor clicks
+generated workspace-state bridge, the browser-history port, and the single
+delegated click listener that intercepts same-origin in-app anchor clicks
 (`bindWorkspaceLinkNavigation`/`shouldInterceptLinkClick`) — a modified click,
 `target`-scoped link, `download` link, or cross-origin href keeps native
 browser behavior. Initial routing records the opaque `w=` value without decoding
@@ -2153,24 +2190,32 @@ and Member Source result states, per-surface identity checks, the graph modal's
 request-shaped state union, and focus-preserving completion.
 `dotnet-inspect.ts`
 validates the active selection, builds typed engine requests, supplies mutable
-state and rendering ports, and retains source presentation.
+state and rendering ports, and retains source presentation. Authored Member
+Source adds a transient selector beside Copy, Open, and Explore. It defaults to
+the complete member, offers only available XML docs, attributes, signature, and
+body parts, and resets when the request signature changes. Display and copy use
+the same span-lowering helper; discontiguous groups preserve each original
+fragment and join fragments with one line break without another source query.
+The original document URL remains the Open target.
 `test/source-inspection.test.ts` gates hidden cancellation, stale member
 selection, visible failure, hidden type completion, graph close/cancellation,
-settled empty graph failure, and graph auto-load eligibility;
+settled empty graph failure, graph auto-load eligibility, and single-query
+member catalog reuse;
 `test/composition-root-member-source.test.ts` gates engine and composition-root
-wiring.
+wiring, while `test/type-panel.test.ts` gates available-part rendering,
+multi-span lowering, stale selector reset, and decompiled selector omission.
 The focused Type and Member Source state contract is
 [Inspect Web Type and Member Source State](../docs/design/inspect-web-type-member-source-state.md).
 
 `src/member-detail-inspection.ts` owns member XML-documentation, annotated
 source, and Facts request lifecycles: cache and request identity, current-member
 publication, loading/error/result transitions, annotated selection reset,
-runtime documentation suppression, and focus-preserving completion.
+package/platform documentation routing, and focus-preserving completion.
 `dotnet-inspect.ts` validates the selected overload, constructs exact engine
 requests, and retains mutable state, rendering, and annotated-source
 interaction handlers. `test/member-detail-inspection.test.ts` gates current and
-stale completion, cached failures, runtime documentation, exact request
-coordinates, cross-surface invalidation, and focus restoration;
+stale completion, cached failures, platform reference-pack documentation, exact
+request coordinates, cross-surface invalidation, and focus restoration;
 `test/composition-root-member-source.test.ts` gates composition-root wiring.
 
 `src/call-graph-inspection.ts` owns member call-graph request coordination:
@@ -2255,7 +2300,8 @@ data bar.
 `test/settings-panel.test.ts`, `test/command-bar.test.ts`, and
 `test/entry-routes.test.ts` gate the typed snapshot, escaping, entry controls,
 history marker, and static hosting inventory. The Diagnostics cases in
-`browser/library-hierarchy.spec.ts` exercise Settings and data-bar routing,
+`browser/library-hierarchy.home-diagnostics.spec.ts` exercise Settings and
+data-bar routing,
 Spotlight absence, destination focus, Back restoration, loading and failure
 states, package-cache failure disclosure, and the 390-pixel vertical layout
 against the built app.
@@ -2280,13 +2326,13 @@ public types remain in the Package inventory and support Library inspectors.
 The platform Library omits References until a platform reference-query
 transport is available; the existing platform Analysis limitation stays visible.
 
-`browser/library-hierarchy.spec.ts` exercises the built application and its real
-navigation bindings with deterministic facade responses: the four-level
-hierarchy, exact-library requests, empty-library refresh/history, and a
-single-library neighboring case. It also covers opening another package,
+The `browser/library-hierarchy.*.spec.ts` family exercises the built application
+and its real navigation bindings with deterministic facade responses: the
+four-level hierarchy, exact-library requests, empty-library refresh/history,
+and a single-library neighboring case. It also covers opening another package,
 Search switches between retained packages with distinct Library IDs, and
 cross-Library Type commands, including history and refresh.
-Run `npm run build` before this browser test.
+Run `npm run build` before these browser tests.
 The engine boundary tests separately exercise product queries and the share
 codec; facade responses in the browser test are not engine evidence.
 

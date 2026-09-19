@@ -198,6 +198,15 @@ returned focus and support member. A consumer cannot infer the role from:
 If a source cannot distinguish focus members from support closure, it cannot
 claim a focus/support-classified realization for this declaration.
 
+The implemented PlatformHouse population handoff preserves that classification
+as one ordered `PlatformPopulationMember` per realized Library. Each member
+retains its exact family target and either `Focus` or `BindingSupport`; the
+resource-free value and receipt retain the same member objects beside the
+aligned Library owners. Installed and package-backed integration issue the
+classification only from source-owner framework evidence. An unrecognized
+installed framework or an unsupported family relationship is rejected rather
+than inferred from an assembly, path, package, or display name.
+
 ## Source-specific correspondence
 
 An integration boundary above each platform source explicitly maps a

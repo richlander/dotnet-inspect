@@ -32,6 +32,7 @@ type PackageOperations =
   | "prefetchPlatformPacks"
   | "queryLibraryApi"
   | "queryMemberDocumentation"
+  | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageRoot"
   | "queryPackageDependencies"
