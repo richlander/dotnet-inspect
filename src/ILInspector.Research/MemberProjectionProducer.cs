@@ -34,8 +34,8 @@ public static class MemberProjectionProducer
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
-            var assembly = request.Assembly
-                ?? ResolveAssemblyContext(
+            var analysis = request.Analysis
+                ?? ResolveAnalysisInput(
                     imported,
                     effectiveRegistry.Requirements);
             // The reporting half of the data/reporting split: facts are collected
@@ -45,7 +45,7 @@ public static class MemberProjectionProducer
             var context = new ResearchFactContext(
                 request.Source,
                 imported,
-                assembly,
+                analysis,
                 request.CallSites);
             var factCensus = effectiveRegistry.CollectCensus(context);
             var factProjection = ResearchFactProjection.AdmitComplete(
@@ -281,10 +281,11 @@ public static class MemberProjectionProducer
     }
 
     /// <summary>
-    /// Every entry point resolves the assembly context through this seam, so producers see a
-    /// consistent Assembly (or a consistent absence) rather than each re-deriving it independently.
+    /// Every entry point resolves focused Analysis through this seam, so
+    /// producers see one execution's results (or a consistent absence) rather
+    /// than each re-deriving them independently.
     /// </summary>
-    static ResearchAssemblyContext? ResolveAssemblyContext(
+    static MemberProjectionAnalysisInput? ResolveAnalysisInput(
         IrFunction imported,
         ResearchFactRequirements requirements)
     {
@@ -295,11 +296,16 @@ public static class MemberProjectionProducer
         }
 
         var indexes = new AnalysisIndexCache();
-        return ResearchAssemblyContextCache.ForIndex(
-            indexes.ForPath(
+        LibraryBodyAnalysisExecution execution =
+            indexes.ForPathExecution(
                 path,
                 requirements,
-                imported.MetadataToken));
+                imported.MetadataToken);
+        return new MemberProjectionAnalysisInput(
+            execution.Allocations,
+            execution.Safety,
+            execution.CallGraph,
+            execution.Leverage);
     }
 
     internal static IReadOnlyList<IAnnotation> CollectFacts(
@@ -309,16 +315,19 @@ public static class MemberProjectionProducer
         return CollectFacts(
             source,
             imported,
-            ResolveAssemblyContext(
+            ResolveAnalysisInput(
                 imported,
                 effectiveRegistry.Requirements),
             effectiveRegistry);
     }
 
     internal static IReadOnlyList<IAnnotation> CollectFacts(
-        MetadataSource source, IrFunction imported, ResearchAssemblyContext? assembly, ResearchFactRegistry? registry = null)
+        MetadataSource source,
+        IrFunction imported,
+        MemberProjectionAnalysisInput? analysis,
+        ResearchFactRegistry? registry = null)
         => (registry ?? ResearchFactRegistry.Default)
-            .CollectCensus(new ResearchFactContext(source, imported, assembly))
+            .CollectCensus(new ResearchFactContext(source, imported, analysis))
             .Findings
             .Select(finding => finding.Payload)
             .ToArray();
@@ -333,7 +342,7 @@ public static class MemberProjectionProducer
         var context = new ResearchFactContext(
             source,
             imported,
-            ResolveAssemblyContext(
+            ResolveAnalysisInput(
                 imported,
                 effectiveRegistry.Requirements));
         var census = effectiveRegistry.CollectCensus(context);

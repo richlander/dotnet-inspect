@@ -82,13 +82,11 @@ public sealed record MemberProjectionRequest(
     bool SourceDocument = false,
 
     /// <summary>
-    /// The whole-assembly analysis context fact producers observe through.
-    /// Supplied by a caller that already holds one, or that holds assembly
-    /// content rather than a filesystem path. Null retains compatibility
-    /// behavior: derive the context from the imported function's assembly path,
-    /// or observe a consistent absence when it has none.
+    /// The focused Analysis results fact producers observe through. Supplied by
+    /// the host that owns the Analysis execution. Null retains path-backed
+    /// compatibility behavior, or a consistent absence for pathless content.
     /// </summary>
-    ResearchAssemblyContext? Assembly = null,
+    MemberProjectionAnalysisInput? Analysis = null,
     IReadOnlyList<DirectCall>? CallSites = null,
     SelectedPropertyAccessorSource? PropertySource = null);
 
