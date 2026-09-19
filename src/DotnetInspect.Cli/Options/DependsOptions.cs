@@ -83,6 +83,16 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
 
     public bool EnvelopeOutput { get; init; }
 
+    /// <summary>
+    /// Debug-only destination for the complete enriched dependency envelope.
+    /// </summary>
+    public string? EvidenceEnvelopePath { get; init; }
+
+    /// <summary>
+    /// Path to write the ordinary primary output to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
+
     public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     /// <summary>The selected output format for the graph projection.</summary>
