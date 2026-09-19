@@ -206,6 +206,7 @@ internal sealed class ChangeRoutingPolicy
             "src/ts-jsexport/*",
             "inspect-web/multi-facade-canary/*",
             "inspect-web/managed-operation-bridge-canary/*",
+            "inspect-web/scripts/compile-engine-facades.ts",
             "inspect-web/scripts/verify-multi-facade-canary.ts",
             "inspect-web/scripts/verify-managed-operation-bridge-canary.ts",
             "inspect-web/DotnetInspect.Web/InspectWebJsExportContext.cs",

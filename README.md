@@ -161,7 +161,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical packet or its exact Inspect Web URL. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
+| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -434,6 +434,8 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
+dotnet-inspect package Newtonsoft.Json@13.0.4 \
+  --tfms -n 1 --tail --json
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
@@ -449,6 +451,11 @@ For one package with exactly `Package files` selected, `-n`, `--tail`, and
 enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
 `--value`, and `--paths` observe the same selected rows; add `--lines` only to
 clip rendered text.
+
+For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
+complete target-framework rows after archive extraction, framework
+de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
+observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
@@ -677,19 +684,18 @@ dotnet-inspect workspace \
   --share packet
 ```
 
-The transformation also accepts `--packet` or the exact Inspect Web URL as its
-input. Existing members retain their order; new members use owner-issued
+The transformation also accepts a canonical Base64URL packet string through
+`--packet`. Existing members retain their order; new members use owner-issued
 dependency order and are deduplicated only within each context. The command
 emits no packet unless every selected Package root completes and the complete
 derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.
 
-`--packet` accepts either canonical packet text or the exact
-`https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
-re-emits the canonical packet or selected URL without complete restoration.
-The `--share` selection governs this scalar; inventory output formats apply
-only when `--share` is absent.
+`--packet` accepts canonical Base64URL packet text. With `--share`, it validates
+the input and emits the canonical packet or selected URL without complete
+restoration. The `--share` selection governs this output scalar; inventory
+output formats apply only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
 controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
 source policy is accepted only for dependency enrichment or coordinate
@@ -753,8 +759,8 @@ details. `--verbose` adds each Package producer,
 requested/selected/effective target, runtime identifier, and asset-selection
 status to human output.
 
-Restore one current-format canonical Workspace packet or exact Inspect Web URL
-for inventory instead of supplying direct construction options:
+Restore one current-format canonical Base64URL Workspace packet string for
+inventory instead of supplying direct construction options:
 
 ```bash
 dotnet-inspect workspace --packet PACKET
@@ -872,6 +878,35 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 `--lines` only to clip rendered text. Exact-type, selected-section, discovery,
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
+
+Use a Workspace packet as reusable aggregate context when the Type may be
+defined by any Library in its selected context:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+
+# Given a schema-4 packet from a Type-capable producer:
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$schema4_packet" \
+  --share packet
+```
+
+`type --workspace` requires one exact Type and one canonical Base64URL
+Workspace packet string; URL input is rejected. It uses the packet's selected
+context independently of its focused tab. The packet is the sole location
+source, while the receiving command still applies its own NuGet source,
+credential, cache, and offline policy. Optional `--share` keeps ordinary Type
+output on stdout and writes the derived schema-4 packet or URL as the final
+stderr line when the input is schema 4. The current `workspace --share`
+producer emits schema 3, which remains a valid inspection input but cannot
+encode the derived Type scenario; requesting Share from that input fails
+visibly without discarding the Type output.
 
 ### Compatibility and change tracking
 
@@ -992,13 +1027,17 @@ and no authorship or copying claim. Within one image, confirm a candidate by
 re-running the pairwise form on the selected pair.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
-opts into whole-assembly retrieval, which costs materially more. `--top` bounds
-rendered rows only; `--json` retains every candidate, per-method outcome,
-blocker, and receipt regardless. `--max-results` and `--max-methods` move the
-product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, the
-ranked candidates are the only row shape; the seed, scope, disposition, receipt,
-blockers, and disclosure are written to stderr so stdout stays single-shaped and
-parseable.
+opts into whole-assembly retrieval, which costs materially more. `-n`,
+`--tail`, strict `--rows` windows, and `--top` select complete ranked candidate
+rows after retrieval; `--top` uses the structural-similarity ranking already
+issued by Analysis. Markdown, table, TSV, JSONL, JSON, and `--count` consume the
+same selected candidate sequence. JSON retains the complete per-method
+outcomes, blockers, and query receipt, with `row_selection` counts that
+distinguish returned candidates from selected rows. `--max-results` and
+`--max-methods` move the product retrieval limits themselves. In `--table`,
+`--tsv`, and `--jsonl`, the ranked candidates are the only row shape; the seed,
+scope, disposition, receipt, blockers, and disclosure are written to stderr so
+stdout stays single-shaped and parseable.
 
 Every ranked row prints a `Token` column holding the candidate's metadata token,
 which the pairwise form accepts directly as the second operand. That keeps every
