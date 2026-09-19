@@ -1286,754 +1286,754 @@ public static class IrImporter
 
         try
         {
-            while (reader.HasNext)
+        while (reader.HasNext)
+        {
+            offset = reader.Offset;
+            var opcode = reader.ReadILOpcode();
+            switch (opcode)
             {
-                offset = reader.Offset;
-                var opcode = reader.ReadILOpcode();
-                switch (opcode)
+                case ILOpCode.Constrained:
+                    constrainedTo = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    continue;
+                case ILOpCode.Volatile:
+                    volatilePrefix = true;
+                    continue;
+                case ILOpCode.Readonly:
+                    readonlyPrefix = true;
+                    continue;
+                case ILOpCode.Unaligned:
+                    // Alignment is a JIT hint with no source-level meaning;
+                    // the operand byte is consumed and the access proceeds.
+                    reader.ReadILByte();
+                    continue;
+
+                case ILOpCode.Nop:
+                    break;
+
+                case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
+                    stack.Push(MakeLoadArgument(method, function, opcode - ILOpCode.Ldarg_0));
+                    break;
+                case ILOpCode.Ldarg_s:
+                    stack.Push(MakeLoadArgument(method, function, reader.ReadILByte()));
+                    break;
+                case ILOpCode.Ldarg:
+                    stack.Push(MakeLoadArgument(method, function, reader.ReadILUInt16()));
+                    break;
+                case ILOpCode.Starg_s:
                 {
-                    case ILOpCode.Constrained:
-                        constrainedTo = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                        continue;
-                    case ILOpCode.Volatile:
-                        volatilePrefix = true;
-                        continue;
-                    case ILOpCode.Readonly:
-                        readonlyPrefix = true;
-                        continue;
-                    case ILOpCode.Unaligned:
-                        // Alignment is a JIT hint with no source-level meaning;
-                        // the operand byte is consumed and the access proceeds.
-                        reader.ReadILByte();
-                        continue;
+                    int index = reader.ReadILByte();
+                    var value = Pop(stack);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
+                    body.Add(MakeStoreArgument(method, function, index, value));
+                    break;
+                }
+                case ILOpCode.Starg:
+                {
+                    int index = reader.ReadILUInt16();
+                    var value = Pop(stack);
+                    if (!IsStableAcrossSideEffect(value)
+                        || HasPendingUnstableValue(stack)
+                        || HasPendingArgumentRead(stack, index))
+                    {
+                        SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
+                    }
+                    body.Add(MakeStoreArgument(method, function, index, value));
+                    break;
+                }
 
-                    case ILOpCode.Nop:
-                        break;
+                case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3:
+                    stack.Push(MakeLoadLocal(method, opcode - ILOpCode.Ldloc_0));
+                    break;
+                case ILOpCode.Ldloc_s:
+                    stack.Push(MakeLoadLocal(method, reader.ReadILByte()));
+                    break;
+                case ILOpCode.Ldloc:
+                    stack.Push(MakeLoadLocal(method, reader.ReadILUInt16()));
+                    break;
 
-                    case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
-                        stack.Push(MakeLoadArgument(method, function, opcode - ILOpCode.Ldarg_0));
-                        break;
-                    case ILOpCode.Ldarg_s:
-                        stack.Push(MakeLoadArgument(method, function, reader.ReadILByte()));
-                        break;
-                    case ILOpCode.Ldarg:
-                        stack.Push(MakeLoadArgument(method, function, reader.ReadILUInt16()));
-                        break;
-                    case ILOpCode.Starg_s:
+                case ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3:
+                    body.Add(MakeStoreLocalSpilling(method, opcode - ILOpCode.Stloc_0, Pop(stack), body, stack, state));
+                    break;
+                case ILOpCode.Stloc_s:
+                    body.Add(MakeStoreLocalSpilling(method, reader.ReadILByte(), Pop(stack), body, stack, state));
+                    break;
+                case ILOpCode.Stloc:
+                    body.Add(MakeStoreLocalSpilling(method, reader.ReadILUInt16(), Pop(stack), body, stack, state));
+                    break;
+
+                case >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4_8:
+                    // Subtract as int, not as the enum: ushort enum
+                    // subtraction wraps Ldc_i4_m1 - Ldc_i4_0 to 65535 before
+                    // any cast can repair it, and -1 must stay -1.
+                    stack.Push(new Constant((int)opcode - (int)ILOpCode.Ldc_i4_0, TypeRef.CoreLib("System", "Int32")));
+                    break;
+                case ILOpCode.Ldc_i4_s:
+                    stack.Push(new Constant((int)(sbyte)reader.ReadILByte(), TypeRef.CoreLib("System", "Int32")));
+                    break;
+                case ILOpCode.Ldc_i4:
+                    stack.Push(new Constant((int)reader.ReadILUInt32(), TypeRef.CoreLib("System", "Int32")));
+                    break;
+                case ILOpCode.Ldc_i8:
+                    stack.Push(new Constant((long)reader.ReadILUInt64(), TypeRef.CoreLib("System", "Int64")));
+                    break;
+                case ILOpCode.Ldc_r4:
+                    stack.Push(new Constant(BitConverter.UInt32BitsToSingle(reader.ReadILUInt32()), TypeRef.CoreLib("System", "Single")));
+                    break;
+                case ILOpCode.Ldc_r8:
+                    stack.Push(new Constant(BitConverter.UInt64BitsToDouble(reader.ReadILUInt64()), TypeRef.CoreLib("System", "Double")));
+                    break;
+
+                case ILOpCode.Sizeof:
+                    stack.Push(new SizeOf(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope)));
+                    break;
+
+                case ILOpCode.Switch:
+                {
+                    uint count = reader.ReadILUInt32();
+                    var rawTargets = new int[count];
+                    for (int i = 0; i < count; i++)
+                        rawTargets[i] = (int)reader.ReadILUInt32();
+                    int next = reader.Offset;
+                    var targets = ImmutableArray.CreateBuilder<int>((int)count);
+                    foreach (int raw in rawTargets)
+                        targets.Add(next + raw);
+                    var value = Pop(stack);
+                    var allSuccessors = targets.Append(end).Distinct().ToArray();
+                    if (!PropagateAndSpill(source, function, body, stack, state, allSuccessors, offset))
+                        return false;
+                    body.Add(new SwitchBranch(value, targets.MoveToImmutable()));
+                    break;
+                }
+
+                case ILOpCode.Ldnull:
+                    stack.Push(new Constant(null, TypeRef.CoreLib("System", "Object")));
+                    break;
+                case ILOpCode.Ldstr:
+                    stack.Push(new Constant(
+                        source.Reader.GetUserString(MetadataTokens.UserStringHandle(reader.ReadILToken())),
+                        TypeRef.CoreLib("System", "String")));
+                    break;
+
+                case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Rem
+                    or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor or ILOpCode.Shl or ILOpCode.Shr
+                    or ILOpCode.Add_ovf or ILOpCode.Sub_ovf or ILOpCode.Mul_ovf
+                    or ILOpCode.Div_un or ILOpCode.Rem_un or ILOpCode.Shr_un
+                    or ILOpCode.Add_ovf_un or ILOpCode.Sub_ovf_un or ILOpCode.Mul_ovf_un:
+                {
+                    var right = Pop(stack);
+                    var left = Pop(stack);
+                    stack.Push(new Binary(BinaryKindOf(opcode), IsChecked(opcode), IsUnsigned(opcode), left, right));
+                    break;
+                }
+
+                case ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un:
+                {
+                    var right = Pop(stack);
+                    var left = Pop(stack);
+                    stack.Push(new Comparison(
+                        opcode switch
                         {
-                            int index = reader.ReadILByte();
-                            var value = Pop(stack);
-                            if (!IsStableAcrossSideEffect(value)
-                                || HasPendingUnstableValue(stack)
-                                || HasPendingArgumentRead(stack, index))
-                            {
-                                SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
-                            }
-                            body.Add(MakeStoreArgument(method, function, index, value));
+                            ILOpCode.Ceq => ComparisonKind.Equal,
+                            ILOpCode.Cgt or ILOpCode.Cgt_un => ComparisonKind.GreaterThan,
+                            _ => ComparisonKind.LessThan,
+                        },
+                        opcode is ILOpCode.Cgt_un or ILOpCode.Clt_un, left, right));
+                    break;
+                }
+
+                case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
+                    or ILOpCode.Conv_u1 or ILOpCode.Conv_u2 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
+                    or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_i or ILOpCode.Conv_u
+                    or ILOpCode.Conv_r_un
+                    or ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i8
+                    or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u8
+                    or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_u
+                    or ILOpCode.Conv_ovf_i1_un or ILOpCode.Conv_ovf_i2_un or ILOpCode.Conv_ovf_i4_un or ILOpCode.Conv_ovf_i8_un
+                    or ILOpCode.Conv_ovf_u1_un or ILOpCode.Conv_ovf_u2_un or ILOpCode.Conv_ovf_u4_un or ILOpCode.Conv_ovf_u8_un
+                    or ILOpCode.Conv_ovf_i_un or ILOpCode.Conv_ovf_u_un:
+                    stack.Push(MakeConvert(opcode, Pop(stack)));
+                    break;
+
+                case ILOpCode.Call or ILOpCode.Callvirt:
+                {
+                    var methodHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var callee = ResolveMethod(
+                        source.Reader,
+                        methodHandle,
+                        callerScope,
+                        source.MemorySafety);
+                    if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
+                    {
+                        // Unknown arity would mis-pop the stack and corrupt
+                        // everything downstream — stop here instead.
+                        Stop(function, body, stack, offset, "call", $"unresolvable callee: {callee.DeclaringType.UnsupportedReason}");
+                        return false;
+                    }
+                    // MemberRefs carry no MethodDef rows; resolve only the
+                    // missing cross-assembly facts this callee can consume.
+                    callee = source.CrossAssembly.Upgrade(
+                        callee,
+                        resolveRequiresUnsafe: true);
+                    // A same-assembly MethodDef exposes its parameters' C# defaults
+                    // and sibling overloads; recover the overload-safe trailing
+                    // elision facts for the optional-argument elision pass.
+                    if (methodHandle.Kind == HandleKind.MethodDefinition)
+                        callee = OptionalArgumentFacts.Stamp(source, (MethodDefinitionHandle)methodHandle, callee);
+                    int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
+                    var arguments = new IrExpression[argumentCount];
+                    for (int i = argumentCount - 1; i >= 0; i--)
+                        arguments[i] = Pop(stack);
+
+                    var call = new Call(
+                        callee,
+                        opcode == ILOpCode.Callvirt,
+                        arguments)
+                    {
+                        ConstrainedTo = constrainedTo,
+                        ExtensionSyntaxConflict =
+                            arguments.Length > 0
+                                && arguments[0].ResultType
+                                    is { } receiverType
+                                ? source.CrossAssembly
+                                    .ExtensionSyntaxConflict(
+                                        receiverType,
+                                        callee)
+                                : MetadataFactState.Unknown,
+                    };
+                    constrainedTo = null;
+                    if (callee.ReturnType is { Name: "Void", Namespace: "System" })
+                    {
+                        // Emitting the call as a statement creates a sequence
+                        // point; any IL-earlier side-effecting value still pending
+                        // lazily below must materialize first or it reorders past
+                        // this call (runtime-async keeps such values on the eval
+                        // stack across awaits — see MakeStoreLocalSpilling).
+                        SpillUnstableBeforeSideEffect(body, stack, state);
+                        body.Add(new ExpressionStatement(call));
+                    }
+                    else
+                        stack.Push(call);
+                    break;
+                }
+
+                case ILOpCode.Ldfld or ILOpCode.Ldsfld:
+                {
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stfld:
+                {
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    var instance = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreField(field, instance, value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stsfld:
+                {
+                    var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreField(field, null, value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+
+                case ILOpCode.Ldflda or ILOpCode.Ldsflda:
+                {
+                    var fieldHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var field = ResolveField(source, fieldHandle, callerScope);
+                    var rvaData = opcode == ILOpCode.Ldsflda && fieldHandle.Kind == HandleKind.FieldDefinition
+                        ? TryReadFieldRvaData(source, (FieldDefinitionHandle)fieldHandle)
+                        : null;
+                    stack.Push(new LoadFieldAddress(field, opcode == ILOpCode.Ldflda ? Pop(stack) : null)
+                    {
+                        FieldRvaData = rvaData,
+                    });
+                    break;
+                }
+
+                case ILOpCode.Ldloca_s:
+                {
+                    int index = reader.ReadILByte();
+                    stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
+                    break;
+                }
+                case ILOpCode.Ldloca:
+                {
+                    int index = reader.ReadILUInt16();
+                    stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
+                    break;
+                }
+                case ILOpCode.Ldarga_s:
+                    stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILByte()));
+                    break;
+                case ILOpCode.Ldarga:
+                    stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILUInt16()));
+                    break;
+
+                case ILOpCode.Ldelema:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var index = Pop(stack);
+                    stack.Push(new LoadElementAddress(elementType, Pop(stack), index, readonlyPrefix));
+                    readonlyPrefix = false;
+                    break;
+                }
+
+                case ILOpCode.Ldobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new LoadIndirect(type, Pop(stack)) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreIndirect(type, address, value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Initobj:
+                {
+                    var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new InitObject(type, address));
+                    break;
+                }
+
+                case ILOpCode.Cpblk:
+                {
+                    var size = Pop(stack);
+                    var src = Pop(stack);
+                    var dest = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new CopyBlock(dest, src, size) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+
+                case >= ILOpCode.Ldind_i1 and <= ILOpCode.Ldind_ref:
+                {
+                    stack.Push(new LoadIndirect(IndirectTypeOf(opcode), Pop(stack)) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+                case ILOpCode.Stind_ref or (>= ILOpCode.Stind_i1 and <= ILOpCode.Stind_r8) or ILOpCode.Stind_i:
+                {
+                    var value = Pop(stack);
+                    var address = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreIndirect(IndirectTypeOf(opcode), address, value) { IsVolatile = volatilePrefix });
+                    volatilePrefix = false;
+                    break;
+                }
+
+                case ILOpCode.Ldelem:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var index = Pop(stack);
+                    var array = Pop(stack);
+                    stack.Push(new LoadElement(elementType, array, index)
+                    {
+                        ResultIsDynamic = ArrayElementDynamicFact(array),
+                    });
+                    break;
+                }
+                case >= ILOpCode.Ldelem_i1 and <= ILOpCode.Ldelem_ref or ILOpCode.Ldelem_i:
+                {
+                    var index = Pop(stack);
+                    var array = Pop(stack);
+                    stack.Push(new LoadElement(ElementTypeOf(opcode), array, index)
+                    {
+                        ResultIsDynamic = ArrayElementDynamicFact(array),
+                    });
+                    break;
+                }
+                case ILOpCode.Stelem:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var value = Pop(stack);
+                    var index = Pop(stack);
+                    var array = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreElement(elementType, array, index, value));
+                    break;
+                }
+                case >= ILOpCode.Stelem_i and <= ILOpCode.Stelem_ref:
+                {
+                    var value = Pop(stack);
+                    var index = Pop(stack);
+                    var array = Pop(stack);
+                    SpillUnstableBeforeSideEffect(body, stack, state);
+                    body.Add(new StoreElement(StelemElementType(opcode, array), array, index, value));
+                    break;
+                }
+
+                case ILOpCode.Unbox:
+                    stack.Push(new Unbox(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+                case ILOpCode.Unbox_any:
+                    stack.Push(new UnboxAny(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Newobj:
+                {
+                    var ctorHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var constructor = ResolveMethod(
+                        source.Reader,
+                        ctorHandle,
+                        callerScope,
+                        source.MemorySafety);
+                    // A bare cross-assembly struct token carries no VALUETYPE
+                    // byte; resolve its value-type-ness so a struct constructor
+                    // (new DateTime(...)) is not misread as a heap allocation.
+                    constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
+                    constructor = source.CrossAssembly.Upgrade(
+                        constructor,
+                        resolveRequiresUnsafe: true);
+                    // A same-assembly MethodDef ctor whose body proves it effect-free
+                    // (a trivial direct-Object parameterless ctor with no static ctor)
+                    // lets ObjectInitializerPass hoist an enclosing call's this-field
+                    // receiver read past this newobj when folding an initializer argument.
+                    if (ctorHandle.Kind == HandleKind.MethodDefinition)
+                        constructor = ConstructorConfinementFacts.Stamp(source, (MethodDefinitionHandle)ctorHandle, constructor);
+                    var arguments = new IrExpression[constructor.ParameterTypes.Length];
+                    for (int i = arguments.Length - 1; i >= 0; i--)
+                        arguments[i] = Pop(stack);
+                    stack.Push(new NewObject(constructor, arguments)
+                    {
+                        AnonymousPropertyNames = ReadAnonymousPropertyNames(source.Reader, ctorHandle),
+                    });
+                    break;
+                }
+
+                case ILOpCode.Throw:
+                {
+                    // A leader follows every throw (FindLeaders), so the block
+                    // ends here and unreachable IL lands in its own block. Any
+                    // pending stack values were evaluated before the exception
+                    // argument; they spill as statements in evaluation order.
+                    var thrown = Pop(stack);
+                    foreach (var pending in stack.Reverse())
+                        body.Add(new ExpressionStatement(pending));
+                    stack.Clear();
+                    body.Add(new Throw(thrown));
+                    break;
+                }
+
+                case ILOpCode.Neg:
+                    stack.Push(new Unary(UnaryKind.Negate, Pop(stack)));
+                    break;
+                case ILOpCode.Not:
+                    stack.Push(new Unary(UnaryKind.BitwiseNot, Pop(stack)));
+                    break;
+
+                case ILOpCode.Dup:
+                {
+                    var value = Pop(stack);
+                    // Trees cannot share nodes: dup materializes through a slot.
+                    // A dup'd pure constant that feeds a chained-assignment idiom
+                    // (`a = b = c = v`) is recomposed and its slot removed by
+                    // ChainedAssignmentPass; any non-chain dup'd constant slot is
+                    // re-materialized (cloned per use) by that same pass so the
+                    // per-sink typed literal is recovered (#2982) rather than
+                    // spilled through an int32-typed slot (CS0029).
+                    int slot = state.NextDupSlot++;
+                    body.Add(new StoreStackSlot(slot, value));
+                    stack.Push(new LoadStackSlot(slot, value.ResultType));
+                    stack.Push(new LoadStackSlot(slot, value.ResultType));
+                    break;
+                }
+
+                case ILOpCode.Ldlen:
+                    stack.Push(new ArrayLength(Pop(stack)));
+                    break;
+
+                case ILOpCode.Box:
+                    stack.Push(new Box(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Isinst:
+                    stack.Push(new IsInstance(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Castclass:
+                    stack.Push(new CastClass(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
+                    break;
+
+                case ILOpCode.Newarr:
+                {
+                    var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    stack.Push(new NewArray(elementType, Pop(stack)));
+                    break;
+                }
+
+                case ILOpCode.Ldtoken:
+                {
+                    var handle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    switch (handle.Kind)
+                    {
+                        case HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification:
+                        {
+                            var type = ResolveTypeToken(source.Reader, handle, callerScope);
+                            stack.Push(new LoadToken(RuntimeTokenKind.Type, type, type.ToDisplayString()));
                             break;
                         }
-                    case ILOpCode.Starg:
+                        case HandleKind.MethodDefinition or HandleKind.MethodSpecification:
                         {
-                            int index = reader.ReadILUInt16();
-                            var value = Pop(stack);
-                            if (!IsStableAcrossSideEffect(value)
-                                || HasPendingUnstableValue(stack)
-                                || HasPendingArgumentRead(stack, index))
-                            {
-                                SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
-                            }
-                            body.Add(MakeStoreArgument(method, function, index, value));
-                            break;
-                        }
-
-                    case ILOpCode.Ldloc_0 or ILOpCode.Ldloc_1 or ILOpCode.Ldloc_2 or ILOpCode.Ldloc_3:
-                        stack.Push(MakeLoadLocal(method, opcode - ILOpCode.Ldloc_0));
-                        break;
-                    case ILOpCode.Ldloc_s:
-                        stack.Push(MakeLoadLocal(method, reader.ReadILByte()));
-                        break;
-                    case ILOpCode.Ldloc:
-                        stack.Push(MakeLoadLocal(method, reader.ReadILUInt16()));
-                        break;
-
-                    case ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3:
-                        body.Add(MakeStoreLocalSpilling(method, opcode - ILOpCode.Stloc_0, Pop(stack), body, stack, state));
-                        break;
-                    case ILOpCode.Stloc_s:
-                        body.Add(MakeStoreLocalSpilling(method, reader.ReadILByte(), Pop(stack), body, stack, state));
-                        break;
-                    case ILOpCode.Stloc:
-                        body.Add(MakeStoreLocalSpilling(method, reader.ReadILUInt16(), Pop(stack), body, stack, state));
-                        break;
-
-                    case >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4_8:
-                        // Subtract as int, not as the enum: ushort enum
-                        // subtraction wraps Ldc_i4_m1 - Ldc_i4_0 to 65535 before
-                        // any cast can repair it, and -1 must stay -1.
-                        stack.Push(new Constant((int)opcode - (int)ILOpCode.Ldc_i4_0, TypeRef.CoreLib("System", "Int32")));
-                        break;
-                    case ILOpCode.Ldc_i4_s:
-                        stack.Push(new Constant((int)(sbyte)reader.ReadILByte(), TypeRef.CoreLib("System", "Int32")));
-                        break;
-                    case ILOpCode.Ldc_i4:
-                        stack.Push(new Constant((int)reader.ReadILUInt32(), TypeRef.CoreLib("System", "Int32")));
-                        break;
-                    case ILOpCode.Ldc_i8:
-                        stack.Push(new Constant((long)reader.ReadILUInt64(), TypeRef.CoreLib("System", "Int64")));
-                        break;
-                    case ILOpCode.Ldc_r4:
-                        stack.Push(new Constant(BitConverter.UInt32BitsToSingle(reader.ReadILUInt32()), TypeRef.CoreLib("System", "Single")));
-                        break;
-                    case ILOpCode.Ldc_r8:
-                        stack.Push(new Constant(BitConverter.UInt64BitsToDouble(reader.ReadILUInt64()), TypeRef.CoreLib("System", "Double")));
-                        break;
-
-                    case ILOpCode.Sizeof:
-                        stack.Push(new SizeOf(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope)));
-                        break;
-
-                    case ILOpCode.Switch:
-                        {
-                            uint count = reader.ReadILUInt32();
-                            var rawTargets = new int[count];
-                            for (int i = 0; i < count; i++)
-                                rawTargets[i] = (int)reader.ReadILUInt32();
-                            int next = reader.Offset;
-                            var targets = ImmutableArray.CreateBuilder<int>((int)count);
-                            foreach (int raw in rawTargets)
-                                targets.Add(next + raw);
-                            var value = Pop(stack);
-                            var allSuccessors = targets.Append(end).Distinct().ToArray();
-                            if (!PropagateAndSpill(source, function, body, stack, state, allSuccessors, offset))
-                                return false;
-                            body.Add(new SwitchBranch(value, targets.MoveToImmutable()));
-                            break;
-                        }
-
-                    case ILOpCode.Ldnull:
-                        stack.Push(new Constant(null, TypeRef.CoreLib("System", "Object")));
-                        break;
-                    case ILOpCode.Ldstr:
-                        stack.Push(new Constant(
-                            source.Reader.GetUserString(MetadataTokens.UserStringHandle(reader.ReadILToken())),
-                            TypeRef.CoreLib("System", "String")));
-                        break;
-
-                    case ILOpCode.Add or ILOpCode.Sub or ILOpCode.Mul or ILOpCode.Div or ILOpCode.Rem
-                        or ILOpCode.And or ILOpCode.Or or ILOpCode.Xor or ILOpCode.Shl or ILOpCode.Shr
-                        or ILOpCode.Add_ovf or ILOpCode.Sub_ovf or ILOpCode.Mul_ovf
-                        or ILOpCode.Div_un or ILOpCode.Rem_un or ILOpCode.Shr_un
-                        or ILOpCode.Add_ovf_un or ILOpCode.Sub_ovf_un or ILOpCode.Mul_ovf_un:
-                        {
-                            var right = Pop(stack);
-                            var left = Pop(stack);
-                            stack.Push(new Binary(BinaryKindOf(opcode), IsChecked(opcode), IsUnsigned(opcode), left, right));
-                            break;
-                        }
-
-                    case ILOpCode.Ceq or ILOpCode.Cgt or ILOpCode.Cgt_un or ILOpCode.Clt or ILOpCode.Clt_un:
-                        {
-                            var right = Pop(stack);
-                            var left = Pop(stack);
-                            stack.Push(new Comparison(
-                                opcode switch
-                                {
-                                    ILOpCode.Ceq => ComparisonKind.Equal,
-                                    ILOpCode.Cgt or ILOpCode.Cgt_un => ComparisonKind.GreaterThan,
-                                    _ => ComparisonKind.LessThan,
-                                },
-                                opcode is ILOpCode.Cgt_un or ILOpCode.Clt_un, left, right));
-                            break;
-                        }
-
-                    case ILOpCode.Conv_i1 or ILOpCode.Conv_i2 or ILOpCode.Conv_i4 or ILOpCode.Conv_i8
-                        or ILOpCode.Conv_u1 or ILOpCode.Conv_u2 or ILOpCode.Conv_u4 or ILOpCode.Conv_u8
-                        or ILOpCode.Conv_r4 or ILOpCode.Conv_r8 or ILOpCode.Conv_i or ILOpCode.Conv_u
-                        or ILOpCode.Conv_r_un
-                        or ILOpCode.Conv_ovf_i1 or ILOpCode.Conv_ovf_i2 or ILOpCode.Conv_ovf_i4 or ILOpCode.Conv_ovf_i8
-                        or ILOpCode.Conv_ovf_u1 or ILOpCode.Conv_ovf_u2 or ILOpCode.Conv_ovf_u4 or ILOpCode.Conv_ovf_u8
-                        or ILOpCode.Conv_ovf_i or ILOpCode.Conv_ovf_u
-                        or ILOpCode.Conv_ovf_i1_un or ILOpCode.Conv_ovf_i2_un or ILOpCode.Conv_ovf_i4_un or ILOpCode.Conv_ovf_i8_un
-                        or ILOpCode.Conv_ovf_u1_un or ILOpCode.Conv_ovf_u2_un or ILOpCode.Conv_ovf_u4_un or ILOpCode.Conv_ovf_u8_un
-                        or ILOpCode.Conv_ovf_i_un or ILOpCode.Conv_ovf_u_un:
-                        stack.Push(MakeConvert(opcode, Pop(stack)));
-                        break;
-
-                    case ILOpCode.Call or ILOpCode.Callvirt:
-                        {
-                            var methodHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
                             var callee = ResolveMethod(
                                 source.Reader,
-                                methodHandle,
+                                handle,
                                 callerScope,
                                 source.MemorySafety);
-                            if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
+                            stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
+                            break;
+                        }
+                        case HandleKind.FieldDefinition:
+                        {
+                            var field = ResolveField(source, handle, callerScope);
+                            stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}")
                             {
-                                // Unknown arity would mis-pop the stack and corrupt
-                                // everything downstream — stop here instead.
-                                Stop(function, body, stack, offset, "call", $"unresolvable callee: {callee.DeclaringType.UnsupportedReason}");
-                                return false;
-                            }
-                            // MemberRefs carry no MethodDef rows; resolve only the
-                            // missing cross-assembly facts this callee can consume.
-                            callee = source.CrossAssembly.Upgrade(
-                                callee,
-                                resolveRequiresUnsafe: true);
-                            // A same-assembly MethodDef exposes its parameters' C# defaults
-                            // and sibling overloads; recover the overload-safe trailing
-                            // elision facts for the optional-argument elision pass.
-                            if (methodHandle.Kind == HandleKind.MethodDefinition)
-                                callee = OptionalArgumentFacts.Stamp(source, (MethodDefinitionHandle)methodHandle, callee);
-                            int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
-                            var arguments = new IrExpression[argumentCount];
-                            for (int i = argumentCount - 1; i >= 0; i--)
-                                arguments[i] = Pop(stack);
-
-                            var call = new Call(
-                                callee,
-                                opcode == ILOpCode.Callvirt,
-                                arguments)
+                                FieldRvaData = TryReadFieldRvaData(source, (FieldDefinitionHandle)handle),
+                            });
+                            break;
+                        }
+                        case HandleKind.MemberReference:
+                        {
+                            var member = source.Reader.GetMemberReference((MemberReferenceHandle)handle);
+                            if (member.GetKind() == MemberReferenceKind.Field)
                             {
-                                ConstrainedTo = constrainedTo,
-                                ExtensionSyntaxConflict =
-                                    arguments.Length > 0
-                                        && arguments[0].ResultType
-                                            is { } receiverType
-                                        ? source.CrossAssembly
-                                            .ExtensionSyntaxConflict(
-                                                receiverType,
-                                                callee)
-                                        : MetadataFactState.Unknown,
-                            };
-                            constrainedTo = null;
-                            if (callee.ReturnType is { Name: "Void", Namespace: "System" })
-                            {
-                                // Emitting the call as a statement creates a sequence
-                                // point; any IL-earlier side-effecting value still pending
-                                // lazily below must materialize first or it reorders past
-                                // this call (runtime-async keeps such values on the eval
-                                // stack across awaits — see MakeStoreLocalSpilling).
-                                SpillUnstableBeforeSideEffect(body, stack, state);
-                                body.Add(new ExpressionStatement(call));
+                                var field = ResolveField(source, handle, callerScope);
+                                stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
                             }
                             else
-                                stack.Push(call);
-                            break;
-                        }
-
-                    case ILOpCode.Ldfld or ILOpCode.Ldsfld:
-                        {
-                            var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            stack.Push(new LoadField(field, opcode == ILOpCode.Ldfld ? Pop(stack) : null) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-                    case ILOpCode.Stfld:
-                        {
-                            var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var value = Pop(stack);
-                            var instance = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreField(field, instance, value) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-                    case ILOpCode.Stsfld:
-                        {
-                            var field = ResolveField(source, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var value = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreField(field, null, value) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-
-                    case ILOpCode.Ldflda or ILOpCode.Ldsflda:
-                        {
-                            var fieldHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                            var field = ResolveField(source, fieldHandle, callerScope);
-                            var rvaData = opcode == ILOpCode.Ldsflda && fieldHandle.Kind == HandleKind.FieldDefinition
-                                ? TryReadFieldRvaData(source, (FieldDefinitionHandle)fieldHandle)
-                                : null;
-                            stack.Push(new LoadFieldAddress(field, opcode == ILOpCode.Ldflda ? Pop(stack) : null)
                             {
-                                FieldRvaData = rvaData,
-                            });
-                            break;
-                        }
-
-                    case ILOpCode.Ldloca_s:
-                        {
-                            int index = reader.ReadILByte();
-                            stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
-                            break;
-                        }
-                    case ILOpCode.Ldloca:
-                        {
-                            int index = reader.ReadILUInt16();
-                            stack.Push(new LoadLocalAddress(index, method.Body.Locals[index]));
-                            break;
-                        }
-                    case ILOpCode.Ldarga_s:
-                        stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILByte()));
-                        break;
-                    case ILOpCode.Ldarga:
-                        stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILUInt16()));
-                        break;
-
-                    case ILOpCode.Ldelema:
-                        {
-                            var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var index = Pop(stack);
-                            stack.Push(new LoadElementAddress(elementType, Pop(stack), index, readonlyPrefix));
-                            readonlyPrefix = false;
-                            break;
-                        }
-
-                    case ILOpCode.Ldobj:
-                        {
-                            var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            stack.Push(new LoadIndirect(type, Pop(stack)) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-                    case ILOpCode.Stobj:
-                        {
-                            var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var value = Pop(stack);
-                            var address = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreIndirect(type, address, value) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-                    case ILOpCode.Initobj:
-                        {
-                            var type = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var address = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new InitObject(type, address));
-                            break;
-                        }
-
-                    case ILOpCode.Cpblk:
-                        {
-                            var size = Pop(stack);
-                            var src = Pop(stack);
-                            var dest = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new CopyBlock(dest, src, size) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-
-                    case >= ILOpCode.Ldind_i1 and <= ILOpCode.Ldind_ref:
-                        {
-                            stack.Push(new LoadIndirect(IndirectTypeOf(opcode), Pop(stack)) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-                    case ILOpCode.Stind_ref or (>= ILOpCode.Stind_i1 and <= ILOpCode.Stind_r8) or ILOpCode.Stind_i:
-                        {
-                            var value = Pop(stack);
-                            var address = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreIndirect(IndirectTypeOf(opcode), address, value) { IsVolatile = volatilePrefix });
-                            volatilePrefix = false;
-                            break;
-                        }
-
-                    case ILOpCode.Ldelem:
-                        {
-                            var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var index = Pop(stack);
-                            var array = Pop(stack);
-                            stack.Push(new LoadElement(elementType, array, index)
-                            {
-                                ResultIsDynamic = ArrayElementDynamicFact(array),
-                            });
-                            break;
-                        }
-                    case >= ILOpCode.Ldelem_i1 and <= ILOpCode.Ldelem_ref or ILOpCode.Ldelem_i:
-                        {
-                            var index = Pop(stack);
-                            var array = Pop(stack);
-                            stack.Push(new LoadElement(ElementTypeOf(opcode), array, index)
-                            {
-                                ResultIsDynamic = ArrayElementDynamicFact(array),
-                            });
-                            break;
-                        }
-                    case ILOpCode.Stelem:
-                        {
-                            var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            var value = Pop(stack);
-                            var index = Pop(stack);
-                            var array = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreElement(elementType, array, index, value));
-                            break;
-                        }
-                    case >= ILOpCode.Stelem_i and <= ILOpCode.Stelem_ref:
-                        {
-                            var value = Pop(stack);
-                            var index = Pop(stack);
-                            var array = Pop(stack);
-                            SpillUnstableBeforeSideEffect(body, stack, state);
-                            body.Add(new StoreElement(StelemElementType(opcode, array), array, index, value));
-                            break;
-                        }
-
-                    case ILOpCode.Unbox:
-                        stack.Push(new Unbox(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
-                        break;
-                    case ILOpCode.Unbox_any:
-                        stack.Push(new UnboxAny(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
-                        break;
-
-                    case ILOpCode.Newobj:
-                        {
-                            var ctorHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                            var constructor = ResolveMethod(
-                                source.Reader,
-                                ctorHandle,
-                                callerScope,
-                                source.MemorySafety);
-                            // A bare cross-assembly struct token carries no VALUETYPE
-                            // byte; resolve its value-type-ness so a struct constructor
-                            // (new DateTime(...)) is not misread as a heap allocation.
-                            constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
-                            constructor = source.CrossAssembly.Upgrade(
-                                constructor,
-                                resolveRequiresUnsafe: true);
-                            // A same-assembly MethodDef ctor whose body proves it effect-free
-                            // (a trivial direct-Object parameterless ctor with no static ctor)
-                            // lets ObjectInitializerPass hoist an enclosing call's this-field
-                            // receiver read past this newobj when folding an initializer argument.
-                            if (ctorHandle.Kind == HandleKind.MethodDefinition)
-                                constructor = ConstructorConfinementFacts.Stamp(source, (MethodDefinitionHandle)ctorHandle, constructor);
-                            var arguments = new IrExpression[constructor.ParameterTypes.Length];
-                            for (int i = arguments.Length - 1; i >= 0; i--)
-                                arguments[i] = Pop(stack);
-                            stack.Push(new NewObject(constructor, arguments)
-                            {
-                                AnonymousPropertyNames = ReadAnonymousPropertyNames(source.Reader, ctorHandle),
-                            });
-                            break;
-                        }
-
-                    case ILOpCode.Throw:
-                        {
-                            // A leader follows every throw (FindLeaders), so the block
-                            // ends here and unreachable IL lands in its own block. Any
-                            // pending stack values were evaluated before the exception
-                            // argument; they spill as statements in evaluation order.
-                            var thrown = Pop(stack);
-                            foreach (var pending in stack.Reverse())
-                                body.Add(new ExpressionStatement(pending));
-                            stack.Clear();
-                            body.Add(new Throw(thrown));
-                            break;
-                        }
-
-                    case ILOpCode.Neg:
-                        stack.Push(new Unary(UnaryKind.Negate, Pop(stack)));
-                        break;
-                    case ILOpCode.Not:
-                        stack.Push(new Unary(UnaryKind.BitwiseNot, Pop(stack)));
-                        break;
-
-                    case ILOpCode.Dup:
-                        {
-                            var value = Pop(stack);
-                            // Trees cannot share nodes: dup materializes through a slot.
-                            // A dup'd pure constant that feeds a chained-assignment idiom
-                            // (`a = b = c = v`) is recomposed and its slot removed by
-                            // ChainedAssignmentPass; any non-chain dup'd constant slot is
-                            // re-materialized (cloned per use) by that same pass so the
-                            // per-sink typed literal is recovered (#2982) rather than
-                            // spilled through an int32-typed slot (CS0029).
-                            int slot = state.NextDupSlot++;
-                            body.Add(new StoreStackSlot(slot, value));
-                            stack.Push(new LoadStackSlot(slot, value.ResultType));
-                            stack.Push(new LoadStackSlot(slot, value.ResultType));
-                            break;
-                        }
-
-                    case ILOpCode.Ldlen:
-                        stack.Push(new ArrayLength(Pop(stack)));
-                        break;
-
-                    case ILOpCode.Box:
-                        stack.Push(new Box(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
-                        break;
-
-                    case ILOpCode.Isinst:
-                        stack.Push(new IsInstance(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
-                        break;
-
-                    case ILOpCode.Castclass:
-                        stack.Push(new CastClass(ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope), Pop(stack)));
-                        break;
-
-                    case ILOpCode.Newarr:
-                        {
-                            var elementType = ResolveTypeToken(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
-                            stack.Push(new NewArray(elementType, Pop(stack)));
-                            break;
-                        }
-
-                    case ILOpCode.Ldtoken:
-                        {
-                            var handle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                            switch (handle.Kind)
-                            {
-                                case HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification:
-                                    {
-                                        var type = ResolveTypeToken(source.Reader, handle, callerScope);
-                                        stack.Push(new LoadToken(RuntimeTokenKind.Type, type, type.ToDisplayString()));
-                                        break;
-                                    }
-                                case HandleKind.MethodDefinition or HandleKind.MethodSpecification:
-                                    {
-                                        var callee = ResolveMethod(
-                                            source.Reader,
-                                            handle,
-                                            callerScope,
-                                            source.MemorySafety);
-                                        stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
-                                        break;
-                                    }
-                                case HandleKind.FieldDefinition:
-                                    {
-                                        var field = ResolveField(source, handle, callerScope);
-                                        stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}")
-                                        {
-                                            FieldRvaData = TryReadFieldRvaData(source, (FieldDefinitionHandle)handle),
-                                        });
-                                        break;
-                                    }
-                                case HandleKind.MemberReference:
-                                    {
-                                        var member = source.Reader.GetMemberReference((MemberReferenceHandle)handle);
-                                        if (member.GetKind() == MemberReferenceKind.Field)
-                                        {
-                                            var field = ResolveField(source, handle, callerScope);
-                                            stack.Push(new LoadToken(RuntimeTokenKind.Field, null, $"{field.DeclaringType.ToDisplayString()}.{field.Name}"));
-                                        }
-                                        else
-                                        {
-                                            var callee = ResolveMethod(
-                                                source.Reader,
-                                                handle,
-                                                callerScope,
-                                                source.MemorySafety);
-                                            stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
-                                        }
-                                        break;
-                                    }
-                                default:
-                                    Stop(function, body, stack, offset, "ldtoken", $"unrepresentable token kind {handle.Kind}");
-                                    return false;
+                                var callee = ResolveMethod(
+                                    source.Reader,
+                                    handle,
+                                    callerScope,
+                                    source.MemorySafety);
+                                stack.Push(new LoadToken(RuntimeTokenKind.Method, null, $"{callee.DeclaringType.ToDisplayString()}.{callee.Name}"));
                             }
                             break;
                         }
-
-                    case ILOpCode.Pop:
-                        {
-                            // Popping a side-effect-free value (the dup/coalesce
-                            // lowering discards copies constantly) needs no statement.
-                            var popped = Pop(stack);
-                            if (popped is not (Constant or LoadArgument or LoadLocal or LoadStackSlot))
-                                body.Add(new ExpressionStatement(popped));
-                            break;
-                        }
-
-                    case ILOpCode.Br or ILOpCode.Br_s:
-                        {
-                            int target = reader.ReadBranchDestination(opcode);
-                            if (!PropagateAndSpill(source, function, body, stack, state, [target], offset))
-                                return false;
-                            body.Add(new Branch(target));
-                            break;
-                        }
-
-                    case ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s:
-                        {
-                            var condition = Pop(stack);
-                            if (opcode is ILOpCode.Brfalse or ILOpCode.Brfalse_s)
-                                condition = new LogicalNot(condition);
-                            int target = reader.ReadBranchDestination(opcode);
-                            if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
-                                return false;
-                            body.Add(new ConditionalBranch(
-                                condition,
-                                target,
-                                ConditionalBranchOrigin.Imported));
-                            break;
-                        }
-
-                    case >= ILOpCode.Beq_s and <= ILOpCode.Blt_un_s or >= ILOpCode.Beq and <= ILOpCode.Blt_un:
-                        {
-                            int target = reader.ReadBranchDestination(opcode);
-                            var right = Pop(stack);
-                            var left = Pop(stack);
-                            var (kind, isUnsigned) = ComparisonOf(opcode);
-                            if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
-                                return false;
-                            body.Add(new ConditionalBranch(
-                                new Comparison(kind, isUnsigned, left, right),
-                                target,
-                                ConditionalBranchOrigin.Imported));
-                            break;
-                        }
-
-                    case ILOpCode.Leave or ILOpCode.Leave_s:
-                        {
-                            // leave empties the evaluation stack; pending values'
-                            // side effects already happened, so they spill as
-                            // statements in evaluation order.
-                            int target = reader.ReadBranchDestination(opcode);
-                            foreach (var pending in stack.Reverse())
-                                body.Add(new ExpressionStatement(pending));
-                            stack.Clear();
-                            body.Add(new Leave(target));
-                            break;
-                        }
-
-                    case ILOpCode.Endfinally:
-                        // ECMA-335 III.3.35: the evaluation stack must be empty.
-                        // Unlike leave (defined to empty the stack), a non-empty
-                        // stack here is malformed IL — stop honestly.
-                        if (stack.Count > 0)
-                        {
-                            Stop(function, body, stack, offset, "endfinally",
-                                "evaluation stack is not empty at endfinally (malformed IL)");
+                        default:
+                            Stop(function, body, stack, offset, "ldtoken", $"unrepresentable token kind {handle.Kind}");
                             return false;
-                        }
-                        body.Add(new EndFinally());
-                        break;
-
-                    case ILOpCode.Endfilter:
-                        {
-                            // ECMA-335 III.3.34: the stack holds exactly the verdict.
-                            var verdict = Pop(stack);
-                            if (stack.Count > 0)
-                            {
-                                Stop(function, body, stack, offset, "endfilter",
-                                    "evaluation stack holds more than the filter verdict (malformed IL)");
-                                return false;
-                            }
-                            body.Add(new EndFilter(verdict));
-                            break;
-                        }
-
-                    case ILOpCode.Rethrow:
-                        body.Add(new Throw(new CaughtException(null)));
-                        break;
-
-                    case ILOpCode.Ret:
-                        body.Add(new Return(stack.Count > 0 ? Pop(stack) : null));
-                        break;
-
-                    case ILOpCode.Ldftn:
-                        {
-                            var target = ResolveMethod(
-                                source.Reader,
-                                MetadataTokens.EntityHandle(reader.ReadILToken()),
-                                callerScope,
-                                source.MemorySafety);
-                            target = source.CrossAssembly.Upgrade(
-                                target,
-                                resolveRequiresUnsafe: true);
-                            stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
-                            break;
-                        }
-
-                    case ILOpCode.Ldvirtftn:
-                        {
-                            var target = ResolveMethod(
-                                source.Reader,
-                                MetadataTokens.EntityHandle(reader.ReadILToken()),
-                                callerScope,
-                                source.MemorySafety);
-                            target = source.CrossAssembly.Upgrade(
-                                target,
-                                resolveRequiresUnsafe: true);
-                            var instance = Pop(stack);
-                            stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
-                            break;
-                        }
-
-                    case ILOpCode.Calli:
-                        {
-                            // The operand is a standalone call-site signature: it gives
-                            // the return and parameter types and whether the pointer is
-                            // an instance function pointer. The function-pointer value
-                            // is on top; the arguments are beneath it.
-                            var signature = GuardedDecode.MethodSignature(
-                                source.Reader,
-                                source.Reader.GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(reader.ReadILToken())),
-                                callerScope);
-                            var pointer = Pop(stack);
-                            int argumentCount = signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
-                            var arguments = new IrExpression[argumentCount];
-                            for (int i = argumentCount - 1; i >= 0; i--)
-                                arguments[i] = Pop(stack);
-                            var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes)
-                            {
-                                CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention, signature.ReturnType),
-                                IsInstance = signature.Header.IsInstance,
-                            };
-                            if (signature.ReturnType is { Name: "Void", Namespace: "System" })
-                                body.Add(new ExpressionStatement(callIndirect));
-                            else
-                                stack.Push(callIndirect);
-                            break;
-                        }
-
-                    case ILOpCode.Localloc:
-                        {
-                            // localloc's operand is a native-int byte count; C#'s
-                            // stackalloc takes the logical count, so strip the widening
-                            // conversion the compiler emits to feed localloc.
-                            var size = Pop(stack);
-                            if (size is Convert conversion
-                                && conversion.Target is { Namespace: "System", Name: "IntPtr" or "UIntPtr" })
-                                size = (IrExpression)conversion.DetachChildren()[0];
-                            stack.Push(new StackAllocate(size));
-                            break;
-                        }
-
-                    default:
-                        Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
-                            "opcode is outside the slice");
-                        return false;
+                    }
+                    break;
                 }
 
-                // Capture the post-opcode evaluation-stack types for the typed-IL
-                // projection — a no-op unless a trace is requested. Prefix opcodes
-                // `continue` above, so they are correctly excluded.
-                trace?.Add(new IlTracePoint(offset, [.. stack.Reverse().Select(e => e.ResultType)]));
-
-                // Stamp IL-offset provenance on the nodes this instruction created.
-                // Operands it consumed were pushed (and stamped) by earlier
-                // instructions, so StampSubtree stops at them; only the genuinely
-                // new node(s) — the fresh stack top and any statements appended this
-                // iteration — take the current offset. Prefix opcodes `continue`
-                // above and never reach here.
-                for (; stampedStatements < body.Children.Count; stampedStatements++)
-                    StampSubtree(body.Children[stampedStatements], offset);
-                foreach (var pushed in stack)
-                    StampSubtree(pushed, offset);
-
-                if (constrainedTo is not null || volatilePrefix || readonlyPrefix)
+                case ILOpCode.Pop:
                 {
-                    Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
-                        "an IL prefix applied to an instruction that does not accept it");
-                    return false;
+                    // Popping a side-effect-free value (the dup/coalesce
+                    // lowering discards copies constantly) needs no statement.
+                    var popped = Pop(stack);
+                    if (popped is not (Constant or LoadArgument or LoadLocal or LoadStackSlot))
+                        body.Add(new ExpressionStatement(popped));
+                    break;
                 }
+
+                case ILOpCode.Br or ILOpCode.Br_s:
+                {
+                    int target = reader.ReadBranchDestination(opcode);
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target], offset))
+                        return false;
+                    body.Add(new Branch(target));
+                    break;
+                }
+
+                case ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s:
+                {
+                    var condition = Pop(stack);
+                    if (opcode is ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+                        condition = new LogicalNot(condition);
+                    int target = reader.ReadBranchDestination(opcode);
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
+                        return false;
+                    body.Add(new ConditionalBranch(
+                        condition,
+                        target,
+                        ConditionalBranchOrigin.Imported));
+                    break;
+                }
+
+                case >= ILOpCode.Beq_s and <= ILOpCode.Blt_un_s or >= ILOpCode.Beq and <= ILOpCode.Blt_un:
+                {
+                    int target = reader.ReadBranchDestination(opcode);
+                    var right = Pop(stack);
+                    var left = Pop(stack);
+                    var (kind, isUnsigned) = ComparisonOf(opcode);
+                    if (!PropagateAndSpill(source, function, body, stack, state, [target, end], offset))
+                        return false;
+                    body.Add(new ConditionalBranch(
+                        new Comparison(kind, isUnsigned, left, right),
+                        target,
+                        ConditionalBranchOrigin.Imported));
+                    break;
+                }
+
+                case ILOpCode.Leave or ILOpCode.Leave_s:
+                {
+                    // leave empties the evaluation stack; pending values'
+                    // side effects already happened, so they spill as
+                    // statements in evaluation order.
+                    int target = reader.ReadBranchDestination(opcode);
+                    foreach (var pending in stack.Reverse())
+                        body.Add(new ExpressionStatement(pending));
+                    stack.Clear();
+                    body.Add(new Leave(target));
+                    break;
+                }
+
+                case ILOpCode.Endfinally:
+                    // ECMA-335 III.3.35: the evaluation stack must be empty.
+                    // Unlike leave (defined to empty the stack), a non-empty
+                    // stack here is malformed IL — stop honestly.
+                    if (stack.Count > 0)
+                    {
+                        Stop(function, body, stack, offset, "endfinally",
+                            "evaluation stack is not empty at endfinally (malformed IL)");
+                        return false;
+                    }
+                    body.Add(new EndFinally());
+                    break;
+
+                case ILOpCode.Endfilter:
+                {
+                    // ECMA-335 III.3.34: the stack holds exactly the verdict.
+                    var verdict = Pop(stack);
+                    if (stack.Count > 0)
+                    {
+                        Stop(function, body, stack, offset, "endfilter",
+                            "evaluation stack holds more than the filter verdict (malformed IL)");
+                        return false;
+                    }
+                    body.Add(new EndFilter(verdict));
+                    break;
+                }
+
+                case ILOpCode.Rethrow:
+                    body.Add(new Throw(new CaughtException(null)));
+                    break;
+
+                case ILOpCode.Ret:
+                    body.Add(new Return(stack.Count > 0 ? Pop(stack) : null));
+                    break;
+
+                case ILOpCode.Ldftn:
+                {
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.MemorySafety);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        resolveRequiresUnsafe: true);
+                    stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
+                    break;
+                }
+
+                case ILOpCode.Ldvirtftn:
+                {
+                    var target = ResolveMethod(
+                        source.Reader,
+                        MetadataTokens.EntityHandle(reader.ReadILToken()),
+                        callerScope,
+                        source.MemorySafety);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        resolveRequiresUnsafe: true);
+                    var instance = Pop(stack);
+                    stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
+                    break;
+                }
+
+                case ILOpCode.Calli:
+                {
+                    // The operand is a standalone call-site signature: it gives
+                    // the return and parameter types and whether the pointer is
+                    // an instance function pointer. The function-pointer value
+                    // is on top; the arguments are beneath it.
+                    var signature = GuardedDecode.MethodSignature(
+                        source.Reader,
+                        source.Reader.GetStandaloneSignature((StandaloneSignatureHandle)MetadataTokens.EntityHandle(reader.ReadILToken())),
+                        callerScope);
+                    var pointer = Pop(stack);
+                    int argumentCount = signature.ParameterTypes.Length + (signature.Header.IsInstance ? 1 : 0);
+                    var arguments = new IrExpression[argumentCount];
+                    for (int i = argumentCount - 1; i >= 0; i--)
+                        arguments[i] = Pop(stack);
+                    var callIndirect = new CallIndirect(pointer, arguments, signature.ReturnType, signature.ParameterTypes)
+                    {
+                        CallingConvention = TypeRefDecoder.ConventionText(signature.Header.CallingConvention, signature.ReturnType),
+                        IsInstance = signature.Header.IsInstance,
+                    };
+                    if (signature.ReturnType is { Name: "Void", Namespace: "System" })
+                        body.Add(new ExpressionStatement(callIndirect));
+                    else
+                        stack.Push(callIndirect);
+                    break;
+                }
+
+                case ILOpCode.Localloc:
+                {
+                    // localloc's operand is a native-int byte count; C#'s
+                    // stackalloc takes the logical count, so strip the widening
+                    // conversion the compiler emits to feed localloc.
+                    var size = Pop(stack);
+                    if (size is Convert conversion
+                        && conversion.Target is { Namespace: "System", Name: "IntPtr" or "UIntPtr" })
+                        size = (IrExpression)conversion.DetachChildren()[0];
+                    stack.Push(new StackAllocate(size));
+                    break;
+                }
+
+                default:
+                    Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
+                        "opcode is outside the slice");
+                    return false;
             }
+
+            // Capture the post-opcode evaluation-stack types for the typed-IL
+            // projection — a no-op unless a trace is requested. Prefix opcodes
+            // `continue` above, so they are correctly excluded.
+            trace?.Add(new IlTracePoint(offset, [.. stack.Reverse().Select(e => e.ResultType)]));
+
+            // Stamp IL-offset provenance on the nodes this instruction created.
+            // Operands it consumed were pushed (and stamped) by earlier
+            // instructions, so StampSubtree stops at them; only the genuinely
+            // new node(s) — the fresh stack top and any statements appended this
+            // iteration — take the current offset. Prefix opcodes `continue`
+            // above and never reach here.
+            for (; stampedStatements < body.Children.Count; stampedStatements++)
+                StampSubtree(body.Children[stampedStatements], offset);
+            foreach (var pushed in stack)
+                StampSubtree(pushed, offset);
+
+            if (constrainedTo is not null || volatilePrefix || readonlyPrefix)
+            {
+                Stop(function, body, stack, offset, opcode.ToString().ToLowerInvariant(),
+                    "an IL prefix applied to an instruction that does not accept it");
+                return false;
+            }
+        }
 
         }
         catch (OutOfSliceException ex)
@@ -2526,176 +2526,176 @@ public static class IrImporter
         switch (handle.Kind)
         {
             case HandleKind.MethodDefinition:
-                {
-                    var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
-                    var declaringTypeHandle = method.GetDeclaringType();
-                    var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
-                    var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
-                    var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
-                    var signature = GuardedDecode.MethodSignature(reader, method, typeScope);
-                    var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
-                    bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
-                    bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
-                    RequiresUnsafeContractResult requiresUnsafeContract =
-                        ResolveRequiresUnsafeContract(
-                            reader,
-                            method,
-                            memorySafety,
-                            (MethodDefinitionHandle)handle);
-                    MetadataFactState requiresUnsafeFact =
-                        requiresUnsafeContract.State;
-                    bool requiresUnsafe =
-                        requiresUnsafeContract.IsExplicit;
-                    string methodName = reader.GetString(method.Name);
-                    return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
-                    {
-                        ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
-                            reader,
-                            method,
-                            signature.ReturnType,
-                            signature.ReturnType),
-                        ReturnArrayElementIsDynamic = MethodDefinitionFacts.ReturnArrayElementDynamicFact(
-                            reader,
-                            method,
-                            signature.ReturnType,
-                            signature.ReturnType),
-                        IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
-                        IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
-                        AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
-                        ParameterRefKinds = parameterRefKinds.Kinds,
-                        ParameterRefKindsFacts = parameterRefKinds.State,
-                        HasRefReadOnlyParameters = parameterRefKinds.HasRefReadOnlyParameters,
-                        RequiresUnsafe = requiresUnsafe,
-                        RequiresUnsafeFact = requiresUnsafeFact,
-                        MemorySafetyRulesState = requiresUnsafeContract.RulesState,
-                        MemorySafetyRulesUnavailable = requiresUnsafeContract.RulesUnavailable,
-                        MemorySafetyContractUnavailable =
-                            requiresUnsafeContract.ContractUnavailable,
-                        CompilerGenerated = FactState(methodCompilerGenerated),
-                        DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
-                        DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
-                            ? FactState(IsDelegateType(reader, declaringType))
-                            : MetadataFactState.Unknown,
-                        IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
-                        IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
-                        IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
-                        IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
-                    };
-                }
-            case HandleKind.MemberReference:
-                {
-                    var member = reader.GetMemberReference((MemberReferenceHandle)handle);
-                    var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                    var signature = GuardedDecode.MethodSignature(reader, member, GenericScope.Empty);
-                    // The signature's !N are the declaring type's parameters;
-                    // instantiate them against the parent's type arguments so a
-                    // call on List<int> reports int, not T.
-                    var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
-                    string memberName = reader.GetString(member.Name);
-                    var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
-                    var returnType = signature.ReturnType.Instantiate(typeArguments, []);
-                    var memberFacts = MemberReferenceDefinitionFacts(
+            {
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)handle);
+                var declaringTypeHandle = method.GetDeclaringType();
+                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
+                var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+                var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
+                var signature = GuardedDecode.MethodSignature(reader, method, typeScope);
+                var parameterRefKinds = MethodDefinitionFacts.ReadParameterRefKinds(reader, method, signature.ParameterTypes);
+                bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
+                bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
+                RequiresUnsafeContractResult requiresUnsafeContract =
+                    ResolveRequiresUnsafeContract(
                         reader,
-                        member,
-                        memberName,
-                        signature.Header.IsInstance,
+                        method,
+                        memorySafety,
+                        (MethodDefinitionHandle)handle);
+                MetadataFactState requiresUnsafeFact =
+                    requiresUnsafeContract.State;
+                bool requiresUnsafe =
+                    requiresUnsafeContract.IsExplicit;
+                string methodName = reader.GetString(method.Name);
+                return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
+                {
+                    ReturnIsDynamic = MethodDefinitionFacts.ReturnDynamicFact(
+                        reader,
+                        method,
                         signature.ReturnType,
-                        returnType,
-                        parameterTypes,
-                        memorySafety);
-                    bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
-                    var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
-                    if (accessorKind == AccessorKind.Unknown && trustedPlatform)
-                        accessorKind = AccessorKindFromName(memberName);
-                    bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
-                        || memberName.StartsWith("set_", StringComparison.Ordinal)
-                        || memberName.StartsWith("add_", StringComparison.Ordinal)
-                        || memberName.StartsWith("remove_", StringComparison.Ordinal)
-                        || memberName.StartsWith("op_", StringComparison.Ordinal)
-                        || memberName is ".ctor" or ".cctor";
-                    return new MethodRef(
-                        declaring,
-                        memberName,
-                        returnType,
-                        parameterTypes,
-                        signature.Header.IsInstance)
-                    {
-                        // MemberRefs carry no flags; keep name-inferred SpecialName
-                        // separate from AccessorKind so property/event sugar requires
-                        // positive metadata semantics rather than a get_/set_ prefix.
-                        IsSpecialName = inferredSpecialName,
-                        IsSpecialNameInferred = inferredSpecialName,
-                        AccessorKind = accessorKind,
-                        DeclaringTypeIsTrustedPlatform = trustedPlatform
-                            ? MetadataFactState.Yes
-                            : MetadataFactState.Unknown,
-                        DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
-                            ? MetadataFactState.Yes
-                            : MetadataFactState.Unknown,
-                        // A same-assembly call on a generic type instance is a
-                        // MemberRef (TypeSpec parent), so its ref/out/in would
-                        // otherwise be lost; recover it from the underlying MethodDef.
-                        ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
-                        ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
-                        ReturnIsDynamic = memberFacts.ReturnIsDynamic,
-                        ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
-                        HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
-                        RequiresUnsafe = memberFacts.RequiresUnsafe.IsExplicit,
-                        RequiresUnsafeFact = memberFacts.RequiresUnsafe.State,
-                        MemorySafetyRulesState = memberFacts.RequiresUnsafe.RulesState,
-                        MemorySafetyRulesUnavailable = memberFacts.RequiresUnsafe.RulesUnavailable,
-                        MemorySafetyContractUnavailable =
-                            memberFacts.RequiresUnsafe.ContractUnavailable,
-                        IsOperator = memberFacts.IsOperator,
-                        CompilerGenerated = memberFacts.CompilerGenerated,
-                        DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
-                    };
-                }
-            case HandleKind.MethodSpecification:
-                {
-                    // A generic method instantiation: resolve the underlying
-                    // method, then instantiate its !!N against the decoded type
-                    // arguments so the call site reports concrete types.
-                    var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                    var generic = ResolveMethod(
+                        signature.ReturnType),
+                    ReturnArrayElementIsDynamic = MethodDefinitionFacts.ReturnArrayElementDynamicFact(
                         reader,
-                        spec.Method,
-                        callerScope,
-                        memorySafety);
-                    var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
-                    var returnType = generic.ReturnType.Instantiate([], methodArguments);
-                    return generic with
-                    {
-                        TypeArguments = methodArguments,
-                        DefinitionParameterTypes = generic.ParameterTypes,
-                        DefinitionReturnType = generic.ReturnType,
-                        ReturnType = returnType,
-                        ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
-                            && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter
-                            && returnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
-                                ? MetadataFactState.Unknown
-                                : generic.ReturnIsDynamic,
-                        ReturnArrayElementIsDynamic = generic.ReturnArrayElementIsDynamic == MetadataFactState.No
-                            && generic.ReturnType is
+                        method,
+                        signature.ReturnType,
+                        signature.ReturnType),
+                    IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
+                    IsOperator = FactState(MethodDefinitionFacts.IsOperator(method, methodName, signature.Header.IsInstance)),
+                    AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
+                    ParameterRefKinds = parameterRefKinds.Kinds,
+                    ParameterRefKindsFacts = parameterRefKinds.State,
+                    HasRefReadOnlyParameters = parameterRefKinds.HasRefReadOnlyParameters,
+                    RequiresUnsafe = requiresUnsafe,
+                    RequiresUnsafeFact = requiresUnsafeFact,
+                    MemorySafetyRulesState = requiresUnsafeContract.RulesState,
+                    MemorySafetyRulesUnavailable = requiresUnsafeContract.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        requiresUnsafeContract.ContractUnavailable,
+                    CompilerGenerated = FactState(methodCompilerGenerated),
+                    DeclaringTypeCompilerGenerated = FactState(typeCompilerGenerated),
+                    DeclaringTypeIsDelegate = IsDelegateConstructorShape(methodName, signature.Header.IsInstance, signature.ParameterTypes)
+                        ? FactState(IsDelegateType(reader, declaringType))
+                        : MetadataFactState.Unknown,
+                    IsExtension = FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
+                    IsPInvoke = FactState(MethodDefinitionFacts.IsPInvoke(method)),
+                    IsRuntimeAsync = FactState(MethodDefinitionFacts.IsRuntimeAsync(method)),
+                    IsUnmanagedCallersOnly = FactState(MethodDefinitionFacts.IsUnmanagedCallersOnly(reader, method)),
+                };
+            }
+            case HandleKind.MemberReference:
+            {
+                var member = reader.GetMemberReference((MemberReferenceHandle)handle);
+                var declaring = ResolveParentType(reader, member.Parent, callerScope);
+                var signature = GuardedDecode.MethodSignature(reader, member, GenericScope.Empty);
+                // The signature's !N are the declaring type's parameters;
+                // instantiate them against the parent's type arguments so a
+                // call on List<int> reports int, not T.
+                var typeArguments = declaring.Kind == TypeRefKind.GenericInstance ? declaring.TypeArguments : [];
+                string memberName = reader.GetString(member.Name);
+                var parameterTypes = ImmutableArray.CreateRange(signature.ParameterTypes.Select(p => p.Instantiate(typeArguments, [])));
+                var returnType = signature.ReturnType.Instantiate(typeArguments, []);
+                var memberFacts = MemberReferenceDefinitionFacts(
+                    reader,
+                    member,
+                    memberName,
+                    signature.Header.IsInstance,
+                    signature.ReturnType,
+                    returnType,
+                    parameterTypes,
+                    memorySafety);
+                bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
+                var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
+                if (accessorKind == AccessorKind.Unknown && trustedPlatform)
+                    accessorKind = AccessorKindFromName(memberName);
+                bool inferredSpecialName = memberName.StartsWith("get_", StringComparison.Ordinal)
+                    || memberName.StartsWith("set_", StringComparison.Ordinal)
+                    || memberName.StartsWith("add_", StringComparison.Ordinal)
+                    || memberName.StartsWith("remove_", StringComparison.Ordinal)
+                    || memberName.StartsWith("op_", StringComparison.Ordinal)
+                    || memberName is ".ctor" or ".cctor";
+                return new MethodRef(
+                    declaring,
+                    memberName,
+                    returnType,
+                    parameterTypes,
+                    signature.Header.IsInstance)
+                {
+                    // MemberRefs carry no flags; keep name-inferred SpecialName
+                    // separate from AccessorKind so property/event sugar requires
+                    // positive metadata semantics rather than a get_/set_ prefix.
+                    IsSpecialName = inferredSpecialName,
+                    IsSpecialNameInferred = inferredSpecialName,
+                    AccessorKind = accessorKind,
+                    DeclaringTypeIsTrustedPlatform = trustedPlatform
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
+                    DeclaringTypeIsDelegate = MemberIdentity.IsKnownCoreLibraryDelegateType(declaring)
+                        ? MetadataFactState.Yes
+                        : MetadataFactState.Unknown,
+                    // A same-assembly call on a generic type instance is a
+                    // MemberRef (TypeSpec parent), so its ref/out/in would
+                    // otherwise be lost; recover it from the underlying MethodDef.
+                    ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
+                    ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
+                    ReturnIsDynamic = memberFacts.ReturnIsDynamic,
+                    ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
+                    HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
+                    RequiresUnsafe = memberFacts.RequiresUnsafe.IsExplicit,
+                    RequiresUnsafeFact = memberFacts.RequiresUnsafe.State,
+                    MemorySafetyRulesState = memberFacts.RequiresUnsafe.RulesState,
+                    MemorySafetyRulesUnavailable = memberFacts.RequiresUnsafe.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        memberFacts.RequiresUnsafe.ContractUnavailable,
+                    IsOperator = memberFacts.IsOperator,
+                    CompilerGenerated = memberFacts.CompilerGenerated,
+                    DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
+                };
+            }
+            case HandleKind.MethodSpecification:
+            {
+                // A generic method instantiation: resolve the underlying
+                // method, then instantiate its !!N against the decoded type
+                // arguments so the call site reports concrete types.
+                var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
+                var generic = ResolveMethod(
+                    reader,
+                    spec.Method,
+                    callerScope,
+                    memorySafety);
+                var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
+                var returnType = generic.ReturnType.Instantiate([], methodArguments);
+                return generic with
+                {
+                    TypeArguments = methodArguments,
+                    DefinitionParameterTypes = generic.ParameterTypes,
+                    DefinitionReturnType = generic.ReturnType,
+                    ReturnType = returnType,
+                    ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
+                        && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter
+                        && returnType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
+                            ? MetadataFactState.Unknown
+                            : generic.ReturnIsDynamic,
+                    ReturnArrayElementIsDynamic = generic.ReturnArrayElementIsDynamic == MetadataFactState.No
+                        && generic.ReturnType is
+                        {
+                            Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                            ElementType.Kind: TypeRefKind.MethodGenericParameter,
+                        }
+                        && returnType is
+                        {
+                            Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                            ElementType:
                             {
-                                Kind: TypeRefKind.SzArray or TypeRefKind.Array,
-                                ElementType.Kind: TypeRefKind.MethodGenericParameter,
-                            }
-                            && returnType is
-                            {
-                                Kind: TypeRefKind.SzArray or TypeRefKind.Array,
-                                ElementType:
-                                {
-                                    Kind: TypeRefKind.Definition,
-                                    Namespace: "System",
-                                    Name: "Object",
-                                },
-                            }
-                                ? MetadataFactState.Unknown
-                                : generic.ReturnArrayElementIsDynamic,
-                        ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
-                    };
-                }
+                                Kind: TypeRefKind.Definition,
+                                Namespace: "System",
+                                Name: "Object",
+                            },
+                        }
+                            ? MetadataFactState.Unknown
+                            : generic.ReturnArrayElementIsDynamic,
+                    ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
+                };
+            }
             default:
                 return new MethodRef(TypeRef.Unsupported($"callee handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown return"), [], false);
         }
@@ -3112,102 +3112,102 @@ public static class IrImporter
         switch (handle.Kind)
         {
             case HandleKind.FieldDefinition:
+            {
+                var fieldHandle = (FieldDefinitionHandle)handle;
+                var field = reader.GetFieldDefinition(fieldHandle);
+                var declaringTypeHandle = field.GetDeclaringType();
+                var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
+                var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+                var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
+                var name = reader.GetString(field.Name);
+                var fieldType = GuardedDecode.FieldType(reader, field, typeScope);
+                var dynamicFact = MethodDefinitionFacts.FieldDynamicFact(reader, field, fieldType, fieldType);
+                var arrayElementDynamicFact =
+                    MethodDefinitionFacts.FieldArrayElementDynamicFact(
+                        reader,
+                        field,
+                        fieldType,
+                        fieldType);
+                RequiresUnsafeContractResult contract =
+                    MethodDefinitionFacts.RequiresUnsafeContract(
+                        memorySafety,
+                        fieldHandle);
+                return new FieldRef(declaring, name, fieldType)
                 {
-                    var fieldHandle = (FieldDefinitionHandle)handle;
-                    var field = reader.GetFieldDefinition(fieldHandle);
-                    var declaringTypeHandle = field.GetDeclaringType();
-                    var declaring = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, declaringTypeHandle, 0);
-                    var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
-                    var typeScope = new GenericScope(GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
-                    var name = reader.GetString(field.Name);
-                    var fieldType = GuardedDecode.FieldType(reader, field, typeScope);
-                    var dynamicFact = MethodDefinitionFacts.FieldDynamicFact(reader, field, fieldType, fieldType);
-                    var arrayElementDynamicFact =
-                        MethodDefinitionFacts.FieldArrayElementDynamicFact(
-                            reader,
-                            field,
-                            fieldType,
-                            fieldType);
-                    RequiresUnsafeContractResult contract =
-                        MethodDefinitionFacts.RequiresUnsafeContract(
-                            memorySafety,
-                            fieldHandle);
-                    return new FieldRef(declaring, name, fieldType)
-                    {
-                        HasNormalizedMemorySafetyContract =
-                            contract.HasNormalizedContract,
-                        RequiresUnsafe = contract.IsExplicit,
-                        RequiresUnsafeFact = contract.State,
-                        MemorySafetyRulesState = contract.RulesState,
-                        MemorySafetyRulesUnavailable =
-                            contract.RulesUnavailable,
-                        MemorySafetyContractUnavailable =
-                            contract.ContractUnavailable,
-                        BackingPropertyName = BackingPropertyName(reader, declaringType, name),
-                        DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
-                        FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
-                        IsDynamic = dynamicFact == MetadataFactState.Yes,
-                        DynamicFact = dynamicFact,
-                        ArrayElementIsDynamic = arrayElementDynamicFact,
-                    };
-                }
+                    HasNormalizedMemorySafetyContract =
+                        contract.HasNormalizedContract,
+                    RequiresUnsafe = contract.IsExplicit,
+                    RequiresUnsafeFact = contract.State,
+                    MemorySafetyRulesState = contract.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract.RulesUnavailable,
+                    MemorySafetyContractUnavailable =
+                        contract.ContractUnavailable,
+                    BackingPropertyName = BackingPropertyName(reader, declaringType, name),
+                    DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
+                    FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
+                    IsDynamic = dynamicFact == MetadataFactState.Yes,
+                    DynamicFact = dynamicFact,
+                    ArrayElementIsDynamic = arrayElementDynamicFact,
+                };
+            }
             case HandleKind.MemberReference:
+            {
+                var member = reader.GetMemberReference((MemberReferenceHandle)handle);
+                var declaring = ResolveParentType(reader, member.Parent, callerScope);
+                var declaredFieldType = GuardedDecode.FieldType(reader, member, GenericScope.Empty);
+                var fieldType = declaredFieldType;
+                if (declaring.Kind == TypeRefKind.GenericInstance)
+                    fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
+                var name = reader.GetString(member.Name);
+                var dynamicFact = MemberReferenceFieldDynamicFact(
+                    reader,
+                    member,
+                    name,
+                    declaredFieldType,
+                    fieldType);
+                var arrayElementDynamicFact = MemberReferenceFieldArrayElementDynamicFact(
+                    reader,
+                    member,
+                    name,
+                    declaredFieldType,
+                    fieldType);
+                RequiresUnsafeContractResult? contract =
+                    MemberReferenceFieldMemorySafetyContract(
+                        reader,
+                        member,
+                        name,
+                        memorySafety);
+                return new FieldRef(declaring, name, fieldType)
                 {
-                    var member = reader.GetMemberReference((MemberReferenceHandle)handle);
-                    var declaring = ResolveParentType(reader, member.Parent, callerScope);
-                    var declaredFieldType = GuardedDecode.FieldType(reader, member, GenericScope.Empty);
-                    var fieldType = declaredFieldType;
-                    if (declaring.Kind == TypeRefKind.GenericInstance)
-                        fieldType = fieldType.Instantiate(declaring.TypeArguments, []);
-                    var name = reader.GetString(member.Name);
-                    var dynamicFact = MemberReferenceFieldDynamicFact(
+                    DefinitionType = declaring.Kind
+                        == TypeRefKind.GenericInstance
+                            ? declaredFieldType
+                            : null,
+                    HasNormalizedMemorySafetyContract =
+                        contract?.HasNormalizedContract == true,
+                    RequiresUnsafe = contract?.IsExplicit == true,
+                    RequiresUnsafeFact =
+                        contract?.State ?? MetadataFactState.Unknown,
+                    MemorySafetyRulesState = contract?.RulesState,
+                    MemorySafetyRulesUnavailable =
+                        contract?.RulesUnavailable == true,
+                    MemorySafetyContractUnavailable =
+                        contract?.ContractUnavailable == true,
+                    BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
+                    DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(
                         reader,
                         member,
                         name,
-                        declaredFieldType,
-                        fieldType);
-                    var arrayElementDynamicFact = MemberReferenceFieldArrayElementDynamicFact(
-                        reader,
-                        member,
-                        name,
-                        declaredFieldType,
-                        fieldType);
-                    RequiresUnsafeContractResult? contract =
-                        MemberReferenceFieldMemorySafetyContract(
-                            reader,
-                            member,
-                            name,
-                            memorySafety);
-                    return new FieldRef(declaring, name, fieldType)
-                    {
-                        DefinitionType = declaring.Kind
-                            == TypeRefKind.GenericInstance
-                                ? declaredFieldType
-                                : null,
-                        HasNormalizedMemorySafetyContract =
-                            contract?.HasNormalizedContract == true,
-                        RequiresUnsafe = contract?.IsExplicit == true,
-                        RequiresUnsafeFact =
-                            contract?.State ?? MetadataFactState.Unknown,
-                        MemorySafetyRulesState = contract?.RulesState,
-                        MemorySafetyRulesUnavailable =
-                            contract?.RulesUnavailable == true,
-                        MemorySafetyContractUnavailable =
-                            contract?.ContractUnavailable == true,
-                        BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
-                        DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(
-                            reader,
-                            member,
-                            name,
-                            hasThis: false,
-                            declaredReturnType: fieldType,
-                            effectiveReturnType: fieldType,
-                            parameterTypes: []).DeclaringTypeCompilerGenerated,
-                        IsDynamic = dynamicFact == MetadataFactState.Yes,
-                        DynamicFact = dynamicFact,
-                        ArrayElementIsDynamic = arrayElementDynamicFact,
-                    };
-                }
+                        hasThis: false,
+                        declaredReturnType: fieldType,
+                        effectiveReturnType: fieldType,
+                        parameterTypes: []).DeclaringTypeCompilerGenerated,
+                    IsDynamic = dynamicFact == MetadataFactState.Yes,
+                    DynamicFact = dynamicFact,
+                    ArrayElementIsDynamic = arrayElementDynamicFact,
+                };
+            }
             default:
                 return new FieldRef(TypeRef.Unsupported($"field handle kind {handle.Kind}"), "?", TypeRef.Unsupported("unknown field type"));
         }
@@ -3224,9 +3224,9 @@ public static class IrImporter
             resolveMemorySafety: true);
         bool callerUsesUpdatedRules = source.MemorySafetyMode
             is MemorySafetyModeDecision.Available
-        {
-            Mode: MemorySafetyMode.Updated,
-        };
+            {
+                Mode: MemorySafetyMode.Updated,
+            };
         bool legacyShapeRequiresUnsafe = field.FixedBuffer is null
             && UnsafeAwaitOperand.ContainsPointer(field.Type);
         if (FieldMemorySafetyContract.EvidenceRequired(
