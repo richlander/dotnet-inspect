@@ -691,10 +691,14 @@ edge, and retained-path limits. The operation reuses the member projection's
 one `LibraryBodyIndex`; it performs no second body acquisition, source open, or
 graph build.
 
-Each projected witness retains every physical `call.edge` fact for its first
+Each projected witness retains every physical `call.edge` fact for the
+Analysis-admitted `call`, `callvirt`, and `newobj` occurrences on its first
 logical edge, one typed call-graph target for every path step, and every known
 terminal local-throw site with its exception `TypeRef`, qualified TypeDef
 address, construction offset, constructor token, and physical `throw` offset.
+Function-pointer loads and indirect calls may share the relationship
+projection's stable edge row, but they neither begin the proven direct-call
+path nor enter its physical receipt set.
 The first-edge fact ids, not a rendered path or member label, attach the
 witness to source. Repeated physical calls therefore share the same logical
 shortest path without losing their separate source occurrences. A path that

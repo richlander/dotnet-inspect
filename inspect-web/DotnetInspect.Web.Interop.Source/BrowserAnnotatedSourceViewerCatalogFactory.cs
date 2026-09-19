@@ -525,6 +525,10 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         Dictionary<int, int> edgeByFact = relationships.ToDictionary(
             static relationship => relationship.FactId,
             static relationship => relationship.EdgeRow);
+        Dictionary<int, BrowserAnnotatedSourceCallKind> kindByFact =
+            relationships.ToDictionary(
+                static relationship => relationship.FactId,
+                static relationship => relationship.Kind);
         for (int index = 0; index < inspection.Paths.Length; index++)
         {
             BrowserAnnotatedSourceLocalThrowPath path =
@@ -536,6 +540,8 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 || path.FactIds.Distinct().Count() != path.FactIds.Length
                 || path.FactIds.Any(factId =>
                     !edgeByFact.ContainsKey(factId))
+                || path.FactIds.Any(factId =>
+                    !IsLocalThrowPathCallKind(kindByFact[factId]))
                 || path.FactIds
                     .Select(factId => edgeByFact[factId])
                     .Distinct()
@@ -554,7 +560,8 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             [
                 .. relationships
                     .Where(relationship =>
-                        relationship.EdgeRow == firstEdgeRow)
+                        relationship.EdgeRow == firstEdgeRow
+                        && IsLocalThrowPathCallKind(relationship.Kind))
                     .Select(relationship => relationship.FactId),
             ];
             if (expectedFactIds.Length != path.FactIds.Length
@@ -582,6 +589,12 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                         nameof(inspection));
                 }
             }
+
+            static bool IsLocalThrowPathCallKind(
+                BrowserAnnotatedSourceCallKind kind) =>
+                kind is BrowserAnnotatedSourceCallKind.Call
+                    or BrowserAnnotatedSourceCallKind.CallVirtual
+                    or BrowserAnnotatedSourceCallKind.NewObject;
         }
     }
 

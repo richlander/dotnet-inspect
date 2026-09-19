@@ -997,10 +997,22 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                     projection.CallRelationships)
                 .Relationships
                 .Where(relationship =>
-                    relationship.Target.Member.Name == "Forward")
+                    relationship.Target.Member.Name == "Forward"
+                    && relationship.Occurrence.Kind
+                        is CallKind.Call
+                            or CallKind.CallVirtual
+                            or CallKind.NewObject)
                 .Select(relationship =>
                     relationship.Occurrence.FactId)
                 .Order());
+        Assert.Contains(
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                    projection.CallRelationships)
+                .Relationships,
+            relationship =>
+                relationship.Target.Member.Name == "Forward"
+                && relationship.Occurrence.Kind
+                    == CallKind.LoadFunction);
         AssemblyMemberLocalThrowSite terminal =
             Assert.Single(path.TerminalThrows);
         Assert.Equal(

@@ -1192,6 +1192,32 @@ public sealed partial class BrowserEngineBoundaryTests
                 .Select(value => value.GetInt32()),
         ];
         Assert.Equal(2, factIds.Length);
+        JsonElement[] relationships = annotatedSource
+            .GetProperty("callRelationships")
+            .EnumerateArray()
+            .Where(relationship =>
+                relationship.GetProperty("target")
+                    .GetProperty("memberName").GetString()
+                    == "Forward")
+            .ToArray();
+        Assert.Equal(3, relationships.Length);
+        Assert.Contains(
+            relationships,
+            relationship =>
+                relationship.GetProperty("kind").GetString()
+                    == "LoadFunction");
+        Assert.All(
+            relationships.Where(relationship =>
+                factIds.Contains(
+                    relationship.GetProperty("factId").GetInt32())),
+            relationship => Assert.Equal(
+                "Call",
+                relationship.GetProperty("kind").GetString()));
+        Assert.Single(
+            relationships
+                .Select(relationship =>
+                    relationship.GetProperty("edgeRow").GetInt32())
+                .Distinct());
         Assert.Equal(
             "Throw",
             path.GetProperty("targets")
@@ -1213,8 +1239,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 & 0xFF000000);
         Assert.All(factIds, factId =>
             Assert.Contains(
-                annotatedSource.GetProperty("callRelationships")
-                    .EnumerateArray(),
+                relationships,
                 relationship =>
                     relationship.GetProperty("factId").GetInt32()
                         == factId));

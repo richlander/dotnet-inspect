@@ -1167,6 +1167,9 @@ function validateLocalThrowPaths(
     if (path.factIds.length === 0
       || new Set(path.factIds).size !== path.factIds.length
       || anchored.some(relationship => relationship === undefined)
+      || anchored.some(relationship =>
+        relationship !== undefined
+        && !isLocalThrowPathCallKind(relationship.kind))
       || path.targets.length === 0
       || path.targets.length > limits.maximumDepth
       || path.terminalThrows.length === 0) {
@@ -1182,7 +1185,9 @@ function validateLocalThrowPaths(
     }
     const edgeRow = anchored[0]!.edgeRow;
     const expectedFactIds = relationships
-      .filter(relationship => relationship.edgeRow === edgeRow)
+      .filter(relationship =>
+        relationship.edgeRow === edgeRow
+        && isLocalThrowPathCallKind(relationship.kind))
       .map(relationship => relationship.factId);
     const actualFactIds = new Set(path.factIds);
     if (expectedFactIds.length !== actualFactIds.size
@@ -1528,6 +1533,12 @@ function isCallKind(value: unknown): boolean {
     || value === "LoadFunction"
     || value === "LoadVirtualFunction"
     || value === "CallIndirect";
+}
+
+function isLocalThrowPathCallKind(value: unknown): boolean {
+  return value === "Call"
+    || value === "CallVirtual"
+    || value === "NewObject";
 }
 
 function nonEmptyString(value: unknown): value is string {

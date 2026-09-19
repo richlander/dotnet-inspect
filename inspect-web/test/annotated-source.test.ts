@@ -1495,10 +1495,42 @@ test("Finding detail renders a bounded local throw path without propagation clai
     limits: [],
     findings: [],
   });
-  const localThrowResult: AnnotatedSourceResult = {
+  const loadFunctionFactId = source.document.facts.length;
+  const callFact = source.document.facts[factId];
+  const callRelationship = source.callRelationships[0];
+  assert.ok(callFact);
+  assert.ok(callRelationship);
+  const mixedSource: AnnotatedSourceResult = {
     ...source,
+    document: {
+      ...source.document,
+      facts: [
+        ...source.document.facts,
+        {
+          ...callFact,
+          id: loadFunctionFactId,
+          detail: "Example.Targets.Forward(System.String)",
+        },
+      ],
+      targets: [
+        ...source.document.targets,
+        { fact_id: loadFunctionFactId, node_id: 1 },
+      ],
+    },
+    callRelationships: [
+      ...source.callRelationships,
+      {
+        ...callRelationship,
+        factId: loadFunctionFactId,
+        operandToken: 0x0A000002,
+        kind: "LoadFunction",
+      },
+    ],
+  };
+  const localThrowResult: AnnotatedSourceResult = {
+    ...mixedSource,
     viewerCatalog: {
-      ...source.viewerCatalog,
+      ...mixedSource.viewerCatalog,
       localThrowPaths: {
         available: true,
         unavailableReason: null,

@@ -183,6 +183,8 @@ namespace Target
         {
             Forward(value);
             Forward(value);
+            Action<string> callback = Forward;
+            GC.KeepAlive(callback);
         }
 
         public static void EntryAlternatives(string value)
