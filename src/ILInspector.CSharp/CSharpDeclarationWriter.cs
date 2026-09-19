@@ -1252,7 +1252,13 @@ internal static class CSharpDeclarationWriter
                     modifiers.Add("sealed");
                 if (member.IsAbstract)
                     modifiers.Add("abstract");
-                if (member.IsOverride)
+                // Static interface dispatch is virtual, not a class-slot override.
+                if (type.Kind == "interface" && member.IsStatic && (member.IsVirtual || member.IsOverride))
+                {
+                    if (!member.IsAbstract)
+                        modifiers.Add("virtual");
+                }
+                else if (member.IsOverride)
                     modifiers.Add("override");
                 else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
                     modifiers.Add("virtual");

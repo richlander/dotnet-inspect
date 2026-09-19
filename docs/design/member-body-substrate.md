@@ -165,6 +165,12 @@ illegal lone `private set`. This intentionally presents one accessor, not the
 entire original property. Attributes on the accessor remain on the accessor;
 they must not migrate to its enclosing property.
 
+Static virtual interface properties retain static virtual dispatch. Their CLR
+Virtual/ReuseSlot flags must not be spelled as a C# `override`; CSharp owns
+that context-sensitive declaration lowering, not the body printer.
+The .NET 11 RC1 `System.Numerics.IBinaryNumber<TSelf>.AllBitsSet` getter is a
+real declaration witness. Its body is outside this modifier-spelling claim.
+
 An overriding accessor with narrower accessibility than its property's
 declaration retains method form. For example, a protected setter cannot become
 a protected override property when the inherited property is public, and a
@@ -198,6 +204,11 @@ selected-member source and compile product-composed artifacts.
 attachment, product-composed source compilation, and the decline boundaries.
 Its narrowed-override fixtures cover both getter and setter declines and
 compile the neighboring public overrides and non-overriding narrowed accessors.
+Static-interface fixtures compile the unchanged product artifact and assert its
+static/virtual symbols, with non-virtual static and instance neighbors. The
+runtime `AllBitsSet` case gates declaration spelling, not whole-body validity.
+It is `Speed=Slow` (measured 3.5 seconds), covered by daily Deep Inspect and
+the focused pre-merge gate rather than the PR-fast leg.
 `CSharpDeclarationWriterTests.ExplicitPropertyDeclaration_PreservesReadonlyModifier`
 gates the CSharp formatter's existing physical-modifier obligation. The CLI
 `MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;

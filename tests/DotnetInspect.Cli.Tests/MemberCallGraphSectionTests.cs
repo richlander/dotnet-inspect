@@ -1453,6 +1453,31 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task SelectedProperty_StaticVirtualInterfaceKeepsDispatchAcrossCSharpViews()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.IStaticPropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Count"],
+            IncludeSections =
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, result.Output.Split("public static virtual int Count", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("override", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Fact]
     public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
     {
         var result = await RunDecompiledAsync(

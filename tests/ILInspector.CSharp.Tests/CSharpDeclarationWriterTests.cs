@@ -5,6 +5,35 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpDeclarationWriterTests
 {
+    [Theory]
+    [InlineData(true, false, false, "public static virtual int Count { get; }")]
+    [InlineData(true, true, false, "public static virtual int Count { get; }")]
+    [InlineData(false, true, false, "public static virtual int Count { get; }")]
+    [InlineData(false, false, false, "public static int Count { get; }")]
+    [InlineData(true, true, true, "public static abstract int Count { get; }")]
+    public void StaticInterfaceProperty_PreservesDispatchModifiers(
+        bool isVirtual, bool isOverride, bool isAbstract, string expected)
+    {
+        var type = new ApiType { Name = "ICounter", Kind = "interface" };
+        var member = new ApiMember
+        {
+            Name = "Count",
+            Kind = "property",
+            IsStatic = true,
+            IsVirtual = isVirtual,
+            IsOverride = isOverride,
+            IsAbstract = isAbstract,
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "Count",
+                ReturnType = "int",
+                Accessors = [new ApiAccessor { Kind = "get" }],
+            },
+        };
+
+        Assert.Equal(expected, CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
     [Fact]
     public void ExplicitPropertyDeclaration_PreservesReadonlyModifier()
     {

@@ -120,6 +120,36 @@ public sealed class SelectedPropertySourceTests
     }
 
     [Theory]
+    [InlineData("Count", "get", "public static virtual int Count", true, true)]
+    [InlineData("Capacity", "set", "public static virtual int Capacity", true, true)]
+    [InlineData("FixedCount", "get", "public static int FixedCount", true, false)]
+    [InlineData("InstanceCount", "get", "public virtual int InstanceCount", false, true)]
+    public void InterfaceAccessorCompilesWithItsDispatchSemantics(
+        string propertyName, string role, string expected, bool isStatic, bool isVirtual)
+    {
+        const string typeName = "ILInspector.Decompiler.Fixtures.IStaticPropertySamples";
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path, typeName, propertyName, role);
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains(expected, result.Text);
+            string listing = MemberBodyProducer.Project(type, path, pdbPath: null).Output!;
+            Assert.Contains(result.Text!.Trim(), listing);
+            var compilation = AssertCompiles(listing);
+            var projectedType = Assert.IsAssignableFrom<INamedTypeSymbol>(
+                compilation.Assembly.GetTypeByMetadataName(typeName));
+            var property = Assert.IsAssignableFrom<IPropertySymbol>(
+                Assert.Single(projectedType.GetMembers(propertyName)));
+            Assert.Equal(isStatic, property.IsStatic);
+            Assert.Equal(isVirtual, property.IsVirtual);
+            Assert.Equal(role == "get", property.GetMethod is not null);
+            Assert.Equal(role == "set", property.SetMethod is not null);
+        }
+    }
+
+    [Theory]
     [InlineData("AutoCount", "get", "get_AutoCount()")]
     [InlineData("AutoCount", "set", "set_AutoCount(int value)")]
     [InlineData("ByIndex", "get", "get_ByIndex(int index)")]
@@ -159,6 +189,20 @@ public sealed class SelectedPropertySourceTests
         Assert.DoesNotContain("get_MaxLength()", result.Text);
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void RuntimeBinaryNumberPreservesStaticVirtualPropertyModifier()
+    {
+        string path = typeof(int).Assembly.Location;
+        var (type, accessor) = Select(path, "System.Numerics.IBinaryNumber`1", "AllBitsSet", "get");
+        var result = MemberBodyProducer.ProduceMember(
+            type, accessor, path, pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("public static virtual TSelf AllBitsSet", result.Text);
+        Assert.DoesNotContain("override", result.Text);
+    }
+
     static (ApiType Type, ApiMember Accessor) Select(
         string path, string typeName, string propertyName, string role)
     {
@@ -182,7 +226,7 @@ public sealed class SelectedPropertySourceTests
     static string FixturePath(bool updated)
         => (updated ? FixtureCatalog.DecompilerUnsafeNew : FixtureCatalog.DecompilerUnsafeLegacy).AssemblyPath();
 
-    static void AssertCompiles(string listing, string? referencePath = null)
+    static CSharpCompilation AssertCompiles(string listing, string? referencePath = null)
     {
         IEnumerable<MetadataReference> references = RoslynTestReferences.TrustedPlatform;
         if (referencePath is not null)
@@ -201,5 +245,6 @@ public sealed class SelectedPropertySourceTests
         using var output = new MemoryStream();
         var result = compilation.Emit(output, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(result.Success, $"{listing}\n{string.Join("\n", result.Diagnostics)}");
+        return compilation;
     }
 }

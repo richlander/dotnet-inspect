@@ -97,3 +97,19 @@ public struct ReadonlyPropertySamples
         set => _count = value;
     }
 }
+
+public interface IStaticPropertySamples
+{
+    static int _capacity;
+
+    static virtual int Count => 17;
+
+    static virtual int Capacity
+    {
+        get => _capacity;
+        set => _capacity = value;
+    }
+
+    static int FixedCount => 23;
+    int InstanceCount => 29;
+}
