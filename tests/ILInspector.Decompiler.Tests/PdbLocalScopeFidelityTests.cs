@@ -15,6 +15,7 @@ public sealed class PdbLocalScopeFidelityTests
             nameof(PdbScopeFixtures.DisjointScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocals),
             nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto),
+            nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryLabels),
             nameof(PdbScopeFixtures.SequentialValueTypeScopeLocals),
         ];
         var results = FidelityCheck.Evaluate(

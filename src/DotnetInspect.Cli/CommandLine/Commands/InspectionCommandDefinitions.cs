@@ -527,6 +527,15 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
+            if (showReferences
+                && select?.Contains(
+                    SectionNames.References,
+                    StringComparer.OrdinalIgnoreCase) != true)
+            {
+                select = [.. select ?? [], SectionNames.References];
+            }
+            bool sectionSelectionControlsInference =
+                hasExplicitSelect || showReferences;
             if (!BodyKindQueryOptions.TryExtract(
                     nonCloneWhere,
                     out var bodyKindQuery,
@@ -565,13 +574,13 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], "Source Files"];
             if (bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.BodyShapes];
             }
             if (cloneCandidateQuery.HasPredicates
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.CloneCandidates];
             }
@@ -599,7 +608,7 @@ public static class InspectionCommandDefinitions
             if (performanceTriage.HasFilters
                 && !bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
@@ -612,6 +621,24 @@ public static class InspectionCommandDefinitions
                         targets = kinds;
                 }
                 select = [.. select ?? [], .. targets];
+            }
+            RowSelectionIntent<string>? referenceRowSelection = null;
+            if (LibraryReferenceRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library reference",
+                        out referenceRowSelection,
+                        out string? referenceRowSelectionError))
+            {
+                CommandError.Write(referenceRowSelectionError!);
+                return 1;
             }
 
             if (!TryParseMetadataRoot(
@@ -671,10 +698,13 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
+                    && referenceRowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
+                ReferenceRowSelection =
+                    referenceRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -705,6 +735,30 @@ public static class InspectionCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => LibraryReferenceRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption,
+                typeFilterOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

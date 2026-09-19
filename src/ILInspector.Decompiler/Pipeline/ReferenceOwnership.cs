@@ -27,13 +27,16 @@ public static class ReferenceOwnership
     internal static bool RewriteWouldInvalidateLabels(
         IrFunction function,
         IReadOnlyList<IrNode> bodyStatements,
-        IReadOnlyList<IrNode> removedStatements)
+        IReadOnlyList<IrNode> removedStatements,
+        IReadOnlySet<int>? bodyLabelsRetainedOutside = null)
     {
         var bodyLabels = bodyStatements
             .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
             .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
             .Select(node => node.SourceOffset)
             .ToHashSet();
+        if (bodyLabelsRetainedOutside is not null)
+            bodyLabels.ExceptWith(bodyLabelsRetainedOutside);
         var removedLabels = removedStatements
             .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
             .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
