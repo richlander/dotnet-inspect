@@ -49,7 +49,9 @@ internal static class MemberCodeProvider
         Decompiler.DecompilerResult? SourceDocumentFailure = null,
         IReadOnlyList<ILInspector.Research.ResearchViews.AnnotatedSourceFactIdentity>?
             SourceDocumentFactIdentities = null,
-        FindingCensusReceipt? FactCensusReceipt = null);
+        FindingCensusReceipt? FactCensusReceipt = null,
+        Decompiler.SelectedPropertyAccessorSource? PropertySource = null,
+        IReadOnlyList<string>? AccessorAttributes = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -342,6 +344,13 @@ internal static class MemberCodeProvider
             if ((request.Facts || request.FindingCensus) && researchProjection is not null)
                 facts = researchProjection.Facts;
 
+            var propertySource = pipelineSource is not null && methodToken is { } propertyMethodToken
+                && (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay)
+                ? Decompiler.SelectedPropertyAccessorSource.Create(
+                    pipelineSource, propertyMethodToken, method,
+                    includeAttributes: request.AnnotatedSource)
+                : null;
+
             results.Add((method, new Item(
                 decompiledResult,
                 methodGenericParameters,
@@ -360,7 +369,9 @@ internal static class MemberCodeProvider
                 sourceDocument,
                 sourceDocumentFailure,
                 researchProjection?.SourceDocumentFactIdentities,
-                researchProjection?.FactCensusReceipt)));
+                researchProjection?.FactCensusReceipt,
+                propertySource,
+                propertySource?.Attributes)));
         }
 
         return results;

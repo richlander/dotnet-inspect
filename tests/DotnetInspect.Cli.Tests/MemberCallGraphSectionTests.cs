@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Metadata;
@@ -1401,29 +1402,108 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task SelectedProperty_UsesPropertyEnvelopeAcrossCSharpViews()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "System.Data.SqlTypes.SqlBytes",
+            AssemblyPath = typeof(System.Data.SqlTypes.SqlBytes).Assembly.Location,
+            MemberFilter = ["MaxLength"],
+            IncludeSections =
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("## Annotated Source", result.Output);
+        Assert.Contains("## Cost Overlay", result.Output);
+        Assert.Contains("## Semantics Overlay", result.Output);
+        Assert.Equal(4, result.Output.Split("public long MaxLength", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("get_MaxLength(", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Theory]
+    [InlineData("Count", 2, "protected override void set_Count(int value)")]
+    [InlineData("Offset", 1, "protected override int get_Offset()")]
+    public async Task SelectedProperty_NarrowedOverridesRetainMethodForm(
+        string propertyName, int overloadIndex, string expected)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.NarrowedOverridePropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = [propertyName],
+            OverloadIndex = overloadIndex,
+            IncludeSections = [SectionNames.DecompiledSource],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(expected, result.Output);
+    }
+
+    [Theory]
+    [InlineData("Count", "public static virtual int Count")]
+    [InlineData("SealedCount", "public sealed int SealedCount")]
+    public async Task SelectedProperty_InterfaceKeepsDispatchAcrossCSharpViews(
+        string propertyName, string expected)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.IStaticPropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = [propertyName],
+            IncludeSections =
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, result.Output.Split(expected, StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("override", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Fact]
     public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
     {
-        // The getter renders a real method header (not the property's bare return type)
-        // with the setter's body kept off it (#3265).
         var result = await RunDecompiledAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: null);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Decompiled Source", result.Output);
-        Assert.Contains("get_Descriptor(", result.Output);
+        Assert.Contains("public static string Descriptor =>", result.Output);
+        Assert.DoesNotContain("get_Descriptor(", result.Output);
         Assert.DoesNotContain("set_Descriptor(", result.Output);
     }
 
     [Fact]
-    public async Task DecompiledSource_PropertySetterRendersVoidAccessorDeclaration()
+    public async Task DecompiledSource_PropertySetterRendersSelectedPropertyAccessor()
     {
-        // Accessor ordinal 2 renders the setter: void return, a trailing `value` parameter.
         var result = await RunDecompiledAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: 2);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Decompiled Source", result.Output);
-        Assert.Contains("void set_Descriptor(", result.Output);
+        Assert.Contains("public static string Descriptor", result.Output);
+        Assert.Contains("set =>", result.Output);
+        Assert.DoesNotContain("void set_Descriptor(", result.Output);
         Assert.Contains("value", result.Output);
         Assert.DoesNotContain("get_Descriptor(", result.Output);
     }
@@ -1464,7 +1544,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Decompiled Source", result.Output);
-        Assert.Contains("public override string get_Label()", result.Output);
+        Assert.Contains("public override string Label =>", result.Output);
     }
 
     [Fact]
