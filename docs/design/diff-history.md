@@ -510,8 +510,10 @@ version-ordered transitions. It records full-population, explicit-checkpoint,
 and adaptive evaluations through one typed vocabulary. At minimum, evaluation
 purposes distinguish population start, population end, adaptive midpoint,
 explicit checkpoint, and dense census. Adaptive midpoint entries retain the
-changed interval that selected them and the resulting refined interval,
-adjacent boundary, equal observation, or blocking failure.
+changed interval that selected them and the ordered changed-interval set
+established afterward, including any adjacent boundaries and unresolved
+intervals. Equal observation or blocking failure remains explicit rather than
+an empty interval set.
 
 The terminal outcome distinguishes:
 
@@ -520,7 +522,8 @@ The terminal outcome distinguishes:
   when a changed gap can be refined manually;
 - one or more resolved adjacent changed boundaries;
 - equal adaptive endpoints;
-- adaptive budget exhaustion with the unresolved changed interval; and
+- adaptive budget exhaustion with every ordered unresolved changed interval;
+  and
 - a blocking evaluation or comparison failure.
 
 These outcomes summarize established knowledge without replacing native
@@ -932,6 +935,9 @@ The implementation slices must supply Release gates for:
   same endpoints;
 - one and multiple resolved adjacent boundaries, unresolved changed intervals,
   and failed probes, preserving the exact authorized and consumed probe counts;
+- a three-probe `A ... B ... C` observation that splits one changed interval
+  into two unresolved changed intervals and retains both in the receipt and
+  budget-exhaustion outcome;
 - chronological methodology receipts whose selected intervals and learned
   outcomes reproduce the adaptive decisions without parsing rendered rows;
 - typed adjacent-Diff actions retaining exact endpoints, focus, Finding, TFM,
