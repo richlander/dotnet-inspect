@@ -56,9 +56,8 @@ taxonomy.
 
 This is **specification only**. Existing top-level `diff` remains current and
 is retained by the composition owner; `timeline` remains current until focused
-Diff adoption retires it. Examples in the historical placement section are
-pre-cutover evidence, not target grammar. Other root operations such as
-`match`, `find`, `depends`, and `graph` are not relocated by this adoption.
+Diff adoption retires it. Other root operations such as `match`, `find`,
+`depends`, and `graph` are not relocated by this adoption.
 
 Related docs:
 
@@ -751,7 +750,7 @@ already admit.
 
 ### Equivalent requests
 
-The current operation-first route remains supported:
+The current operation-first filter route remains supported:
 
 ```bash
 dotnet-inspect diff \
@@ -760,12 +759,19 @@ dotnet-inspect diff \
   -S Changes
 ```
 
-A future Type section may bind the same endpoint population and exact Type
-without replaying that command as argv. The subject supplies its resolved
-identity, source context, target framework, and Workspace context. The authored
-section preset supplies the Diff mode, observation, cost, and projection.
-Section names and range admission land with their focused executable adoption;
-this specification does not advertise them early.
+This remains a Library comparison filtered to one Type and is not the
+operation-first peer of a future exact-Type section. It is the neighboring case
+that prevents adoption from promoting a surviving row into subject identity.
+
+Exact Type and Member adoption must add an operation-first request that accepts
+the same owner-resolved exact subject identity as the corresponding subject
+section. The operation-first syntax and section binding land together over one
+semantic plan; existing `--type` and `--member` filters are not reinterpreted.
+The subject supplies its resolved identity, source context, target framework,
+and Workspace context. The authored section preset supplies the Diff mode,
+observation, cost, and projection. Section names, exact-subject operation
+syntax, and range admission land with their focused executable adoption; this
+specification does not advertise them early.
 
 Pairwise and temporal comparison remain modes of top-level `diff`. An admitted
 subject History section binds the temporal mode through the shared
@@ -841,8 +847,9 @@ Production adoption is tracked by
    characterization gates.
 3. Adopt one pairwise Library/API operation end to end, retaining top-level
    `diff` and adding one subject-section consumer over the same envelope.
-4. Adopt exact Type and Member pairwise sections without converting filters or
-   display text into subject identity.
+4. Adopt operation-first exact Type and Member requests together with their
+   subject sections, using the same owner-resolved identity and semantic plan
+   without converting filters or display text into subject identity.
 5. Adopt Type and Member History and changed-version Count through the shared
    result from #7229; retire `timeline` only after complete parity.
 6. Migrate Analysis, Implementation, PDB/source, and Finding routes in focused
