@@ -37,6 +37,7 @@ Package or Platform subject.
 
 | Entrance | Current admission | Endpoint population | Acquisition route |
 | --- | --- | --- | --- |
+| Source-free discovery | `diff -D/--discover [selector]`, optionally with `--schema`; no endpoint source is required | Authored Diff section catalog, category doors, cost annotations, exact-only exclusions, and optional section schema | No endpoint acquisition. Selection and schema validation, including `--schema` without discovery, finish before source admission. |
 | Package | `--package Package@old..new`, or the first positional value when no explicit source is present; optional `--tfm` | One or more Libraries per version | `AssemblySetResolver` uses `PackageExtractor`; direct PackageHouse and Workspace admission remain a **compatibility bridge** under #6638. |
 | Platform | `--platform Library@old..new`; `--framework` defaults to `runtime` | One Library per version | `AssemblySetResolver` uses `PlatformResolver`; PlatformHouse Library transfer remains owned by the [PlatformHouse reference-processing design](platform-house-reference-processing.md). |
 | Local Library | `--library old/path.dll..new/path.dll` | One Library per path | `AssemblySetResolver` opens the two direct paths. |
@@ -50,6 +51,7 @@ failure. This is recorded behavior, not a cleanup contract introduced here.
 
 | Route | Dispatch boundary | Current result carrier | Status and disposition |
 | --- | --- | --- | --- |
+| Diff discovery and schema | `-D/--discover` after section selection and before tabular section, source, or acquisition validation | `DiffSectionCatalog` and `SectionPipeline<DiffDiscoveryModel>` lowered by `DiscoverOutput.ExecuteEffective` | **Command-owned route.** Authored `@Diff` discovery omits computed category poles and hides exact-only Finding Transitions from glob and category discovery. Unknown selectors and invalid standalone `--schema` fail before acquisition. |
 | Selected-Library API Changes | Exactly one acquired Library per endpoint; no Member filter, Analysis Diff, Implementation Diff, or Finding Transitions; no selected section other than Changes | `InspectionEnvelope<LibraryApiDiffOutcome>` from `LibraryApiDiffRunner` and `LibraryApiDiffInspection` | **Shared terminal.** One ephemeral `InspectionWorkspace` owns separate before/after `AssemblyContextGroup` values. Different logical Libraries are a typed rejection, not a legacy fallback. This is the first #7703 pairwise adoption substrate. |
 | General API Changes | Multi-Library endpoints, Member filtering, mixed sections, or another route outside the selected-Library boundary | Command-owned API comparison and `DiffDocumentView` composition | **Command-owned route.** Preserve multi-Library population, Type/Member filter, classification, inspection-failure, and mixed-section behavior until a focused operation owns them. |
 | Analysis Diff | `Analysis Diff`, including `--changed` and `--alloc-regressions` implications | `BodySignalComparisonQuery`, `AnalysisDiffRow`, and command-owned summaries | **Command-owned route.** Allocation-focused planning may omit unused Changes work, but the CLI still owns result composition and presentation. |
@@ -85,19 +87,21 @@ through those owners.
 
 | Projection | Carrier and lowering | Row or line behavior | Envelope, Count, and failure |
 | --- | --- | --- | --- |
+| Diff discovery and schema | `DiscoverOutput.ExecuteEffective` lowers the source-free `DiffSectionCatalog` through shared discovery rendering | Markdown, table, TSV, and JSONL are selected before acquisition; `--schema` includes fields and `--tree` is forwarded to the shared discovery renderer | No envelope, Count, or endpoint failure exists. Invalid schema or selection fails before acquisition; Diff-specific TSV, JSONL, and tree characterization is **unverified**. |
 | Envelope JSON | Native `InspectionEnvelope<LibraryApiDiffOutcome>` through `InspectionEnvelopeOutput`, `result_kind` `library-api-diff`, schema 1 | No display-row window; serializes the completed service value | Supported only by the selected-Library API terminal. Share is currently `NonProjectable` at `comparison/endpoints`. Unavailable and Rejected Content serialize before nonzero exit; acquisition failure fabricates no envelope. |
 | Unprojected Content JSON | Native `LibraryApiDiffOutcome` through `LibraryApiDiffJsonContext` | No display-row window | Omits envelope framing but preserves typed Available, Unavailable, and Rejected cases. |
 | Projected document JSON | CLI `DiffDocumentView`, including section arrays and inspection failures | The selected-Library display-JSON lowerer receives no `RowWindow`; positive row-window behavior is **unverified** | Not an envelope or Count projection. Non-success retains a reason and available failure rows before nonzero exit. |
 | Markdown document | `DiffFullView` or command-owned `DiffDocumentView`; ordinary selected-Library output uses generated Markout while general multi-section output includes manual document composition | Selected-Library Markout receives `RowWindow`; exact grouped-list window behavior is **unverified** | No Diff Count integration. Empty selected-Library success is visibly “No API changes”; non-success remains visible. |
 | Table, TSV, JSONL | `DiffTableView` for Type summaries or `DiffDetailedChangesView` for detailed Changes through `MarkoutSerializer` | Markout applies the semantic window to data rows while retaining headers; no Diff-owned rendered-line fallback is used | No Diff Count or envelope integration. Non-success emits an error rather than a success-shaped empty table. |
 | Name-only | Direct ordered Type-name list from selected comparison subjects | The lowerer receives no `RowWindow`; name-only windowing is **unverified** | No Count or envelope integration; non-success emits the typed reason. |
-| Implementation Diff | `ImplementationDiffView` built by `DiffOutputFormatter` from general or Workspace comparison evidence and optional selected PDB-source content | General comparison emits C#, IL, normal-flow complexity, and optional PDB Source rows; the focused Workspace route emits C#, IL, endpoint, and type-forwarder rows. Table, TSV, and JSONL serialize the view through Markout with `RowWindow`; Markdown uses `RenderImplementationDiffView`, while mixed sections compose the same view into `DiffDocumentView`. | No public envelope or Count adapter. Failure evidence remains visible. Endpoint inspection failure and incomplete Workspace comparison produce nonzero exit; failed rows in the general Implementation view do not independently change the exit code. |
+| Implementation Diff | `ImplementationDiffView` built by `DiffOutputFormatter` from general or Workspace comparison evidence and optional selected PDB-source content | General comparison emits C#, IL, normal-flow complexity, and optional PDB Source rows; each row carries human-readable fields and a machine-readable `Kind` descriptor when wired. The focused Workspace route emits C#, IL, endpoint, and type-forwarder rows. Table, TSV, and JSONL serialize the view through Markout with `RowWindow`; Markdown uses `RenderImplementationDiffView`, while mixed sections compose the same view into `DiffDocumentView`. | No public envelope or Count adapter. Failure evidence remains visible. Endpoint inspection failure and incomplete Workspace comparison produce nonzero exit; failed rows in the general Implementation view do not independently change the exit code. End-to-end `Kind` serialization is **unverified**. |
 | Timeline Markdown and structured formats | `TimelineDocumentView` with Evaluation and Transition semantic rows; typed JSON preserves the same selected identities | Head, Tail, and Window compose in argument order before Markdown, table, TSV, JSONL, typed JSON, or Count. Explicit Lines clips rendered output and cannot reduce authorized payload-cell acquisition. | Count observes post-selection rows per selected section. Multi-section Count is an ordered map. Failure, subject absence, missing, and unevaluated remain distinct. No public envelope is adopted. |
 
 No Diff-owned tree model or tree lowerer is present in the current renderers.
-The command-layer disposition of a tree request is **unverified**. `Inspection
-Failures` is renderable in `DiffDocumentView` but is not a selectable entry in
-the declared `DiffSections` schema.
+Discovery forwards `--tree` to the shared discovery renderer; the disposition
+of a tree request outside discovery is **unverified**. `Inspection Failures` is
+renderable in `DiffDocumentView` but is not a selectable entry in the declared
+`DiffSections` schema.
 
 ## Section and row inventory
 
@@ -105,7 +109,7 @@ the declared `DiffSections` schema.
 | --- | --- | --- | --- |
 | Changes | `ApiComparisonQuery` or selected-Library `LibraryApiDiffDocument` | Detailed compatibility or unclassified API change; summary tables use one changed Type per row | Default Diff section and part of `@Diff` |
 | Analysis Diff | `BodySignalComparisonQuery` | Member signal with old, new, delta, shape, and evidence | Explicit, implied by allocation-regression focus |
-| Implementation Diff | `ImplementationComparisonQuery` or `WorkspaceImplementationComparisonQuery` | Member mechanism, difference, change, and evidence; general comparison adds normal-flow complexity change rows | Expensive and explicit |
+| Implementation Diff | `ImplementationComparisonQuery` or `WorkspaceImplementationComparisonQuery` | Member mechanism, difference, change, evidence, and machine-readable `Kind` when a descriptor is wired; general comparison adds normal-flow complexity change rows | Expensive and explicit |
 | Finding Transitions | Command-owned Finding evaluation | Transition, Finding, target, old/new state, and detail | Expensive, exact-only, and selected alone |
 | Inspection Failures | Endpoint and producer failure evidence | Operation, token, mechanism, kind, detail, subject, and dependency | Rendered evidence, not a selectable Diff section |
 | Timeline Evaluations | Per-version Finding evaluation | One selected version cell and its completed state | Selected by default |
@@ -123,6 +127,7 @@ History.
 | Selected-Library Content and presentation | `LibraryApiDiffPresentationTests`, `LibraryApiDiffInspectionTests`, `LibraryApiDiffJsonTests` | Complete and empty documents, path and memory inputs, typed truncation, logical-Library rejection, forwarded-constraint failures, serialization, and retention bounds |
 | Selected-Library CLI and transport | `LibraryApiDiffCommandTests`, `LibraryApiDiffEnvelopeCommandTests` | Markdown and structured projections, filters, real `System.Text.Json` package evidence, Content JSON, envelope, compact JSON, modifier rejection, non-success, and no fabricated envelope |
 | General Diff routes | `DiffCommandTests`, `CommandExecutionTests`, `ResearchDiffTests` | API, Analysis, Implementation including normal-flow complexity, mixed sections, filters, Finding Transitions, package and local entrances, output composition, explicit Count rejection before acquisition, and command validation |
+| Diff discovery and schema | `CommandExecutionTests.Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles`, `Diff_SchemaRequiresDiscovery`, `Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions`, `Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition`, `Diff_ComputedCategoryPolesAreRejected` | Source-free authored catalog and category discovery, optional schema, exact-only exclusion, computed-pole rejection, and selection failure before acquisition |
 | Diff failure visibility | `CommandExecutionTests.Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes` | Malformed local metadata must return failure across Markdown, document JSON, Finding, Analysis, table, TSV, JSONL, and name-only projections; tracked by #7010 |
 | Diff PDB/source evidence | `SelectedSourceDiffTests`, `DiffCommandTests` | Changed, unchanged, reordered, moved, absent, HTTP, deadline, ambiguity, indexing, read, no-PDB, independent-lane labeling, and visible failure cases lowered into Implementation Diff rows |
 | Focused Workspace Implementation | `WorkspaceImplementationComparisonRunnerTests`, `WorkspaceImplementationComparisonQueryTests`, `SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges` | Direct and forwarded targets, exact identity, closed-world composition, C#/IL evidence, typed non-success, peer-section incompleteness, and query-plan exclusion |
@@ -144,7 +149,9 @@ gate in this census:
 - positive Diff semantic Head, Tail, and Window behavior across each renderer;
 - selected-Library name-only and display-JSON row-window behavior;
 - grouped Markdown row-window behavior within Diff sections;
-- the command-layer disposition of tree output;
+- Diff discovery TSV, JSONL, and tree output;
+- end-to-end JSON, JSONL, and TSV serialization of Implementation `Kind`;
+- the command-layer disposition of tree output outside discovery;
 - Timeline public envelope and Share behavior, which are not yet adopted;
 - Timeline source-evidence behavior;
 - Timeline structured or tabular output after real package acquisition; and
@@ -186,6 +193,11 @@ passed in Release for the #7719 census candidate.
 After the current `main` interaction, the Count guard and normal-flow
 complexity characterization also passed their focused Release methods in
 `CommandExecutionTests`, `DiffCommandTests`, and `ResearchDiffTests`.
+
+The Round 5 replacement additionally passed nine focused CLI cases covering
+Implementation row `Kind`, source-free authored discovery, schema validation,
+exact-only exclusions, computed-pole rejection, and selection failure before
+acquisition.
 
 ## Non-goals
 
