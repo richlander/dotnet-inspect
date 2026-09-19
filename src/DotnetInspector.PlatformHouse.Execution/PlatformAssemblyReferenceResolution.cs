@@ -184,7 +184,8 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.invalid-source-work");
         }
 
-        if (decision.Kind == SourcePolicyDecisionKind.Failed)
+        if (decision.Kind == SourcePolicyDecisionKind.Failed
+            && consumedWorkCoversAttempts)
         {
             return Failed(
                 request,

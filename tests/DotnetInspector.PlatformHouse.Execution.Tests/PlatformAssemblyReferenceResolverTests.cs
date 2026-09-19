@@ -1166,6 +1166,55 @@ public sealed class PlatformAssemblyReferenceResolverTests
     }
 
     [Fact]
+    public async Task
+        ResolveAsync_ExhaustedUnderreportedFailureIsIncompleteWithoutSettlement()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = File.ReadAllBytes(
+            typeof(Enumerable).Assembly.Location);
+        AssemblyReferenceIdentity identity = Descriptor(image).Identity;
+        PlatformSourceCapabilityIdentity first =
+            PlatformSourceCapabilityIdentity.Create("installed");
+        PlatformSourceCapabilityIdentity second =
+            PlatformSourceCapabilityIdentity.Create("package-backed");
+        PlatformHouseRequest request = Request(
+            identity,
+            [first, second],
+            PlatformSourceSelectionMode.Precedence,
+            cancellationToken,
+            maxSourceOperations: 2,
+            maxAssemblies: 1,
+            maxBytes: image.LongLength);
+        var failed = TerminalAttempt(
+            request,
+            first,
+            PlatformSourceContributionKind.Failed);
+        int opens = 0;
+        var success = SuccessfulAttempt(
+            request,
+            second,
+            identity,
+            image,
+            "package-candidate",
+            () => opens++);
+
+        var incomplete = Assert.IsType<
+            PlatformHouseOutcome<AssemblyBindingDecision>.Incomplete>(
+                await PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+                    request,
+                    [failed, success],
+                    Consumed(
+                        sourceOperations: 1,
+                        assemblies: 1,
+                        bytes: image.LongLength,
+                        elapsed: TimeSpan.FromMinutes(1))));
+
+        Assert.Empty(incomplete.Receipt.SourceSettlements);
+        Assert.Equal(0, opens);
+    }
+
+    [Fact]
     public async Task ResolveAsync_RejectsForeignAttemptBeforeSourceAccess()
     {
         CancellationToken cancellationToken =

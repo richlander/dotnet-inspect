@@ -1093,7 +1093,7 @@ Terminal precedence is:
 5. reject an in-budget consumed-work ledger that cannot cover the supplied
    attempts;
 6. preserve a corresponding policy-terminal source failure as
-   `Failed(Source)`;
+   `Failed(Source)` when the ledger covers the supplied attempts;
 7. otherwise make exhausted work `Incomplete`, retaining policy evidence only
    when the ledger covers it;
 8. make required missing/incomplete evidence `Incomplete`; and
@@ -1128,6 +1128,8 @@ before attempt production.
 `ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration` and
 `ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement` gate
 receipt-compatible exhausted-work closure without unsupported settlement.
+`ResolveAsync_ExhaustedUnderreportedFailureIsIncompleteWithoutSettlement`
+gates the same closure when policy also observes source failure.
 
 ### Installed successful-result binding adoption
 
