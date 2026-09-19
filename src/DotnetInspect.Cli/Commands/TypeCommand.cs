@@ -722,6 +722,7 @@ public static class TypeCommand
             || options.PackageRangeAddress is not null
             || options.AssemblyPath is not null
             || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || string.IsNullOrWhiteSpace(options.Tfm)
@@ -794,6 +795,7 @@ public static class TypeCommand
             || options.PackageRangeAddress is not null
             || string.IsNullOrWhiteSpace(options.AssemblyPath)
             || options.PlatformAssembly is not null
+            || options.PlatformFramework is not null
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || string.IsNullOrWhiteSpace(options.Tfm)

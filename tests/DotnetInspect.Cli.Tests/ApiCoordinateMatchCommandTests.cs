@@ -299,6 +299,42 @@ public sealed class ApiCoordinateMatchCommandTests
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
     }
 
+    [Fact]
+    public async Task TypeEnvelopeRejectsPlatformFrameworkBeforeAcquisition()
+    {
+        string[][] requests =
+        [
+            [
+                "type", "Example.Widget",
+                "--package", "Example@1.0.0",
+                "--tfm", "net8.0",
+                "--framework", "net9.0",
+                "--envelope",
+            ],
+            [
+                "type",
+                "--package", "Example@1.0.0",
+                "--library", "Example.dll",
+                "--tfm", "net8.0",
+                "--framework", "net9.0",
+                "--envelope",
+            ],
+        ];
+
+        foreach (string[] request in requests)
+        {
+            var result = await InvokeWithoutAcquisition(request);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "requires exact package-backed Type or Library API inspection",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+        }
+    }
+
     [Theory]
     [InlineData("--bare")]
     [InlineData("--tree")]

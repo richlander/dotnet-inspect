@@ -83,6 +83,13 @@ public sealed class ExactTypeWorkspaceRouteTests
             TypeCommand.TryCreateSharedExactTypeRequest(
                 options with
                 {
+                    PlatformFramework = "net9.0",
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
                     Verbosity = Verbosity.Normal,
                 },
                 out _));
