@@ -8,6 +8,14 @@
 // by the caller so this module can be built and tested against fake sources
 // independently from the Browser engine adapter.
 
+export type QueryExecutionClass =
+  | "search-metadata"
+  | "nuspec"
+  | "nuspec-expensive"
+  | "package-content"
+  | "metadata"
+  | "metadata-expensive";
+
 /** One product-issued package-query preset descriptor. */
 export interface QueryPreset {
   id: string;
@@ -18,6 +26,7 @@ export interface QueryPreset {
   summary?: string;
   weight?: number;
   tier: "search-metadata" | "nuspec" | "package-content";
+  executionClass: QueryExecutionClass;
   selectionGroupId?: string | null;
   combinesWithinSelectionGroup?: boolean;
   replacementGroupId?: string | null;
@@ -32,6 +41,7 @@ export interface QueryTermDescriptor {
   summary: string;
   weight: number;
   tier: "search-metadata" | "nuspec" | "package-content";
+  executionClass: QueryExecutionClass;
   operators: readonly string[];
   valueKind: string;
   example: string;
