@@ -710,7 +710,7 @@ public partial class ReturnToSenderPrototypeTests
             Assert.True(
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains("public string _value;", result.Source);
+            Assert.Contains("public readonly string _value;", result.Source);
         }
         finally
         {
