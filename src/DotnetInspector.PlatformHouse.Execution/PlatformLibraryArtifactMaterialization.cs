@@ -585,32 +585,28 @@ public static class PlatformHouseArtifactMaterializer
             queryLease = null;
 
             consumedWork = CurrentWork();
-            if (PlatformHouseLibraryRealizer.ExceedsBudget(
+            PlatformLibraryRealizationResult realization =
+                PlatformHouseLibraryRealizer.ExceedsBudget(
                     consumedWork,
-                    request))
-            {
-                return Terminal(
-                    PlatformHouseLibraryRealizer.Incomplete(
+                    request)
+                    ? PlatformHouseLibraryRealizer.Incomplete(
                         request,
                         consumedWork,
                         $"{identityPrefix}.materialization-duration-incomplete",
                         targetSelection?.TargetSettlement,
                         TerminalRetainedSettlements(
                             targetSelection,
-                            retainedSettlements)));
-            }
-
-            PlatformLibraryRealizationResult realization =
-                Realize(
-                    request,
-                    view,
-                    selections,
-                    compiledXmlDocumentation,
-                    contentLeases,
-                    consumedWork,
-                    identityPrefix,
-                    targetSelection,
-                    retainedSettlements);
+                            retainedSettlements))
+                    : Realize(
+                        request,
+                        view,
+                        selections,
+                        compiledXmlDocumentation,
+                        contentLeases,
+                        consumedWork,
+                        identityPrefix,
+                        targetSelection,
+                        retainedSettlements);
             if (realization
                 is PlatformLibraryRealizationResult.Completed completed)
             {

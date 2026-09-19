@@ -206,6 +206,63 @@ public sealed class PlatformSelectedLibraryExecutorTests
     }
 
     [Fact]
+    public async Task ExhaustedSourceAllowanceRetainsCurrentFacetEvidence()
+    {
+        Harness context = await CreateContextAsync(
+            PlatformViewDemand.Reference,
+            maxSourceOperations: 2);
+        int fallbackInvocations = 0;
+
+        PlatformLibraryArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                context.Request,
+                [
+                    Discovery(
+                        context,
+                        context.InstalledDiscovery,
+                        context.Target,
+                        new TestAssociation("installed")),
+                    Discovery(
+                        context,
+                        context.PackageDiscovery,
+                        context.PackageTarget,
+                        new TestAssociation("package")),
+                ],
+                [
+                    Failed(
+                        context,
+                        context.InstalledReference,
+                        PlatformSourceFacet.Reference),
+                    Success(
+                        context,
+                        context.PackageReference,
+                        PlatformSourceFacet.Reference,
+                        () => fallbackInvocations++),
+                ],
+                "selected-library-test");
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                outcome);
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Incomplete>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, fallbackInvocations);
+        Assert.Contains(
+            terminal.TerminalRealization.Outcome.Receipt.SourceSettlements,
+            settlement =>
+                ReferenceEquals(
+                    settlement.Contribution.Capability,
+                    context.InstalledReference)
+                && settlement.Contribution
+                    is PlatformSourceContribution.Failed
+                && settlement.Disposition
+                    == PlatformSourceSettlementDisposition
+                        .OutcomeRelevant);
+    }
+
+    [Fact]
     public async Task MalformedAttemptWorkIsChargedBeforeRejection()
     {
         Harness context = await CreateContextAsync(
@@ -352,6 +409,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
 
     static async ValueTask<Harness> CreateContextAsync(
         PlatformViewDemand view,
+        int maxSourceOperations = 16,
         int maxAssemblies = 8,
         TimeSpan? maxDuration = null)
     {
@@ -438,7 +496,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 PlatformSourcePolicyGeneration.Create("generation-1"),
                 selections),
             new PlatformHouseWorkBudget(
-                maxSourceOperations: 16,
+                maxSourceOperations,
                 maxTargetCandidates: 32,
                 maxAssemblies,
                 maxXmlDocuments: 2,
@@ -570,6 +628,27 @@ public sealed class PlatformSelectedLibraryExecutorTests
             associationCapability is null
                 ? null
                 : context.PackageRoute);
+
+    static PlatformLibraryRealizationSource Failed(
+        Harness context,
+        PlatformSourceCapabilityIdentity capability,
+        PlatformSourceFacet facet) =>
+        new(
+            capability,
+            facet,
+            (request, target, _, _) =>
+            {
+                PlatformLibraryRealizationSourceAttempt attempt =
+                    new PlatformLibraryRealizationSourceAttempt
+                        .NotSucceeded(
+                            new PlatformSourceContribution.Failed(
+                                facet,
+                                capability,
+                                request.Snapshot,
+                                Generation(capability),
+                                target));
+                return ValueTask.FromResult(attempt);
+            });
 
     static async ValueTask RetireAsync(
         PlatformLibraryArtifactMaterializationOutcome.Completed completed)

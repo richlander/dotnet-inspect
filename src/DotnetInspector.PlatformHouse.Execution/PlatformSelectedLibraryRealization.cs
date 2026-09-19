@@ -328,6 +328,17 @@ public static class PlatformHouseSelectedLibraryExecutor
             {
                 if (!work.CanInvoke(request))
                 {
+                    if (attempts.Count != 0)
+                    {
+                        PlatformSourcePolicyDecision<
+                            PlatformLibraryRealizationSourceAttempt>
+                            exhausted =
+                                PlatformSourcePolicyReducer.Select(
+                                    plan,
+                                    attempts);
+                        realizationSettlements.AddRange(
+                            exhausted.Settlements);
+                    }
                     return Incomplete(
                         request,
                         selection,
