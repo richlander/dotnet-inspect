@@ -227,6 +227,111 @@ public sealed class InstalledPlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
+        UnmeasuredInstalledIncompleteConsumesDelegatedWorkBeforeAggregation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var hive = new TestHive();
+        string source =
+            typeof(InstalledPlatformLibraryMaterializerTests)
+                .Assembly.Location;
+        string referencePack = hive.CreateReferencePack();
+        hive.CopyAssembly(referencePack, source);
+        File.WriteAllBytes(
+            Path.ChangeExtension(
+                Path.Combine(referencePack, Path.GetFileName(source)),
+                ".xml"),
+            [1]);
+        InstalledPlatformHouseAdapter adapter = hive.CreateAdapter();
+        PlatformSourceCapabilityIdentity fallbackDiscovery =
+            PlatformSourceCapabilityIdentity.Create(
+                "fallback-target-discovery");
+        PlatformSourceCapabilityIdentity fallbackReference =
+            PlatformSourceCapabilityIdentity.Create(
+                "fallback-reference");
+        long maximumBytes = new FileInfo(source).Length;
+        PlatformHouseRequest request =
+            SelectedReferenceFailureRequest(
+                adapter,
+                fallbackDiscovery,
+                fallbackReference,
+                ReadIdentity(source),
+                maximumBytes,
+                cancellationToken,
+                PlatformSourceSelectionMode.Aggregation);
+        var discoveryFallback = new PlatformTargetDiscoverySource(
+            fallbackDiscovery,
+            (operation, _) =>
+            {
+                PlatformTargetDiscoveryAttempt attempt =
+                    new PlatformTargetDiscoveryAttempt.NotSucceeded(
+                        new PlatformSourceContribution.Unavailable(
+                            PlatformSourceFacet.TargetDiscovery,
+                            fallbackDiscovery,
+                            operation.Snapshot,
+                            PlatformSourceGeneration.Create(
+                                "fallback-discovery-generation"),
+                            exactTarget: null,
+                            PlatformSourceUnavailabilityKind.Absent));
+                return ValueTask.FromResult(attempt);
+            });
+        int fallbackInvocations = 0;
+        var realizationFallback =
+            new PlatformLibraryRealizationSource(
+                fallbackReference,
+                PlatformSourceFacet.Reference,
+                (operation, target, _, _) =>
+                {
+                    fallbackInvocations++;
+                    PlatformLibraryRealizationSourceAttempt attempt =
+                        new PlatformLibraryRealizationSourceAttempt
+                            .NotSucceeded(
+                                new PlatformSourceContribution
+                                    .Unavailable(
+                                        PlatformSourceFacet.Reference,
+                                        fallbackReference,
+                                        operation.Snapshot,
+                                        PlatformSourceGeneration.Create(
+                                            "fallback-reference-generation"),
+                                        target,
+                                        PlatformSourceUnavailabilityKind
+                                            .Absent));
+                    return ValueTask.FromResult(attempt);
+                });
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                    request,
+                    [
+                        InstalledPlatformTargetDiscovery.CreateSource(
+                            adapter),
+                        discoveryFallback,
+                    ],
+                    [
+                        InstalledPlatformSelectedLibraryRealization
+                            .CreateReferenceSource(
+                                adapter,
+                                PlatformHouseCandidateIdentity.Create(
+                                    "installed-reference-candidate")),
+                        realizationFallback,
+                    ],
+                    "installed-selected-library"));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Incomplete>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, fallbackInvocations);
+        PlatformHouseConsumedWork consumed =
+            terminal.TerminalRealization.Outcome.Receipt.ConsumedWork;
+        Assert.Equal(1, consumed.Assemblies);
+        Assert.Equal(1, consumed.XmlDocuments);
+        Assert.Equal(maximumBytes, consumed.Bytes);
+    }
+
+    [Fact]
+    public async Task
         InstalledReferencePopulation_TransfersOrderedLibraryAuthorities()
     {
         CancellationToken cancellationToken =
@@ -1513,7 +1618,9 @@ public sealed class InstalledPlatformLibraryMaterializerTests
         PlatformSourceCapabilityIdentity fallbackReference,
         AssemblyReferenceIdentity identity,
         long maximumBytes,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        PlatformSourceSelectionMode referenceMode =
+            PlatformSourceSelectionMode.Fallback) =>
         new(
             PlatformHouseRequestIdentity.Create(
                 "selected-installed-reference-failure"),
@@ -1557,7 +1664,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                         ]),
                     new PlatformSourceSelection(
                         PlatformSourceFacet.Reference,
-                        PlatformSourceSelectionMode.Fallback,
+                        referenceMode,
                         [
                             adapter.Capabilities.ReferenceRealization,
                             fallbackReference,

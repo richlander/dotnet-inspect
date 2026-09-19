@@ -124,14 +124,18 @@ children; retiring the Library then permits Artifact retirement to complete.
 Terminal executor results and cancellation before the handoff retire every
 composition-owned content lease and the session before they escape. The
 materializer accepts explicit operation-consumed work, matching the shared
-executor, because the installed source contracts do not issue exact aggregate
-work observations. It neither guesses those observations nor turns selected
-payload size into a claim about all source work.
+executor, because reference and terminal source contracts do not always issue
+exact aggregate work observations. Successful implementation realizations do
+issue their exact source-observed manifest-plus-assembly byte total. The
+executor neither guesses absent observations nor turns selected payload size
+into a claim about all source work.
 The selected-target executor therefore applies one source-neutral accounting
-rule to installed and package-backed adapters: an unmeasured failed source
-reserves the residual assembly, compiled-XML, and byte allowance delegated to
-that invocation. Exact owner-issued observations remain exact; unobserved work
-cannot be reused by fallback as though the failed invocation consumed nothing.
+rule to installed and package-backed adapters: an unmeasured failed, rejected,
+or incomplete source reserves the residual assembly, compiled-XML, and byte
+allowance delegated to that invocation. Exact owner-issued observations remain
+exact. Unmeasured unavailability remains zero so an ordinary absent source can
+fall back; every other unobserved terminal capable of hiding performed work
+cannot be reused as though its invocation consumed nothing.
 
 Package-backed successful-result materialization is implemented in
 `DotnetInspector.PlatformHouse.Execution.Packages` under #7304. It accepts only

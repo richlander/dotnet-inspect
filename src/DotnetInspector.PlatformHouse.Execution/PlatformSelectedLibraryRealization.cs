@@ -161,7 +161,10 @@ public static class PlatformLibraryRealizationAttemptWork
         ArgumentNullException.ThrowIfNull(delegatedWork);
         bool reserve =
             observedWork is null
-            && contribution is PlatformSourceContribution.Failed;
+            && contribution
+                is PlatformSourceContribution.Failed
+                    or PlatformSourceContribution.Rejected
+                    or PlatformSourceContribution.Incomplete;
         return new PlatformHouseConsumedWork(
             sourceOperations: 0,
             targetCandidates: 0,

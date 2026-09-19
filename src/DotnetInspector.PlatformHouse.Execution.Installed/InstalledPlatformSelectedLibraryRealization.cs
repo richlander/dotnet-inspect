@@ -181,8 +181,7 @@ public static class InstalledPlatformSelectedLibraryRealization
                     Work(
                         success.Value.Libraries.Count,
                         0,
-                        success.Value.Libraries.Sum(
-                            static library => library.ContentLength),
+                        success.Value.ConsumedBytes,
                         elapsed)),
             InstalledPlatformHouseResult<
                 InstalledImplementationRealization>.Succeeded success =>
@@ -195,8 +194,7 @@ public static class InstalledPlatformSelectedLibraryRealization
                     Work(
                         success.Value.Libraries.Count,
                         0,
-                        success.Value.Libraries.Sum(
-                            static library => library.ContentLength),
+                        success.Value.ConsumedBytes,
                         elapsed)),
             InstalledPlatformHouseResult<
                 InstalledImplementationRealization>.NotSucceeded terminal =>

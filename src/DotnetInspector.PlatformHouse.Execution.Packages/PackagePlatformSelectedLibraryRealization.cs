@@ -225,8 +225,7 @@ public static class PackagePlatformSelectedLibraryRealization
                     Work(
                         success.Value.Libraries.Length,
                         0,
-                        success.Value.Libraries.Sum(
-                            static library => library.ContentLength),
+                        success.Value.ConsumedBytes,
                         elapsed)),
             PackagePlatformHouseResult<
                 PackageImplementationRealization>.Succeeded success =>
@@ -239,8 +238,7 @@ public static class PackagePlatformSelectedLibraryRealization
                     Work(
                         success.Value.Libraries.Length,
                         0,
-                        success.Value.Libraries.Sum(
-                            static library => library.ContentLength),
+                        success.Value.ConsumedBytes,
                         elapsed)),
             PackagePlatformHouseResult<
                 PackageImplementationRealization>.NotSucceeded terminal =>

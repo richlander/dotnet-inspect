@@ -832,6 +832,11 @@ public sealed class PackagePlatformHouseAdapterTests
     public async Task ImplementationLibraryDemandRequiresExactClosureMember()
     {
         byte[] image = PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] runtimeConfiguration =
+            PackagePlatformTestData.RuntimeConfiguration();
+        byte[] dependencyManifest =
+            PackagePlatformTestData.DependencyManifest(
+                "System.Runtime.dll");
         await using PackagePlatformTestEnvironment environment =
             PackagePlatformTestEnvironment.Create(
             [
@@ -845,9 +850,8 @@ public sealed class PackagePlatformHouseAdapterTests
                         .RuntimeImplementationPackageId,
                     entries: PackagePlatformTestData.RuntimePackEntries(
                         "Microsoft.NETCore.App",
-                        PackagePlatformTestData.RuntimeConfiguration(),
-                        PackagePlatformTestData.DependencyManifest(
-                            "System.Runtime.dll"),
+                        runtimeConfiguration,
+                        dependencyManifest,
                         ("System.Runtime.dll", image))),
             ]);
         PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
@@ -884,7 +888,11 @@ public sealed class PackagePlatformHouseAdapterTests
             result.Contribution.Kind);
         Assert.NotNull(result.SourceWork);
         Assert.Equal(1, result.SourceWork.Assemblies);
-        Assert.Equal(image.LongLength, result.SourceWork.Bytes);
+        Assert.Equal(
+            image.LongLength
+            + runtimeConfiguration.LongLength
+            + dependencyManifest.LongLength,
+            result.SourceWork.Bytes);
         await environment.AssertSettledAsync();
     }
 

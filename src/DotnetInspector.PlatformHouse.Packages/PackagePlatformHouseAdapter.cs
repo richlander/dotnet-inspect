@@ -626,8 +626,7 @@ public sealed class PackagePlatformHouseAdapter
                     xmlDocuments: 0,
                     portablePdbs: 0,
                     sourceDocuments: 0,
-                    bytes: realization.Libraries.Sum(
-                        static library => library.ContentLength),
+                    bytes: realization.ConsumedBytes,
                     forwardingHops: 0,
                     targetComparisons: 0,
                     elapsed: TimeSpan.Zero);
