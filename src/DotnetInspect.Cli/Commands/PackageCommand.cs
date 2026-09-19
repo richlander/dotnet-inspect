@@ -55,8 +55,12 @@ public partial class PackageCommand
         var queryCatalog = catalog.QueryCatalog;
         var sectionNames = sectionCatalog.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
-        if (!packageLibraryMode)
-            options = NormalizeDependencyProjection(options);
+        if (!packageLibraryMode && options.ShowDependencies)
+        {
+            CommandError.Write(
+                "--dependencies has been removed. Use '-S \"Dependency Hierarchy\" --tree'.");
+            return 1;
+        }
 
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
@@ -200,6 +204,14 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+            if (packageArgs.Length > 1
+                && options.IncludeSections?.Contains(
+                    PackageSections.DependencyHierarchy) == true)
+            {
+                CommandError.Write(
+                    "Multiple package inspection cannot include Dependency Hierarchy.");
+                return 1;
+            }
 
             // The alternate lens modes render their own payload and never consult the section
             // filter, so requiring -S here would force the caller to name a section that is then
@@ -207,10 +219,11 @@ public partial class PackageCommand
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
                 || options.ShowContent;
-            var dependencyTreeProjection = options.Tree
+            var dependencyHierarchyProjection = options.Tree
                 && options.Discover == null
                 && options.IncludeSections is { Count: 1 }
-                && options.IncludeSections.Contains(PackageSections.Dependencies);
+                && options.IncludeSections.Contains(
+                    PackageSections.DependencyHierarchy);
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -221,16 +234,14 @@ public partial class PackageCommand
             // without a selection, so accepting -S there would silently ignore it.
             if (lensMode
                 && (options.SelectExplicitlySet
-                    || options.ShowDependencies
-                    || dependencyTreeProjection))
+                    || dependencyHierarchyProjection))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                if (options.ShowDependencies)
-                    CommandError.Write($"--dependencies cannot be combined with {lensName}.");
-                else if (dependencyTreeProjection && !options.SelectExplicitlySet)
+                if (dependencyHierarchyProjection
+                    && !options.SelectExplicitlySet)
                     CommandError.Write($"--tree cannot be combined with {lensName}.");
                 else
                     CommandError.Write(
@@ -272,7 +283,7 @@ public partial class PackageCommand
                 return 1;
             }
 
-            if (!ValidateDependencyTreeProjection(options))
+            if (!ValidateDependencyHierarchyProjection(options))
                 return 1;
 
             // #3448 aligns the package gate with the library one: a count over several selected
@@ -980,25 +991,6 @@ public partial class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.Tree
-            && options.Discover == null
-            && !packageLibraryMode
-            && (!options.Count || options.ShowDependencies))
-        {
-            if (options.ShowDependencies)
-                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
-            string packageReference = target.IsLocalFile
-                ? target.OriginalArgument
-                : version.Length > 0
-                    ? $"{packageName}@{version}"
-                    : packageName;
-            return await ShowDependencyTreeAsync(
-                client,
-                packageReference,
-                options,
-                logger);
-        }
-
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
@@ -1214,6 +1206,24 @@ public partial class PackageCommand
                     sourceQueryPlan);
             }
 
+            if (!effectiveDiscovery
+                && RequestsSelectedOrDiscoveredSection(
+                    producerOptions,
+                    PackageSections.DependencyHierarchy,
+                    pipeline))
+            {
+                string dependencyRoot = target.IsLocalFile
+                    ? resolution.NupkgPath ?? target.OriginalArgument
+                    : $"{packageName}@{version}";
+                result.DependencyHierarchyProjection =
+                    await DependsCommand.AcquirePackageSubjectProjectionAsync(
+                        dependencyRoot,
+                        options.Tfm,
+                        options.IncludePrerelease,
+                        options.SourceOptions,
+                        context);
+            }
+
             // Filter output based on options
             FilterResultForOutput(result, options);
 
@@ -1231,10 +1241,29 @@ public partial class PackageCommand
                 return 1;
             }
 
+            if (options.Tree && !effectiveDiscovery)
+            {
+                WritePackageDependencyHierarchyTree(result, options);
+                return PackageIntegrityExitCode(result);
+            }
+
             if (wantsSignals && options.Count && !effectiveDiscovery)
             {
                 await PopulatePackageSignalsAsync(
                     result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
+
+            if (options.Count
+                && result.DependencyHierarchyProjection is { } hierarchy
+                && options.IncludeSections?.Contains(
+                    PackageSections.DependencyHierarchy) == true
+                && !DependsCommand.IsExactAssetRowSet(
+                    hierarchy,
+                    DependsAssetSections.DependencyHierarchy))
+            {
+                CommandError.Write(
+                    "--count cannot report an exact 'Dependency Hierarchy' count because the requested dependency evidence is incomplete.");
+                return 1;
             }
 
             // Effective discovery renders the discovered rows below and answers the projection
@@ -1297,8 +1326,14 @@ public partial class PackageCommand
                     foreach (var d in discoverTargets)
                     {
                         var resolved = schemaMap.ResolveSection(d);
-                        if (resolved != null && effective.Contains(resolved))
+                        if (resolved != null
+                            && effective.Contains(resolved)
+                            && !resolved.Equals(
+                                PackageSections.DependencyHierarchy,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
                             targetSections.Add(resolved);
+                        }
                     }
                     if (targetSections.Count > 0)
                     {
@@ -1354,6 +1389,18 @@ public partial class PackageCommand
             }
             WarnEmptySections(result, options, pipeline);
             bool hasProjection = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+            if (!options.JsonOutput
+                && IsSingleDependencyHierarchySelection(options)
+                && (options.Tabular || hasProjection))
+            {
+                if (!WritePackageDependencyHierarchyProjection(
+                        result,
+                        options))
+                {
+                    return 1;
+                }
+                return PackageIntegrityExitCode(result);
+            }
             if (options.Tabular)
             {
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)

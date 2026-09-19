@@ -184,6 +184,11 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsCloneCandidateRows =
+            IsCloneCandidateRowSelection(
+                parseResult,
+                opts,
+                args);
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -230,6 +235,18 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageTfmRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+        if (selectsCloneCandidateRows
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Clone Candidates",
+                out cloneCandidateRowSelection,
+                out string? cloneCandidateRowSelectionError))
+        {
+            return new InvalidArguments(
+                cloneCandidateRowSelectionError!);
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -306,6 +323,7 @@ public static class PackageOptionsParser
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
             PackageTfmRowSelection = packageTfmRowSelection,
+            CloneCandidateRowSelection = cloneCandidateRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
             Bare = bareOutput,
@@ -333,6 +351,7 @@ public static class PackageOptionsParser
                 || selectsSourceLinkFiles
                 || selectsPackageFiles
                 || selectsPackageTfms
+                || selectsCloneCandidateRows
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
@@ -548,6 +567,40 @@ public static class PackageOptionsParser
         }
 
         return true;
+    }
+
+    internal static bool IsCloneCandidateRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsCloneCandidateRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsCloneCandidateRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || result.GetResult(args.LibraryOption)
+                is not { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetResult(opts.Discover)
+                is { Implicit: false })
+        {
+            return false;
+        }
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.CloneCandidates,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasCompetingPackageTfmIntent(
