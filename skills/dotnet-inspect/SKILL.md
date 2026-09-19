@@ -23,7 +23,7 @@ Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, a
 | Compare APIs or method bodies | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions). Single-Library API Diff supports complete Content with unprojected `--json` or the complete service value with `--envelope`; its Share is currently non-projectable. Use `type` or `member ... --match --envelope` when one API coordinate's complete correspondence outcome and diagnostics are the question; ordered match endpoints are also non-projectable. `match Type.MethodA Type.MethodB --package Foo --body` adds C#/IL body differences to the structural result; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
 | Inspect packages and ecosystems | `package Foo`; use `-D` to discover sections, `-S "Package license files"` to list shipped license documents, and `-S "Signals,Audit: Findings"` to audit text-bearing files and SourceLink mappings. `package activity --ecosystem aspire` scans the named ecosystem's exact package set over the previous 42 days; add `--security-only`, paired exact `--from`/`--through` UTC timestamps, or complete Content `--json`; use `--envelope` for the full service value. Load `skill private-feeds` for custom/authenticated sources. |
-| Query packages | `package query Foo` selects the latest eligible listed version; use `'Foo.*'` for a literal package-ID prefix. The closed nuspec license values are `any`, `MIT`, and `OSMF`; use them with `--where` and `--nuspec-only` to avoid opening archives. Add `--library-literal "TEXT" --tfm net10.0` to qualify package rows by decoded `ldstr` uses in each selected primary implementation library; prefix mode defaults to five candidates and accepts `--take 1..5`. `-n` and `--rows` select package Results, not occurrences. `--envelope` retains complete Content and diagnostics, but Package Query Share is currently non-projectable; use the query-only datapacket workflow below to hand the query to Inspect Web. |
+| Query packages | `package query Foo` selects the latest eligible listed version; use `'Foo.*'` for a literal package-ID prefix. The closed nuspec license values are `any`, `MIT`, and `OSMF`; use them with `--where` and `--nuspec-only` to avoid opening archives. Add `--library-literal "TEXT" --tfm net10.0` to qualify package rows by decoded `ldstr` uses in each selected primary implementation library; prefix mode defaults to five candidates and accepts `--take 1..5`. `-n` and `--rows` select package Results, not occurrences. `--envelope` retains complete Content and diagnostics, but Package Query Share is currently non-projectable. |
 | Inspect a Workspace | `workspace --package Foo@version --tfm net10.0`; repeat `--package` to compose ordered Package occurrences, then add inert top-level intent with `--register-library PACKAGE@VERSION/ASSEMBLY@ASSEMBLY_VERSION`, `--register-package-prefix PREFIX`, or `--register-ecosystem ID`. Filter the typed inventory with repeatable `--kind`; `-n` and `--rows` select complete inventory entries after that filter, while `--lines` explicitly selects rendered lines. Restore a current-format canonical packet with `--packet PACKET`; Workspace Definitions realizes its complete context and retained Navigation state before inventory. Exact Package duplicates coalesce; packages without compile assemblies remain members. Use `--verbose` for Package producer/target details and `--share packet` or `--share url` only on top-level inventory. Add `--active-package N` on direct construction for structural hierarchy, Library asset IDs, Type/Member inventory, lenses, and diagnostics. Use `--root-request TOKEN` instead to reopen the exact Root a `package query --library-literal` result names; it is refused rather than approximated by package id and version. |
 | Replace a coordinate in a portable Workspace | `workspace --packet "$w" --replace-package 1 --to-version 12.1.2 --share packet`; select a direct Package by one-based navigation-row order. Use `--to-tfm` or both destination options; TFM changes require an unsubscribed single-member context. This explicitly acquires Packages and retains the packet's supported API/inspector intent while preserving unrelated state. Choose scalar `--share packet`/`--share url` or `--json --envelope` for the complete derived Share and typed outcome; do not restate noun selectors. Format 4 supports active Library/Type/Member views. Source and destination Versions must be exact. |
 | Inspect libraries | `library Foo` or `library path/to.dll`; use `-D` to discover sections and `-S "Unsafe Members"` for standalone unsafe evidence. Load `skill metadata` for raw ECMA-335 tables/heaps. |
@@ -92,39 +92,22 @@ over describing how the user could reconstruct a view:
 - Use `workspace --packet URL` to validate and restore an exact Inspect Web
   URL; do not edit its `w=` payload.
 
-For a coordinate-free Package Query, author the query-only datapacket as
-canonical workspace-state JSON, then let the CLI validate and encode it:
-
-```json
-{
-  "f": 3,
-  "t": [],
-  "g": [],
-  "r": [],
-  "a": null,
-  "x": null,
-  "q": [["package-query/v1", {
-    "t": [
-      ["depends", "eq", "Microsoft.Extensions.DependencyInjection"],
-      ["prefix", "eq", "Microsoft.Extensions."],
-      ["prerelease", "eq", "stable"]
-    ],
-    "b": [["candidates", 200]]
-  }]],
-  "v": [{"t": null, "u": {"k": "workspace"}, "q": [0]}]
-}
-```
-
 ```bash
-dnx dotnet-inspect -y -- workspace-state encode \
-  --file package-query.json --url
-dnx dotnet-inspect -y -- workspace --packet "$URL"
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json@10.0.0 Serialize:1 \
+  --tfm net10.0 --share url
+dnx dotnet-inspect -y -- depends \
+  --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
+dnx dotnet-inspect -y -- workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 --share url
 ```
 
-Use `package query -Q Packages` to discover canonical query keys, operators,
-and values before composing the JSON. Inspect Web executes this query-only
-scenario. The CLI validates and restores its datapacket but its Workspace
-inventory view has no top-level package entries for a coordinate-free query.
+These URLs carry canonical datapackets rather than rendered output. The member
+URL opens the selected public API Overview. The package-dependency URL lets
+Inspect Web acquire the exact package and compute its dependency graph. The
+Workspace URL restores the complete projectable definition. Package Query
+envelopes are currently `nonProjectable`; do not hand-author a query-bearing
+packet or promise that Inspect Web can restore it.
 
 ## Member lookup
 

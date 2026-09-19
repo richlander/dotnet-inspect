@@ -384,26 +384,25 @@ Keep work bounds and ranking separate: Package Query `--take N` bounds
 candidate work before final row selection, while `--top N` requires a ranking
 order. Neither is another spelling of `-n`.
 
-## Share a query with Inspect Web
+## Use a URL as part of the answer
 
 Inspect Web consumes the same inspection and portable-query contracts. For a
 supported envelope, inspect `share.kind`; use `full_url` only when it is
 `available`. Do not turn `nonProjectable` into an approximate link.
 
-Package Query envelopes are currently non-projectable, but an agent can author
-a coordinate-free query-only format-3 datapacket and ask the CLI to validate
-and encode it:
-
 ```bash
-dnx dotnet-inspect -y -- package query -Q Packages --json
-dnx dotnet-inspect -y -- workspace-state encode \
-  --file package-query.json --url
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json@10.0.0 Serialize:1 \
+  --tfm net10.0 --share url
+dnx dotnet-inspect -y -- depends \
+  --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
+dnx dotnet-inspect -y -- workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 --share url
 ```
 
-The JSON's query table uses vocabulary `package-query/v1`, canonical term
-keys/operators/values, explicit execution bounds, and one Workspace view state
-referencing that query. Start from the complete example in the base
-`dotnet-inspect skill` output; do not hand-edit the resulting `w=` payload.
-`workspace --packet URL` validates and restores the same datapacket. Inspect
-Web executes the coordinate-free query; the CLI Workspace inventory contains
-no top-level package entries for that query-only scenario.
+The URL carries a canonical datapacket, not captured output. The receiving
+Inspect Web host re-runs the represented operation. `workspace --packet URL`
+validates and restores the same projectable Workspace state; do not edit its
+`w=` payload. Package Query Share is currently `nonProjectable`, and Inspect
+Web does not yet restore query-bearing packets. Keep Package Query answers in
+Content rather than manufacturing a link.
