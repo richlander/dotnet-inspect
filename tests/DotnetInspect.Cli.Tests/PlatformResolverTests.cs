@@ -1,6 +1,7 @@
 using DotnetInspector.Cache;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -999,6 +1000,50 @@ public class PlatformResolverTests
             resolved.Candidate.Assembly.Path.StartsWith(
                 temporaryCache,
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CompiledDocumentationReferenceLocation_CachePackIsPackageBacked()
+    {
+        const string SyntheticVersion = "999.0.0";
+        const string SyntheticTfm = "net999.0";
+        string temporaryCache = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-doc-cache-").FullName;
+        try
+        {
+            PersistentCache.Initialize(
+                "dotnet-inspect-test",
+                temporaryCache);
+            string packsDirectory =
+                Assert.IsType<string>(
+                    PlatformPackService.GetPacksCachePath());
+            string assemblyPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                SyntheticVersion,
+                "ref",
+                SyntheticTfm,
+                "System.Runtime.dll");
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(assemblyPath)!);
+
+            Assert.True(
+                CompiledDocumentationEnricher
+                    .TryGetPlatformReferenceLocation(
+                        assemblyPath,
+                        "runtime",
+                        SyntheticVersion,
+                        SyntheticTfm,
+                        out CompiledDocumentationEnricher
+                            .PlatformReferenceLocation location));
+            Assert.True(location.IsPackageBacked);
+            Assert.Null(location.DotnetRoot);
+        }
+        finally
+        {
+            PersistentCache.Initialize("dotnet-inspect-test");
+            Directory.Delete(temporaryCache, recursive: true);
+        }
     }
 
     [Fact]

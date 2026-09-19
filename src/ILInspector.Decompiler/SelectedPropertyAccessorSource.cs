@@ -23,23 +23,25 @@ public sealed class SelectedPropertyAccessorSource
     readonly string _accessorKind;
     readonly IReadOnlyList<string> _valueAttributes;
     readonly bool _automaticGetter;
+    readonly SelectedGetterStorage? _getterStorage;
 
     public IReadOnlyList<string> Attributes { get; private init; } = [];
 
     SelectedPropertyAccessorSource(
         ApiMember property, string accessorKind, IReadOnlyList<string> valueAttributes,
-        bool automaticGetter = false)
+        bool automaticGetter = false, SelectedGetterStorage? getterStorage = null)
     {
         _property = property;
         _accessorKind = accessorKind;
         _valueAttributes = valueAttributes;
         _automaticGetter = automaticGetter;
+        _getterStorage = getterStorage;
     }
 
     /// <summary>
     /// Returns null for methods without an owning property, indexers, and
     /// properties whose backing storage is not a proven getter-only
-    /// auto-property, or whose selected override has narrowed accessibility.
+    /// automatic or field-bodied property, or whose selected override has narrowed accessibility.
     /// The handle must already be resolved in this reader.
     /// </summary>
     public static SelectedPropertyAccessorSource? Create(
@@ -50,7 +52,7 @@ public sealed class SelectedPropertyAccessorSource
         var selected = Create(source, handle, method);
         return selected is null ? null : new(
             selected._property, selected._accessorKind, selected._valueAttributes,
-            selected._automaticGetter)
+            selected._automaticGetter, selected._getterStorage)
         {
             Attributes = includeAttributes
                 ? AttributeReader.RenderMethodAttributes(source.Reader, handle)
@@ -156,10 +158,17 @@ public sealed class SelectedPropertyAccessorSource
                     ],
                 },
             };
-            if (hasBackingStorage
-                && !IsAutomaticGetter(source, handle, methodHandle, selectedProperty))
-                return null;
-            return new(selectedProperty, keyword, valueAttributes, hasBackingStorage);
+            bool automaticGetter = hasBackingStorage
+                && IsAutomaticGetter(source, handle, methodHandle, selectedProperty);
+            SelectedGetterStorage? getterStorage = null;
+            if (hasBackingStorage && !automaticGetter)
+            {
+                getterStorage = SelectedGetterStorage.TryCreate(
+                    source, handle, methodHandle, selectedProperty);
+                if (getterStorage is null)
+                    return null;
+            }
+            return new(selectedProperty, keyword, valueAttributes, automaticGetter, getterStorage);
         }
         return null;
     }
@@ -219,12 +228,20 @@ public sealed class SelectedPropertyAccessorSource
         else if (genericNames.Length != 0)
             return false;
 
-        var definition = reader.GetFieldDefinition(backingFieldHandle);
-        var fieldType = GuardedDecode.FieldType(reader, definition, scope);
-        if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers)
-            return false;
         var expected = FieldAttributes.Private | FieldAttributes.InitOnly
             | (property.IsStatic ? FieldAttributes.Static : 0);
+        return HasSupportedBackingField(reader, backingFieldHandle, scope, expected);
+    }
+
+    internal static bool HasSupportedBackingField(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle,
+        GenericScope scope, FieldAttributes expected)
+    {
+        var definition = reader.GetFieldDefinition(backingFieldHandle);
+        var fieldType = GuardedDecode.FieldType(reader, definition, scope);
+        if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers
+            || fieldType.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(fieldType))
+            return false;
         if (definition.Attributes != expected || definition.GetOffset() >= 0)
             return false;
         foreach (var attributeHandle in definition.GetCustomAttributes())
@@ -245,6 +262,9 @@ public sealed class SelectedPropertyAccessorSource
         }
         return true;
     }
+
+    /// <summary>Materializes proven accessor-scoped storage reads before raising this body.</summary>
+    public void BindBody(IrFunction function) => _getterStorage?.BindBody(function);
 
     /// <summary>
     /// Renders only the selected accessor. Attributes are method-targeted
