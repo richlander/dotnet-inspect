@@ -20,7 +20,7 @@ public static class BoundedContentReader
 
         if (declaredLength is long exactLength)
         {
-            byte[] exact = GC.AllocateUninitializedArray<byte>((int)exactLength);
+            byte[] exact = new byte[(int)exactLength];
             int offset = 0;
             while (offset < exact.Length)
             {
