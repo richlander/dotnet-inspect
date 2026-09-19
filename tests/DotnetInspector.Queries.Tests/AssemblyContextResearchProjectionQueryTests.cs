@@ -784,6 +784,105 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 .Relationships);
     }
 
+    [Theory]
+    [InlineData("One", 1)]
+    [InlineData("Configured", 1)]
+    public async Task MemberProjection_ProjectsClassicAwaitCompletionPaths(
+        string member,
+        int expectedCount)
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                AwaitCompletionPathRequest(image, member)));
+
+        AnnotatedSourceDocument document =
+            Assert.IsType<AnnotatedSourceDocument>(
+                projection.Projection.SourceDocument);
+        IReadOnlyList<AssemblyMemberAwaitCompletionPath> paths =
+            Assert.IsAssignableFrom<
+                IReadOnlyList<AssemblyMemberAwaitCompletionPath>>(
+                projection.AwaitCompletionPaths);
+        Assert.Equal(expectedCount, paths.Count);
+        Assert.Equal(expectedCount, paths.Select(path => path.NodeId).Distinct().Count());
+        Assert.All(paths, path =>
+        {
+            AnnotatedSourceNode node = document.Nodes[path.NodeId];
+            Assert.Equal(SourceLineKind.CSharp, node.Medium);
+            Assert.Equal(
+                AnnotatedSourceNodeKinds.AwaitExpression,
+                node.Kind);
+            Assert.Contains(
+                "await",
+                NodeText(document, node),
+                StringComparison.Ordinal);
+        });
+    }
+
+    [Theory]
+    [InlineData("Sequential")]
+    [InlineData("Custom")]
+    public async Task MemberProjection_DeclinedClassicAwaitShapesProduceNoPathClaim(
+        string member)
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                AwaitCompletionPathRequest(image, member)));
+
+        Assert.Empty(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<AssemblyMemberAwaitCompletionPath>>(
+                projection.AwaitCompletionPaths));
+    }
+
+    [Fact]
+    public async Task MemberProjection_DoesNotProjectAwaitPathsForOrdinaryMethod()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            ContentGroup(workspace, policy, image);
+
+        AssemblyMemberProjection projection = Available(
+            AssemblyContextMemberProjectionQuery.Execute(
+                group,
+                AwaitCompletionPathRequest(
+                    image,
+                    "Result",
+                    "SynchronousCompletionApi")));
+
+        Assert.Empty(
+            Assert.IsAssignableFrom<
+                IReadOnlyList<AssemblyMemberAwaitCompletionPath>>(
+                projection.AwaitCompletionPaths));
+    }
+
     [Fact]
     public async Task MemberProjection_RetainsVersionDistinctInvocationTargets()
     {
@@ -1238,6 +1337,22 @@ public sealed class AssemblyContextResearchProjectionQueryTests
             InvocationDestinations: true,
             CallRelationships: true,
             SynchronousCompletions: true);
+
+    static AssemblyContextMemberProjectionRequest
+        AwaitCompletionPathRequest(
+            ImmutableArray<byte> image,
+            string member,
+            string typeName = "AwaitCompletionPathApi") =>
+        new(
+            $"Target.{typeName}",
+            member,
+            MethodToken: MethodToken(
+                image,
+                "Target",
+                typeName,
+                member),
+            SourceDocument: true,
+            AwaitCompletionPaths: true);
 
     static string NodeText(
         AnnotatedSourceDocument document,

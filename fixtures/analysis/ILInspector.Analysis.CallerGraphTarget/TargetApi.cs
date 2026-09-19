@@ -133,13 +133,40 @@ namespace Target
             awaitable.GetAwaiter().GetResult();
     }
 
+    public static class AwaitCompletionPathApi
+    {
+        public static async Task<int> One(Task<int> task) =>
+            await task;
+
+        public static async Task<int> Configured(Task<int> task) =>
+            await task.ConfigureAwait(false);
+
+        public static async Task<int> Sequential(
+            Task<int> first,
+            Task<int> second)
+        {
+            int firstResult = await first;
+            int secondResult = await second;
+            return firstResult + secondResult;
+        }
+
+        public static async Task<int> Custom(CustomAwaitable awaitable) =>
+            await awaitable;
+    }
+
     public readonly struct CustomAwaitable
     {
         public CustomAwaiter GetAwaiter() => new();
     }
 
-    public readonly struct CustomAwaiter
+    public readonly struct CustomAwaiter :
+        System.Runtime.CompilerServices.INotifyCompletion
     {
+        public bool IsCompleted => false;
+
+        public void OnCompleted(Action continuation) =>
+            continuation();
+
         public int GetResult() => 42;
     }
 

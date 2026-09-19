@@ -117,9 +117,12 @@ internal static class ClassicInverseRealizationRules
         Context context,
         out string failure)
     {
-        if (claim.Output is not AwaitExpression await)
+        if (claim.Output is not AwaitExpression
+            {
+                ProvesClassicCompletionPaths: true,
+            } await)
         {
-            failure = "await result does not realize as an await expression";
+            failure = "await result does not realize as a proven classic await expression";
             return false;
         }
 
