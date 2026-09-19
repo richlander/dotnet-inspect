@@ -40,9 +40,55 @@ internal sealed class TestHive : IDisposable
 
     internal string CreateImplementationFramework(
         params string[] assemblyPaths)
+        => CreateImplementationFramework(
+            "Microsoft.NETCore.App",
+            "11.0.0",
+            runtimeConfiguration: null,
+            assemblyPaths);
+
+    internal (
+        string Runtime,
+        string AspNetCore) CreateAspNetImplementationFrameworks(
+            string runtimeAssemblyPath,
+            string aspNetAssemblyPath,
+            string runtimeVersion = "11.0.0",
+            string aspNetVersion = "11.0.0",
+            string runtimeReferenceVersion = "11.0.0",
+            string? rollForward = null)
     {
-        const string family = "Microsoft.NETCore.App";
-        const string version = "11.0.0";
+        string runtime = CreateImplementationFramework(
+            "Microsoft.NETCore.App",
+            runtimeVersion,
+            runtimeConfiguration: null,
+            [runtimeAssemblyPath]);
+        var runtimeReference = new Dictionary<string, object>
+        {
+            ["name"] = "Microsoft.NETCore.App",
+            ["version"] = runtimeReferenceVersion,
+        };
+        if (rollForward is not null)
+            runtimeReference["rollForward"] = rollForward;
+        string aspNetCore = CreateImplementationFramework(
+            "Microsoft.AspNetCore.App",
+            aspNetVersion,
+            JsonSerializer.Serialize(
+                new
+                {
+                    runtimeOptions = new
+                    {
+                        framework = runtimeReference,
+                    },
+                }),
+            [aspNetAssemblyPath]);
+        return (runtime, aspNetCore);
+    }
+
+    private string CreateImplementationFramework(
+        string family,
+        string version,
+        string? runtimeConfiguration,
+        params string[] assemblyPaths)
+    {
         string directory = Path.Combine(
             Root,
             "shared",
@@ -74,6 +120,12 @@ internal sealed class TestHive : IDisposable
                         },
                     },
                 }));
+        if (runtimeConfiguration is not null)
+        {
+            File.WriteAllText(
+                Path.Combine(directory, family + ".runtimeconfig.json"),
+                runtimeConfiguration);
+        }
         return directory;
     }
 

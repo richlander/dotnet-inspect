@@ -8,7 +8,8 @@ public enum ShapeProjectionKind
 {
     Value,
     Urls,
-    Paths
+    Paths,
+    Roots
 }
 
 /// <summary>
@@ -95,7 +96,8 @@ public static class ShapeProjectionOutput
         {
             ShapeProjectionKind.Value => ProjectionAudit.Value,
             ShapeProjectionKind.Urls => ProjectionAudit.Urls,
-            _ => ProjectionAudit.Paths
+            ShapeProjectionKind.Paths => ProjectionAudit.Paths,
+            _ => ProjectionAudit.Roots
         });
 
         if (rows.Count == 0)
@@ -176,6 +178,7 @@ public static class ShapeProjectionOutput
     {
         ShapeProjectionKind.Urls => "URL",
         ShapeProjectionKind.Paths => "path",
+        ShapeProjectionKind.Roots => "root",
         _ => "scalar"
     };
 }

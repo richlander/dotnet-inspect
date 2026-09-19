@@ -664,6 +664,7 @@ function renderDetail(context: SourceRenderContext): string {
             </li>`).join("")}</ul>`
           : `<p class="annotated-unavailable">No product-issued source target</p>`}
       </section>
+      ${renderAllocationExceptionPath(context, fact)}
       ${renderSynchronousCompletion(context, fact)}
       ${renderCallCycles(context, fact)}
       ${renderFindingEvidence(context, fact.id)}
@@ -674,6 +675,38 @@ function renderDetail(context: SourceRenderContext): string {
         </div>
       </section>
     </section>`;
+}
+
+function renderAllocationExceptionPath(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  const observation =
+    context.model.allocationExceptionPathsByFactId.get(fact.id);
+  if (!observation) return "";
+
+  const statement = observation.kind === "ThrownValue"
+    ? "constructs the value used by a throw"
+    : "occurs in a catch, filter, or fault handler";
+  return `
+    <section class="annotated-allocation-exception-path">
+      <h4>Exception path</h4>
+      <p><strong>${context.escapeHtml(
+        allocationExceptionPathLabel(observation.kind))}</strong>
+        · ${context.escapeHtml(statement)}</p>
+      <p>Compiled control-flow evidence only · no runtime exception, handler execution, or frequency was measured</p>
+    </section>`;
+}
+
+function allocationExceptionPathLabel(value: string | number): string {
+  switch (value) {
+    case "ThrownValue":
+      return "Thrown value";
+    case "ExceptionHandler":
+      return "Exception handler";
+    default:
+      return String(value);
+  }
 }
 
 function renderSynchronousCompletion(

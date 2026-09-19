@@ -1,3 +1,4 @@
+using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Formats;
 using ILInspector.Metadata;
 
@@ -109,17 +110,22 @@ public sealed record InstalledImplementationFramework
 {
     internal InstalledImplementationFramework(
         PlatformFrameworkName name,
+        PlatformFamily? family,
         PlatformVersion version,
         InstalledPlatformContentDigest? runtimeConfigurationDigest,
         InstalledPlatformContentDigest dependencyManifestDigest)
     {
+        if (family.HasValue && !Enum.IsDefined(family.Value))
+            throw new ArgumentOutOfRangeException(nameof(family));
         Name = name;
+        Family = family;
         Version = version;
         RuntimeConfigurationDigest = runtimeConfigurationDigest;
         DependencyManifestDigest = dependencyManifestDigest;
     }
 
     public PlatformFrameworkName Name { get; }
+    public PlatformFamily? Family { get; }
     public PlatformVersion Version { get; }
     public InstalledPlatformContentDigest? RuntimeConfigurationDigest { get; }
     public InstalledPlatformContentDigest DependencyManifestDigest { get; }
