@@ -2431,6 +2431,45 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_EmptyModuleNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.Module));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedModuleNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedModuleDefinitionName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyAssemblyNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.Assembly));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedAssemblyDefinitionName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyAssemblyReferenceNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            ManagedAssemblyWithReferences(
+                1,
+                RequiredIdentityName.AssemblyReference));
+
+    [Fact]
+    public async Task ExecuteAsync_MalformedAssemblyReferenceNameRemainsVisible() =>
+        await AssertAssemblyReferenceIdentityFailureAsync(
+            WithMalformedAssemblyReferenceName(
+                ManagedAssemblyWithReferences(1)));
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceAssetLimitRemainsVisible()
     {
         (string Path, byte[] Content)[] entries =
@@ -3626,17 +3665,30 @@ public sealed class PackageQueryTests
             TotalDownloads: totalDownloads,
             Verified: verified);
 
-    private static byte[] ManagedAssemblyWithReferences(int referenceCount)
+    private enum RequiredIdentityName
+    {
+        Module,
+        Assembly,
+        AssemblyReference,
+    }
+
+    private static byte[] ManagedAssemblyWithReferences(
+        int referenceCount,
+        RequiredIdentityName? emptyName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
-            moduleName: metadata.GetOrAddString("Contoso.Package.dll"),
+            moduleName: emptyName == RequiredIdentityName.Module
+                ? default
+                : metadata.GetOrAddString("Contoso.Package.dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
-            metadata.GetOrAddString("Contoso.Package"),
+            emptyName == RequiredIdentityName.Assembly
+                ? default
+                : metadata.GetOrAddString("Contoso.Package"),
             new Version(1, 0, 0, 0),
             culture: default,
             publicKey: default,
@@ -3652,8 +3704,11 @@ public sealed class PackageQueryTests
         for (int index = 0; index < referenceCount; index++)
         {
             metadata.AddAssemblyReference(
-                metadata.GetOrAddString(
-                    $"Reference{index:D5}"),
+                emptyName == RequiredIdentityName.AssemblyReference
+                    && index == 0
+                        ? default
+                        : metadata.GetOrAddString(
+                            $"Reference{index:D5}"),
                 new Version(1, 0, 0, 0),
                 culture: default,
                 publicKeyOrToken: default,
@@ -3669,6 +3724,72 @@ public sealed class PackageQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    private static async Task AssertAssemblyReferenceIdentityFailureAsync(
+        byte[] image)
+    {
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = FakePackageContent.FromBytes(
+                    ("lib/net8.0/Contoso.Package.dll", image)),
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "Contoso.*",
+                [Term(PackageQuery.ReferencesTermKey, "Reference00000")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        PackageQueryFailure failure =
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
+        Assert.Equal(
+            PackageQueryFailureKind.PackageContentEvaluation,
+            failure.Kind);
+    }
+
+    private static byte[] WithMalformedModuleDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetModuleDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyDefinitionName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata => metadata.GetAssemblyDefinition().Name);
+
+    private static byte[] WithMalformedAssemblyReferenceName(byte[] image) =>
+        WithMalformedUtf8(
+            image,
+            metadata =>
+                metadata.GetAssemblyReference(
+                    Assert.Single(metadata.AssemblyReferences)).Name);
+
+    private static byte[] WithMalformedUtf8(
+        byte[] image,
+        Func<MetadataReader, StringHandle> selectHandle)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        StringHandle handle = selectHandle(metadata);
+        Assert.False(handle.IsNil);
+        int stringOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetHeapMetadataOffset(HeapIndex.String)
+            + MetadataTokens.GetHeapOffset(handle);
+        malformed[stringOffset] = 0xff;
+        return malformed;
     }
 
     private static byte[] PaddedImage(byte[] image, int length)
