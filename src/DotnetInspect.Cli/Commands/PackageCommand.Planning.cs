@@ -56,6 +56,9 @@ public partial class PackageCommand
             if (name.Equals(
                     SectionNames.CloneCandidates,
                     StringComparison.OrdinalIgnoreCase)
+                || name.Equals(
+                    SectionNames.ReferenceHierarchy,
+                    StringComparison.OrdinalIgnoreCase)
                 || outputShape != StructuralOutputShape.Count
                 && MetadataSectionNames.IsMetadataSection(name))
             {
