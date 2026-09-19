@@ -2126,6 +2126,12 @@ public class ResearchDiffTests
             change.Delta,
             newProfile.NormalFlowCyclomaticComplexity
                 - oldProfile.NormalFlowCyclomaticComplexity);
+
+        // The delta also carries a population context ranking it against
+        // every other delta-bearing change in this same comparison request.
+        Assert.NotNull(change.PopulationContext);
+        Assert.True(change.PopulationContext.PopulationSize > 0);
+        Assert.InRange(change.PopulationContext.PercentileRank, 0.0, 100.0);
     }
 
     [Fact]
@@ -2285,6 +2291,94 @@ public class ResearchDiffTests
                 Assert.NotNull(change.OldProfile);
                 Assert.NotNull(change.NewProfile);
             });
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_RanksDeltaAgainstLocalPopulation()
+    {
+        // Five independent methods with complexity deltas 1, 2, 2, 3, and 5.
+        // Equal deltas share the inclusive percentile rank determined by how
+        // many population values are <= their common value.
+        var receipt = new LibraryBodyAnalysisReceipt(
+            "fake.dll",
+            new LibraryBodyModuleIdentity(
+                new AssemblyReferenceIdentity("Fake", new Version(1, 0, 0, 0), null, null),
+                Guid.NewGuid()),
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.ImplementationProfiles,
+            HasFullMethodEvidenceScope: true,
+            ImmutableArray<AnalysisDiagnostic>.Empty);
+        var methodA = FakeMethod("Widget", "SmallestDelta", token: 0x06000001);
+        var methodB = FakeMethod("Widget", "SmallDelta", token: 0x06000002);
+        var methodC = FakeMethod("Widget", "MediumDelta", token: 0x06000003);
+        var methodD = FakeMethod("Widget", "LargestDelta", token: 0x06000004);
+        var methodE = FakeMethod("Widget", "TiedSmallDelta", token: 0x06000005);
+        var oldProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA, conditionalBranchCount: 0),
+            FakeProfile(methodB, methodB, conditionalBranchCount: 0),
+            FakeProfile(methodC, methodC, conditionalBranchCount: 0),
+            FakeProfile(methodD, methodD, conditionalBranchCount: 0),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 0));
+        var newProfiles = ImmutableArray.Create(
+            FakeProfile(methodA, methodA, conditionalBranchCount: 1),
+            FakeProfile(methodB, methodB, conditionalBranchCount: 2),
+            FakeProfile(methodC, methodC, conditionalBranchCount: 3),
+            FakeProfile(methodD, methodD, conditionalBranchCount: 5),
+            FakeProfile(methodE, methodE, conditionalBranchCount: 2));
+        var oldResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            oldProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+        var newResult = new LibraryImplementationProfileAnalysisResult(
+            receipt,
+            newProfiles,
+            ImmutableArray<OverloadCallRelationship>.Empty,
+            ImmutableHashSet<TypeRef>.Empty);
+
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([oldResult], [newResult]));
+
+        Assert.True(result.IsAvailable);
+        Assert.Equal(5, result.Changes.Count);
+        Assert.All(
+            result.Changes,
+            change => Assert.Equal(5, change.PopulationContext?.PopulationSize));
+        AssertPercentile(result, "SmallestDelta", 20.0);
+        AssertPercentile(result, "SmallDelta", 60.0);
+        AssertPercentile(result, "TiedSmallDelta", 60.0);
+        AssertPercentile(result, "MediumDelta", 80.0);
+        AssertPercentile(result, "LargestDelta", 100.0);
+
+        static void AssertPercentile(
+            ImplementationComplexityDiff result, string memberName, double expected)
+        {
+            var change = Assert.Single(
+                result.Changes,
+                candidate => candidate.Subject.MemberName == memberName);
+            Assert.Equal(expected, change.PopulationContext?.PercentileRank);
+        }
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_AddedOrRemovedRows_HaveNoPopulationContext()
+    {
+        // Added/Removed rows have no delta to rank, so they carry no
+        // population context even when other rows in the same comparison do.
+        byte[] removedImage = BuildIdentityAssembly("RemovedAssembly", Guid.NewGuid(), returnValue: 1);
+        byte[] addedImage = BuildIdentityAssembly("AddedAssembly", Guid.NewGuid(), returnValue: 2);
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        var oldAssembly = IdentityInput(removedImage, removedImage, features);
+        var newAssembly = IdentityInput(addedImage, addedImage, features);
+
+        var result = ImplementationDiff.Compare([oldAssembly], [newAssembly]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        Assert.All(
+            result.Complexity.Changes,
+            change => Assert.Null(change.PopulationContext));
     }
 
     [Fact]

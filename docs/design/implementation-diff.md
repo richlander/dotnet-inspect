@@ -286,6 +286,22 @@ Source evidence lanes; broad PDB-source enrichment preserves an already
 computed complexity lane rather than resetting it to unavailable. Ranking,
 clustering, and quality shades remain later consumers.
 
+Every change with a non-null `Delta` also carries an
+`ImplementationComplexityPopulationContext` (`PopulationSize`,
+`PercentileRank`): the percentage of the local comparison population (every
+change in the same request with a delta, across all its assemblies -
+regardless of `Kind`, including `Incomplete` rows) whose absolute delta is
+less than or equal to this change's own. This is deliberately the local,
+per-request population issue #7696 calls for in diff analysis ("local
+comparison populations"), not a corpus-wide distribution across a package or
+assembly family - that broader population belongs to the separate
+library-report initiative and is intentionally out of scope here. A higher
+percentile is evidence that a change's complexity delta is larger in
+magnitude than more of its peers in this comparison; it is not a claim of
+defect, and a small `PopulationSize` (for example 1-2) makes the percentile a
+weak signal. No CLI rendering consumes this field yet - it is Research-API
+evidentiary plumbing for later ranking/outlier work.
+
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id
 (e.g. `analysis.complexity.normal-flow` for Complexity rows, or the C#/IL
