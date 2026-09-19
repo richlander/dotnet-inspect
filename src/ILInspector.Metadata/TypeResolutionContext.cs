@@ -2529,6 +2529,16 @@ public sealed class TypeResolutionContext : IDisposable
                                 hops,
                                 occurrence));
 
+                    case TypeDeclarationResult.BudgetExceeded exceeded:
+                        return Completed(
+                            Rejected(
+                                new TypeResolutionFailure
+                                    .DeclarationBudgetExceeded(
+                                        checked((int)exceeded.Budget),
+                                        exceeded.Detail),
+                                hops,
+                                occurrence));
+
                     case TypeDeclarationResult.Forwarded forwarded:
                         scope = TightenScope(scope, forwarded.Target);
                         hops.Add(
