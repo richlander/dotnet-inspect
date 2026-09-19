@@ -152,10 +152,10 @@ test("closing a package removes its coordinate and selects the adjacent coordina
 test("workspace UI routes replacements and restore notices through bounded paths", () => {
   assert.match(
     packageControlsSource,
-    /onFrameworkSelect\(framework\.value\)/);
+    /onFrameworkSelect\(framework\.value, "legacy"\)/);
   assert.match(
     appSource,
-    /selectFramework: framework =>\s*observeAsync\(\s*switchPackageFramework\(framework\),\s*"Switching the package framework"\)/);
+    /selectFramework: \(framework, source\) => \{\s*if \(contentFrameUsesPush\(\)\) contentFramePane = "detail";\s*observeAsync\(\s*switchPackageFramework\(\s*framework,\s*source === "legacy" \? "framework" : "package-framework"\),\s*"Switching the package framework"\);\s*\}/);
   assert.match(appSource, /switchPackageFramework\(argument\)/);
   assert.doesNotMatch(
     appSource,

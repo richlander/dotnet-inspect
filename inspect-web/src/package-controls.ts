@@ -17,12 +17,18 @@ export interface ParsedPackageQuery {
 }
 
 interface PackageControlsOptions {
-  selectFramework: (framework: string) => void;
+  selectFramework: (
+    framework: string,
+    source: "navigation" | "legacy",
+  ) => void;
   selectVersion: (version: string) => void;
 }
 
 export interface PackageSelectionActions {
-  onFrameworkSelect: (framework: string) => void;
+  onFrameworkSelect: (
+    framework: string,
+    source: "navigation" | "legacy",
+  ) => void;
   onVersionSelect: (version: string) => void;
 }
 
@@ -30,10 +36,28 @@ export function bindPackageSelections(
   root: ParentNode,
   actions: PackageSelectionActions,
 ): void {
+  const frameworkRows = [
+    ...root.querySelectorAll<HTMLElement>("[data-package-framework]"),
+  ];
+  frameworkRows.forEach(button =>
+    button.addEventListener(
+      "click",
+      () => {
+        const framework = button.dataset.packageFramework;
+        if (framework) actions.onFrameworkSelect(framework, "navigation");
+      }));
+  const frameworkList = root.querySelector<HTMLElement>(
+    '[data-nav-scope="frameworks"]');
+  frameworkList?.addEventListener("focus", () => {
+    const active = frameworkRows.find(
+      row => row.getAttribute("aria-current") === "page")
+      ?? frameworkRows[0];
+    active?.focus({ preventScroll: true });
+  });
   const framework = root.querySelector<HTMLSelectElement>("#framework");
   framework?.addEventListener(
     "change",
-    () => actions.onFrameworkSelect(framework.value));
+    () => actions.onFrameworkSelect(framework.value, "legacy"));
   const version = root.querySelector<HTMLSelectElement>("#package-version");
   version?.addEventListener(
     "change",
