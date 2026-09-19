@@ -3133,6 +3133,34 @@ internal static class BrowserPackageWorkspace
     internal static string PackageKey(string packageId, string version) =>
         Store.PackageKey(packageId, version);
 
+    internal static BrowserPackageCoordinate CoordinateFor(
+        PackageRootBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        string key = Store.PackageKey(
+            binding.Coordinate.PackageId,
+            binding.Coordinate.Version);
+        if (!Cache.TryGetValue(key, out CacheEntry? cached)
+            || !ReferenceEquals(
+                binding.ContentGenerationIdentity,
+                cached.Content.GenerationIdentity))
+        {
+            throw new InvalidOperationException(
+                "The restored Package Root content generation is not retained "
+                    + "by the Browser package cache.");
+        }
+
+        Cache[key] = cached with { LastAccess = ++_clock };
+        return new BrowserPackageCoordinate(
+            new BrowserPackage(
+                binding.Coordinate.PackageId,
+                binding.Coordinate.Version,
+                key,
+                cached.Bytes,
+                cached.Content),
+            binding);
+    }
+
     static string CoordinateKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
@@ -3633,6 +3661,27 @@ internal sealed class BrowserPackage
     }
 
     internal BrowserPackage(
+        string packageId,
+        string version,
+        string cacheKey,
+        byte[] retainedBytes,
+        InMemoryPackageContent content)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheKey);
+        ArgumentNullException.ThrowIfNull(retainedBytes);
+        ArgumentNullException.ThrowIfNull(content);
+        BrowserPackageWorkspace.ValidateArchive(retainedBytes);
+        PackageId = packageId;
+        Version = version;
+        CacheKey = cacheKey;
+        RetainedBytes = retainedBytes;
+        Content = content;
+        _icon = new(ProjectIcon);
+    }
+
+    internal BrowserPackage(
         string requestedPackageId,
         AcquiredPackageSourcePayload acquiredPayload,
         byte[] retainedBytes,
@@ -3893,10 +3942,13 @@ internal sealed class BrowserPackageCoordinate
             || !package.Version.Equals(
                 binding.Coordinate.Version,
                 StringComparison.OrdinalIgnoreCase)
-            || !binding.Root.ReferencesContent(package.Content))
+            || !ReferenceEquals(
+                binding.ContentGenerationIdentity,
+                package.Content.GenerationIdentity))
         {
             throw new ArgumentException(
-                "The product package Root binding does not describe the acquired Browser package.",
+                "The product package Root binding does not describe the "
+                    + "acquired Browser package generation.",
                 nameof(binding));
         }
 

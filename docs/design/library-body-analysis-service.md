@@ -31,6 +31,15 @@ call-graph composition consume those focused types. The compatibility index
 delegates its leverage and local graph members to the same results; it no
 longer owns a second implementation.
 
+The first Research adoption publishes `LibraryAllocationAnalysisResult`,
+extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
+and lets `LibraryCallGraphAnalysisResult` publish its detached method signals.
+`MemberProjectionProducer` receives those results and
+`LibraryLeverageAnalysisResult` through one member-projection-specific input.
+The input preserves their shared execution receipt; it is not a general result
+bag. CLI and Workspace/L1 composition own the single Analysis execution and
+pass the focused values into Research.
+
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
@@ -220,6 +229,15 @@ focused call-graph and optimization results for graph construction and
 optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
+
+The first sequence-5 slice moves member Research fact production from
+`LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:
+allocation occurrences, safety evidence and occurrences, call evidence and
+signals, and leverage. `MemberProjectionAnalysisInput` validates that all four
+carry the same receipt and provides only the member-projection joins over those
+results. Path-backed compatibility production and immutable-image L1
+production each execute Analysis once; only the L1 query retains a
+compatibility index for its separate callee-evidence composition.
 
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence

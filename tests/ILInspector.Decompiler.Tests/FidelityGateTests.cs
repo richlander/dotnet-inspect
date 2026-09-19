@@ -38,16 +38,17 @@ public class FidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
-        // previously recompile failures: the
+        // CompoundAssignDictionaryIndexer was previously a recompile failure: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
-        // product printer's short names assume, so they never compiled to be
-        // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (static
-        // method-group caching, compound dictionary-indexer double access)
-        // that were masked, not introduced. Triage tracked separately.
-        "CachedStaticMethodGroup",
+        // product printer's short names assume, so it never compiled to be
+        // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
+        // #4229: the cached local-function argument recompiles with the restored
+        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. The
+        // explicit neighbor retains identical opcodes and differs only in its
+        // reconstructed local-function ordinal. Focused gates below pin both shapes.
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -457,6 +458,11 @@ public class FidelityGateTests
         "ULongSumIndexAsSigned",
         "ULongSumIndexBare",
         "Finalize",
+        // #4229: cache provenance selects a target-pinning method-group
+        // conversion, so csc regenerates the original <>O cache. The explicit
+        // construction close negative remains allocation-shaped and Exact.
+        "CachedStaticMethodGroup",
+        "ExplicitStaticMethodGroupArgument",
         // Promoted from KnownDiffs by #3584 after they were measured Exact on the
         // current main. Most are the benign reconstruction-ordinal class that #3505
         // retired by canonicalizing synthesized-member ordinals in the oracle — the
@@ -669,6 +675,25 @@ public class FidelityGateTests
         }
 
         Assert.True(failures.Count == 0, string.Join("\n\n", failures));
+    }
+
+    [Fact]
+    public void LocalFunctionMethodGroups_PreserveCacheAndConstructionShapes()
+    {
+        var cached = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "CachedStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, cached.Status);
+        Assert.Equal(
+            "ldsfld dup brtrue pop ldnull ldftn newobj dup stsfld call ret",
+            cached.RecompiledOpcodes);
+
+        var explicitConstruction = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "ExplicitStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, explicitConstruction.Status);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.OriginalOpcodes);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.RecompiledOpcodes);
     }
 
     /// <summary>
