@@ -6224,7 +6224,7 @@ public sealed partial class CSharpPrinter
             // signedness matches the lvalue. Checked .ovf compounds stay plain.
             : NeedsCompoundSignCast(binary, lvalueType)
                 ? CoerceText(binary.Right, lvalueType)
-                : Operand(binary.Right);
+                : Expression(binary.Right);
         rightText = UnsafeExpressionText(binary.Right, rightText);
         return $"{target} {BinaryOperator(binary)}= {rightText};";
     }

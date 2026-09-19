@@ -222,7 +222,7 @@ public partial class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(21, pipeline.AllSectionNames.Length);
+        Assert.Equal(22, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -240,6 +240,7 @@ public partial class SectionPipelineTests
         Assert.Contains(PackageSections.AuditIdentifierConfusion, names);
         Assert.Contains("Target Frameworks", names);
         Assert.Contains("Package nuspec file", names);
+        Assert.Contains("Package license files", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Dependencies", names);
         Assert.Contains("Package files", names);
