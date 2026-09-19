@@ -3,7 +3,6 @@ using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
-using NuGet.Versioning;
 
 namespace DotnetInspector.Sections;
 
@@ -14,10 +13,11 @@ public sealed record SelectedContextExactPackageInspectionRequest
         string? version = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        string? normalizedVersion = null;
         if (version is not null
-            && !NuGetVersion.TryParse(
+            && !PackageExtractor.TryNormalizePackageVersion(
                 version,
-                out NuGetVersion? parsedVersion))
+                out normalizedVersion))
         {
             throw new ArgumentException(
                 "Exact Package inspection requires a valid exact version.",
@@ -25,9 +25,7 @@ public sealed record SelectedContextExactPackageInspectionRequest
         }
 
         PackageId = packageId;
-        Version = version is null
-            ? null
-            : NuGetVersion.Parse(version).ToNormalizedString();
+        Version = normalizedVersion;
     }
 
     public string PackageId { get; }
@@ -496,9 +494,16 @@ public static class SelectedContextExactPackageInspectionOperation
     }
 
     static bool VersionsEqual(string left, string right) =>
-        NuGetVersion.TryParse(left, out NuGetVersion? leftVersion)
-        && NuGetVersion.TryParse(right, out NuGetVersion? rightVersion)
-        && leftVersion == rightVersion;
+        PackageExtractor.TryNormalizePackageVersion(
+            left,
+            out string leftVersion)
+        && PackageExtractor.TryNormalizePackageVersion(
+            right,
+            out string rightVersion)
+        && string.Equals(
+            leftVersion,
+            rightVersion,
+            StringComparison.OrdinalIgnoreCase);
 
     sealed record ResolvedCandidate(
         PackageRootBinding Root,
