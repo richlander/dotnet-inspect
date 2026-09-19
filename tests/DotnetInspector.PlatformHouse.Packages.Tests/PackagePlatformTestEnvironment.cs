@@ -494,9 +494,24 @@ internal static class PackagePlatformTestData
             string frameworkName,
             byte[] runtimeConfiguration,
             byte[] dependencyManifest,
+            params (string FileName, byte[] Content)[] members) =>
+        RuntimePackEntries(
+            frameworkName,
+            "net11.0",
+            runtimeConfiguration,
+            dependencyManifest,
+            members);
+
+    internal static IReadOnlyList<KeyValuePair<string, byte[]>>
+        RuntimePackEntries(
+            string frameworkName,
+            string targetFramework,
+            byte[] runtimeConfiguration,
+            byte[] dependencyManifest,
             params (string FileName, byte[] Content)[] members)
     {
-        const string prefix = "runtimes/linux-x64/lib/net11.0/";
+        string prefix =
+            $"runtimes/linux-x64/lib/{targetFramework}/";
         return
         [
             Entry(
@@ -506,7 +521,7 @@ internal static class PackagePlatformTestData
                 prefix + frameworkName + ".deps.json",
                 dependencyManifest),
             .. members.Select(
-                static member => Entry(
+                member => Entry(
                     prefix + member.FileName,
                     member.Content)),
         ];

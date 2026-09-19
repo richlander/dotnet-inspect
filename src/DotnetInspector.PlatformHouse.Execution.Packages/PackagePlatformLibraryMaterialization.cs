@@ -489,6 +489,93 @@ public static class PackagePlatformLibraryMaterializer
         return true;
     }
 
+    internal static bool TryPrepareSelectedReference(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        out PlatformLibraryArtifactMaterializationItem? item)
+    {
+        item = null;
+        if (request.Operation is not PlatformHouseOperation.Realize
+            {
+                Population:
+                    PlatformPopulationDemand.Library
+                    {
+                        Value:
+                            PlatformLibraryDemand.Assembly assembly,
+                    },
+            }
+            || !ValidContribution(
+                request,
+                target,
+                reference.Contribution,
+                PlatformSourceFacet.Reference,
+                reference.Value.Generation.Name)
+            || reference.Value.Coordinate.Target != target
+            || reference.Value.Population
+                is not PackageReferencePopulationDemand.Assembly population
+            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                assembly.Identity,
+                population.Identity)
+            || !TrySingle(
+                reference.Value.Libraries,
+                library =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        assembly.Identity,
+                        library.Identity),
+                out PackageReferenceLibrary? library))
+        {
+            return false;
+        }
+
+        item = ReferenceItem(reference, library!);
+        return true;
+    }
+
+    internal static bool TryPrepareSelectedImplementation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PackagePlatformHouseResult<
+            PackageImplementationRealization>.Succeeded implementation,
+        out PlatformLibraryArtifactMaterializationItem? item)
+    {
+        item = null;
+        if (request.Operation is not PlatformHouseOperation.Realize
+            {
+                Population:
+                    PlatformPopulationDemand.Library
+                    {
+                        Value:
+                            PlatformLibraryDemand.Assembly assembly,
+                    },
+            }
+            || !ValidContribution(
+                request,
+                target,
+                implementation.Contribution,
+                PlatformSourceFacet.Implementation,
+                implementation.Value.Generation.Name)
+            || implementation.Value.Coordinate.Target != target
+            || !TrySingle(
+                implementation.Value.Libraries,
+                library =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        assembly.Identity,
+                        library.Identity),
+                out PackageImplementationLibrary? library)
+            || !string.Equals(
+                library!.Framework.RuntimeIdentifier,
+                implementation.Value.Coordinate.RuntimeIdentifier,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        item = ImplementationItem(implementation, library);
+        return true;
+    }
+
     static bool TryPrepareReferencePopulation(
         PlatformHouseRequest request,
         PlatformViewDemand expectedView,

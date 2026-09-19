@@ -456,26 +456,93 @@ public static class InstalledPlatformLibraryMaterializer
                 return false;
             }
 
-            var provenance =
-                new InstalledImplementationArtifactProvenance(
-                    implementation.Value.Generation,
-                    implementation.Value.Coordinate,
-                    library!.FrameworkName,
-                    library.FrameworkVersion,
-                    library.ManifestCoordinate,
-                    library.Identity,
-                    library.ContentDigest);
             prepared.Add(
-                new PlatformLibraryArtifactMaterializationItem(
-                    (PlatformSourceContribution.Realization)
-                        implementation.Contribution,
-                    provenance,
-                    library.Identity,
-                    library.ContentLength,
-                    _ => library.OpenRead()));
+                CreateImplementationItem(
+                    implementation,
+                    library!));
         }
 
         items = prepared;
+        return true;
+    }
+
+    internal static bool TryPrepareSelectedReference(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference,
+        out PlatformLibraryArtifactMaterializationItem? item)
+    {
+        item = null;
+        if (request.Operation is not PlatformHouseOperation.Realize
+            {
+                Population:
+                    PlatformPopulationDemand.Library
+                    {
+                        Value:
+                            PlatformLibraryDemand.Assembly assembly,
+                    },
+            }
+            || !ValidContribution(
+                request,
+                target,
+                reference.Contribution,
+                PlatformSourceFacet.Reference,
+                reference.Value.Generation.Name)
+            || !ReferenceTargetMatches(reference.Value, target)
+            || !TrySingle(
+                reference.Value.Libraries,
+                library =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        assembly.Identity,
+                        library.Identity),
+                out InstalledReferenceLibrary? library))
+        {
+            return false;
+        }
+
+        item = CreateReferenceItem(reference, library!);
+        return true;
+    }
+
+    internal static bool TryPrepareSelectedImplementation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        InstalledPlatformHouseResult<
+            InstalledImplementationRealization>.Succeeded implementation,
+        out PlatformLibraryArtifactMaterializationItem? item)
+    {
+        item = null;
+        if (request.Operation is not PlatformHouseOperation.Realize
+            {
+                Population:
+                    PlatformPopulationDemand.Library
+                    {
+                        Value:
+                            PlatformLibraryDemand.Assembly assembly,
+                    },
+            }
+            || !ValidContribution(
+                request,
+                target,
+                implementation.Contribution,
+                PlatformSourceFacet.Implementation,
+                implementation.Value.Generation.Name)
+            || !ImplementationTargetMatches(
+                implementation.Value,
+                target)
+            || !TrySingle(
+                implementation.Value.Libraries,
+                library =>
+                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        assembly.Identity,
+                        library.Identity),
+                out InstalledImplementationLibrary? library))
+        {
+            return false;
+        }
+
+        item = CreateImplementationItem(implementation, library!);
         return true;
     }
 
@@ -563,6 +630,30 @@ public static class InstalledPlatformLibraryMaterializer
                         library.Identity),
                     documentation.ContentLength,
                     _ => documentation.OpenRead()));
+
+    static PlatformLibraryArtifactMaterializationItem
+        CreateImplementationItem(
+            InstalledPlatformHouseResult<
+                InstalledImplementationRealization>.Succeeded implementation,
+            InstalledImplementationLibrary library)
+    {
+        var provenance =
+            new InstalledImplementationArtifactProvenance(
+                implementation.Value.Generation,
+                implementation.Value.Coordinate,
+                library.FrameworkName,
+                library.FrameworkVersion,
+                library.ManifestCoordinate,
+                library.Identity,
+                library.ContentDigest);
+        return new PlatformLibraryArtifactMaterializationItem(
+            (PlatformSourceContribution.Realization)
+                implementation.Contribution,
+            provenance,
+            library.Identity,
+            library.ContentLength,
+            _ => library.OpenRead());
+    }
 
     static bool TryPrepareImplementationPopulation(
         PlatformHouseRequest request,

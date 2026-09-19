@@ -104,12 +104,13 @@ public sealed class PackagePlatformHouseAdapterTests
         PlatformTargetDiscoverySource source =
             PackagePlatformTargetDiscovery.CreateSource(
                 adapter,
-                current =>
+                (current, remainingWork) =>
                 {
                     operationIssued = true;
                     return environment.IssueOperation(
                         current.CancellationToken,
-                        current.Work.MaxDuration);
+                        operationTimeout:
+                            remainingWork.MaxDuration);
                 });
         Assert.Same(adapter.TargetDiscovery, source.Capability);
         Assert.False(operationIssued);
@@ -881,6 +882,9 @@ public sealed class PackagePlatformHouseAdapterTests
         Assert.Equal(
             PlatformSourceContributionKind.Unavailable,
             result.Contribution.Kind);
+        Assert.NotNull(result.SourceWork);
+        Assert.Equal(1, result.SourceWork.Assemblies);
+        Assert.Equal(image.LongLength, result.SourceWork.Bytes);
         await environment.AssertSettledAsync();
     }
 

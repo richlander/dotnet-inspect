@@ -5,6 +5,7 @@ namespace DotnetInspector.PlatformHouse;
 /// settlement.
 /// </summary>
 public abstract class PlatformAssemblyReferenceSourceAttempt
+    : IPlatformSourcePolicyAttempt
 {
     private protected PlatformAssemblyReferenceSourceAttempt(
         PlatformSourceContribution contribution)
@@ -14,6 +15,16 @@ public abstract class PlatformAssemblyReferenceSourceAttempt
     }
 
     public PlatformSourceContribution Contribution { get; }
+    bool IPlatformSourcePolicyAttempt.Succeeded =>
+        this is Succeeded;
+    PlatformHouseCandidateIdentity?
+        IPlatformSourcePolicyAttempt.Candidate =>
+        this is Succeeded success ? success.Candidate : null;
+    PlatformHouseRejectionKind?
+        IPlatformSourcePolicyAttempt.RejectionKind =>
+        this is NotSucceeded terminal
+            ? terminal.RejectionKind
+            : null;
 
     /// <summary>One authoritative source-prepared assembly snapshot.</summary>
     public sealed class Succeeded :

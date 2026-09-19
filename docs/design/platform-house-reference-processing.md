@@ -12,7 +12,9 @@ Versionless target defaults are tracked by the composition map
 PlatformHouse contract slice is
 [#7743](https://github.com/richlander/dotnet-inspect/issues/7743), and staged
 target-selection execution is tracked by
-[#7778](https://github.com/richlander/dotnet-inspect/issues/7778).
+[#7778](https://github.com/richlander/dotnet-inspect/issues/7778), with
+selected-target one-Library realization tracked by
+[#7825](https://github.com/richlander/dotnet-inspect/issues/7825).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
