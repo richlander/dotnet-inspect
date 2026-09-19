@@ -21,19 +21,21 @@ namespace ILInspector.Decompiler;
 public sealed record CSharpStructuralDiffDocument
 {
     /// <summary>Current JSON shape version.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>Current correspondence and structural-comparison methodology.</summary>
     /// <remarks>
     /// Version 2 introduced
     /// <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>. Version 3
     /// preserves retained facts and targets in the top-level C# projections.
-    /// Replaying either earlier methodology can derive different correspondence
-    /// or projection content from the same embedded mixed documents, so the
-    /// version gate rejects it before the replay-equality check can report
-    /// apparent artifact tampering.
+    /// Version 4 adds group-level cardinality changes for ambiguous nodes that
+    /// share exact IL-origin evidence and stable kind. Replaying any earlier
+    /// methodology can derive different correspondence, projection, or
+    /// multiplicity content from the same embedded documents, so the version
+    /// gate rejects it before the replay-equality check can report apparent
+    /// artifact tampering.
     /// </remarks>
-    public const int CurrentMethodologyVersion = 3;
+    public const int CurrentMethodologyVersion = 4;
 
     /// <summary>Creates and validates one portable structural diff.</summary>
     public CSharpStructuralDiffDocument(
@@ -43,7 +45,8 @@ public sealed record CSharpStructuralDiffDocument
         AnnotatedSourceDocument Before,
         AnnotatedSourceDocument After,
         ImmutableArray<CSharpStructuralDiffRow> Rows,
-        CSharpStructuralFidelityEvidence? Fidelity = null)
+        CSharpStructuralFidelityEvidence? Fidelity = null,
+        ImmutableArray<CSharpStructuralMultiplicityDelta> MultiplicityDeltas = default)
     {
         if (SchemaVersion != CurrentSchemaVersion)
         {
@@ -62,6 +65,12 @@ public sealed record CSharpStructuralDiffDocument
         ArgumentNullException.ThrowIfNull(After);
         if (Rows.IsDefault)
             throw new ArgumentException("Structural diff rows must be initialized.", nameof(Rows));
+        if (MultiplicityDeltas.IsDefault)
+        {
+            throw new ArgumentException(
+                "Structural multiplicity deltas must be initialized.",
+                nameof(MultiplicityDeltas));
+        }
         if (Fidelity?.Note is { } note)
         {
             AnnotatedSourceText.ValidateWellFormedUtf16(
@@ -73,7 +82,8 @@ public sealed record CSharpStructuralDiffDocument
         var comparison = CSharpBodyDiff.CompareStructure(Correspondence, Fidelity);
         if (Before != comparison.Before
             || After != comparison.After
-            || !RowsEqual(Rows, comparison.Rows))
+            || !RowsEqual(Rows, comparison.Rows)
+            || !MultiplicityDeltasEqual(MultiplicityDeltas, comparison.MultiplicityDeltas))
         {
             throw new ArgumentException(
                 "Structural diff projection or rows do not match the product-issued comparison.");
@@ -86,6 +96,7 @@ public sealed record CSharpStructuralDiffDocument
         this.After = After;
         this.Rows = Rows;
         this.Fidelity = Fidelity;
+        this.MultiplicityDeltas = MultiplicityDeltas;
     }
 
     /// <summary>JSON shape version.</summary>
@@ -109,6 +120,11 @@ public sealed record CSharpStructuralDiffDocument
     /// <summary>Optional independently measured compile-back evidence.</summary>
     public CSharpStructuralFidelityEvidence? Fidelity { get; }
 
+    /// <summary>
+    /// Product-generated group-level count changes that preserve ambiguity.
+    /// </summary>
+    public ImmutableArray<CSharpStructuralMultiplicityDelta> MultiplicityDeltas { get; }
+
     /// <summary>Issues a structural diff from two exact product documents.</summary>
     public static CSharpStructuralDiffDocument Create(
         AnnotatedSourceDocument before,
@@ -124,7 +140,8 @@ public sealed record CSharpStructuralDiffDocument
             comparison.Before,
             comparison.After,
             comparison.Rows,
-            fidelity);
+            fidelity,
+            comparison.MultiplicityDeltas);
     }
 
     /// <summary>
@@ -156,6 +173,29 @@ public sealed record CSharpStructuralDiffDocument
                 || leftRow.AfterRegion != rightRow.AfterRegion
                 || !leftRow.BeforeSpans.SequenceEqual(rightRow.BeforeSpans)
                 || !leftRow.AfterSpans.SequenceEqual(rightRow.AfterSpans))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool MultiplicityDeltasEqual(
+        ImmutableArray<CSharpStructuralMultiplicityDelta> left,
+        ImmutableArray<CSharpStructuralMultiplicityDelta> right)
+    {
+        if (left.Length != right.Length)
+            return false;
+
+        for (int index = 0; index < left.Length; index++)
+        {
+            var leftDelta = left[index];
+            var rightDelta = right[index];
+            if (!string.Equals(leftDelta.NodeKind, rightDelta.NodeKind, StringComparison.Ordinal)
+                || leftDelta.BeforeCount != rightDelta.BeforeCount
+                || leftDelta.AfterCount != rightDelta.AfterCount
+                || !leftDelta.Evidence.IlOffsets.SequenceEqual(rightDelta.Evidence.IlOffsets))
             {
                 return false;
             }

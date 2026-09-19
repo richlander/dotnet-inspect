@@ -129,8 +129,8 @@ Asset-mode `depends`, other commands, Discover, Count,
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
 unadopted. Library API Diff's complete Browser baseline transport is governed
 by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
-[#7126](https://github.com/richlander/dotnet-inspect/issues/7126) owns this
-command cutover.
+[#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
+remaining Diff command-family adoption.
 
 The adoption also closes two shared Content-serialization prerequisites.
 `AssemblyResolutionProvenance` serializes its six existing cases with owner
@@ -330,6 +330,10 @@ The registered adopter identities are:
 The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's
 [adoption contract](dependency-inspection-command.md#thin-debug-views-and-browser-adoption).
+Its baseline Content exposes `hierarchy`, whose roots and non-root
+relationship occurrences retain root-relative parent identity; canonical
+nodes and relationships remain backing evidence rather than the result row
+currency.
 An Outcome's Available, Rejected, or other case does not change `result_kind`;
 its own discriminator remains inside `content`. Another operation with a
 different content contract, such as Discover or semantic Count, needs its own

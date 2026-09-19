@@ -126,8 +126,8 @@ public partial class DependsCommand
                     options.Verbosity,
                     selection.Sections,
                     fixedOverview: options.SelectDefault);
-        if (options.SelectDefault && IsNetworkFreeAssetGraph(options))
-            includeSections.Add(DependsAssetSections.DependencyGraph);
+        if (options.SelectDefault && IsNetworkFreeAssetHierarchy(options))
+            includeSections.Add(DependsAssetSections.DependencyHierarchy);
         DependsAssetRequestPlan plan =
             DependsAssetRequestPlan.FromSections(includeSections);
         if (evidenceEnvelopeRequested)
@@ -285,7 +285,7 @@ public partial class DependsCommand
         DependsOptions options,
         HashSet<string>? selectedSections,
         IReadOnlyCollection<string> candidateSections,
-        bool graphRequested,
+        bool hierarchyRequested,
         bool discoveryMode)
     {
         if (options.PruningPlatformFamily is not null
@@ -330,10 +330,10 @@ public partial class DependsCommand
             }
         }
 
-        if (options.Depth is not null && !graphRequested)
+        if (options.Depth is not null && !hierarchyRequested)
         {
             CommandError.Write(
-                "--depth requires the Dependency Graph section.");
+                "--depth requires the Dependency Hierarchy section.");
             return false;
         }
 
@@ -341,11 +341,11 @@ public partial class DependsCommand
             && (options.Tree || options.MermaidOutput)
             && (candidateSections.Count != 1
                 || !candidateSections.Contains(
-                    DependsAssetSections.DependencyGraph,
+                    DependsAssetSections.DependencyHierarchy,
                     StringComparer.OrdinalIgnoreCase)))
         {
             CommandError.Write(
-                $"{(options.Tree ? "--tree" : "--mermaid")} requires exactly '-S \"{DependsAssetSections.DependencyGraph}\"'.");
+                $"{(options.Tree ? "--tree" : "--mermaid")} requires exactly '-S \"{DependsAssetSections.DependencyHierarchy}\"'.");
             return false;
         }
         if (!discoveryMode
@@ -357,11 +357,11 @@ public partial class DependsCommand
             return false;
         }
 
-        bool graphFailuresJsonl =
+        bool hierarchyFailuresJsonl =
             options.Jsonl
             && candidateSections.Count == 2
             && candidateSections.Contains(
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 StringComparer.OrdinalIgnoreCase)
             && candidateSections.Contains(
                 DependsAssetSections.Failures,
@@ -370,7 +370,7 @@ public partial class DependsCommand
             && options.Tabular
             && !options.Count
             && candidateSections.Count != 1
-            && !graphFailuresJsonl)
+            && !hierarchyFailuresJsonl)
         {
             string format = options.Jsonl
                 ? "--jsonl"
@@ -467,7 +467,7 @@ public partial class DependsCommand
         if (hasSourceOverrides
             && !hasRemotePackage
             && !(hasLocalPackage
-                && (graphRequested
+                && (hierarchyRequested
                     || candidateSections.Contains(
                         DependsAssetSections.Pruning,
                         StringComparer.OrdinalIgnoreCase)))
@@ -478,7 +478,7 @@ public partial class DependsCommand
             return false;
         }
 
-        if (graphRequested
+        if (hierarchyRequested
             && (hasRemotePackage
                 || hasLocalPackage
                 || hasNuspec
@@ -553,7 +553,7 @@ public partial class DependsCommand
             targetFramework);
     }
 
-    private static bool IsNetworkFreeAssetGraph(DependsOptions options) =>
+    private static bool IsNetworkFreeAssetHierarchy(DependsOptions options) =>
         options.PackagePrefix is null
         && options.AssetRoots.All(root => root.Kind switch
         {
@@ -837,8 +837,6 @@ public partial class DependsCommand
 
         DependencyGraphDocument graph = DependencyGraphProjection.Combine(
             graphDocuments);
-        ImmutableArray<DependencyGraphEdgeRow> graphRows =
-            [.. DependencyGraphOutputAdapter.EdgeRows(graph)];
         ImmutableArray<DependencyInspectionFailure> additionalFailures =
             BuildAdditionalFailures(
                 packageTraversal,
@@ -937,6 +935,9 @@ public partial class DependsCommand
             acquisition,
             libraries,
             inspection.Content.Roots);
+        DependencyHierarchyDocument hierarchy = plan.Traversal
+            ? inspection.Content.Hierarchy with { BackingGraph = graph }
+            : DependencyHierarchyDocument.Empty;
 
         return new DependsAssetProjection(
             inspection,
@@ -946,7 +947,8 @@ public partial class DependsCommand
                     evidenceOutcome.RootSet.PackagePrefixCompletion,
             },
             graph,
-            graphRows,
+            hierarchy,
+            [.. DependencyHierarchyOutputAdapter.Rows(hierarchy)],
             roots,
             inspection.Content.Dependencies,
             pruning.Rows,
@@ -1001,7 +1003,7 @@ public partial class DependsCommand
         AcquireLibraryRootsAsync(
             DependsOptions options,
             CommandContext context,
-            bool graphRequested,
+            bool hierarchyRequested,
             int? traversalDepth,
             CancellationToken cancellationToken)
     {
@@ -1019,9 +1021,9 @@ public partial class DependsCommand
                         root.Value,
                         options.SourceOptions,
                         context.Logger,
-                        graphRequested ? traversalDepth : 0,
+                        hierarchyRequested ? traversalDepth : 0,
                         cancellationToken,
-                        traverseReferences: graphRequested,
+                        traverseReferences: hierarchyRequested,
                         requestedTfm: options.Tfm)
                         .ConfigureAwait(false);
             }
@@ -1373,7 +1375,7 @@ public partial class DependsCommand
                     DependencyGraphNodeIdentity? identity =
                         graphIdentityByOccurrence.GetValueOrDefault(
                             acquired.Root.OccurrenceIndex)
-                        ?? GraphIdentity(evidenceRoot);
+                        ?? DependencyIdentity(evidenceRoot);
                     roots.Add(
                         new DependencyInspectionRootInput(
                             new DependencyRootOccurrenceIdentity(
@@ -1397,7 +1399,7 @@ public partial class DependsCommand
                                 TextPolicy.Field,
                                 acquired.Root.Value),
                             DependencyInspectionRootState.Failed,
-                            GraphIdentity: null,
+                            DependencyIdentity: null,
                             plan.Traversal
                                 ? DependencyInspectionTraversalCompletion.Failed
                                 : DependencyInspectionTraversalCompletion
@@ -1416,7 +1418,7 @@ public partial class DependsCommand
                 int occurrence = admittedIndexes[inputIndex];
                 DependencyGraphNodeIdentity? identity =
                     graphIdentityByOccurrence.GetValueOrDefault(occurrence)
-                    ?? GraphIdentity(evidenceRoot);
+                    ?? DependencyIdentity(evidenceRoot);
                 roots.Add(
                     new DependencyInspectionRootInput(
                         new DependencyRootOccurrenceIdentity(occurrence),
@@ -1512,7 +1514,8 @@ public partial class DependsCommand
                     out evidenceRoot);
             }
 
-            DependencyGraphNodeIdentity? identity = content.GraphIdentity;
+            DependencyGraphNodeIdentity? identity =
+                content.DependencyIdentity;
             var row = new DependsRootRow(
                 content,
                 source,
@@ -1626,7 +1629,7 @@ public partial class DependsCommand
             _ => DependencyInspectionTraversalCompletion.Failed,
         };
 
-    private static DependencyGraphNodeIdentity GraphIdentity(
+    private static DependencyGraphNodeIdentity DependencyIdentity(
         PackageDependencyEvidenceRoot root) =>
         root.Identity switch
         {
@@ -1745,16 +1748,16 @@ public partial class DependsCommand
                 includeSections,
                 schema);
 
-        IReadOnlyList<DependencyGraphEdgeRow> graphRows =
-            Window(projection.GraphRows, options.Rows);
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
+            Window(projection.HierarchyRows, options.Rows);
         if (options.Tree || options.MermaidOutput)
         {
             OutputDestination.Write(
                 options.OutputPath,
                 options.Rows,
-                output => DependencyGraphOutputAdapter.Write(
-                    projection.Graph,
-                    graphRows,
+                output => DependencyHierarchyOutputAdapter.Write(
+                    projection.Hierarchy,
+                    hierarchyRows,
                     options.MermaidOutput
                         ? OutputFormat.Mermaid
                         : OutputFormat.PlainText,
@@ -1791,20 +1794,20 @@ public partial class DependsCommand
             static failure => failure is DependencyInspectionFailure.Traversal);
         bool failuresSelected =
             includeSections.Contains(DependsAssetSections.Failures);
-        bool graphFailuresJsonl = options.Jsonl
+        bool hierarchyFailuresJsonl = options.Jsonl
             && includeSections.Count == 2
             && includeSections.Contains(
-                DependsAssetSections.DependencyGraph)
+                DependsAssetSections.DependencyHierarchy)
             && failuresSelected;
-        if (graphFailuresJsonl)
+        if (hierarchyFailuresJsonl)
         {
             if (IsColumnProjectionRequested(options))
             {
                 CommandError.Write(
-                    "Projected JSONL columns cannot represent the discriminated Dependency Graph and Failures records; remove --columns/--fields.");
+                    "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
                 return false;
             }
-            WriteAssetGraphFailuresJsonLines(
+            WriteAssetHierarchyFailuresJsonLines(
                 projection,
                 options);
             return true;
@@ -1976,36 +1979,36 @@ public partial class DependsCommand
     private static readonly HashSet<string> NoAssetSections =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> GraphFailureSections =
+    private static readonly HashSet<string> HierarchyFailureSections =
         new(
             [
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Failures,
             ],
             StringComparer.OrdinalIgnoreCase);
 
-    private static void WriteAssetGraphFailuresJsonLines(
+    private static void WriteAssetHierarchyFailuresJsonLines(
         DependsAssetProjection projection,
         DependsOptions options)
     {
         DependsAssetDocument document = DependsAssetDocument.Create(
             projection,
-            GraphFailureSections,
+            HierarchyFailureSections,
             options.Rows);
         OutputDestination.Write(
             options.OutputPath,
             options.Rows,
             output =>
             {
-                foreach (DependencyGraphJsonEdge edge in
-                         document.DependencyGraph?.Edges ?? [])
+                foreach (DependencyHierarchyJsonOccurrence occurrence in
+                         document.DependencyHierarchy?.Occurrences ?? [])
                 {
                     output.WriteLine(
                         JsonSerializer.Serialize(
                             new DependsAssetJsonLine
                             {
-                                Kind = "dependency-graph",
-                                DependencyGraph = edge,
+                                Kind = "dependency-hierarchy",
+                                DependencyHierarchy = occurrence,
                             },
                             DependsAssetCompactJsonContext.Default
                                 .DependsAssetJsonLine));
@@ -2034,10 +2037,10 @@ public partial class DependsCommand
         var sections = new HashSet<string>(
             includeSections,
             StringComparer.OrdinalIgnoreCase);
-        bool includeGraph = sections.Remove(
-            DependsAssetSections.DependencyGraph);
-        string graph = includeGraph
-            ? RenderGraphSection(
+        bool includeHierarchy = sections.Remove(
+            DependsAssetSections.DependencyHierarchy);
+        string hierarchy = includeHierarchy
+            ? RenderHierarchySection(
                 projection,
                 options.Rows,
                 options.EmbeddedMermaid)
@@ -2065,7 +2068,7 @@ public partial class DependsCommand
             options.OutputPath,
             options.Rows,
             output => output.WriteLine(
-                JoinMarkdown(graph, evidence)));
+                JoinMarkdown(hierarchy, evidence)));
     }
 
     private static void WriteProjectedAssetMarkdown(
@@ -2124,7 +2127,7 @@ public partial class DependsCommand
                     tableWriter.ToString())));
     }
 
-    private static string RenderGraphSection(
+    private static string RenderHierarchySection(
         DependsAssetProjection projection,
         RowWindow? rows,
         bool embeddedMermaid)
@@ -2134,15 +2137,14 @@ public partial class DependsCommand
                 ? new MarkdownFormatter(MarkdownGraphMode.Mermaid)
                 : new PlainTextFormatter());
         writer.WriteGraph(
-            DependencyGraphOutputAdapter.ToGraph(
-                projection.Graph,
-                Window(projection.GraphRows, rows),
-                markWindowedFragments: !embeddedMermaid,
-                occurrenceAwareRoots: !embeddedMermaid));
-        string graph = writer.ToString().TrimEnd();
+            DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                Window(projection.HierarchyRows, rows),
+                markWindowedFragments: !embeddedMermaid));
+        string hierarchy = writer.ToString().TrimEnd();
         if (embeddedMermaid)
-            return $"## {DependsAssetSections.DependencyGraph}\n\n{graph}";
-        return $"## {DependsAssetSections.DependencyGraph}\n\n```text\n{graph}\n```";
+            return $"## {DependsAssetSections.DependencyHierarchy}\n\n{hierarchy}";
+        return $"## {DependsAssetSections.DependencyHierarchy}\n\n```text\n{hierarchy}\n```";
     }
 
     private static string JoinMarkdown(params string[] fragments) =>
@@ -2164,7 +2166,7 @@ public partial class DependsCommand
                 includeSections.Contains),
         ];
         if (ordered.Length == 0)
-            ordered = [DependsAssetSections.DependencyGraph];
+            ordered = [DependsAssetSections.DependencyHierarchy];
         if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
                 ordered,
@@ -2222,7 +2224,7 @@ public partial class DependsCommand
             return true;
         }
         if (section.Equals(
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 StringComparison.OrdinalIgnoreCase))
         {
             return projection.Summary.TraversalCompletion
@@ -2285,8 +2287,8 @@ public partial class DependsCommand
         return new DependsAssetView
         {
             Description =
-                sections.Contains(DependsAssetSections.DependencyGraph)
-                && projection.GraphRows.IsEmpty
+                sections.Contains(DependsAssetSections.DependencyHierarchy)
+                && projection.HierarchyRows.IsEmpty
                 ? "No dependency relationships."
                 : null,
             RootSet = summary.RootSetCompletion.ToString(),
@@ -2319,8 +2321,9 @@ public partial class DependsCommand
                 ? null
                 : summary.Pruning.Retained,
             RequestedDepth = summary.RequestedDepth,
-            GraphNodes = summary.GraphNodes,
-            GraphEdges = summary.GraphEdges,
+            HierarchyOccurrences = summary.HierarchyOccurrences,
+            CanonicalNodes = summary.CanonicalNodes,
+            Relationships = summary.Relationships,
             PrefixText = prefix?.Prefix,
             PrefixCandidates = prefix?.Candidates,
             PrefixMatches = prefix?.Matches,
@@ -2329,13 +2332,12 @@ public partial class DependsCommand
                 is { } reason and not PackageSearchTruncationReason.None
                     ? reason.ToString()
                     : null,
-            DependencyGraph =
-                sections.Contains(DependsAssetSections.DependencyGraph)
-                    ? DependencyGraphOutputAdapter.ToGraph(
-                        projection.Graph,
-                        Window(projection.GraphRows, rows),
-                        markWindowedFragments: !embeddedMermaid,
-                        occurrenceAwareRoots: !embeddedMermaid)
+            DependencyHierarchy =
+                sections.Contains(DependsAssetSections.DependencyHierarchy)
+                    ? DependencyHierarchyOutputAdapter.ToGraph(
+                        projection.Hierarchy,
+                        Window(projection.HierarchyRows, rows),
+                        markWindowedFragments: !embeddedMermaid)
                     : null,
             Roots = Rows(
                 sections,
@@ -2391,12 +2393,12 @@ public partial class DependsCommand
             RootSourceTokens(projection);
         return new DependsAssetTableView
         {
-            DependencyGraph = Rows(
+            DependencyHierarchy = Rows(
                 sections,
-                DependsAssetSections.DependencyGraph,
-                projection.GraphRows,
+                DependsAssetSections.DependencyHierarchy,
+                projection.HierarchyRows,
                 rows,
-                DependsGraphEdgeView.From),
+                DependsHierarchyOccurrenceView.From),
             Roots = Rows(
                 sections,
                 DependsAssetSections.Roots,

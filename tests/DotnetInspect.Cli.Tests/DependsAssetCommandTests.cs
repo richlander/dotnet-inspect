@@ -132,7 +132,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             AssetsFixture,
             "-S",
-            DependsAssetSections.DependencyGraph,
+            DependsAssetSections.DependencyHierarchy,
             "--tree",
         ];
 
@@ -570,20 +570,22 @@ public sealed class DependsAssetCommandTests
             FailedRoots: 0,
             DependencyInspectionTraversalCompletion.NotRequested,
             RequestedDepth: null,
-            GraphNodes: 0,
-            GraphEdges: 0,
+            HierarchyOccurrences: 0,
+            CanonicalNodes: 0,
+            Relationships: 0,
             DependencyInspectionEvidencePhaseCompletion.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested,
             DependencyInspectionPruningSummary.NotRequested,
             IsPrefixRootSet: false,
             PackagePrefix: null);
-        var graph = new DependencyGraphDocument([], [], [], [], []);
+        DependencyHierarchyDocument hierarchy =
+            DependencyHierarchyDocument.Empty;
         var contentRoot = new DependencyInspectionRoot(
             new DependencyRootOccurrenceIdentity(1),
             DependencyInspectionRootKind.Library,
             new InertString(TextPolicy.Field, "example.dll"),
             DependencyInspectionRootState.Admitted,
-            GraphIdentity: null,
+            DependencyIdentity: null,
             DependencyInspectionTraversalCompletion.NotRequested,
             DependencyInspectionEvidenceAvailability.NotRequested,
             DependencyInspectionEvidencePhaseCompletion.NotRequested,
@@ -592,7 +594,7 @@ public sealed class DependsAssetCommandTests
             DependencyInspectionEvidencePhaseCompletion.NotRequested);
         var content = new DependencyInspectionContent(
             summary,
-            graph,
+            hierarchy,
             [contentRoot],
             [],
             [],
@@ -611,8 +613,9 @@ public sealed class DependsAssetCommandTests
         var projection = new DependsAssetProjection(
             inspection,
             content.Summary,
-            content.Graph,
-            GraphRows: [],
+            hierarchy.BackingGraph,
+            hierarchy,
+            HierarchyRows: [],
             [root],
             content.Dependencies,
             content.Pruning,
@@ -625,7 +628,8 @@ public sealed class DependsAssetCommandTests
         Assert.Same(inspection, projection.Inspection);
         Assert.Same(content, projection.Content);
         Assert.Same(summary, projection.Summary);
-        Assert.Same(graph, projection.Graph);
+        Assert.Same(hierarchy, projection.Hierarchy);
+        Assert.Same(hierarchy.BackingGraph, projection.Graph);
         Assert.Same(contentRoot, Assert.Single(projection.Content.Roots));
         Assert.Equal(
             new DependencyRootOccurrenceIdentity(1),
@@ -645,7 +649,16 @@ public sealed class DependsAssetCommandTests
             "The source failed.");
         var graph = new DependencyGraphDocument(
             [],
-            [],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "Example.Package",
+                        "1.0.0"),
+                    new InertString(
+                        TextPolicy.Field,
+                        "Example.Package@1.0.0")),
+            ],
             [],
             [
                 new DependencyGraphPackageProjection(
@@ -693,10 +706,10 @@ public sealed class DependsAssetCommandTests
 
         Assert.Single(graph.PackageProjections[0].RuntimeDiagnostics);
         Assert.Empty(
-            content.Graph.PackageProjections[0]
+            content.Hierarchy.BackingGraph.PackageProjections[0]
                 .RuntimeDiagnostics);
         Assert.Single(
-            content.Graph.PackageProjections[0].Diagnostics);
+            content.Hierarchy.BackingGraph.PackageProjections[0].Diagnostics);
     }
 
     [Fact]
@@ -774,7 +787,16 @@ public sealed class DependsAssetCommandTests
             TargetUnavailableReason: null);
         var graph = new DependencyGraphDocument(
             [],
-            [],
+            [
+                new DependencyGraphNode(
+                    0,
+                    new DependencyGraphNodeIdentity.Package(
+                        "Example.Root",
+                        "1.0.0"),
+                    new InertString(
+                        TextPolicy.Field,
+                        "Example.Root@1.0.0")),
+            ],
             [],
             [
                 new DependencyGraphPackageProjection(
@@ -784,7 +806,7 @@ public sealed class DependsAssetCommandTests
                     PackageDependencyTraversalProjectionExpansion.Expanded,
                     evidenceRoot,
                     Candidate: null,
-                    RootOccurrence: 1,
+                    RootOccurrence: null,
                     Diagnostics: []),
             ],
             []);
@@ -850,7 +872,7 @@ public sealed class DependsAssetCommandTests
         Assert.False(
             content.Summary.PackagePrefix!.Source
                 .MatchesRuntimeAssociation(source.Source.Association));
-        Assert.False(GraphContentSource(content.Graph)
+        Assert.False(GraphContentSource(content.Hierarchy.BackingGraph)
             .MatchesRuntimeAssociation(source.Source.Association));
         Assert.False(
             Assert.IsType<DependencyInspectionFailure.Evidence>(
@@ -1118,29 +1140,29 @@ public sealed class DependsAssetCommandTests
     [Fact]
     public async Task RestoredTraversal_DepthIsRootRelative()
     {
-        int depthOne = await GraphCountAsync(
+        int depthOne = await HierarchyCountAsync(
             ["--project", AssetsFixture, "--depth", "1"]);
-        int depthTwo = await GraphCountAsync(
+        int depthTwo = await HierarchyCountAsync(
             ["--project", AssetsFixture, "--depth", "2"]);
-        int unbounded = await GraphCountAsync(
+        int unbounded = await HierarchyCountAsync(
             ["--project", AssetsFixture]);
 
         Assert.True(depthOne > 0);
         Assert.True(depthTwo > depthOne);
         Assert.True(unbounded >= depthTwo);
 
-        using JsonDocument bounded = await GraphJsonAsync(
+        using JsonDocument bounded = await HierarchyJsonAsync(
             ["--project", AssetsFixture, "--depth", "1"]);
         JsonElement summary = bounded.RootElement.GetProperty("summary");
         Assert.Equal(
             "DepthBounded",
             summary.GetProperty("traversal_completion")
                 .GetString());
-        JsonElement boundedGraph =
-            bounded.RootElement.GetProperty("dependency_graph");
+        JsonElement boundedHierarchy =
+            bounded.RootElement.GetProperty("dependency_hierarchy");
         JsonElement[] boundaries =
         [
-            .. boundedGraph.GetProperty("depth_boundaries")
+            .. boundedHierarchy.GetProperty("depth_boundaries")
                 .EnumerateArray(),
         ];
         Assert.Equal(2, boundaries.Length);
@@ -1155,10 +1177,8 @@ public sealed class DependsAssetCommandTests
                     1,
                     boundary.GetProperty("maximum_depth").GetInt32());
                 Assert.Equal(
-                    [1],
-                    boundary.GetProperty("root_occurrences")
-                        .EnumerateArray()
-                        .Select(static root => root.GetInt32()));
+                    1,
+                    boundary.GetProperty("root_occurrence").GetInt32());
                 Assert.False(
                     boundary.TryGetProperty(
                         "package_projection",
@@ -1166,15 +1186,17 @@ public sealed class DependsAssetCommandTests
             });
         Assert.Equal(
             depthOne,
-            boundedGraph.GetProperty("edges").GetArrayLength());
-        Assert.Equal(depthOne, summary.GetProperty("graph_edges").GetInt32());
+            boundedHierarchy.GetProperty("occurrences").GetArrayLength());
+        Assert.Equal(
+            depthOne,
+            summary.GetProperty("hierarchy_occurrences").GetInt32());
 
-        using JsonDocument expanded = await GraphJsonAsync(
+        using JsonDocument expanded = await HierarchyJsonAsync(
             ["--project", AssetsFixture, "--depth", "2"]);
         JsonElement[] expandedEdges =
         [
-            .. expanded.RootElement.GetProperty("dependency_graph")
-                .GetProperty("edges")
+            .. expanded.RootElement.GetProperty("dependency_hierarchy")
+                .GetProperty("occurrences")
                 .EnumerateArray(),
         ];
         Assert.All(
@@ -1193,7 +1215,7 @@ public sealed class DependsAssetCommandTests
                 "--depth",
                 "1",
                 "-S",
-                "Dependency Graph",
+                "Dependency Hierarchy",
             ]);
         (int treeExit, string tree, string treeError) =
             await RunCapturedAsync(
@@ -1204,7 +1226,7 @@ public sealed class DependsAssetCommandTests
                 "--depth",
                 "1",
                 "-S",
-                "Dependency Graph",
+                "Dependency Hierarchy",
                 "--tree",
             ]);
         Assert.Equal(0, markdownExit);
@@ -1260,7 +1282,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             path,
             "-S",
-            "Dependency Graph,Failures",
+            "Dependency Hierarchy,Failures",
             "--json",
             "--compact",
         ]);
@@ -1297,7 +1319,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             path,
             "-S",
-            "Dependency Graph,Failures",
+            "Dependency Hierarchy,Failures",
             "--json",
             "--compact",
         ]);
@@ -1311,8 +1333,8 @@ public sealed class DependsAssetCommandTests
                 .GetProperty("traversal_completion")
                 .GetString());
         JsonElement edges = document.RootElement
-            .GetProperty("dependency_graph")
-            .GetProperty("edges");
+            .GetProperty("dependency_hierarchy")
+            .GetProperty("occurrences");
         Assert.True(edges.GetArrayLength() > 0);
         Assert.True(
             edges.GetArrayLength()
@@ -1340,9 +1362,9 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task DirectNuspec_ProducesASourceBoundedBoundaryGraph()
+    public async Task DirectNuspec_ProducesASourceBoundedBoundaryHierarchy()
     {
-        using JsonDocument document = await GraphJsonAsync(
+        using JsonDocument document = await HierarchyJsonAsync(
         [
             "--nuspec",
             NuspecFixture,
@@ -1357,8 +1379,8 @@ public sealed class DependsAssetCommandTests
                 .GetProperty("traversal_completion")
                 .GetString());
         JsonElement edges = document.RootElement
-            .GetProperty("dependency_graph")
-            .GetProperty("edges");
+            .GetProperty("dependency_hierarchy")
+            .GetProperty("occurrences");
         Assert.True(edges.GetArrayLength() > 0);
         Assert.All(
             edges.EnumerateArray(),
@@ -1380,7 +1402,7 @@ public sealed class DependsAssetCommandTests
             "--tfm",
             "not a tfm",
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--json",
         ]);
 
@@ -1393,11 +1415,11 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task RepeatedDirectNuspecRootsRetainDistinctBoundaryEdges()
+    public async Task RepeatedDirectNuspecRootsRetainDistinctBoundaryOccurrences()
     {
-        int single = await GraphCountAsync(
+        int single = await HierarchyCountAsync(
             ["--nuspec", NuspecFixture]);
-        int repeated = await GraphCountAsync(
+        int repeated = await HierarchyCountAsync(
         [
             "--nuspec",
             NuspecFixture,
@@ -1434,7 +1456,7 @@ public sealed class DependsAssetCommandTests
                 .GetString());
         Assert.False(
             document.RootElement.TryGetProperty(
-                "dependency_graph",
+                "dependency_hierarchy",
                 out _));
         Assert.True(
             document.RootElement.GetProperty("dependencies")
@@ -1465,7 +1487,7 @@ public sealed class DependsAssetCommandTests
                 .GetString());
         Assert.False(
             document.RootElement.TryGetProperty(
-                "dependency_graph",
+                "dependency_hierarchy",
                 out _));
     }
 
@@ -1564,7 +1586,7 @@ public sealed class DependsAssetCommandTests
             "--depth",
             "1",
             "-S",
-            "Dependency Graph,Dependencies",
+            "Dependency Hierarchy,Dependencies",
         ];
 
         (int markdownExit, string markdown, string markdownError) =
@@ -1581,7 +1603,7 @@ public sealed class DependsAssetCommandTests
         Assert.Empty(projectedError);
         Assert.Empty(jsonError);
         Assert.StartsWith(
-            "## Dependency Graph",
+            "## Dependency Hierarchy",
             markdown.TrimStart(),
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1597,7 +1619,7 @@ public sealed class DependsAssetCommandTests
             markdown.Split(Environment.NewLine),
             StringComparer.Ordinal);
         Assert.StartsWith(
-            "## Dependency Graph",
+            "## Dependency Hierarchy",
             projected.TrimStart(),
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1746,7 +1768,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task PackageGraphJson_RetainsProjectionProvenance()
+    public async Task PackageHierarchyJson_RetainsProjectionProvenance()
     {
         string rootSource = CreateTemporaryDirectory();
         string dependencySource = CreateTemporaryDirectory();
@@ -1771,7 +1793,7 @@ public sealed class DependsAssetCommandTests
             "--source",
             dependencySource,
             "-S",
-            "Dependency Graph,Roots",
+            "Dependency Hierarchy,Roots",
             "--json",
             "--compact",
         ]);
@@ -1781,7 +1803,7 @@ public sealed class DependsAssetCommandTests
         using JsonDocument document = JsonDocument.Parse(output);
         JsonElement[] projections =
         [
-            .. document.RootElement.GetProperty("dependency_graph")
+            .. document.RootElement.GetProperty("dependency_hierarchy")
                 .GetProperty("package_projections")
                 .EnumerateArray(),
         ];
@@ -1942,7 +1964,7 @@ public sealed class DependsAssetCommandTests
             "1.0.0",
             "");
 
-        using JsonDocument document = await GraphJsonAsync(
+        using JsonDocument document = await HierarchyJsonAsync(
         [
             "--package",
             "Contoso.RootA@1.0.0",
@@ -1954,33 +1976,40 @@ public sealed class DependsAssetCommandTests
             "1",
         ]);
 
-        JsonElement graph =
-            document.RootElement.GetProperty("dependency_graph");
-        JsonElement boundary = Assert.Single(
-            graph.GetProperty("depth_boundaries").EnumerateArray());
-        Assert.Equal(
-            "Package",
-            boundary.GetProperty("producer").GetString());
-        Assert.True(
-            boundary.GetProperty("package_projection").GetInt32() >= 0);
+        JsonElement hierarchy =
+            document.RootElement.GetProperty("dependency_hierarchy");
+        JsonElement[] boundaries =
+        [
+            .. hierarchy.GetProperty("depth_boundaries").EnumerateArray(),
+        ];
         Assert.Equal(
             [1, 2],
-            boundary.GetProperty("root_occurrences")
-                .EnumerateArray()
-                .Select(static root => root.GetInt32()));
+            boundaries.Select(boundary =>
+                boundary.GetProperty("root_occurrence").GetInt32()));
+        Assert.All(
+            boundaries,
+            boundary =>
+            {
+                Assert.Equal(
+                    "Package",
+                    boundary.GetProperty("producer").GetString());
+                Assert.True(
+                    boundary.GetProperty("package_projection")
+                        .GetInt32() >= 0);
+            });
         Assert.Equal(
             2,
-            graph.GetProperty("edges").GetArrayLength());
+            hierarchy.GetProperty("occurrences").GetArrayLength());
         Assert.Equal(
             2,
             document.RootElement.GetProperty("summary")
-                .GetProperty("graph_edges")
+                .GetProperty("hierarchy_occurrences")
                 .GetInt32());
     }
 
 #if DEBUG
     [Fact]
-    public async Task GraphOnly_RetainsFrameworkSelectionState()
+    public async Task HierarchyOnly_RetainsFrameworkSelectionState()
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
@@ -1990,7 +2019,7 @@ public sealed class DependsAssetCommandTests
             "--tfm",
             "net99.0",
             "-S",
-            "Dependency Graph,Roots",
+            "Dependency Hierarchy,Roots",
             "--json",
             "--compact",
         ]);
@@ -2007,8 +2036,8 @@ public sealed class DependsAssetCommandTests
             summary.GetProperty("traversal_completion").GetString());
         Assert.Equal(
             0,
-            document.RootElement.GetProperty("dependency_graph")
-                .GetProperty("edges")
+            document.RootElement.GetProperty("dependency_hierarchy")
+                .GetProperty("occurrences")
                 .GetArrayLength());
         JsonElement root = document.RootElement.GetProperty("roots")[0];
         Assert.Equal(
@@ -2030,7 +2059,7 @@ public sealed class DependsAssetCommandTests
             "--tfm",
             "net11.0",
             "-S",
-            "Dependency Graph,Roots",
+            "Dependency Hierarchy,Roots",
             "--json",
             "--compact",
         ]);
@@ -2090,7 +2119,7 @@ public sealed class DependsAssetCommandTests
         using JsonDocument noTraversal = JsonDocument.Parse(output);
         Assert.False(
             noTraversal.RootElement.TryGetProperty(
-                "dependency_graph",
+                "dependency_hierarchy",
                 out _));
 
         (exitCode, output, error) = await RunCapturedAsync(
@@ -2103,7 +2132,7 @@ public sealed class DependsAssetCommandTests
             "--source",
             source,
             "-S",
-            "Dependency Graph,Failures",
+            "Dependency Hierarchy,Failures",
             "--json",
             "--compact",
         ]);
@@ -2139,7 +2168,7 @@ public sealed class DependsAssetCommandTests
                 "--source",
                 source,
                 "-S",
-                "Dependency Graph,Failures",
+                "Dependency Hierarchy,Failures",
                 "--jsonl",
             ]);
         Assert.Equal(1, jsonlExit);
@@ -2158,7 +2187,7 @@ public sealed class DependsAssetCommandTests
         Assert.Contains(
             jsonlRows,
             row => row.GetProperty("kind").GetString()
-                == "dependency-graph");
+                == "dependency-hierarchy");
         JsonElement jsonlFailure = Assert.Single(
             jsonlRows,
             row => row.GetProperty("kind").GetString() == "failure");
@@ -2187,7 +2216,7 @@ public sealed class DependsAssetCommandTests
                 "--source",
                 source,
                 "-S",
-                "Dependency Graph,Failures",
+                "Dependency Hierarchy,Failures",
                 "--json",
                 "--columns",
                 "Reason",
@@ -2244,7 +2273,7 @@ public sealed class DependsAssetCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Contains("Dependency Graph", output, StringComparison.Ordinal);
+        Assert.Contains("Dependency Hierarchy", output, StringComparison.Ordinal);
         Assert.Contains("Dependencies", output, StringComparison.Ordinal);
 #if DEBUG
         Assert.Contains("Roots", output, StringComparison.Ordinal);
@@ -2413,7 +2442,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task GraphAndFailuresJsonl_UsesOneDiscriminatedSchema()
+    public async Task HierarchyAndFailuresJsonl_UsesOneDiscriminatedSchema()
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
@@ -2423,7 +2452,7 @@ public sealed class DependsAssetCommandTests
             "--nuspec",
             "/missing/jsonl-sibling.nuspec",
             "-S",
-            "Dependency Graph,Failures",
+            "Dependency Hierarchy,Failures",
             "--jsonl",
         ]);
 
@@ -2443,7 +2472,7 @@ public sealed class DependsAssetCommandTests
         Assert.Contains(
             rows,
             row => row.GetProperty("kind").GetString()
-                == "dependency-graph");
+                == "dependency-hierarchy");
         JsonElement failure = Assert.Single(
             rows,
             row => row.GetProperty("kind").GetString() == "failure");
@@ -2577,7 +2606,7 @@ public sealed class DependsAssetCommandTests
             retained.GetProperty("delegates_to_platform").GetBoolean());
         Assert.False(
             document.RootElement.TryGetProperty(
-                "dependency_graph",
+                "dependency_hierarchy",
                 out _));
     }
 
@@ -3790,12 +3819,16 @@ public sealed class DependsAssetCommandTests
         Assert.Empty(error);
         foreach (string section in new[]
         {
-            DependsAssetSections.DependencyGraph,
+            DependsAssetSections.DependencyHierarchy,
             DependsAssetSections.Dependencies,
             DependsAssetSections.Pruning,
             DependsAssetSections.Failures,
         })
             Assert.Contains(section, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            DependsTypeSections.DependencyGraph,
+            output,
+            StringComparison.Ordinal);
         foreach (string section in new[]
         {
             DependsAssetSections.Roots,
@@ -3809,6 +3842,31 @@ public sealed class DependsAssetCommandTests
             Assert.DoesNotContain(section, output, StringComparison.Ordinal);
 #endif
         Assert.Contains("@Dependencies", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AssetModeRejectsObsoleteDependencyGraphSection()
+    {
+        (int exitCode, string output, string error) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "--nuspec",
+                NuspecFixture,
+                "-S",
+                DependsTypeSections.DependencyGraph,
+            ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            DependsTypeSections.DependencyGraph,
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            DependsAssetSections.DependencyHierarchy,
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3838,7 +3896,7 @@ public sealed class DependsAssetCommandTests
     {
         Assert.Equal(
             [
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Dependencies,
                 DependsAssetSections.Pruning,
                 DependsAssetSections.Failures,
@@ -3846,7 +3904,7 @@ public sealed class DependsAssetCommandTests
             DependsAssetSections.SectionOrder);
         var expectedSections = new HashSet<string>(
             [
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Dependencies,
                 DependsAssetSections.Pruning,
                 DependsAssetSections.Failures,
@@ -3857,7 +3915,7 @@ public sealed class DependsAssetCommandTests
                 DependsAssetSections.Catalog.SelectableSectionNames));
         Assert.Equal(
             [
-                DependsAssetSections.DependencyGraph,
+                DependsAssetSections.DependencyHierarchy,
                 DependsAssetSections.Dependencies,
                 DependsAssetSections.Failures,
             ],
@@ -3866,9 +3924,20 @@ public sealed class DependsAssetCommandTests
 
         (int exitCode, string output, string error) =
             await RunCapturedAsync(["depends", "-D", "--schema"]);
+        (int hierarchyExit, string hierarchy, string hierarchyError) =
+            await RunCapturedAsync(
+            [
+                "depends",
+                "-D",
+                DependsAssetSections.DependencyHierarchy,
+                "--schema",
+            ]);
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
+        Assert.Equal(0, hierarchyExit);
+        Assert.Empty(hierarchyError);
+        Assert.Contains("Edge ID", hierarchy, StringComparison.Ordinal);
         foreach (string section in new[]
         {
             DependsAssetSections.Roots,
@@ -4021,7 +4090,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task LibraryDepthBeyondTheGraphReportsComplete()
+    public async Task LibraryDepthBeyondTheHierarchyReportsComplete()
     {
         string library = typeof(DependsAssetCommandTests).Assembly.Location;
         (int exitCode, string output, string error) = await RunCapturedAsync(
@@ -4032,7 +4101,7 @@ public sealed class DependsAssetCommandTests
             "--depth",
             "100",
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--json",
             "--compact",
         ]);
@@ -4067,7 +4136,7 @@ public sealed class DependsAssetCommandTests
                 "--library",
                 library,
                 "-S",
-                "Dependency Graph,Failures",
+                "Dependency Hierarchy,Failures",
                 "--json",
                 "--compact",
             ]);
@@ -4089,8 +4158,8 @@ public sealed class DependsAssetCommandTests
             const string missingAssembly =
                 "ILInspector.Metadata.TypeDependencyReference";
             JsonElement edge = Assert.Single(
-                document.RootElement.GetProperty("dependency_graph")
-                    .GetProperty("edges")
+                document.RootElement.GetProperty("dependency_hierarchy")
+                    .GetProperty("occurrences")
                     .EnumerateArray(),
                 candidate => candidate.GetProperty("target_identity")
                     .GetProperty("library")
@@ -4144,14 +4213,14 @@ public sealed class DependsAssetCommandTests
                 "--library",
                 library,
                 "-S",
-                "Dependency Graph",
+                "Dependency Hierarchy",
                 "--count",
             ]);
 
             Assert.Equal(1, countExit);
             Assert.Empty(countOutput);
             Assert.Contains(
-                "--count cannot report an exact 'Dependency Graph' count",
+                "--count cannot report an exact 'Dependency Hierarchy' count",
                 countError,
                 StringComparison.Ordinal);
         }
@@ -4233,7 +4302,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task GraphFormatsUseOneLogicalEdgeCurrency()
+    public async Task HierarchyFormatsUseOneOccurrenceCurrency()
     {
         string[] root =
         [
@@ -4243,7 +4312,7 @@ public sealed class DependsAssetCommandTests
             "--depth",
             "1",
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--rows",
             "1..2",
         ];
@@ -4266,8 +4335,8 @@ public sealed class DependsAssetCommandTests
         using JsonDocument typed = JsonDocument.Parse(json);
         Assert.Equal(
             2,
-            typed.RootElement.GetProperty("dependency_graph")
-                .GetProperty("edges")
+            typed.RootElement.GetProperty("dependency_hierarchy")
+                .GetProperty("occurrences")
                 .GetArrayLength());
         Assert.Contains("└", tree, StringComparison.Ordinal);
         Assert.StartsWith("graph TD", mermaid, StringComparison.Ordinal);
@@ -4286,7 +4355,7 @@ public sealed class DependsAssetCommandTests
                 "--depth",
                 "1",
                 "-S",
-                "Dependency Graph",
+                "Dependency Hierarchy",
                 "--rows",
                 "2..2",
                 "--count",
@@ -4315,7 +4384,7 @@ public sealed class DependsAssetCommandTests
                 "--depth",
                 "1",
                 "-S",
-                "Dependency Graph",
+                "Dependency Hierarchy",
                 "--rows",
                 rows,
                 "--count",
@@ -4327,7 +4396,7 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
-    public async Task PlainTextColumns_RenderProjectedGraphRows()
+    public async Task PlainTextColumns_RenderProjectedHierarchyRows()
     {
         string[] arguments =
         [
@@ -4469,20 +4538,20 @@ public sealed class DependsAssetCommandTests
     }
 
     private static string RestoredDigest(JsonElement root) =>
-        root.GetProperty("identity")
-            .GetProperty("restored_root")
+        root.GetProperty("evidence_identity")
+            .GetProperty("restored_project")
             .GetProperty("facts_digest")
             .GetString()!;
 #endif
 
-    private static async Task<int> GraphCountAsync(string[] arguments)
+    private static async Task<int> HierarchyCountAsync(string[] arguments)
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
         [
             "depends",
             .. arguments,
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--count",
         ]);
         Assert.Equal(0, exitCode);
@@ -4507,7 +4576,7 @@ public sealed class DependsAssetCommandTests
             System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static async Task<JsonDocument> GraphJsonAsync(
+    private static async Task<JsonDocument> HierarchyJsonAsync(
         string[] arguments)
     {
         (int exitCode, string output, string error) = await RunCapturedAsync(
@@ -4515,7 +4584,7 @@ public sealed class DependsAssetCommandTests
             "depends",
             .. arguments,
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--json",
             "--compact",
         ]);

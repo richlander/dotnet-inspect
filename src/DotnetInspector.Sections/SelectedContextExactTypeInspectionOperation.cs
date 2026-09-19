@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Sections;
 
@@ -28,6 +30,26 @@ public sealed record SelectedContextExactTypeSource
     public ExactTypeDefinitionIdentity Type { get; }
 
     public TypeDeclarationLocatorObservation Observation { get; }
+}
+
+/// <summary>
+/// Live full Type inspection target valid while the paired Workspace
+/// realization operation remains admitted.
+/// </summary>
+public sealed record SelectedContextExactTypeLiveTarget(
+    ApiSurface Surface,
+    ApiType Type,
+    ResolvedAssemblyReference Assembly,
+    AssemblyBindingOccurrence Occurrence,
+    IAssemblyBindingPolicy BindingPolicy,
+    string? AssemblyPath,
+    string? PackageExtractPath)
+{
+    /// <summary>
+    /// Opens the selected Package compile asset's XML companion within the
+    /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
+    /// </summary>
+    public Func<long, Stream?>? OpenCompiledDocumentation { get; init; }
 }
 
 /// <summary>
@@ -74,7 +96,11 @@ public static class SelectedContextExactTypeInspectionOperation
             authority,
             context,
             request,
-            projectionLimits: null);
+            projectionLimits: null,
+            activation: null,
+            facet: null,
+            scope: ApiSurfaceScope.PublicWithNonPublicTypes,
+            liveTargetConsumer: null);
 
     public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
         Execute(
@@ -88,7 +114,85 @@ public static class SelectedContextExactTypeInspectionOperation
             authority,
             context,
             request,
-            projectionLimits);
+            projectionLimits,
+            activation: null,
+            facet: null,
+            scope: ApiSurfaceScope.PublicWithNonPublicTypes,
+            liveTargetConsumer: null);
+    }
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        Execute(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes) =>
+        ExecuteActivation(
+            authority,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer: null);
+
+    public static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteWithLiveTarget(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            Action<SelectedContextExactTypeLiveTarget> liveTargetConsumer,
+            ViewFacetId? facet = null,
+            ApiSurfaceScope scope =
+                ApiSurfaceScope.PublicWithNonPublicTypes)
+    {
+        ArgumentNullException.ThrowIfNull(liveTargetConsumer);
+        return ExecuteActivation(
+            authority,
+            activation,
+            request,
+            facet,
+            scope,
+            liveTargetConsumer);
+    }
+
+    static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
+        ExecuteActivation(
+            WorkspaceRealizationOperationLease authority,
+            CompleteWorkspaceActivation activation,
+            SelectedContextExactTypeInspectionRequest request,
+            ViewFacetId? facet,
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
+    {
+        ArgumentNullException.ThrowIfNull(activation);
+        if (activation.SelectedContext is not { } context)
+        {
+            ExactTypeInspectionResult unavailable =
+                ExactTypeInspectionResult.RuntimeUnavailable(
+                    request.Type,
+                    "The restored Workspace has no selected context.");
+            return new(
+                new SelectedContextExactTypeInspectionResult(
+                    unavailable,
+                    []),
+                new InspectionShare.NonProjectable(
+                    "scenario.context",
+                    "A derived Type scenario requires one selected "
+                        + "Workspace context."),
+                ExactTypeInspectionOperation.Diagnostics(unavailable));
+        }
+
+        return ExecuteCore(
+            authority,
+            context,
+            request,
+            projectionLimits: null,
+            activation,
+            facet,
+            scope,
+            liveTargetConsumer);
     }
 
     static InspectionEnvelope<SelectedContextExactTypeInspectionResult>
@@ -96,7 +200,11 @@ public static class SelectedContextExactTypeInspectionOperation
             WorkspaceRealizationOperationLease authority,
             WorkspaceDeclarationContext context,
             SelectedContextExactTypeInspectionRequest request,
-            ApiSurfaceProjectionLimits? projectionLimits)
+            ApiSurfaceProjectionLimits? projectionLimits,
+            CompleteWorkspaceActivation? activation,
+            ViewFacetId? facet,
+            ApiSurfaceScope scope,
+            Action<SelectedContextExactTypeLiveTarget>? liveTargetConsumer)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(context);
@@ -107,6 +215,7 @@ public static class SelectedContextExactTypeInspectionOperation
                 authority,
                 context,
                 request,
+                scope,
                 projectionLimits);
         ImmutableArray<ExactTypeDefiningSource> definingSources =
             execution.DefiningSources;
@@ -138,6 +247,25 @@ public static class SelectedContextExactTypeInspectionOperation
             definingSources = [];
         }
 
+        SelectedContextExactTypeLiveTarget? target =
+            inspection.IsAvailable
+                ? execution.Target is { } selected
+                    ? new(
+                        selected.Surface.Surface,
+                        selected.Type,
+                        selected.Occurrence.Assembly,
+                        selected.Occurrence,
+                        selected.BindingPolicy,
+                        selected.AssemblyPath,
+                        selected.PackageExtractPath)
+                    {
+                        OpenCompiledDocumentation =
+                            selected.OpenCompiledDocumentation,
+                    }
+                    : throw new InvalidOperationException(
+                        "An available selected-context exact Type requires "
+                            + "one live inspection target.")
+                : null;
         var references = new TypeDeclarationLocatorReferenceProjection();
         ImmutableArray<SelectedContextExactTypeSource> projectedSources =
         [
@@ -153,12 +281,62 @@ public static class SelectedContextExactTypeInspectionOperation
         var content = new SelectedContextExactTypeInspectionResult(
             inspection,
             projectedSources);
-        return new(
-            content,
+        if (target is not null)
+            liveTargetConsumer?.Invoke(target);
+        InspectionShare share =
             new InspectionShare.NonProjectable(
                 "selected-context-exact-type/share",
                 "A complete portable Workspace scenario is required to "
-                    + "project selected-context exact Type Share."),
+                    + "project selected-context exact Type Share.");
+        if (activation is not null
+            && inspection.IsAvailable
+            && !inspection.IsComplete)
+        {
+            share = new InspectionShare.NonProjectable(
+                "selected-context-exact-type/incomplete",
+                "A derived Type scenario requires complete trustworthy "
+                    + "selected-context Type evidence.");
+        }
+        else if (activation is not null
+            && inspection.IsAvailable
+            && definingSources.Length == 1)
+        {
+            WorkspaceSharePacketProjectionResult projection =
+                WorkspaceTypeScenarioProjection.Project(
+                    activation,
+                    context,
+                    definingSources[0].Member,
+                    definingSources[0].Type,
+                    facet);
+            share = projection.Succeeded
+                ? AvailableShare(
+                    projection.Packet
+                    ?? throw new InvalidOperationException(
+                        "A successful Type scenario projection requires "
+                            + "a packet."))
+                : NonProjectableShare(
+                    projection.Failure
+                    ?? throw new InvalidOperationException(
+                        "A failed Type scenario projection requires "
+                            + "a failure."));
+        }
+        return new(
+            content,
+            share,
             ExactTypeInspectionOperation.Diagnostics(inspection));
     }
+
+    static InspectionShare AvailableShare(WorkspaceSharePacket packet)
+    {
+        string encoded = WorkspaceSharePacketCodec.Encode(packet);
+        return new InspectionShare.Available(
+            "https://dotnet-inspect.net/?w=" + encoded,
+            encoded);
+    }
+
+    static InspectionShare NonProjectableShare(
+        WorkspaceSharePacketProjectionFailure failure) =>
+        new InspectionShare.NonProjectable(
+            failure.Path,
+            failure.Message);
 }

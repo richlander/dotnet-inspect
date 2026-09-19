@@ -16,7 +16,7 @@ internal sealed record DependsAssetDocument
 {
     public required DependsAssetSummaryJson Summary { get; init; }
 
-    public DependencyGraphJsonDocument? DependencyGraph { get; init; }
+    public DependencyHierarchyJsonDocument? DependencyHierarchy { get; init; }
 
     public List<DependsAssetRootJson>? Roots { get; init; }
 
@@ -41,10 +41,11 @@ internal sealed record DependsAssetDocument
     {
         DependencyEvidenceSourceTokens tokens =
             CreateTokens(projection);
-        IReadOnlyList<DependencyGraphEdgeRow> selectedGraphRows =
-            rows is { IsUnlimited: false } graphWindow
-                ? graphWindow.Apply(projection.GraphRows)
-                : projection.GraphRows;
+        IReadOnlyList<DependencyHierarchyOccurrenceRow>
+            selectedHierarchyRows =
+                rows is { IsUnlimited: false } hierarchyWindow
+                    ? hierarchyWindow.Apply(projection.HierarchyRows)
+                    : projection.HierarchyRows;
         IReadOnlyList<DependsRootRow> selectedRoots =
             rows is { IsUnlimited: false } rootWindow
                 ? rootWindow.Apply(projection.Roots)
@@ -55,11 +56,11 @@ internal sealed record DependsAssetDocument
             Summary = DependsAssetSummaryJson.Create(
                 projection.Summary,
                 tokens),
-            DependencyGraph =
-                sections.Contains(DependsAssetSections.DependencyGraph)
-                    ? DependencyGraphOutputAdapter.CreateJsonDocument(
-                        projection.Graph,
-                        selectedGraphRows,
+            DependencyHierarchy =
+                sections.Contains(DependsAssetSections.DependencyHierarchy)
+                    ? DependencyHierarchyOutputAdapter.CreateJsonDocument(
+                        projection.Hierarchy,
+                        selectedHierarchyRows,
                         tokens,
                         includePackageSelectionEvidence:
                             projection.Summary.TraversalCompletion
@@ -255,9 +256,11 @@ internal sealed record DependsAssetSummaryJson
 
     public int? RequestedDepth { get; init; }
 
-    public required int GraphNodes { get; init; }
+    public required int HierarchyOccurrences { get; init; }
 
-    public required int GraphEdges { get; init; }
+    public required int CanonicalNodes { get; init; }
+
+    public required int Relationships { get; init; }
 
     public DependencyEvidencePrefixJson? PackagePrefix { get; init; }
 
@@ -276,8 +279,9 @@ internal sealed record DependsAssetSummaryJson
                 summary.RestoredRelationshipCompletion,
             Pruning = DependsPruningSummaryJson.Create(summary.Pruning),
             RequestedDepth = summary.RequestedDepth,
-            GraphNodes = summary.GraphNodes,
-            GraphEdges = summary.GraphEdges,
+            HierarchyOccurrences = summary.HierarchyOccurrences,
+            CanonicalNodes = summary.CanonicalNodes,
+            Relationships = summary.Relationships,
             PackagePrefix = summary.PackagePrefix is { } prefix
                 ? DependencyEvidencePrefixJson.Create(prefix, tokens)
                 : null,
@@ -422,7 +426,7 @@ internal sealed record DependsAssetRootJson
             Input = row.Input,
             Source = row.Source,
             State = row.State,
-            Identity = row.GraphIdentity is { } identity
+            Identity = row.DependencyIdentity is { } identity
                 ? DependencyGraphOutputAdapter.JsonIdentity(identity)
                 : null,
             Traversal = row.Traversal,
@@ -863,7 +867,8 @@ internal sealed record DependsAssetJsonLine
 {
     public required string Kind { get; init; }
 
-    public DependencyGraphJsonEdge? DependencyGraph { get; init; }
+    public DependencyHierarchyJsonOccurrence? DependencyHierarchy
+    { get; init; }
 
     public DependsFailureJson? Failure { get; init; }
 }

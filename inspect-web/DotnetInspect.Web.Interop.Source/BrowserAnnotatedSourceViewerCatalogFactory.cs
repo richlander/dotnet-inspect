@@ -52,6 +52,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -73,6 +78,18 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                 document,
                 callRelationships,
                 callCycles);
+        }
+        if (synchronousCompletions is not null)
+        {
+            if (callRelationships is null)
+            {
+                throw new ArgumentException(
+                    "Synchronous completions require projected call relationships.",
+                    nameof(synchronousCompletions));
+            }
+            ValidateSynchronousCompletions(
+                callRelationships,
+                synchronousCompletions);
         }
 
         var targetedFacts = new bool[document.Facts.Count];
@@ -144,6 +161,15 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     IsComplete: false,
                     Limits: [],
                     Findings: []),
+            synchronousCompletions is null
+                ? new BrowserAnnotatedSourceSynchronousCompletionInspection(
+                    Available: false,
+                    synchronousCompletionsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceSynchronousCompletionInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: synchronousCompletions),
             projectedDestinations);
     }
 
@@ -281,6 +307,34 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                         $"Call cycle {index} names an invalid call.edge fact.",
                         nameof(cycles));
                 }
+            }
+        }
+    }
+
+    private static void ValidateSynchronousCompletions(
+        IReadOnlyList<BrowserAnnotatedSourceCallRelationship> relationships,
+        BrowserAnnotatedSourceSynchronousCompletion[] observations)
+    {
+        HashSet<int> relationshipFactIds =
+        [
+            .. relationships.Select(static relationship =>
+                relationship.FactId),
+        ];
+        var observedFactIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceSynchronousCompletion observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Synchronous completion observation {index} is null.",
+                        nameof(observations));
+            if (!Enum.IsDefined(observation.Kind)
+                || !relationshipFactIds.Contains(observation.FactId)
+                || !observedFactIds.Add(observation.FactId))
+            {
+                throw new ArgumentException(
+                    $"Synchronous completion observation {index} has invalid or duplicate relationship evidence.",
+                    nameof(observations));
             }
         }
     }

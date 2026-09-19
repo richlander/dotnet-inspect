@@ -68,7 +68,7 @@ Version
 Package Size (compressed)
 Selected TFM
 Selected-TFM Folders
-TFM Count
+TFMs
 Selected-TFM Size
 Selected-TFM Library Count
 Built
@@ -232,7 +232,49 @@ dotnet-inspect package Markout Polly --path @agents --path @readme --match first
 `project.assets.json` as the restored-assets context. Passing a project file or
 directory only locates that file; dotnet-inspect does not restore or build.
 
-### 6b. Resolve package skill paths
+### 6b. Inspect shipped license documents
+
+Nuspec license identity and archive documents are separate questions. Package
+Query answers the former from manifest data without opening the nupkg:
+
+```bash
+dotnet-inspect package query wix \
+  --where "license=any" --nuspec-only
+dotnet-inspect package query wix \
+  --where "license=OSMF" --nuspec-only
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
+```
+
+The package command answers the latter from package contents:
+
+```bash
+dotnet-inspect package wix@7.0.0 -S "Package license files"
+dotnet-inspect package wix@7.0.0 -S "Package license files" --count
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
+dotnet-inspect package wix@7.0.0 --path @license --content --bare
+```
+
+Package Query returns the semantic answer directly (`MIT`, `OSMF`, or `true`
+for license presence) and retains nuspec declaration kind and value as separate
+structured evidence.
+The query layer does not generate explanatory sentences. `--count` needs no
+`--bare` because it already emits a scalar. `--print --bare` intentionally
+removes package and section framing so stdout contains only the selected
+license document body.
+
+The exact nuspec `<license type="file">` path is authoritative even when its
+name, language, location, or extension is unusual. Conservative convention
+matching also recognizes extensionless, text, and Markdown license documents
+named with `LICENSE`, `LICENCE`, `EULA`, `COPYING`, `COPYRIGHT`, or
+`UNLICENSE`, plus text documents beneath `license` or `licenses` directories.
+Files such as `License.dll` and `driving-license.png` are excluded. Notices are
+not license files. Package Query identifies licenses solely from nuspec
+metadata: `any` matches any declaration, `MIT` matches the exact SPDX
+expression, and `OSMF` matches a declared `OSMFEULA.*` basename. It never reads
+license-document content to make that decision.
+
+### 6c. Resolve package skill paths
 
 ```bash
 dotnet-inspect package Markout@0.33.0 -S "Package skill files" --paths
