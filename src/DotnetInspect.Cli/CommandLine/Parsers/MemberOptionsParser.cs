@@ -446,7 +446,8 @@ public static class MemberOptionsParser
                 sourceInputs,
                 sourceOptions,
                 parseResult.GetValue(opts.Verbose),
-                tryQualifiedTypeName: false);
+                tryQualifiedTypeName: false,
+                parseResult.GetValue(args.FrameworkOption));
             source = sourceSelection.Source;
         }
 
