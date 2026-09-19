@@ -358,7 +358,7 @@ public static partial class SourceExports
                 .. projectedAllocationExceptionPaths.Select(observation =>
                     new BrowserAnnotatedSourceAllocationExceptionPath(
                         observation.FactId,
-                        AllocationExceptionPathKind(
+                        ProjectAllocationExceptionPathKind(
                             observation.Kind))),
             ];
         }
@@ -496,7 +496,7 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
-    static BrowserAllocationExceptionPathKind AllocationExceptionPathKind(
+    static BrowserAllocationExceptionPathKind ProjectAllocationExceptionPathKind(
         AllocationExceptionPathKind kind) =>
         kind switch
         {
