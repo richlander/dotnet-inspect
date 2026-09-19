@@ -1107,7 +1107,6 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("--shape")]
     [InlineData("--tree")]
     public async Task Router_DeferredExactTypePreservesTypeOnlyOutput(
         string outputOption)
@@ -1246,7 +1245,7 @@ public partial class CommandExecutionTests
             "System.Collections.Immutable",
             "-m",
             "Add",
-            "--shape",
+            "--tree",
             "--tips",
             "q"
         ];
@@ -1877,7 +1876,7 @@ public partial class CommandExecutionTests
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
     {
         var (exit, output, error) = await RunAppAsync(
-            typeName, "--shape", "--tips", "q");
+            typeName, "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains(
