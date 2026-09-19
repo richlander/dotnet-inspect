@@ -123,6 +123,10 @@ coverage, facts, diagnostics, and typed limitations required by its owning
 claim. It owns no PE reader, Metadata reader, resolver, stream, Workspace
 lease, or service instance.
 
+Publishing an unrequested focused result must remain constant-cost over its
+already-produced input references. Result-local derived arrays are constructed
+only when a consumer accesses a result whose producer participated.
+
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
 an explicit typed association; it does not infer correspondence from a path,

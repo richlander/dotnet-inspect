@@ -41,11 +41,20 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     .OptimizationOpportunities));
         Assert.False(
             execution.Optimization.WasRequested);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.Empty(
             execution.Optimization.Opportunities);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.Empty(
             execution.Optimization
                 .AllocationFanoutOpportunities);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.NotEmpty(
             execution.ImplementationProfiles.Profiles);
         Assert.NotEmpty(
@@ -131,8 +140,14 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.CompatibilityIndex();
 
         Assert.True(execution.Optimization.WasRequested);
+        Assert.False(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.NotEmpty(
             execution.Optimization.Opportunities);
+        Assert.True(
+            execution.Optimization
+                .HasProjectedPhysicalDirectCalls);
         Assert.Equal(
             execution.Optimization.Opportunities,
             index.OptimizationOpportunities);

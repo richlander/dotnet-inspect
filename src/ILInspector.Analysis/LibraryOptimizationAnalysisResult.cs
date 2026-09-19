@@ -15,7 +15,7 @@ public sealed class LibraryOptimizationAnalysisResult
     private readonly ImmutableArray<MethodIdentity> _declaredMethods;
     private readonly ImmutableArray<MethodIdentity> _methods;
     private readonly ImmutableArray<DirectCall> _directCalls;
-    private readonly ImmutableArray<DirectCall> _physicalDirectCalls;
+    private ImmutableArray<DirectCall> _physicalDirectCalls;
     private readonly IReadOnlyDictionary<int,
         ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     private readonly ImmutableArray<OptimizationOpportunity>
@@ -44,16 +44,6 @@ public sealed class LibraryOptimizationAnalysisResult
         _declaredMethods = analysis.Methods.DeclaredMethods;
         _methods = analysis.Methods.Methods;
         _directCalls = analysis.Methods.DirectCalls;
-        _physicalDirectCalls =
-        [
-            .. _directCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _rawOpportunities = analysis.Optimizations.Opportunities;
         _suppressedOpportunityTokens =
@@ -85,6 +75,9 @@ public sealed class LibraryOptimizationAnalysisResult
     public bool WasRequested =>
         Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+    internal bool HasProjectedPhysicalDirectCalls =>
+        !_physicalDirectCalls.IsDefault;
 
     /// <summary>
     /// Completed source and IL optimization opportunities, enriched with
@@ -160,7 +153,7 @@ public sealed class LibraryOptimizationAnalysisResult
                                     .AddFallbackMetadata),
                             .. RepeatedScanAnalysis.Collect(
                                     _methods,
-                                    _physicalDirectCalls,
+                                    PhysicalDirectCalls,
                                     _rawOpportunities,
                                     _suppressedOpportunityTokens,
                                     reachByToken,
@@ -200,7 +193,7 @@ public sealed class LibraryOptimizationAnalysisResult
                             .. AllocationFanout.Analyze(
                                     _methods,
                                     ClassifyExactCallTargets(
-                                        _physicalDirectCalls,
+                                        PhysicalDirectCalls,
                                         DeclaredMethodMap,
                                         _methods),
                                     _allocationOccurrences,
@@ -263,9 +256,23 @@ public sealed class LibraryOptimizationAnalysisResult
     public ImmutableHashSet<TypeRef> GeneratedFrameworkTypes
         => _generatedFrameworkTypes ??=
             GeneratedFrameworkTypeAnalysis.Collect(
-                    _physicalDirectCalls,
+                    PhysicalDirectCalls,
                     _methods)
                 .ToImmutableHashSet();
+
+    private ImmutableArray<DirectCall> PhysicalDirectCalls
+        => _physicalDirectCalls.IsDefault
+            ? _physicalDirectCalls =
+            [
+                .. _directCalls.Select(static call =>
+                    call.Caller == call.EvidenceMethod
+                        ? call
+                        : call with
+                        {
+                            Caller = call.EvidenceMethod,
+                        }),
+            ]
+            : _physicalDirectCalls;
 
     private MethodDefinitionMap DeclaredMethodMap =>
         _declaredMethodMap ??=
@@ -278,7 +285,7 @@ public sealed class LibraryOptimizationAnalysisResult
         => _directCallerLoops ??=
             CallerLoopEvidenceAnalysis.FindNearest(
                 _methods,
-                _physicalDirectCalls,
+                PhysicalDirectCalls,
                 maxDepth: 1,
                 DeclaredMethodMap);
 
@@ -365,7 +372,7 @@ public sealed class LibraryOptimizationAnalysisResult
                 ImmutableArray<Finding<DirectCall>>>();
         Dictionary<int, ImmutableArray<DirectCall>>
             physicalCallsByCaller =
-                _physicalDirectCalls
+                PhysicalDirectCalls
                     .GroupBy(call =>
                         call.Caller.MetadataToken)
                     .ToDictionary(
