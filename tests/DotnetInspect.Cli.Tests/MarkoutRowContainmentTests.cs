@@ -174,8 +174,6 @@ public class MarkoutRowContainmentTests
         "CostFactRow.Operation",
         "DiscoveryRow.Kind",
         "DiscoveryRow.Name",
-        "EmptyDepsView.Description",
-        "EmptyDepsView.Title",
         "EnumValueRow.Description",
         "EnumValueRow.Name",
         "EnumValueRow.Value",
@@ -297,7 +295,6 @@ public class MarkoutRowContainmentTests
         "OptimizationOpportunityRow.Token",
         "OptimizationOpportunityRow.UnknownPaths",
         "OptimizationOpportunityRow.Weight",
-        "PackageDependenciesView.Title",
         "PropertySummaryRow.Accessors",
         "PropertySummaryRow.Decode",
         "PropertySummaryRow.Name",
@@ -371,11 +368,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt249MembersAcross53Types()
+    public void ResidualCensus_IsPinnedAt246MembersAcross51Types()
     {
-        Assert.Equal(249, NotSelfContaining.Length);
+        Assert.Equal(246, NotSelfContaining.Length);
         Assert.Equal(
-            53,
+            51,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
