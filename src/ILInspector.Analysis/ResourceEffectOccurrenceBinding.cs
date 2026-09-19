@@ -816,6 +816,10 @@ internal static class ResourceEffectOccurrenceBinder
                         FailUnsupported(
                             ResourceEffectOccurrenceBindingGapKind.OutcomeType);
                         return null;
+                    case TypeDeclarationResult.BudgetExceeded:
+                        FailIncomplete(
+                            ResourceEffectOccurrenceBindingGapKind.OutcomeType);
+                        return null;
                     default:
                         FailIncomplete(
                             ResourceEffectOccurrenceBindingGapKind.OutcomeType);
