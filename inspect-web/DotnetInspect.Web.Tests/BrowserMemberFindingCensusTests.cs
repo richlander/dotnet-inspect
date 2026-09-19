@@ -161,7 +161,7 @@ public sealed class BrowserMemberFindingCensusTests
             "safety.callee",
             AnnotationCategory.Unsafety,
             "callee safety");
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -170,10 +170,10 @@ public sealed class BrowserMemberFindingCensusTests
                             descriptor,
                             SourceOffset: 0))),
                 ])));
-        ResearchViews.AnnotatedSourceFactIdentity[] identities =
+        AnnotatedSourceFactIdentity[] identities =
         [
             .. Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                     projection.SourceDocumentFactIdentities),
         ];
         JsonElement document = BrowserAnnotatedSource
@@ -241,7 +241,7 @@ public sealed class BrowserMemberFindingCensusTests
             "test.duplicate",
             AnnotationCategory.Cost,
             "duplicate");
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -309,7 +309,7 @@ public sealed class BrowserMemberFindingCensusTests
     [Fact]
     public void Create_PreservesSuccessfulEmptyBodyCensusReceipt()
     {
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry());
 
         BrowserMemberFindingCensus envelope = Create(projection);
@@ -325,7 +325,7 @@ public sealed class BrowserMemberFindingCensusTests
     [Fact]
     public void Create_RejectsReceiptFromAnotherResearchOperation()
     {
-        ResearchViews.MemberProjectionResult first = Project(
+        MemberProjectionResult first = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -336,7 +336,7 @@ public sealed class BrowserMemberFindingCensusTests
                             "first"),
                         SourceOffset: 0)),
                 ])));
-        ResearchViews.MemberProjectionResult second = Project(
+        MemberProjectionResult second = Project(
             new ResearchFactRegistry());
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -354,7 +354,7 @@ public sealed class BrowserMemberFindingCensusTests
     [Fact]
     public void Create_RejectsDuplicateSourceIdentityMapping()
     {
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -365,9 +365,9 @@ public sealed class BrowserMemberFindingCensusTests
                             "first"),
                         SourceOffset: 0)),
                 ])));
-        ResearchViews.AnnotatedSourceFactIdentity identity = Assert.Single(
+        AnnotatedSourceFactIdentity identity = Assert.Single(
             Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                     projection.SourceDocumentFactIdentities));
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
@@ -385,7 +385,7 @@ public sealed class BrowserMemberFindingCensusTests
     [Fact]
     public void Create_ValidatesCalleeEvidenceIdentityCoverageAndOutcome()
     {
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -396,9 +396,9 @@ public sealed class BrowserMemberFindingCensusTests
                             "callee safety"),
                         SourceOffset: 0)),
                 ])));
-        ResearchViews.AnnotatedSourceFactIdentity identity = Assert.Single(
+        AnnotatedSourceFactIdentity identity = Assert.Single(
             Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                     projection.SourceDocumentFactIdentities));
         JsonElement calleeDocument = JsonSerializer.SerializeToElement(
             new AnnotatedSourceDocument(
@@ -627,7 +627,7 @@ public sealed class BrowserMemberFindingCensusTests
     [Fact]
     public void Create_ValidatesMethodLevelCostEvidenceWithoutSourceCoordinates()
     {
-        ResearchViews.MemberProjectionResult projection = Project(
+        MemberProjectionResult projection = Project(
             new ResearchFactRegistry(
                 new TestProducer(
                 [
@@ -638,9 +638,9 @@ public sealed class BrowserMemberFindingCensusTests
                             "callee cost"),
                         SourceOffset: 0)),
                 ])));
-        ResearchViews.AnnotatedSourceFactIdentity identity = Assert.Single(
+        AnnotatedSourceFactIdentity identity = Assert.Single(
             Assert.IsAssignableFrom<
-                IReadOnlyList<ResearchViews.AnnotatedSourceFactIdentity>>(
+                IReadOnlyList<AnnotatedSourceFactIdentity>>(
                     projection.SourceDocumentFactIdentities));
         var methodEvidence = new BrowserAnnotatedSourceFindingEvidence(
             identity.FactId,
@@ -700,7 +700,7 @@ public sealed class BrowserMemberFindingCensusTests
     }
 
     static BrowserMemberFindingCensus Create(
-        ResearchViews.MemberProjectionResult projection)
+        MemberProjectionResult projection)
         => BrowserMemberFindingCensus.Create(
             projection.FactCensusReceipt,
             projection.Facts,
@@ -710,7 +710,7 @@ public sealed class BrowserMemberFindingCensusTests
             contextLimitation: null);
 
     static BrowserMemberFindingCensus Create(
-        ResearchViews.MemberProjectionResult projection,
+        MemberProjectionResult projection,
         BrowserAnnotatedSourceFindingEvidence[] findingEvidence,
         BrowserAnnotatedSourceFindingEvidenceDocument[]
             findingEvidenceDocuments)
@@ -789,13 +789,13 @@ public sealed class BrowserMemberFindingCensusTests
             NodeIds: [],
             UnavailableReason: "test");
 
-    static ResearchViews.MemberProjectionResult Project(
+    static MemberProjectionResult Project(
         ResearchFactRegistry registry)
     {
         using MetadataSource source = MetadataSource.Open(
             typeof(BrowserMemberFindingCensusTests).Assembly.Location);
-        return ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+        return MemberProjectionProducer.Produce(
+            new MemberProjectionRequest(
                 source,
                 typeof(BrowserMemberFindingCensusTests).FullName!,
                 nameof(BoxInt),

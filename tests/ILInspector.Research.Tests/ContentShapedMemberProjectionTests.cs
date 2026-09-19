@@ -15,6 +15,33 @@ namespace ILInspector.Research.Tests;
 public class ContentShapedMemberProjectionTests
 {
     [Fact]
+    public void ResearchViewsFacade_ForwardsToMemberProjectionProducer()
+    {
+        using MetadataSource source = OpenFromContent();
+        var request = new MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            AnnotatedSource: true,
+            Registry: new ResearchFactRegistry());
+
+        MemberProjectionResult direct =
+            MemberProjectionProducer.Produce(request);
+        MemberProjectionResult forwarded =
+            ResearchViews.ProjectMember(request);
+
+        Assert.Equal(
+            direct.AnnotatedSource?.Output,
+            forwarded.AnnotatedSource?.Output);
+        Assert.Equal(
+            direct.AnnotatedSource?.Diagnostics,
+            forwarded.AnnotatedSource?.Diagnostics);
+        Assert.Equal(
+            direct.SelectedMethodToken,
+            forwarded.SelectedMethodToken);
+    }
+
+    [Fact]
     public void PathlessSourceProjectsWithoutFabricatingAFilePath()
     {
         using MetadataSource source = OpenFromContent();
@@ -22,7 +49,7 @@ public class ContentShapedMemberProjectionTests
         // Before FilePath existed, MetadataSource.Path fell back to the assembly's identity name
         // and ResolveAssemblyContext read it as a file, so this projection failed with
         // FileNotFoundException instead of observing a consistent absence of assembly context.
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var projection = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             source,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -38,7 +65,7 @@ public class ContentShapedMemberProjectionTests
     public void SuppliedAssemblyContextRestoresTheFactsPathResolutionCannotReach()
     {
         using MetadataSource pathless = OpenFromContent();
-        var withoutContext = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var withoutContext = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             pathless,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -46,7 +73,7 @@ public class ContentShapedMemberProjectionTests
         Assert.Empty(Assert.IsType<AnnotatedSourceDocument>(withoutContext.SourceDocument).Facts);
 
         using MetadataSource supplied = OpenFromContent();
-        var withContext = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var withContext = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             supplied,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
@@ -62,7 +89,7 @@ public class ContentShapedMemberProjectionTests
         // The supplied context must produce the same facts the path-derived one does, or the
         // browser and the CLI would disagree about the same member.
         using MetadataSource fromPath = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var expected = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+        var expected = MemberProjectionProducer.Produce(new MemberProjectionRequest(
             fromPath,
             typeof(ResearchFixture).FullName!,
             nameof(ResearchFixture.BoxInt),
