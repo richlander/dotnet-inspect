@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Text.Json;
+using CSharpText;
+using CSharpText.MemberSlicing;
 
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -169,6 +172,228 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             "failed to fetch verified source",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    // PR-fast: bounded offline parts requests against the repository's compiled source.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MemberParts_MetadataAndOptInJsonKeepPdbAndLexicalRangesSeparate(bool includeParts)
+    {
+        var result = await RunCliAsync(
+        [
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "-S", "Source Locations", "--json", "--tips", "q",
+            .. includeParts ? new[] { "--source-parts", "--repo", FindRepositoryRoot() } : [],
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        var root = json.RootElement;
+        Assert.Contains("ExtractMemberText", root.GetProperty("member").GetString());
+        Assert.EndsWith("MemberTextSlicer.cs", root.GetProperty("document").GetProperty("path").GetString());
+        Assert.False(root.TryGetProperty("section", out _));
+        Assert.False(root.TryGetProperty("row", out _));
+        Assert.False(root.TryGetProperty("content", out _));
+        Assert.Equal(includeParts, root.TryGetProperty("parts", out var parts));
+        if (includeParts)
+        {
+            Assert.True(parts.GetProperty("member").GetProperty("start_line").GetInt32()
+                < root.GetProperty("pdb_span").GetProperty("start_line").GetInt32());
+            Assert.True(parts.GetProperty("xml_docs").GetProperty("end_line").GetInt32()
+                < parts.GetProperty("signature").GetProperty("start_line").GetInt32());
+            Assert.True(parts.GetProperty("signature").GetProperty("end_line").GetInt32()
+                < parts.GetProperty("body").GetProperty("start_line").GetInt32());
+        }
+        else
+        {
+            Assert.Equal(3, root.EnumerateObject().Count());
+        }
+    }
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("xml-docs")]
+    [InlineData("signature")]
+    [InlineData("body")]
+    public async Task MemberParts_PrintPreservesOriginalTextAndInitialIndentation(string partName)
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "src", "CSharpText.MemberSlicing", "MemberTextSlicer.cs"));
+        var index = DeclarationIndex.Build(source);
+        var declaration = Assert.Single(index.Declarations, item => item.Name == "ExtractMemberText");
+        var parts = Assert.IsType<MemberTextParts>(index.GetMemberTextParts(declaration));
+        MemberTextPart part = partName switch
+        {
+            "member" => parts.Member,
+            "xml-docs" => Assert.Single(parts.XmlDocumentation),
+            "signature" => parts.Signature,
+            "body" => Assert.IsType<MemberTextPart>(parts.Body),
+            _ => throw new InvalidOperationException(),
+        };
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "--print", "--part", partName, "--tips", "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal("    " + source.Substring(part.Start, part.Length), result.Output);
+    }
+
+    [Fact]
+    public async Task MemberParts_AbsentPartFailsWithoutSubstituteText()
+    {
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "--print", "--part", "attributes", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("no 'attributes' part", result.Error);
+    }
+
+    [Fact]
+    public async Task MemberParts_PropertyUsesTheLocatedAccessorAndReturnsTheProperty()
+    {
+        var result = await RunCliAsync(
+            "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!, "HasPdb",
+            "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
+            "--repo", FindRepositoryRoot(), "--print", "--part", "member", "--json", "--tips", "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        var root = json.RootElement;
+        Assert.Contains("public bool HasPdb", root.GetProperty("content").GetString());
+        Assert.Equal("member", root.GetProperty("part").GetString());
+        Assert.False(root.TryGetProperty("section", out _));
+    }
+
+    [Fact]
+    public async Task MemberParts_RouterRetainsThePartAndRepositoryOptions()
+    {
+        string[] arguments =
+        [
+            typeof(MemberTextSlicer).FullName!,
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "-m", "ExtractMemberText:1", "--repo", FindRepositoryRoot(),
+            "--print", "--part", "signature", "--tips", "q",
+        ];
+        var direct = await RunCliAsync(["member", .. arguments]);
+        var deferred = await RunCliAsync(arguments);
+
+        Assert.True(direct.Exit == 0, direct.Error);
+        Assert.Equal(direct, deferred);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--json-array")]
+    public async Task MemberParts_StructuredPrintKeepsTheSelectedText(string format)
+    {
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--print", "--part", "signature", format, "--tips", "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        var item = format == "--json-array" ? json.RootElement[0] : json.RootElement;
+        Assert.StartsWith("public static string? ExtractMemberText(", item.GetProperty("content").GetString());
+        Assert.Equal("signature", item.GetProperty("part").GetString());
+        if (format == "--jsonl")
+            Assert.Single(result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    [InlineData("--json-array")]
+    public async Task MemberParts_DiscoveryRejectsUnsupportedDocumentFormats(string format)
+    {
+        var result = await RunCliAsync(
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--source-parts", format, "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Error);
+    }
+
+    // PR-fast: incompatible sections are rejected before clone or source acquisition.
+    [Theory]
+    [InlineData("Clone Candidates", false)]
+    [InlineData("Clone Candidates", true)]
+    [InlineData("Clone*", false)]
+    [InlineData("clone candidates", true)]
+    [InlineData("Facts", false)]
+    [InlineData("Facts", true)]
+    public async Task MemberParts_RejectsIncompatibleResolvedSections(string section, bool print)
+    {
+        var result = await RunCliAsync(
+        [
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "-S", section, "--json", "--tips", "q",
+            .. print ? new[] { "--print", "--part", "signature" } : new[] { "--source-parts" },
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Authored member parts require Source Locations as the only selected section.",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task MemberParts_RenderedUrlPreferenceDoesNotChangeTheSelectedText()
+    {
+        string[] arguments =
+        [
+            "member", typeof(MemberTextSlicer).FullName!, "ExtractMemberText:1",
+            "--library", typeof(MemberTextSlicer).Assembly.Location,
+            "--print", "--part", "xml-docs", "--json", "--tips", "q",
+        ];
+        var raw = await RunCliAsync(arguments);
+        var rendered = await RunCliAsync([.. arguments, "--prefer-rendered-urls"]);
+
+        Assert.True(raw.Exit == 0, raw.Error);
+        Assert.True(rendered.Exit == 0, rendered.Error);
+        using var rawJson = JsonDocument.Parse(raw.Output);
+        using var renderedJson = JsonDocument.Parse(rendered.Output);
+        Assert.Equal(rawJson.RootElement.GetProperty("content").GetString(),
+            renderedJson.RootElement.GetProperty("content").GetString());
+        Assert.StartsWith("https://raw.githubusercontent.com/",
+            rawJson.RootElement.GetProperty("document").GetProperty("url").GetString());
+        Assert.StartsWith("https://github.com/",
+            renderedJson.RootElement.GetProperty("document").GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task MemberLocations_MetadataJsonHonorsTheMemberRowWindow()
+    {
+        string[] arguments =
+        [
+            "member", typeof(ILInspector.SourceLink.SourceLinkService).FullName!,
+            "--library", typeof(ILInspector.SourceLink.SourceLinkService).Assembly.Location,
+            "-m", "Get*", "-S", "Source Locations", "--json", "--tips", "q",
+        ];
+        var all = await RunCliAsync(arguments);
+        var selected = await RunCliAsync([.. arguments, "--rows", "2..2"]);
+
+        Assert.True(all.Exit == 0, all.Error);
+        Assert.True(selected.Exit == 0, selected.Error);
+        using var allJson = JsonDocument.Parse(all.Output);
+        using var selectedJson = JsonDocument.Parse(selected.Output);
+        Assert.Equal(allJson.RootElement[1].GetProperty("member").GetString(),
+            selectedJson.RootElement.GetProperty("member").GetString());
     }
 
     async Task<(int Exit, string Output, string Error)> RunCliAsync(

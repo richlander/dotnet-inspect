@@ -201,6 +201,50 @@ public partial class CommandExecutionTests
         }
     }
 
+    // Inherits Speed=Slow; run explicitly in the focused member-parts gate.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText(bool mismatch)
+    {
+        var (assemblyPath, sourcePath, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            if (mismatch)
+                File.AppendAllText(sourcePath, "\n// Different checkout.\n");
+
+            var locations = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+            Assert.Equal(0, locations.Exit);
+            Assert.Empty(locations.Error);
+            using var json = JsonDocument.Parse(locations.Output);
+            Assert.Equal(sourcePath, json.RootElement.GetProperty("document").GetProperty("path").GetString());
+            Assert.False(json.RootElement.GetProperty("document").TryGetProperty("url", out _));
+            Assert.False(json.RootElement.TryGetProperty("parts", out _));
+
+            var part = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "--print", "--part", "signature", "--tips", "q");
+            if (mismatch)
+            {
+                Assert.Equal(1, part.Exit);
+                Assert.Empty(part.Output);
+                Assert.Contains("Could not acquire verified member parts", part.Error);
+            }
+            else
+            {
+                Assert.True(part.Exit == 0, part.Error);
+                Assert.Empty(part.Error);
+                Assert.Equal("    public static int Overloaded(int value)", part.Output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_PdbSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
     {
