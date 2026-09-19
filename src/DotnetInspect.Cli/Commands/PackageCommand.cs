@@ -1240,7 +1240,7 @@ public partial class PackageCommand
                 return 1;
             }
 
-            if (options.Tree)
+            if (options.Tree && !effectiveDiscovery)
             {
                 WritePackageDependencyHierarchyTree(result, options);
                 return PackageIntegrityExitCode(result);

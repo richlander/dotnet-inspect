@@ -1015,11 +1015,12 @@ public partial class CommandExecutionTests
             "# Test package");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-D", "--tree", "--tips", "q");
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-D", "Package Info",
+                "--tree", "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains("Package Info", output);
             Assert.Contains("Authors", output);
             Assert.DoesNotContain("README.md", output);
         }
@@ -1038,6 +1039,9 @@ public partial class CommandExecutionTests
             var effective = await RunAppAsync(
                 "package", packagePath, "-D", "Dependency Hierarchy",
                 "--source", tempDir, "--tips", "q");
+            var tree = await RunAppAsync(
+                "package", packagePath, "-D", "Dependency Hierarchy",
+                "--tree", "--source", tempDir, "--tips", "q");
             var obsolete = await RunAppAsync(
                 "package", packagePath, "-D", "--dependencies", "--tips", "q");
             var schema = await RunAppAsync(
@@ -1047,6 +1051,15 @@ public partial class CommandExecutionTests
             Assert.Equal(0, effective.Exit);
             Assert.Empty(effective.Error);
             Assert.Contains("Occurrence", effective.Output);
+
+            Assert.Equal(0, tree.Exit);
+            Assert.Empty(tree.Error);
+            Assert.Contains("Occurrence", tree.Output);
+            Assert.Contains("Parent Occurrence", tree.Output);
+            Assert.DoesNotContain(
+                "test.dependency.one",
+                tree.Output,
+                StringComparison.OrdinalIgnoreCase);
 
             Assert.Equal(0, schema.Exit);
             Assert.Empty(schema.Error);
