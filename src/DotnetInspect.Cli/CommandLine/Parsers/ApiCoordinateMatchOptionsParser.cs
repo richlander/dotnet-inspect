@@ -44,6 +44,7 @@ internal static class ApiCoordinateMatchOptionsParser
                     options.Envelope,
                     options.Markdown,
                     options.PlainText,
+                    options.Output,
                     options.Verbose,
                     options.Info,
                     options.Tips,
@@ -100,6 +101,7 @@ internal static class ApiCoordinateMatchOptionsParser
                     options.Envelope,
                     options.Markdown,
                     options.PlainText,
+                    options.Output,
                     options.Verbose,
                     options.Info,
                     options.Tips,
@@ -287,7 +289,7 @@ internal static class ApiCoordinateMatchOptionsParser
             return new Failure(requestError!.Value);
         }
 
-        bool envelope = parseResult.GetValue(options.Envelope);
+        bool envelope = options.IsEnvelopeOutput(parseResult);
         int explicitFormatCount =
             (parseResult.GetResult(options.Json) is { Implicit: false } ? 1 : 0)
             + (parseResult.GetResult(options.Markdown) is { Implicit: false } ? 1 : 0)

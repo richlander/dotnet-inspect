@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Services;
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -197,6 +198,72 @@ public sealed class ApiCoordinateMatchCommandTests
         Assert.Empty(result.Output);
         Assert.Contains("only one", result.Error);
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public void Match_EnvelopeSelectorLowersToEnvelope(
+        string commandName)
+    {
+        var options = new SharedOptions();
+        ParseResult parseResult;
+        ApiCoordinateMatchOptionsParser.Result result;
+
+        if (commandName == "type")
+        {
+            Command command =
+                ApiCommandDefinitions.CreateTypeCommand(
+                    options,
+                    out TypeOptionsParser.TypeCommandArgs args);
+            Option<bool> matchOption =
+                Assert.IsType<Option<bool>>(
+                    command.Options.Single(option =>
+                        option.Name == "--match"));
+            parseResult = command.Parse(
+            [
+                "Example.Widget",
+                "--package", "Example@1.0.0..2.0.0",
+                "--match",
+                "-o", "envelope",
+            ]);
+            Assert.Empty(parseResult.Errors);
+            result = ApiCoordinateMatchOptionsParser.ParseType(
+                parseResult,
+                options,
+                args,
+                matchOption);
+        }
+        else
+        {
+            Command command =
+                ApiCommandDefinitions.CreateMemberCommand(
+                    options,
+                    out MemberOptionsParser.MemberCommandArgs args);
+            Option<bool> matchOption =
+                Assert.IsType<Option<bool>>(
+                    command.Options.Single(option =>
+                        option.Name == "--match"));
+            parseResult = command.Parse(
+            [
+                "Example.Widget",
+                "Run:1",
+                "--package", "Example@1.0.0..2.0.0",
+                "--match",
+                "-o", "envelope",
+            ]);
+            Assert.Empty(parseResult.Errors);
+            result = ApiCoordinateMatchOptionsParser.ParseMember(
+                parseResult,
+                options,
+                args,
+                matchOption);
+        }
+
+        var success =
+            Assert.IsType<ApiCoordinateMatchOptionsParser.Success>(result);
+        Assert.True(success.Envelope);
+        Assert.Equal(OutputFormat.Json, success.Format);
     }
 
     [Fact]

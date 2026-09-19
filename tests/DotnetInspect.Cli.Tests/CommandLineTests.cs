@@ -260,6 +260,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void CacheClear_WithAncestorOutputSelector_ReportsUnsupportedOption()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+        [
+            "cache",
+            "-o", "json",
+            "clear",
+            "--session", "cache-command-missing-probe",
+        ]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(
+            "clear does not support '-o json'.",
+            error.Message);
+    }
+
+    [Fact]
     public void CacheClear_WithOppositeDirections_ReportsConflict()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(

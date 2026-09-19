@@ -122,6 +122,18 @@ public static class UtilityCommandDefinitions
         opts.AddRowWindowValidators(clearCommand, supportsRowWindows: false);
         clearCommand.Validators.Add(
             result => ValidateCacheLineDirection(result, opts));
+        clearCommand.Validators.Add(result =>
+        {
+            if (result.GetResult(opts.Output)
+                is not { Tokens: [{ Value: string value }] } output
+                || output.Errors.Any())
+            {
+                return;
+            }
+
+            result.AddError(
+                $"clear does not support '-o {value.ToLowerInvariant()}'.");
+        });
         clearCommand.SetAction(async (parseResult, cancellationToken) =>
         {
             var session = parseResult.GetValue(sessionOption);

@@ -375,6 +375,34 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task ExplicitPackage_WithMermaidSelectorAndBare_IsRejected()
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+        [
+            "member",
+            "JsonSerializer",
+            "--package", "System.Text.Json",
+            "-o", "mermaid",
+            "--bare",
+        ]);
+        Assert.Empty(parseResult.Errors);
+
+        var result =
+            await MemberOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error =
+            Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains(
+            "--mermaid is standalone",
+            error.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExplicitPackage_WithEnvironmentTable_SetsExplicitTabularOutput()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");

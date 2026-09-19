@@ -952,7 +952,7 @@ public static class MemberOptionsParser
     {
         bool embeddedMermaid =
             options.IsEmbeddedMermaid(parseResult);
-        if (parseResult.GetValue(options.Mermaid)
+        if (options.IsMermaidOutput(parseResult)
             && (parseResult.GetValue(options.Json)
                 || parseResult.GetValue(options.PlainText)
                 || parseResult.GetValue(options.Bare)
