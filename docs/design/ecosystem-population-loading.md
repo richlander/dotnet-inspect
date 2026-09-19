@@ -323,6 +323,12 @@ identities to the request receipt. The binding never recovers typed inputs
 through reflection, `dynamic`, object lookup, or service location.
 The exact parent load request issues each adjacent-owner request and receipt
 identity, and settlement rejects identities issued for another parent request.
+For a PlatformHouse population child, the settlement additionally retains the
+exact owner-issued `PlatformHouseRequestSnapshot` and
+`PlatformPopulationRealizationReceipt`. It does not reconstruct either value
+from the Ecosystem, family, target, source label, or generated child identity.
+This evidence is resource-free; the adjacent Artifact session remains separate
+owning authority.
 
 ## Invocation and result
 
@@ -336,8 +342,9 @@ The terminal result is:
 EcosystemPopulationLoadOutcome
   Completed(
     receipt,
-    owner-preserving Library population)
+    owner-preserving Library and Artifact authorities)
   Unavailable(receipt, diagnostics)
+  Ambiguous(receipt, diagnostics)
   Incomplete(receipt, partial evidence, diagnostics)
   Rejected(receipt, diagnostics)
   Failed(receipt, diagnostics)
@@ -355,6 +362,8 @@ Every bound invocation outcome retains:
 - applied operation policy and authorized capability-plan identity;
 - every selected adjacent-owner request and terminal receipt through exact
   resource-free owner-issued identities; and
+- for a PlatformHouse population child, the exact PlatformHouse request
+  snapshot and population receipt issued by that child operation; and
 - completion, omission, or failure diagnostics.
 
 `Completed` means the demand was completely satisfied according to the loader
@@ -362,6 +371,11 @@ and every selected source owner. It is invalid when a request-relevant child
 operation is incomplete, unavailable, rejected, failed, or silently omitted.
 An empty completed population is valid only when the selected source owner
 positively establishes that the exact demand has no members.
+
+`Ambiguous` means owner evidence permits several active candidates without an
+authorized precedence. A PlatformHouse `Ambiguous` child remains child
+`Ambiguous` and is projected as loader `Ambiguous`; it is not relabeled as
+`Unavailable`, `Incomplete`, `Rejected`, or empty completion.
 
 `Incomplete` preserves successful partial evidence but makes no completeness
 claim. It may carry owners only from independently `Completed` child
@@ -389,14 +403,29 @@ authority, or a callback that admits Libraries.
 A completed result, or a loader-level incomplete result containing
 independently completed child operations, transfers each adjacent-owner
 Library owner beside its exact resource-free Library reference to the calling
-orchestrator. The orchestrator submits that retained population to the
-ordinary Workspace admission operation. Workspace decides occurrence identity,
-replacement, revision publication, lifetime, and typed rejection.
+orchestrator. A completed PlatformHouse child also transfers its exact adjacent
+`ArtifactSetSession` as separate one-shot authority associated with that child
+settlement. The orchestrator may transfer Library owners individually for
+partial admission while transferring the Artifact session independently to the
+lifetime owner that retains any accepted Libraries.
+
+The owner batch retires untransferred Library owners before retiring an
+untransferred Artifact session. Artifact-session retirement may begin while a
+transferred Library owner remains live, but its awaited completion remains
+pending until the owner's content leases quiesce. The batch therefore never
+awaits Artifact retirement before disposing its own untransferred Library
+owners, and it never silently abandons the pending authority. Artifact cleanup
+failures remain visible as owner-batch retirement failure.
+
+The orchestrator submits the retained population to the ordinary Workspace
+admission operation. Workspace decides occurrence identity, replacement,
+revision publication, lifetime, and typed rejection.
 
 The loader receipt does not claim that admission succeeded. The later admission
 result retains correspondence to the loader receipt. If admission accepts only
 a subset, fails, or is cancelled, the orchestrator retires every owner not
-transferred to Workspace and reports the actual admission outcome.
+transferred to Workspace, transfers or retires every adjacent Artifact session
+exactly once, and reports the actual admission outcome.
 
 This separation keeps an Ecosystem extension from bypassing:
 
@@ -546,10 +575,11 @@ Failure remains attributable to the exact boundary that produced it:
 | Loader and retained registration do not correspond | `Rejected` before capability work |
 | Required host capability absent | Bound `Unavailable` retaining the loader, with no source work |
 | Finite discovery or acquisition bound exhausted | `Incomplete` |
+| Several active Platform candidates without precedence | Child `Ambiguous`, projected as loader `Ambiguous` |
 | Platform family mismatch | Child `Rejected`, projected as loader `Rejected` |
 | Source or Library construction failure | `Failed` |
 | Workspace admission rejects returned content | Separate admission non-success retaining the loader receipt |
-| Cancellation | Cancellation with all untransferred owners retired |
+| Cancellation | Cancellation with all untransferred Library and Artifact authorities retired |
 
 No branch converts a loader failure into an empty Workspace, a Package-origin
 substitute, a direct Platform registration, or a successful Ecosystem route
@@ -611,8 +641,14 @@ The contract must preserve these cases:
    registration state, and explicit realization returns visible selection
    `Rejected` without matching identity text or inventing a binding or receipt.
 9. Workspace admission fails after successful PlatformHouse realization; every
-   untransferred Library owner is retired, and no loader receipt is relabeled
-   as admission success.
+   untransferred Library owner and Artifact session is retired, and no loader
+   receipt is relabeled as admission success.
+10. One Platform Library owner transfers while its Artifact session remains in
+    the owner batch; batch retirement starts Artifact retirement, remains
+    pending without deadlock, and completes after that Library owner retires.
+11. PlatformHouse returns several active candidates without authorized
+    precedence; the exact request and receipt remain visible and the loader
+    returns `Ambiguous`, not `Rejected` or empty completion.
 
 The motivating real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll` and
@@ -638,8 +674,11 @@ This shared capability has eight focused stages:
    application loader selection without moving executable callbacks into
    Workspace state. Durable correspondence reissue after portable restoration
    remains staged.
-5. Implement the `.NET Runtime` and ASP.NET Core loaders over PlatformHouse and the
-   shared Library contract, preserving focus and binding-support roles.
+5. **Platform handoff prerequisites implemented:** Platform populations retain
+   exact focus and binding-support membership; Ecosystem loading retains exact
+   PlatformHouse request and receipt evidence, projects ambiguity distinctly,
+   and transfers Library owners and the adjacent Artifact session once.
+   Implement the `.NET Runtime` and ASP.NET Core loaders over that handoff.
 6. Have Workspace admission and Navigation retain loader and admission
    correspondence and issue exact `.NET Runtime` and ASP.NET Core contribution
    relations.
@@ -663,10 +702,12 @@ stages add these focused Release gates:
 | Non-action | Catalog discovery, plan construction, registration mutation, serialization, and restoration invoke no loader or source capability |
 | Exact selection | Missing or mismatched correspondence returns an unbound selection non-success; one bound request invokes only the exact selected binding |
 | Association | Every bound invocation outcome retains Workspace revision, Ecosystem registration, loader, demand, capability plan, child requests, and receipts |
+| Exact Platform evidence | A Platform child retains the exact owner-issued PlatformHouse request snapshot and population receipt; foreign-parent composition rejects |
+| Ambiguity | PlatformHouse ambiguity remains child and loader `Ambiguous`, never rejection or empty completion |
 | Complete result | `Completed` requires every request-relevant child contribution to complete; omission and bounded exhaustion remain incomplete |
 | Partial ownership | A loader-level incomplete result transfers owners only from independently completed children; incomplete PlatformHouse work transfers none |
 | Admission separation | A loader has no Workspace mutation authority; admission retains the loader receipt and owns occurrence publication |
-| Owner disposition | Every returned Library owner transfers once or is retired on non-success, cancellation, or partial admission |
+| Owner disposition | Every returned Library owner and adjacent Artifact session transfers once or is retired on non-success, cancellation, or partial admission; Artifact retirement follows untransferred Library retirement and cleanup failure remains visible |
 | Platform-family source distinction | Runtime and Package `System.Text.Json`, and ASP.NET Core and Package `Microsoft.AspNetCore.Http.Abstractions`, remain distinct through loading, admission, and Navigation |
 | ASP.NET Core focus role | Runtime binding-support Libraries do not receive an ASP.NET Core Ecosystem relation without an independent exact witness |
 | Host parity | CLI and Browser/Wasm issue equivalent logical requests and interpret the same outcomes with different authorized source plans |
