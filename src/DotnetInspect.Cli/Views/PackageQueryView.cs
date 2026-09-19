@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Sections;
 using InertText;
@@ -36,8 +35,8 @@ public sealed class EmptyPackageQueryView
     [MarkoutSection(Name = "Packages")]
     [MarkoutIgnoreInTable]
     public MarkoutTable Results { get; } = new(
-        ["Package", "Version", "Tier", "Source", "Evidence"],
-        ["package", "version", "tier", "source", "evidence"],
+        ["Package", "Version", "Tier", "Source"],
+        ["package", "version", "tier", "source"],
         []);
 
     [MarkoutSection(Name = PackageQuerySections.QuerySummaryName)]
@@ -60,17 +59,14 @@ public sealed class PackageQueryRow
         VersionText = new(TextPolicy.Field, match.Package.Version);
         SourceText = match.Package.Source.Producer.Display;
         EvaluationTier = match.Tier;
-        EvidenceItems = match.Evidence;
     }
 
     [MarkoutIgnore] public InertString PackageText { get; }
     [MarkoutIgnore] public InertString VersionText { get; }
     [MarkoutIgnore] public InertString SourceText { get; }
     [MarkoutIgnore] public PackageQueryAcquisitionTier EvaluationTier { get; }
-    [MarkoutIgnore] public ImmutableArray<PackageQueryEvidence> EvidenceItems { get; }
     public string Package => PackageText.ToString();
     public string Version => VersionText.ToString();
     public string Tier => EvaluationTier.ToString();
     public string Source => SourceText.ToString();
-    public string Evidence => string.Join("; ", EvidenceItems.Select(item => item.Value));
 }

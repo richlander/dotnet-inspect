@@ -496,7 +496,8 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
 ```
 
 Add `--where "key=value"` to select product-owned Package Query terms, with one
-matched package per row and product-authored evidence. The initial CLI
+matched package per row. Product-authored evidence remains available in
+unprojected JSON and the inspection envelope. The initial CLI
 vocabulary covers package metadata, dependencies, downloads, README presence,
 .NET tools and their CLI v1/v2 format, and skill packages. Discover the
 admitted keys and values before constructing a query:

@@ -676,23 +676,23 @@ one-candidate selected-asset and producer contract remains in
 [Package Query assembly-pattern
 evaluation](package-query-assembly-evaluation.md).
 
-## Row declaration: coercing a wide per-package fact set into a Table
+## Row declaration: keeping package evidence out of the Table
 
 A term-matched package is not naturally one flat row: it may match zero or
 more terms, each with its own evidence, and evaluating a capability-bearing
 term may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
-document proposes:
+document specifies:
 
-- **Default grain: one row per package.** Multiple matched terms collapse
-  into a single `Evidence` column, reusing the existing "evidence over
-  checkmark" convention already established for Performance Triage and
-  `package-opportunities.ts`, and already mirrored by the just-landed browser
-  scaffold's `QueryResultRow.evidence` (a non-empty list, never a bare
-  pass/fail). The CLI and the browser experience should render the *same*
-  evidence strings for the same match — one fact, one wording, two renderers
-  — not two independently authored explanations of why a package matched.
+- **Default grain: one row per package.** The human-readable and projected
+  package row contains only `Package`, `Version`, `Tier`, and `Source`.
+  Per-term evidence is explanatory structured content rather than a tabular
+  field, so it remains on each `PackageQueryMatch` in unprojected JSON and the
+  `InspectionEnvelope<PackageQueryDocument>` instead of being flattened into
+  an `Evidence` column. CLI and Browser consumers use that same
+  product-authored evidence when they need to explain a match rather than
+  independently reconstructing it from display text.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets

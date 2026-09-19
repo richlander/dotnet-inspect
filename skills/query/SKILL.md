@@ -219,9 +219,10 @@ dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
 expressions. Independent terms are ANDed; the broad `tool=true` term identifies
 the .NET tool package type from manifest evidence. Use `tool-format=v1` or
 `tool-format=v2` for settings-based format classification; those specific
-formats are ORed. Query rows represent individual packages, with exact versions
-and product-authored evidence. Dependency predicates inspect all nuspec groups
-by default; use `dependency-target=<TFM>` to select one compatible group, or
+formats are ORed. Query rows represent individual packages with exact versions;
+product-authored evidence remains available in unprojected JSON and the
+inspection envelope. Dependency predicates inspect all nuspec groups by
+default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request
 traversal. `depends-ecosystem=<ecosystem-id>` classifies direct dependencies
