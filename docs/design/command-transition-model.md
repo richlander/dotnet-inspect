@@ -824,12 +824,14 @@ body-diff lowering requires its own explicit rendering boundary.
 
 ### Migration and production path
 
-Top-level `diff` is retained throughout migration. Existing routes remain until
-their shared operation or explicit disposition is complete. `timeline` retires
-only after the shared History operation provides replacement parity for its
-population, evaluation, sparse and failed evidence, Count, output, discovery,
-and sharing behavior. No compatibility alias or second History algorithm is
-introduced.
+Top-level `diff` is a permanent part of the go-forward command architecture,
+not a migration bridge or retirement candidate. Migration changes how its
+shared operations and subject sections compose around it; it does not plan the
+command's removal. Existing routes remain until their shared operation or
+explicit disposition is complete. `timeline` retires only after the shared
+History operation provides replacement parity for its population, evaluation,
+sparse and failed evidence, Count, output, discovery, and sharing behavior. No
+compatibility alias or second History algorithm is introduced.
 
 Before changing a route, inventory existing API, multi-Library,
 Type/Member-filtered, Analysis, Implementation, PDB/source, Finding
