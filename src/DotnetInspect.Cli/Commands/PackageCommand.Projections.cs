@@ -48,11 +48,18 @@ public partial class PackageCommand
 
     private static int WritePackageShapeProjection(InspectionResult result, InspectionOptions options)
     {
-        var kind = ShapeProjectionOutput.GetKind(options.Value, options.Urls, options.Paths);
+        var kind = options.Roots
+            ? ShapeProjectionKind.Roots
+            : ShapeProjectionOutput.GetKind(
+                options.Value,
+                options.Urls,
+                options.Paths);
         var section = options.IncludeSections!.Single();
         var rows = section switch
         {
             PackageSections.PackageInfo => ProjectPackageInfo(result, section, kind, options),
+            PackageSections.Files when options.Roots =>
+                ProjectPackageFileRoots(result.Files, section),
             PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
             PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.FilesReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
@@ -80,6 +87,18 @@ public partial class PackageCommand
                 options.JsonArray,
                 new ProjectionDestination(options.OutputPath, options.Rows)));
     }
+
+    private static List<ShapeProjectionRow> ProjectPackageFileRoots(
+        IEnumerable<PackageFile>? files,
+        string section)
+        => PackageFileLister.ProjectRoots(files ?? [])
+            .Select((root, index) =>
+                new ShapeProjectionRow(
+                    index + 1,
+                    section,
+                    root,
+                    Path: root))
+            .ToList();
 
     /// <summary>
     /// Projects the printable payload of the selected section's rows. Document sections list
