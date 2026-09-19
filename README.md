@@ -317,8 +317,10 @@ Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. **Explore**
-also presents one Relationships row per exact physical call, with explicit
-call-site inspection and **Member** or **Source** target actions. Selecting a
+starts with one Relationships row per exact physical call, with explicit
+call-site inspection and **Member** or **Source** target actions. An opt-in
+**Diagram** groups repeated physical calls by their stable logical edge while
+keeping every exact call site available through the table. Selecting a
 recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
