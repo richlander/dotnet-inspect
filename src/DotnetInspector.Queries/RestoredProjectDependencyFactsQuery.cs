@@ -256,14 +256,68 @@ sealed class RestoredProjectRootIdentityJsonConverter
 /// that spelling; otherwise an opaque digest over the exact authored pivot. Two distinct authored
 /// pivots — including case-only variants — therefore never share an identity.
 /// </param>
+[JsonConverter(typeof(RestoredProjectDeclarationGroupIdentityJsonConverter))]
 public readonly record struct RestoredProjectDeclarationGroupIdentity(
     RestoredProjectSelectionIdentity Selection,
     string PivotIdentity);
 
+sealed class RestoredProjectDeclarationGroupIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RestoredProjectDeclarationGroupIdentity,
+        RestoredProjectSelectionIdentity,
+        string>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectDeclarationGroupIdentity.Selection);
+
+    protected override string SecondPropertyName =>
+        nameof(RestoredProjectDeclarationGroupIdentity.PivotIdentity);
+
+    protected override RestoredProjectDeclarationGroupIdentity Create(
+        RestoredProjectSelectionIdentity first,
+        string second) =>
+        new(first, second);
+
+    protected override RestoredProjectSelectionIdentity FirstValue(
+        RestoredProjectDeclarationGroupIdentity value) =>
+        value.Selection;
+
+    protected override string SecondValue(
+        RestoredProjectDeclarationGroupIdentity value) =>
+        value.PivotIdentity;
+}
+
 /// <summary>Identifies one resolved package node within a selection by its validated canonical coordinate.</summary>
+[JsonConverter(typeof(RestoredProjectPackageNodeIdentityJsonConverter))]
 public readonly record struct RestoredProjectPackageNodeIdentity(
     RestoredProjectSelectionIdentity Selection,
     PackageSourceCoordinate Coordinate);
+
+sealed class RestoredProjectPackageNodeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RestoredProjectPackageNodeIdentity,
+        RestoredProjectSelectionIdentity,
+        PackageSourceCoordinate>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectPackageNodeIdentity.Selection);
+
+    protected override string SecondPropertyName =>
+        nameof(RestoredProjectPackageNodeIdentity.Coordinate);
+
+    protected override RestoredProjectPackageNodeIdentity Create(
+        RestoredProjectSelectionIdentity first,
+        PackageSourceCoordinate second) =>
+        new(first, second);
+
+    protected override RestoredProjectSelectionIdentity FirstValue(
+        RestoredProjectPackageNodeIdentity value) =>
+        value.Selection;
+
+    protected override PackageSourceCoordinate SecondValue(
+        RestoredProjectPackageNodeIdentity value) =>
+        value.Coordinate;
+}
 
 /// <summary>
 /// Identifies one resolved project node within a selection by an opaque digest over its exact
@@ -331,9 +385,36 @@ public abstract record RestoredProjectGraphParentIdentity
 }
 
 /// <summary>Identifies one package-resolving graph edge by its parent and resolved dependency.</summary>
+[JsonConverter(typeof(RestoredProjectEdgeIdentityJsonConverter))]
 public readonly record struct RestoredProjectEdgeIdentity(
     RestoredProjectGraphParentIdentity Parent,
     RestoredProjectPackageNodeIdentity Dependency);
+
+sealed class RestoredProjectEdgeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RestoredProjectEdgeIdentity,
+        RestoredProjectGraphParentIdentity,
+        RestoredProjectPackageNodeIdentity>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectEdgeIdentity.Parent);
+
+    protected override string SecondPropertyName =>
+        nameof(RestoredProjectEdgeIdentity.Dependency);
+
+    protected override RestoredProjectEdgeIdentity Create(
+        RestoredProjectGraphParentIdentity first,
+        RestoredProjectPackageNodeIdentity second) =>
+        new(first, second);
+
+    protected override RestoredProjectGraphParentIdentity FirstValue(
+        RestoredProjectEdgeIdentity value) =>
+        value.Parent;
+
+    protected override RestoredProjectPackageNodeIdentity SecondValue(
+        RestoredProjectEdgeIdentity value) =>
+        value.Dependency;
+}
 
 /// <summary>A declaration group's authored framework identity: recognized canonical, or explicitly unrecognized.</summary>
 /// <param name="Identity">

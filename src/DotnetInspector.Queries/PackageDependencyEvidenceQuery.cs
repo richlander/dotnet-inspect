@@ -617,9 +617,36 @@ public abstract record PackageDependencyEvidenceGroupOccurrence
 }
 
 /// <summary>Identity for one successful declaration row.</summary>
+[JsonConverter(typeof(PackageDependencyEvidenceDeclarationIdentityJsonConverter))]
 public readonly record struct PackageDependencyEvidenceDeclarationIdentity(
     PackageDependencyEvidenceGroupIdentity Group,
     string CanonicalPackageId);
+
+sealed class PackageDependencyEvidenceDeclarationIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        PackageDependencyEvidenceDeclarationIdentity,
+        PackageDependencyEvidenceGroupIdentity,
+        string>
+{
+    protected override string FirstPropertyName =>
+        nameof(PackageDependencyEvidenceDeclarationIdentity.Group);
+
+    protected override string SecondPropertyName =>
+        nameof(PackageDependencyEvidenceDeclarationIdentity.CanonicalPackageId);
+
+    protected override PackageDependencyEvidenceDeclarationIdentity Create(
+        PackageDependencyEvidenceGroupIdentity first,
+        string second) =>
+        new(first, second);
+
+    protected override PackageDependencyEvidenceGroupIdentity FirstValue(
+        PackageDependencyEvidenceDeclarationIdentity value) =>
+        value.Group;
+
+    protected override string SecondValue(
+        PackageDependencyEvidenceDeclarationIdentity value) =>
+        value.CanonicalPackageId;
+}
 
 /// <summary>One normalized direct package declaration.</summary>
 public sealed record PackageDependencyEvidenceDeclaration(
