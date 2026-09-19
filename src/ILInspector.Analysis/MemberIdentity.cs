@@ -377,9 +377,8 @@ public sealed record DirectCall(
     /// <summary>
     /// Conservative use of the value produced by this call.
     /// <c>MethodCallAnalysisTests.ClassifiesReturnedAndDiscardedCallResults</c>
-    /// gates direct uses when
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
-    /// requested; plain MethodEvidence leaves this
+    /// gates direct uses when call value flow is requested by JSON wire
+    /// contracts or Resource Occurrence Analysis; plain MethodEvidence leaves this
     /// <see cref="DirectCallResultUse.Unknown"/>.
     /// </summary>
     public DirectCallResultUse ResultUse { get; init; }
@@ -393,8 +392,8 @@ public sealed record DirectCall(
     /// interpret the body evaluation stack. Unknown, raw, or merged values
     /// have <see cref="CallArgumentSource.IsComplete"/> set to false.
     /// <c>MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources</c>
-    /// gates the fail-closed boundary. The collection is materialized only by
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
+    /// gates the fail-closed boundary. The collection is materialized only
+    /// when call value flow is explicitly requested.
     /// </summary>
     public CallArgumentSources ArgumentSources { get; init; } =
         CallArgumentSources.Empty;
@@ -413,8 +412,7 @@ public sealed record DirectCall(
     /// <summary>
     /// Direct-call provenance for an instance call's receiver when Analysis can
     /// interpret the body evaluation stack. Null for static calls and when
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is not
-    /// requested.
+    /// call value flow is not requested.
     /// </summary>
     /// <remarks>
     /// <c>MethodCallAnalysisTests.CollectsInstanceReceiverCallSources</c>
@@ -424,9 +422,8 @@ public sealed record DirectCall(
 
     /// <summary>
     /// Whether the block containing this call is reachable from the body entry.
-    /// Null when the EH-aware block graph is incomplete or
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> was not
-    /// requested, so an unknown answer never reads as "reachable".
+    /// Null when the EH-aware block graph is incomplete or call value flow was
+    /// not requested, so an unknown answer never reads as "reachable".
     /// </summary>
     /// <remarks>
     /// Computed from the shared EH-aware block graph through the
@@ -454,8 +451,8 @@ public sealed record DirectCall(
     /// Resolved provenance for each declared argument, indexed by position.
     /// This is the newer union described on <see cref="ResolvedValueSet"/>; it
     /// coexists with <see cref="ArgumentSources"/> rather than reinterpreting
-    /// it. Materialized for <c>call</c>, <c>callvirt</c>, and <c>newobj</c> by
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/>.
+    /// it. Materialized for <c>call</c>, <c>callvirt</c>, and <c>newobj</c>
+    /// when call value flow is explicitly requested.
     /// </summary>
     public ResolvedValueSets ResolvedArgumentValues { get; init; } =
         ResolvedValueSets.Empty;
@@ -748,7 +745,7 @@ public sealed record MethodResultSink(
     /// gate this contract.
     /// </remarks>
     public AsyncStateMachineFieldResultSource? StateMachineFieldSource
-        { get; init; }
+    { get; init; }
 }
 
 /// <summary>

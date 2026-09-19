@@ -211,16 +211,19 @@ public static partial class SourceExports
         operation.CancellationToken.ThrowIfCancellationRequested();
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
-        if (resolution.Member.MetadataToken != resolution.BodyToken)
+        ApiMember selectedMember = resolution.Member;
+        if (selectedMember.MetadataToken != resolution.BodyToken)
         {
-            throw new InvalidOperationException(
-                $"Whole-member source for '{typeIdentity}.{memberName}' is unavailable because "
-                + "the selected body is an accessor rather than a method definition.");
+            selectedMember = ApiMemberAccessors.Create(selectedMember, resolution.Type)
+                .SingleOrDefault(member => member.MetadataToken == resolution.BodyToken)
+                ?? throw new InvalidOperationException(
+                    $"Whole-member source for '{typeIdentity}.{memberName}' is unavailable because "
+                    + "the selected body has no exact physical accessor projection.");
         }
 
         AssemblyMemberSourceRequest request = AssemblyMemberSourceRequest.From(
             resolution.Type,
-            resolution.Member,
+            selectedMember,
             BrowserStyleOptions.Resolve(styleOptionsJson));
         if (includeParts)
             request = request.WithAuthoredParts(allowDecompiledFallback: true);

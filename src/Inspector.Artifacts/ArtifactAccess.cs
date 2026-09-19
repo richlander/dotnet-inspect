@@ -227,7 +227,7 @@ public sealed class RetainedArtifactContent
         TResult result = callback(
             new ArtifactAdmissionContentView(
                 Registration.Artifact,
-                _snapshot.AsSpan()),
+                _snapshot),
             cancellationToken);
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
     }
@@ -248,7 +248,7 @@ public sealed class RetainedArtifactContent
         TResult result = callback(
             new ArtifactQueryContentView(
                 Registration.Artifact,
-                _snapshot.AsSpan()),
+                _snapshot),
             cancellationToken);
         return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
     }

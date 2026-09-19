@@ -41,6 +41,58 @@ public sealed class ArtifactScopedContentTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ScopedContent_ReadStreamCannotEscapeBorrow(bool query)
+    {
+        var owner = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            owner.CreateAdmissionAuthorization();
+        using ArtifactAdmissionLease admissionLease =
+            owner.IssueLease(admission);
+        (_, RetainedArtifactContent content) =
+            Retain(owner, admission);
+        ArtifactContentAccessOutcome<Stream> outcome;
+        if (query)
+        {
+            owner.CompleteAdmission(admission);
+            using ArtifactQueryLease lease =
+                owner.IssueLease(
+                    owner.CreateQueryAuthorization());
+            outcome = content.WithQueryContent(
+                lease,
+                static (view, _) => view.UseReadStream(
+                    static stream =>
+                    {
+                        Assert.Equal(1, stream.ReadByte());
+                        return stream;
+                    }),
+                TestContext.Current.CancellationToken);
+        }
+        else
+        {
+            outcome = content.WithAdmissionContent(
+                admissionLease,
+                static (view, _) => view.UseReadStream(
+                    static stream =>
+                    {
+                        Assert.Equal(1, stream.ReadByte());
+                        return stream;
+                    }),
+                TestContext.Current.CancellationToken);
+        }
+
+        Stream escaped =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<Stream>.Accessed>(
+                    outcome).Value;
+        Assert.False(escaped.CanRead);
+        Assert.Throws<ObjectDisposedException>(
+            () => escaped.ReadByte());
+        owner.EndGeneration();
+    }
+
+    [Theory]
     [InlineData(false, "missing")]
     [InlineData(false, "foreign")]
     [InlineData(false, "disposed")]
@@ -235,7 +287,9 @@ public sealed class ArtifactScopedContentTests
             contribution.Registration, ImmutableArray.Create(new byte[imageSize]));
         owner.CompleteAdmission(admission);
         using ArtifactQueryLease lease = owner.IssueLease(owner.CreateQueryAuthorization());
-        ArtifactQueryContentCallback<int> callback = static (view, _) => view.Content.Length;
+        ArtifactQueryContentCallback<int> callback =
+            static (view, _) => view.UseReadStream(
+                static stream => checked((int)stream.Length));
         CancellationToken token = TestContext.Current.CancellationToken;
         content.WithQueryContent(lease, callback, token);
 

@@ -37,6 +37,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageDownload Include="docopt.net" Version="[0.8.3]" />
+    <None Include="$(NuGetPackageRoot)docopt.net/0.8.3/lib/netstandard2.1/DocoptNet.dll"
+          Link="RealAssets/FieldGetter/DocoptNet.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="CSharpText" />
     <Using Include="DotnetInspector.Networking" />
     <Using Include="Xunit" />

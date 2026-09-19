@@ -15,10 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Positional
-`depends <type>` also has a separate complete-service `--envelope` path
-described below. Other relationship commands may still expose fixed output.
-Discover the shape first where available, then select and project.
+projection across its dependency graph and evidence sections. Several commands
+also expose a separate complete-service `--envelope` path described below.
+Other relationship commands may still expose fixed output. Discover the shape
+first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -54,6 +54,7 @@ Workspace coordinate replacement is the exception: request
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
 | `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
 | Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
 
@@ -216,6 +217,11 @@ dnx dotnet-inspect -y -- package query Newtonsoft.Json \
 dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+dnx dotnet-inspect -y -- package query 'Azure.*' \
+  --where "dependencies=cross-prefix"
+dnx dotnet-inspect -y -- package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
@@ -234,10 +240,16 @@ Dependency predicates inspect all nuspec groups
 by default; use `dependency-target=<TFM>` to select one compatible group, or
 `dependency-target=all` to spell the default explicitly. The query scope
 `all` remains distinct from a manifest's `any` group and does not request
-traversal. `depends-ecosystem=<ecosystem-id>` classifies direct dependencies
-against the registered exact packages and package prefixes for one canonical
-ecosystem; repeat it to require every named ecosystem. `--take` bounds
-candidate work, while `-n` and `--rows` select final
+traversal. `dependencies=cross-prefix` matches a direct declaration whose first
+dot-delimited package-ID segment differs from the package's own segment.
+`depends-ecosystem=<ecosystem-id>` classifies direct dependencies against the
+registered exact packages and package prefixes for one canonical ecosystem;
+repeat it to require every named ecosystem.
+`references=<simple-assembly-name>` scans the managed `ref/` and `lib/`
+assemblies from every target-framework group, matches `AssemblyRef` simple
+names case-insensitively, and reports framework/path evidence without resolving
+or traversing the reference.
+`--take` bounds candidate work, while `-n` and `--rows` select final
 matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
 execution: direct package rows use an effective candidate bound of N, while
 filtered queries scan until N matches or their default candidate bound.

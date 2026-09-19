@@ -16,8 +16,11 @@ public static class LibraryBodyAnalysisService
     public static LibraryBodyIndex AnalyzePath(
         string path,
         LibraryBodyAnalysisRequest request,
-        IAssemblyReferenceResolver? resolver = null) =>
-        ExecutePath(path, request, resolver).CompatibilityIndex();
+        IAssemblyReferenceResolver? resolver = null)
+    {
+        RequireCompatibilityRequest(request);
+        return ExecutePath(path, request, resolver).CompatibilityIndex();
+    }
 
     /// <summary>
     /// Executes Analysis over an exact path and publishes independently typed
@@ -71,12 +74,15 @@ public static class LibraryBodyAnalysisService
         string sourceName,
         ImmutableArray<byte> image,
         LibraryBodyAnalysisRequest request,
-        IAssemblyReferenceResolver? resolver = null) =>
-        ExecuteImage(
+        IAssemblyReferenceResolver? resolver = null)
+    {
+        RequireCompatibilityRequest(request);
+        return ExecuteImage(
             sourceName,
             image,
             request,
             resolver).CompatibilityIndex();
+    }
 
     /// <summary>
     /// Executes Analysis over caller-provided immutable PE image content,
@@ -154,7 +160,8 @@ public static class LibraryBodyAnalysisService
 
     private static bool UsesReferenceResolution(
         LibraryBodyAnalysisPlan plan) =>
-        plan.Includes(
+        plan.IncludesResourceOccurrences
+        || plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities)
         || plan.Includes(
             LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
@@ -162,6 +169,19 @@ public static class LibraryBodyAnalysisService
             LibraryBodyAnalysisFeatures.OwnershipFlow)
         || plan.Includes(
             LibraryBodyAnalysisFeatures.LocalThrows);
+
+    private static void RequireCompatibilityRequest(
+        LibraryBodyAnalysisRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ResourceEffects is not null)
+        {
+            throw new ArgumentException(
+                "Resource Occurrence Analysis publishes a focused result. "
+                + "Use ExecutePath or ExecuteImage.",
+                nameof(request));
+        }
+    }
 
     private static LibraryBodyRootSnapshot? AcquireRootSnapshot(
         string path)

@@ -114,7 +114,6 @@ public partial record ApiOptions : IProjectionOptions
     /// When false, the command decides the default based on context.
     /// </summary>
     public bool DocsExplicitlySet { get; init; }
-    public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool PreferRenderedUrls { get; init; }
 
@@ -314,6 +313,7 @@ public record TypeOptions : ApiOptions
     public string? WorkspacePacket { get; init; }
     public WorkspaceShareFormat? ShareFormat { get; init; }
     public string? TypeFilter { get; init; }
+    public bool EnvelopeOutput { get; init; }
     public RowSelectionIntent<string>? TypeListingRowSelection { get; init; }
     internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
@@ -328,7 +328,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public override bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
+    public override bool IsRawOutput => Bare || JsonOutput || EnvelopeOutput || Tabular || Jsonl || NoHeader || ShapeOutput || Count;
 }
 
 /// <summary>

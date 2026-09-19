@@ -86,7 +86,12 @@ public sealed class PdbLocalScopePass : IIrPass
         }
 
         var range = block.Children.Skip(first).Take(last - first + 1).ToArray();
-        if (!CanRetainRange(function, index, sameName, range))
+        if (!CanRetainRange(
+                function,
+                index,
+                sameName,
+                range,
+                RetainedEntryLabels(function, declaration, block)))
         {
             return;
         }
@@ -167,7 +172,12 @@ public sealed class PdbLocalScopePass : IIrPass
         if (retainedLabels.TryGetValue(lastBlock, out LabelAnchor? rangeLastAnchor))
             range.Add(rangeLastAnchor);
         range.AddRange(blocks[lastBlock].Children.Take(lastStatement.ChildIndex + 1));
-        if (!CanRetainRange(function, index, sameName, range))
+        if (!CanRetainRange(
+                function,
+                index,
+                sameName,
+                range,
+                RetainedEntryLabels(function, declaration, declarationBlock)))
             return;
 
         int declarationPosition = declaration.ChildIndex;
@@ -216,9 +226,14 @@ public sealed class PdbLocalScopePass : IIrPass
         IrFunction function,
         int index,
         int[] sameName,
-        IReadOnlyList<IrNode> range)
+        IReadOnlyList<IrNode> range,
+        IReadOnlySet<int>? bodyLabelsRetainedOutside)
     {
-        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(
+                function,
+                range,
+                [],
+                bodyLabelsRetainedOutside))
             return false;
         bool Inside(IrNode node) => range.Any(
             statement => ExactLocalNameAllocation.Contains(statement, node));
@@ -240,6 +255,24 @@ public sealed class PdbLocalScopePass : IIrPass
             }
         }
         return true;
+    }
+
+    static IReadOnlySet<int>? RetainedEntryLabels(
+        IrFunction function,
+        IrNode declaration,
+        Block declarationBlock)
+    {
+        // BlockContainer prints a basic-block label before its child statements,
+        // so wrapping the first statement leaves this entry outside the new scope.
+        if (declaration.ChildIndex != 0
+            || declarationBlock.Parent is not BlockContainer
+            || declarationBlock.StartOffset < 0
+            || !ReferenceOwnership.CollectBranchTargets(function).Contains(
+                declarationBlock.StartOffset))
+        {
+            return null;
+        }
+        return new HashSet<int> { declarationBlock.StartOffset };
     }
 
     static Block? TopLevelBlock(IrNode node, BlockContainer container)

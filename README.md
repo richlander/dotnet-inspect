@@ -317,8 +317,10 @@ Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. **Explore**
-also presents one Relationships row per exact physical call, with explicit
-call-site inspection and **Member** or **Source** target actions. Selecting a
+starts with one Relationships row per exact physical call, with explicit
+call-site inspection and **Member** or **Source** target actions. An opt-in
+**Diagram** groups repeated physical calls by their stable logical edge while
+keeping every exact call site available through the table. Selecting a
 recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
@@ -326,8 +328,11 @@ shows the exact synchronous-completion structure without claiming that runtime
 blocking was measured. Selecting a proven classic `await` explains its inline
 and suspension/resume paths, while selecting an exception-related allocation
 distinguishes a thrown value from an allocation inside a catch, filter, or
-fault handler. Both are compiled-structure evidence and make no runtime path or
-frequency claim.
+fault handler. A relationship can also show a bounded direct-call path to a
+method containing an Analysis-proven local `throw new`, including its exception
+type and physical construction and throw offsets. These are compiled-structure
+claims only: they do not prove that a path ran, that a throw escapes, or that an
+exception propagates to the selected method.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -369,14 +374,16 @@ Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, ordinary and `--library-literal` Package Query, and online package
-range-version population support the presence-only `--envelope` service-output
-selector. It implies JSON. For `depends`, API Diff, Package Activity, and
-Package Query, unprojected `--json` emits the same Content without the service
-frame. Package version `--json` remains an explicit row projection;
+range-version population, and exact package-backed Type or Library API
+inspection support the presence-only `--envelope` service-output selector. It
+implies JSON. For `depends`, API Diff, Package Activity, Package Query, and
+exact Type or Library API inspection, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection;
 `--envelope` instead exposes the complete directed population Document, Share,
 and diagnostics. Asset-mode `depends`, other Diff modes, Discover, Count outside
-package population, projected output, and other commands have not adopted this
-transport.
+package population, projected output, other Type modes, and other commands have
+not adopted this transport.
 
 | Goal | Flags |
 | ---- | ----- |
@@ -526,6 +533,29 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
+Use `dependencies=cross-prefix` to find packages with a direct dependency from a
+different first dot-delimited package-ID segment. It uses the same
+`dependency-target` scope and remains nuspec-only:
+
+```bash
+dotnet-inspect package query 'Azure.*' \
+  --where "dependencies=cross-prefix"
+```
+
+Use `references=<simple-assembly-name>` to find packages whose managed `ref/`
+or `lib/` assemblies declare that `AssemblyRef` across any target-framework
+group:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
+```
+
+This package-content term matches simple names case-insensitively and reports
+the matching framework and archive path. It does not resolve or traverse the
+reference.
+
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
 without reading a license document: SPDX expressions match their exact
@@ -562,9 +592,11 @@ content is an explicit package projection and never informs license identity.
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and semantic answers. Structured evidence remains
 available in unprojected JSON and the inspection envelope. The initial CLI
-vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, skill packages, and nuspec license
-identity. Discover the admitted keys and values before constructing a query:
+vocabulary covers package metadata, direct dependencies, cross-prefix and
+ecosystem dependency classification, downloads, README presence, .NET tools
+and their CLI v1/v2 format, assembly references, skill packages, and nuspec
+license identity. Discover the admitted keys and values before constructing a
+query:
 
 ```bash
 dotnet-inspect package query -Q Packages

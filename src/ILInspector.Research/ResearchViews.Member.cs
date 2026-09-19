@@ -33,12 +33,12 @@ public static partial class ResearchViews
     public static IReadOnlyList<IAnnotation> CollectFacts(
         MetadataSource source,
         IrFunction imported,
-        ResearchAssemblyContext? assembly,
+        MemberProjectionAnalysisInput? analysis,
         ResearchFactRegistry? registry = null) =>
         MemberProjectionProducer.CollectFacts(
             source,
             imported,
-            assembly,
+            analysis,
             registry);
 
     public static IReadOnlyList<FactRow> CollectFactRows(

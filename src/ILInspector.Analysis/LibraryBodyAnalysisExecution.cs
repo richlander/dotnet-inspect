@@ -16,7 +16,10 @@ public sealed record LibraryBodyAnalysisReceipt(
 /// <summary>Unsafe evidence produced by one library-body Analysis execution.</summary>
 public sealed record LibrarySafetyAnalysisResult(
     LibraryBodyAnalysisReceipt Receipt,
-    ImmutableArray<UnsafeEvidence> Evidence)
+    ImmutableArray<UnsafeEvidence> Evidence,
+    IReadOnlyDictionary<
+        int,
+        ImmutableArray<UnsafetyOccurrence>> Occurrences)
 {
     /// <summary>Whether unsafe-evidence production participated in this execution.</summary>
     public bool WasRequested =>
@@ -41,6 +44,23 @@ public sealed record LibraryImplementationProfileAnalysisResult(
     public bool WasRequested =>
         Receipt.Features.HasFlag(
             LibraryBodyAnalysisFeatures.ImplementationProfiles);
+}
+
+/// <summary>
+/// Detached terminal-resource facts produced from one resolution and body
+/// acquisition generation.
+/// </summary>
+public sealed record LibraryResourceOccurrenceAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ResourceEffectAdmissionReceipt? AdmissionReceipt,
+    ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations)
+{
+    public bool IsComplete =>
+        WasRequested
+        && Limitations.IsEmpty
+        && Methods.All(method => method.IsComplete);
 }
 
 /// <summary>
@@ -80,7 +100,11 @@ public sealed class LibraryBodyAnalysisExecution
             generatedFrameworkTypes);
         Safety = new(
             Receipt,
-            analysis.Safety.Evidence);
+            analysis.Safety.Evidence,
+            analysis.Safety.Occurrences);
+        Allocations = new(
+            Receipt,
+            analysis.Allocations);
         ImplementationProfiles =
             CreateImplementationProfileResult(
                 Receipt,
@@ -92,6 +116,12 @@ public sealed class LibraryBodyAnalysisExecution
             analysis,
             CallGraph,
             generatedFrameworkTypes);
+        ResourceOccurrences = new(
+            Receipt,
+            plan.IncludesResourceOccurrences,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceOccurrences?.Methods ?? [],
+            analysis.ResourceOccurrences?.Limitations ?? []);
     }
 
     /// <summary>
@@ -103,9 +133,13 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused unsafe-evidence result.</summary>
     public LibrarySafetyAnalysisResult Safety { get; }
 
+    /// <summary>Focused allocation-occurrence result.</summary>
+    public LibraryAllocationAnalysisResult Allocations { get; }
+
     /// <summary>Focused implementation-profile result.</summary>
     public LibraryImplementationProfileAnalysisResult
-        ImplementationProfiles { get; }
+        ImplementationProfiles
+    { get; }
 
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
@@ -115,6 +149,13 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused whole-library leverage result.</summary>
     public LibraryLeverageAnalysisResult Leverage { get; }
+
+    /// <summary>Focused root-bound Resource Occurrence result.</summary>
+    public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
+    { get; }
+
+    internal bool HasMaterializedCompatibilityIndex =>
+        _compatibilityIndex is not null;
 
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
