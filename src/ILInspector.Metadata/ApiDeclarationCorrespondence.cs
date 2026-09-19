@@ -1682,7 +1682,9 @@ public static class ApiDeclarationCorrespondence
         readonly TypeDefinitionHandle _declaringType;
         readonly GenericContext _typeContext;
         readonly byte _typeNullableContext;
-        readonly HashSet<MethodDefinitionHandle>
+        readonly Dictionary<
+            MethodDefinitionHandle,
+            ApiSurfaceExtractor.ExplicitImplementationEvidence>
             _explicitImplementationBodies;
         readonly ProjectionWorkBudget _budget;
 
@@ -1710,9 +1712,7 @@ public static class ApiDeclarationCorrespondence
                     reader,
                     declaringType,
                     type,
-                    beforeDecodeWork: budget.Charge)
-                .Keys
-                .ToHashSet();
+                    beforeDecodeWork: budget.Charge);
         }
 
         public MemberAnchor Create(
@@ -1747,7 +1747,11 @@ public static class ApiDeclarationCorrespondence
             string kind = ApiSurfaceExtractor.ClassifyMethodKind(
                 methodName,
                 isFinalizer,
-                _explicitImplementationBodies.Contains(methodHandle));
+                _explicitImplementationBodies.TryGetValue(
+                    methodHandle,
+                    out ApiSurfaceExtractor.ExplicitImplementationEvidence
+                        explicitImplementation),
+                explicitImplementation.DeclarationIsOperator == true);
             var member = new ApiMember
             {
                 Name = methodName,

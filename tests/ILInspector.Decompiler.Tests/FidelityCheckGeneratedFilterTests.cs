@@ -3823,10 +3823,20 @@ public class FidelityCheckGeneratedFilterTests
                 | TypeAttributes.Abstract
                 | TypeAttributes.Sealed,
             default,
-            metadata.GetOrAddString("MethodDeclarationNeighborFixture"),
+            metadata.GetOrAddString("StaticNewSlotMethodFixture"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(11));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Class
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("MethodDeclarationNeighborFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(12));
 
         var methodBodies = new BlobBuilder();
         var methodBodyEncoder = new MethodBodyStreamEncoder(methodBodies);
@@ -3945,6 +3955,17 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString("FinalNonVirtual"),
             metadata.GetOrAddBlob(
                 (byte[])[0x20, 0x00, 0x08]),
+            AddBody(),
+            MetadataTokens.ParameterHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("StaticNewSlot"),
+            metadata.GetOrAddBlob(
+                (byte[])[0x00, 0x00, 0x08]),
             AddBody(),
             MetadataTokens.ParameterHandle(2));
         metadata.AddMethodDefinition(
@@ -4696,6 +4717,9 @@ public class FidelityCheckGeneratedFilterTests
         metadata.AddInterfaceImplementation(
             multipleMethodImplType,
             contractType);
+        metadata.AddInterfaceImplementation(
+            baseMethodImplType,
+            baseType);
         metadata.AddInterfaceImplementation(
             genericMismatchType,
             genericContractString);

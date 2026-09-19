@@ -58,6 +58,7 @@ internal readonly record struct ApiMethodModifiers(
             isExplicitInterfaceImplementation
                 ? explicitShapeIsRepresentable
                 : ordinaryFlagsAreRepresentable
-                    && (!isFinal || isOverride));
+                    && (!isFinal || isOverride)
+                    && (!isNewSlot || isVirtual));
     }
 }

@@ -1161,7 +1161,10 @@ public static partial class ApiSurfaceExtractor
                 var isExplicitInterfaceImplementation =
                     explicitImplementationBodies.TryGetValue(
                         methodHandle,
-                        out ExactTypeIdentity explicitInterface);
+                        out ExplicitImplementationEvidence
+                            explicitImplementation);
+                ExactTypeIdentity explicitInterface =
+                    explicitImplementation.Interface;
                 int explicitSeparator = methodName.LastIndexOf('.');
                 bool explicitInterfaceQualifierMatches =
                     !isExplicitInterfaceImplementation
@@ -1319,7 +1322,9 @@ public static partial class ApiSurfaceExtractor
                     Kind = ClassifyMethodKind(
                         methodName,
                         isFinalizer,
-                        isExplicitInterfaceImplementation),
+                        isExplicitInterfaceImplementation,
+                        explicitImplementation.DeclarationIsOperator
+                            == true),
                     MethodSemantics = accessorAssociationsAvailable
                         ? accessorMethods.GetValueOrDefault(
                             methodHandle,
@@ -1339,7 +1344,12 @@ public static partial class ApiSurfaceExtractor
                             0 => !isOperator || explicitSeparator < 0,
                             1 => isFinalizer
                                 || isExplicitInterfaceImplementation
-                                    && explicitInterfaceQualifierMatches,
+                                    && explicitInterfaceQualifierMatches
+                                    && (!IsRecognizedOperatorMethodName(
+                                            methodName)
+                                        || explicitImplementation
+                                            .DeclarationIsOperator
+                                            is not null),
                             _ => false,
                         },
                     IsFinalizer = isFinalizer,

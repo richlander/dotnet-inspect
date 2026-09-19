@@ -661,7 +661,9 @@ public static partial class ApiSurfaceExtractor
                 | ApiMethodSemanticsKind.EventAdder
                 | ApiMethodSemanticsKind.EventRemover)) != 0;
 
-    internal static Dictionary<MethodDefinitionHandle, ExactTypeIdentity>
+    internal static Dictionary<
+        MethodDefinitionHandle,
+        ExplicitImplementationEvidence>
         GetExplicitImplementationBodies(
             MetadataReader reader,
             TypeDefinitionHandle typeDefHandle,
@@ -681,7 +683,10 @@ public static partial class ApiSurfaceExtractor
             beforeDecodeWork?.Invoke(8);
             InterfaceImplementation implementation =
                 reader.GetInterfaceImplementation(interfaceHandle);
-            if (TryGetExactTypeIdentity(
+            if (InterfaceImplementationTargetIsRepresentable(
+                    reader,
+                    implementation.Interface)
+                && TryGetExactTypeIdentity(
                     reader,
                     implementation.Interface,
                     context,
@@ -692,7 +697,9 @@ public static partial class ApiSurfaceExtractor
             }
         }
 
-        Dictionary<MethodDefinitionHandle, ExactTypeIdentity> handles = [];
+        Dictionary<
+            MethodDefinitionHandle,
+            ExplicitImplementationEvidence> handles = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             beforeDecodeWork?.Invoke(16);
@@ -704,7 +711,8 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     implementation.MethodDeclaration,
                     out EntityHandle declarationOwner,
-                    out StringHandle declarationName)
+                    out StringHandle declarationName,
+                    out bool? declarationHasSpecialName)
                 || !TryGetExactTypeIdentity(
                     reader,
                     declarationOwner,
@@ -748,17 +756,79 @@ public static partial class ApiSurfaceExtractor
 
             handles.TryAdd(
                 bodyHandle,
-                declarationOwnerEvidence.Identity);
+                new ExplicitImplementationEvidence(
+                    declarationOwnerEvidence.Identity,
+                    declarationHasSpecialName is { } hasSpecialName
+                        ? hasSpecialName
+                            && IsOperatorMethodName(declaredName)
+                        : null));
         }
 
         return handles;
+    }
+
+    private static bool InterfaceImplementationTargetIsRepresentable(
+        MetadataReader reader,
+        EntityHandle target)
+    {
+        try
+        {
+            while (target.Kind == HandleKind.TypeSpecification)
+            {
+                BlobReader signature = reader.GetBlobReader(
+                    reader.GetTypeSpecification(
+                        (TypeSpecificationHandle)target).Signature);
+                if (signature.ReadSignatureTypeCode()
+                        != SignatureTypeCode.GenericTypeInstance
+                    || signature.ReadSignatureTypeCode()
+                        != SignatureTypeCode.TypeHandle)
+                {
+                    return false;
+                }
+                target = signature.ReadTypeHandle();
+            }
+
+            if (target.Kind == HandleKind.TypeReference)
+            {
+                EntityHandle scope = target;
+                for (int depth = 0; depth < 64; depth++)
+                {
+                    TypeReference reference = reader.GetTypeReference(
+                        (TypeReferenceHandle)scope);
+                    scope = reference.ResolutionScope;
+                    if (scope.Kind == HandleKind.TypeReference)
+                        continue;
+
+                    // Assembly and module references are unresolved external claims.
+                    // A TypeRef rooted in this module is locally resolvable and must
+                    // use its TypeDef instead of bypassing the interface-kind proof.
+                    return scope.Kind is
+                        HandleKind.AssemblyReference
+                            or HandleKind.ModuleReference;
+                }
+
+                return false;
+            }
+
+            if (target.Kind != HandleKind.TypeDefinition)
+                return false;
+
+            TypeDefinition definition = reader.GetTypeDefinition(
+                (TypeDefinitionHandle)target);
+            return (definition.Attributes & TypeAttributes.Interface) != 0;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
     }
 
     private static bool TryReadMethodDeclaration(
         MetadataReader reader,
         EntityHandle declaration,
         out EntityHandle owner,
-        out StringHandle name)
+        out StringHandle name,
+        out bool? hasSpecialName)
     {
         switch (declaration.Kind)
         {
@@ -768,6 +838,8 @@ public static partial class ApiSurfaceExtractor
                         (MethodDefinitionHandle)declaration);
                 owner = method.GetDeclaringType();
                 name = method.Name;
+                hasSpecialName =
+                    (method.Attributes & MethodAttributes.SpecialName) != 0;
                 return true;
             case HandleKind.MemberReference:
                 MemberReference member =
@@ -775,6 +847,7 @@ public static partial class ApiSurfaceExtractor
                         (MemberReferenceHandle)declaration);
                 owner = member.Parent;
                 name = member.Name;
+                hasSpecialName = false;
                 return owner.Kind is
                     HandleKind.TypeDefinition
                         or HandleKind.TypeReference
@@ -782,6 +855,7 @@ public static partial class ApiSurfaceExtractor
             default:
                 owner = default;
                 name = default;
+                hasSpecialName = false;
                 return false;
         }
     }
@@ -1110,6 +1184,10 @@ public static partial class ApiSurfaceExtractor
     internal readonly record struct ExactTypeIdentity(
         ApiAssemblyIdentity Assembly,
         string StructuralIdentity);
+
+    internal readonly record struct ExplicitImplementationEvidence(
+        ExactTypeIdentity Interface,
+        bool? DeclarationIsOperator);
 
     private readonly record struct ExactTypeEvidence(
         ExactTypeIdentity Identity,
@@ -1872,11 +1950,14 @@ public static partial class ApiSurfaceExtractor
     internal static string ClassifyMethodKind(
         string methodName,
         bool isFinalizer,
-        bool isExplicitInterfaceImplementation)
+        bool isExplicitInterfaceImplementation,
+        bool isExplicitInterfaceOperator)
         => methodName switch
         {
             ".ctor" => "constructor",
-            _ when IsOperatorMethodName(methodName) => "operator",
+            _ when IsOperatorMethodName(methodName)
+                && (!isExplicitInterfaceImplementation
+                    || isExplicitInterfaceOperator) => "operator",
             // A finalizer's MethodImpl also makes it look explicit. Preserve
             // production precedence so its ordinary selector remains stable.
             _ when isFinalizer => "finalizer",
@@ -1891,5 +1972,12 @@ public static partial class ApiSurfaceExtractor
         return methodName.AsSpan(separator + 1).StartsWith(
             "op_",
             StringComparison.Ordinal);
+    }
+
+    private static bool IsRecognizedOperatorMethodName(string methodName)
+    {
+        int separator = methodName.LastIndexOf('.');
+        return OperatorNames.IsMetadataOperatorName(
+            methodName[(separator + 1)..]);
     }
 }

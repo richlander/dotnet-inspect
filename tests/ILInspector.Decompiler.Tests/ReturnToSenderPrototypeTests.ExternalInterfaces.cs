@@ -1585,6 +1585,51 @@ public partial class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesOrdinaryExplicitOpPrefixedMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOpPrefixedFixture : IOpPrefixed
+            {
+                static int IOpPrefixed.op_Addition(int left, int right)
+                {
+                    return left + right;
+                }
+            }
+
+            public interface IOpPrefixed
+            {
+                static abstract int op_Addition(int left, int right);
+            }
+            """);
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            ApiType type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.Name == "ExplicitOpPrefixedFixture");
+            ApiMember member = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "IOpPrefixed.op_Addition");
+
+            Assert.Equal("explicit-interface-implementation", member.Kind);
+            Assert.True(member.MethodImplementationIsRepresentable);
+            Assert.True(CSharpMemberArtifactEligibility.IsRepresentable(type, member));
+            Assert.Contains(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue),
+                target =>
+                    target.Type == "ExplicitOpPrefixedFixture"
+                    && target.Method == member.Name);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public async Task CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
     {
         // Close positive case for the operator discriminator (#3112, adversarial review):
