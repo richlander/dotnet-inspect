@@ -29,41 +29,34 @@ export interface PackageViewBindingActions
   onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
 }
 
-export interface PackageLibrarySummary {
-  id: string;
-  name: string;
-  types: number;
-  members: number;
-}
-
 export interface PackageNavOptions {
-  libraries: readonly PackageLibrarySummary[];
-  selectedLibrary: string;
+  frameworks: readonly string[];
+  activeFramework: string;
   escapeHtml: (value: unknown) => string;
 }
 
 export function renderPackageNav(options: PackageNavOptions): string {
-  const { libraries, selectedLibrary, escapeHtml } = options;
+  const { frameworks, activeFramework, escapeHtml } = options;
   return `
-    <aside id="content-navigation-pane" class="type-browser package-library-nav" aria-label="Libraries">
+    <aside id="content-navigation-pane" class="type-browser package-framework-nav" aria-label="Frameworks">
       <div class="browser-head">
         <div>
-          <span class="pane-label">LIBRARIES</span>
-          <span class="result-count">${libraries.length}</span>
+          <span class="pane-label">TARGET FRAMEWORKS</span>
+          <span class="result-count">${frameworks.length}</span>
         </div>
         ${renderContentNavigationCloseButton()}
       </div>
-      <div class="type-list library-subject-list" role="group" aria-label="Library navigation" tabindex="-1" data-nav-scope="libraries" data-nav-selection="${selectedLibrary ? `library:${escapeHtml(selectedLibrary)}` : ""}">
-        ${libraries.map(library => {
-          const selected = library.id === selectedLibrary;
-          return `<button class="type-row library-subject-row ${selected ? "selected" : ""}" data-lib-scope="${escapeHtml(library.id)}" title="Inspect ${escapeHtml(library.name)}">
-            <span class="kind-icon">◫</span>
-            <span class="type-name">${escapeHtml(library.name)}</span>
-            <small>${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members</small>
+      <div class="type-list package-framework-list" role="group" aria-label="Target framework navigation" tabindex="-1" data-nav-scope="frameworks" data-nav-selection="${activeFramework ? `framework:${escapeHtml(activeFramework)}` : ""}">
+        ${frameworks.map(framework => {
+          const selected = framework === activeFramework;
+          return `<button type="button" class="type-row package-framework-row ${selected ? "selected" : ""}" data-package-framework="${escapeHtml(framework)}"${selected ? ' aria-current="page"' : ""} title="Use ${escapeHtml(framework)}">
+            <span class="kind-icon">T</span>
+            <span class="type-name">${escapeHtml(framework)}</span>
+            <small>${selected ? "current" : "available"}</small>
           </button>`;
-        }).join("") || '<div class="empty-list">No managed libraries were selected for this package coordinate.</div>'}
+        }).join("") || '<div class="empty-list">No target frameworks are available for this package version.</div>'}
       </div>
-      <footer class="pane-footer"><span>choose a library</span><span>↵ open</span></footer>
+      <footer class="pane-footer"><span>choose a TFM</span><span>↵ load</span></footer>
     </aside>`;
 }
 

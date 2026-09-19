@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -64,6 +65,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
@@ -247,6 +249,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
         PackageQueryPlanResult result = PackageQuery.PlanInput(
             input,
+            EcosystemPackCatalog.PackageQueryMemberships,
             terms.ToImmutable(),
             maximumCandidates,
             maximumMatches: semanticHead,
