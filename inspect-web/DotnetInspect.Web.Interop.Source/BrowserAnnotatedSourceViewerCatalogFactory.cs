@@ -32,6 +32,18 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         "DelegateCreationExpression",
     ];
 
+    private static readonly IReadOnlySet<string> AllocationDescriptorIds =
+        new[]
+        {
+            "alloc.box",
+            "alloc.array",
+            "alloc.new",
+            "alloc.closure",
+            "alloc.statemachine",
+            "alloc.delegate",
+            "alloc.enumerator",
+        }.ToFrozenSet(StringComparer.Ordinal);
+
     public static BrowserAnnotatedSourceViewerCatalog Create(
         AnnotatedSourceDocument document,
         BrowserAnnotatedSourceInvocationDestination[]?
@@ -62,6 +74,11 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             awaitCompletionPaths = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             awaitCompletionPathsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            allocationExceptionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -98,6 +115,12 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
         }
         if (awaitCompletionPaths is not null)
             ValidateAwaitCompletionPaths(document, awaitCompletionPaths);
+        if (allocationExceptionPaths is not null)
+        {
+            ValidateAllocationExceptionPaths(
+                document,
+                allocationExceptionPaths);
+        }
 
         var targetedFacts = new bool[document.Facts.Count];
         foreach (AnnotatedSourceTarget target in document.Targets)
@@ -186,6 +209,15 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
                     Available: true,
                     UnavailableReason: null,
                     Observations: awaitCompletionPaths),
+            allocationExceptionPaths is null
+                ? new BrowserAnnotatedSourceAllocationExceptionPathInspection(
+                    Available: false,
+                    allocationExceptionPathsUnavailableReason,
+                    Observations: [])
+                : new BrowserAnnotatedSourceAllocationExceptionPathInspection(
+                    Available: true,
+                    UnavailableReason: null,
+                    Observations: allocationExceptionPaths),
             projectedDestinations);
     }
 
@@ -386,6 +418,39 @@ internal static class BrowserAnnotatedSourceViewerCatalogFactory
             {
                 throw new ArgumentException(
                     $"Await completion-path observation {index} does not name a C# AwaitExpression node.",
+                    nameof(observations));
+            }
+        }
+    }
+
+    private static void ValidateAllocationExceptionPaths(
+        AnnotatedSourceDocument document,
+        BrowserAnnotatedSourceAllocationExceptionPath[] observations)
+    {
+        var observedFactIds = new HashSet<int>();
+        for (int index = 0; index < observations.Length; index++)
+        {
+            BrowserAnnotatedSourceAllocationExceptionPath observation =
+                observations[index]
+                    ?? throw new ArgumentException(
+                        $"Allocation exception-path observation {index} is null.",
+                        nameof(observations));
+            if (!Enum.IsDefined(observation.Kind)
+                || observation.FactId < 0
+                || observation.FactId >= document.Facts.Count
+                || !observedFactIds.Add(observation.FactId))
+            {
+                throw new ArgumentException(
+                    $"Allocation exception-path observation {index} does not name unique typed evidence.",
+                    nameof(observations));
+            }
+
+            AnnotatedSourceFact fact = document.Facts[observation.FactId];
+            if (fact.Origin != AnnotatedSourceFactOrigin.Body
+                || !AllocationDescriptorIds.Contains(fact.Descriptor))
+            {
+                throw new ArgumentException(
+                    $"Allocation exception-path observation {index} does not name a body allocation fact.",
                     nameof(observations));
             }
         }

@@ -154,6 +154,29 @@ namespace Target
             await awaitable;
     }
 
+    public static class AllocationExceptionPathApi
+    {
+        static readonly object Shared = new();
+
+        public static object ThrownValue() =>
+            throw new InvalidOperationException("failure");
+
+        public static object ExceptionHandler(string value)
+        {
+            try
+            {
+                return int.Parse(value).ToString();
+            }
+            catch (FormatException)
+            {
+                return new object();
+            }
+        }
+
+        public static object ConditionalBranch(bool useAlternative) =>
+            useAlternative ? new object() : Shared;
+    }
+
     public readonly struct CustomAwaitable
     {
         public CustomAwaiter GetAwaiter() => new();
