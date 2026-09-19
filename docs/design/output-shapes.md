@@ -655,6 +655,27 @@ Count does not apply that eligibility test to its contributing inputs. It first
 consumes the already-bound typed reduction result, then evaluates format
 eligibility against the resulting Scalar or one count Table as defined below.
 
+### Structural format capabilities
+
+A command may publish owner-issued output-capability metadata for its selectable
+sections. Each section declares the presentation modes supported by its product
+shape, plus any mode that requires the section to be the complete selection.
+The command also declares any section family that forms one homogeneous Table
+when multiple members are selected.
+
+Detailed structural discovery evaluates each listed section, or the complete
+expansion of a listed category, against that metadata. A category supports a
+mode only when every expanded member supports it and the complete selection
+satisfies the mode's cardinality contract. In particular, a multi-section
+category does not support tree or graph output, an exclusive mode, or
+table/TSV/JSONL unless its members form one declared homogeneous Table.
+
+The resulting capability list describes the complete requested selection. It
+must not choose the first compatible section, remove incompatible members, or
+otherwise let a presentation modifier change semantic section selection.
+[`schema-query.md`](schema-query.md) owns the structural discovery surface that
+reports these owner-issued capabilities through `-D --details`.
+
 ### Coordinate carriers sit before the ladder
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the

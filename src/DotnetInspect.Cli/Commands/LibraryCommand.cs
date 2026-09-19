@@ -498,12 +498,23 @@ public partial class LibraryCommand
 
         if (options.JsonOutput
             && !options.Count
-            && options.IncludeSections?
-                .Contains(SectionNames.ImplementationProfiles) == true)
+            && options.IncludeSections is { Count: > 0 }
+            && !LibraryOutputCapabilities.Catalog.Supports(
+                OutputMode.Json,
+                options.IncludeSections))
         {
-            CommandError.Write(
-                "Document --json cannot represent Implementation Profiles analysis. "
-                + "Use --jsonl, --tsv, or --table.");
+            if (options.IncludeSections.Contains(
+                    SectionNames.ImplementationProfiles))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Implementation Profiles analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
+            else
+            {
+                CommandError.Write(
+                    "Document --json with Reference Hierarchy requires that section to be selected alone.");
+            }
             return 1;
         }
 
@@ -529,9 +540,9 @@ public partial class LibraryCommand
 
         if (options.Tree && options.Discover == null)
         {
-            if (options.IncludeSections is not { Count: 1 }
-                || !options.IncludeSections.Contains(
-                    SectionNames.ReferenceHierarchy))
+            if (!LibraryOutputCapabilities.Catalog.Supports(
+                    OutputMode.Tree,
+                    options.IncludeSections))
             {
                 CommandError.Write(
                     options.IncludeSections is { Count: 1 }
@@ -541,6 +552,22 @@ public partial class LibraryCommand
                         : "--tree requires exactly '-S \"Reference Hierarchy\"'.");
                 return 1;
             }
+        }
+
+        if (options.Format == OutputFormat.Mermaid
+            && options.Discover == null
+            && !options.Count
+            && !LibraryOutputCapabilities.Catalog.Supports(
+                OutputMode.Mermaid,
+                options.IncludeSections))
+        {
+            CommandError.Write(
+                options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(
+                    SectionNames.References)
+                    ? "References is direct evidence and has no Mermaid topology. Use '-S \"Reference Hierarchy\" --mermaid'."
+                    : "--mermaid requires exactly '-S \"Reference Hierarchy\"'.");
+            return 1;
         }
 
         if (options.Tree && options.Discover == null)
@@ -576,14 +603,6 @@ public partial class LibraryCommand
         {
             CommandError.Write(
                 "--columns/--fields with Reference Hierarchy requires that section to be selected alone.");
-            return 1;
-        }
-        if (referenceHierarchySelected
-            && options.JsonOutput
-            && options.IncludeSections is { Count: > 1 })
-        {
-            CommandError.Write(
-                "Document --json with Reference Hierarchy requires that section to be selected alone.");
             return 1;
         }
         if (referenceHierarchySelected
@@ -745,7 +764,12 @@ public partial class LibraryCommand
         if (options.Discover == null
             && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(
-                options.TabularExplicitlySet, options.IncludeSections))
+                options.TabularExplicitlySet,
+                options.IncludeSections,
+                sections =>
+                    LibraryOutputCapabilities.Catalog.Supports(
+                        OutputMode.Table,
+                        sections)))
             return 1;
 
         // Warn if tabular output is combined with detailed verbosity without section selector
