@@ -3674,6 +3674,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_ExactType_TreeOverridesEnvironmentTable()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var (exit, output, error) = await RunAppAsync(
+                "type", "System.Math", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.StartsWith(
+                "static class System.Math",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains("─ Methods", output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Kind    Name    Return Type",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
     public async Task Type_StringShape_RendersLearnMemberOrder()
     {
         var (exit, output, error) = await RunAppAsync(
