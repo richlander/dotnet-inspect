@@ -31,7 +31,7 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 typeof(ResolvedTypeDefinitionKey), typeof(UnresolvedBindingReference)],
             M.OpaqueOwnerLeaves, "owner-authorized opaque inputs");
         WorkspaceProjectionContractAudit.EqualSet(
-            [typeof(bool), typeof(int), typeof(Guid), typeof(DateTime), typeof(Version),
+            [typeof(bool), typeof(int), typeof(long), typeof(Guid), typeof(DateTime), typeof(Version),
                 typeof(string), typeof(InertString)], M.PermittedValueLeaves, "permitted value leaves");
         WorkspaceProjectionContractAudit.EqualSet(
             [typeof(AssemblyReferenceIdentity), typeof(QueryComparisonOperationId), typeof(QueryComparisonQuestionId),
@@ -39,8 +39,8 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 typeof(ResearchComparisonInputId), typeof(ResearchTargetScopeId), typeof(ResearchTargetDomainId),
                 typeof(ResearchTargetRequestId), typeof(ResearchTargetAttemptId)],
             M.RetainedOwnerCurrency, "retained owner-issued currency");
-        Assert.Equal(34, M.Materializers.Length);
-        Assert.Equal(81, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
+        Assert.Equal(35, M.Materializers.Length);
+        Assert.Equal(86, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
     }
 
     [Fact]

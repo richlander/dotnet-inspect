@@ -305,14 +305,225 @@ public class MetadataTypeDeclarationProbeTests
                 constructedValue);
         });
 
-        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
             MetadataTypeDeclarationProbe.Probe(
                 image.Reader,
                 Name("N", "Derived")));
 
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+    }
+
+    [Fact]
+    public void Probe_ReportsUnsupportedPrimitiveTypeSpecificationBase()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x08); // I4
+            TypeSpecificationHandle primitive =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived",
+                primitive);
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("N", "Derived")));
+
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Unsupported>(
+            unavailable.Failure);
+    }
+
+    [Fact]
+    public void Probe_ReportsDefinitionKindRelationshipBudget()
+    {
+        int count = MetadataSafetyPolicy.MaxRelationshipNodes + 1;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            var specifications = new TypeSpecificationHandle[count - 1];
+            for (int index = 0; index < specifications.Length; index++)
+            {
+                var signature = new BlobBuilder();
+                signature.WriteByte(0x15); // GENERICINST
+                signature.WriteByte(0x12); // CLASS
+                signature.WriteCompressedInteger((index + 3) << 2);
+                signature.WriteCompressedInteger(1);
+                signature.WriteByte(0x08); // I4
+                specifications[index] =
+                    metadata.AddTypeSpecification(
+                        metadata.GetOrAddBlob(signature));
+            }
+
+            for (int index = 0; index < count; index++)
+            {
+                EntityHandle baseType = index == count - 1
+                    ? default
+                    : specifications[index];
+                TypeDefinitionHandle definition = AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "N",
+                    index == 0 ? "Derived`1" : $"Base{index}`1",
+                    baseType);
+                metadata.AddGenericParameter(
+                    definition,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index: 0);
+            }
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("N", "Derived`1")));
+        var exceeded = Assert.IsType<
+            MetadataTypeDefinitionKindFailure.BudgetExceeded>(
+                unavailable.Failure);
+
         Assert.Equal(
-            MetadataTypeDefinitionKind.Unknown,
-            defined.Kind);
+            MetadataSafetyPolicy.MaxRelationshipNodes,
+            exceeded.Budget);
+    }
+
+    [Fact]
+    public void Probe_ReportsCyclicConstructedTypeDefinitionBase()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            static TypeSpecificationHandle AddBase(
+                MetadataBuilder metadata,
+                int typeDefinitionRow)
+            {
+                var signature = new BlobBuilder();
+                signature.WriteByte(0x15); // GENERICINST
+                signature.WriteByte(0x12); // CLASS
+                signature.WriteCompressedInteger(typeDefinitionRow << 2);
+                signature.WriteCompressedInteger(1);
+                signature.WriteByte(0x08); // I4
+                return metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+            }
+
+            TypeSpecificationHandle firstBase = AddBase(metadata, 3);
+            TypeSpecificationHandle secondBase = AddBase(metadata, 2);
+            TypeDefinitionHandle first = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived`1",
+                firstBase);
+            TypeDefinitionHandle second = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Base`1",
+                secondBase);
+            metadata.AddGenericParameter(
+                first,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            metadata.AddGenericParameter(
+                second,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("N", "Derived`1")));
+
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+    }
+
+    [Fact]
+    public void Probe_ReportsInvalidGenericParameterNumbering()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle definition = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Generic`1");
+            metadata.AddGenericParameter(
+                definition,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 1);
+        });
+
+        var unavailable = Assert.IsType<
+            TypeDeclarationResult.DefinitionKindUnavailable>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("N", "Generic`1")));
+
+        Assert.IsType<MetadataTypeDefinitionKindFailure.Malformed>(
+            unavailable.Failure);
+    }
+
+    [Fact]
+    public void Probe_AmbiguityRetainsDefinitionKindFailure()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle malformed = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Generic`1");
+            TypeDefinitionHandle valid = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Generic`1");
+            metadata.AddGenericParameter(
+                malformed,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 1);
+            metadata.AddGenericParameter(
+                valid,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        });
+
+        var ambiguous = Assert.IsType<TypeDeclarationResult.Ambiguous>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Generic`1")));
+        TypeDeclarationCandidate.Definition[] definitions =
+        [
+            .. ambiguous.Candidates
+                .Cast<TypeDeclarationCandidate.Definition>(),
+        ];
+
+        Assert.Equal(2, definitions.Length);
+        Assert.Single(
+            definitions,
+            definition =>
+                definition.KindFailure
+                    is MetadataTypeDefinitionKindFailure.Malformed);
+        Assert.Single(
+            definitions,
+            definition => definition.KindFailure is null);
     }
 
     [Fact]
