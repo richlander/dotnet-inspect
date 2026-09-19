@@ -54,6 +54,26 @@ public sealed class BrowserSourceComparisonOperationTests(ITestOutputHelper outp
     const string AfterVersion = "2.0.0";
 
     [Theory]
+    [InlineData("Count", "public int Count => field + 1;")]
+    [InlineData("AutomaticCount", "public int AutomaticCount { get; }")]
+    [InlineData("ChangingCount", "get_ChangingCount()")]
+    [InlineData("WriteOnly", "public int WriteOnly")]
+    public async Task MemberSourceExport_PreservesSelectedAccessor(
+        string propertyName, string expected)
+    {
+        await using Pair pair = await Pair.OpenAsync();
+        BrowserSourceComparisonRequest request = await pair.Request("FieldGetter", propertyName);
+        string json = await SourceExports.QueryMemberSource(
+            request.PackageId, request.BeforeVersion, request.Framework, request.Assembly,
+            request.TypeIdentity, request.MemberName, request.SelectorKey,
+            request.MetadataToken, "[]");
+        using var document = JsonDocument.Parse(json);
+        var source = document.RootElement.GetProperty("source");
+        Assert.Equal("decompiled", source.GetProperty("provider").GetString());
+        Assert.Contains(expected, source.GetProperty("text").GetString());
+    }
+
+    [Theory]
     [InlineData("authored")]
     [InlineData("missing")]
     [InlineData("deadline")]
