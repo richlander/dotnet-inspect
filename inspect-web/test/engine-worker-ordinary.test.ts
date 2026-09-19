@@ -25,6 +25,9 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
+  BrowserRetainedWorkspaceDefinitionState,
+} from "../src/facades/inspect-web-catalog.d.ts";
+import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -146,6 +149,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
+    admitRetainedWorkspacePackage: () =>
+      unexpected("admitRetainedWorkspacePackage"),
     activateRetainedWorkspaceDefinition: () =>
       unexpected("activateRetainedWorkspaceDefinition"),
     canonicalizeWorkspaceSharePacket: () =>
@@ -272,6 +277,68 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
     packet,
     failure: null,
   });
+  state.host.dispose();
+});
+
+test("retained Catalog transport preserves definition registrations and package admission", async () => {
+  const definition = {
+    tabs: [],
+    contexts: [],
+    registrations: [{
+      kind: "packagePrefix",
+      exactLibrary: null,
+      packagePrefix: "Microsoft.Extensions.",
+      ecosystem: null,
+    }],
+    activeTabId: null,
+    selectedContextId: null,
+  } satisfies BrowserRetainedWorkspaceDefinitionState;
+  const activation = {
+    status: "activated",
+    installation: {
+      definition,
+    },
+    failure: null,
+  };
+  const unavailable = {
+    status: "unavailable",
+    package: null,
+    message: "The active Package presentation is unavailable.",
+  };
+  let receivedArguments: readonly unknown[] = [];
+  const state = fixture({
+    catalog: {
+      activateRetainedWorkspaceDefinition: async () =>
+        contractViolation(activation),
+      admitRetainedWorkspacePackage: async (...args) => {
+        receivedArguments = args;
+        return unavailable;
+      },
+    },
+  });
+
+  const activationResult =
+    state.client.catalog.activateRetainedWorkspaceDefinition(
+      "definition-exact",
+      "Example",
+      "/inspect/example",
+      "packet-exact",
+    );
+  const result = state.client.catalog.admitRetainedWorkspacePackage(
+    "definition-exact",
+    "realization-exact",
+    "navigation-exact",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await activationResult, activation);
+  assert.deepEqual(receivedArguments, [
+    "definition-exact",
+    "realization-exact",
+    "navigation-exact",
+  ]);
+  assert.deepEqual(await result, unavailable);
+  assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
 });
 
@@ -1060,6 +1127,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberCallGraph",
     ],
     catalog: [
+      "admitRetainedWorkspacePackage",
       "activateRetainedWorkspaceDefinition",
       "canonicalizeWorkspaceSharePacket",
       "deactivateRetainedWorkspaceDefinition",
@@ -1082,7 +1150,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 60);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 61);
 
   const state = fixture();
   const groups = [

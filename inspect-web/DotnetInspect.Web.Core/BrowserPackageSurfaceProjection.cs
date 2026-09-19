@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Web;
 
@@ -24,6 +25,63 @@ internal sealed record BrowserPackageProjectionInfo(
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageSurfaceProjection
 {
+    internal static BrowserPackageSurfaceInfo Project(
+        CompleteRestorationPackageInventory inventory,
+        BrowserPackageIconPayload? icon = null)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        PackageCompileAssetSelection selection = inventory.Selection;
+        string? framework =
+            inventory.Package.Coordinate.Framework ?? selection.TargetFramework;
+        BrowserCompileLibraryInfo compileLibrary =
+            BrowserCompileLibraryProjection.Project(selection);
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                inventory.Surface,
+                [
+                    .. inventory.Libraries.Select(
+                        static library => new BrowserSurfaceProjection.Participant(
+                            library.Subject.Registration,
+                            library.Asset.AssemblyName,
+                            library.Asset.Id,
+                            library.Asset.Path)),
+                ]);
+        if (selection.IsSelected
+            && projected.Assemblies.Length == 0
+            && !projected.IsTruncated)
+        {
+            throw new InvalidOperationException(
+                $"No assembly of {inventory.Package.PackageId} "
+                    + $"{inventory.Package.Coordinate.Version} produced an API surface. "
+                    + (projected.InspectionError
+                        ?? "The workspace reported no failure."));
+        }
+
+        string? defaultAssetId = selection.DefaultAsset?.Id;
+        string? defaultAssemblyId = projected.Assemblies.FirstOrDefault(
+                assembly => assembly.Id == defaultAssetId)?.Id
+            ?? projected.Assemblies.FirstOrDefault()?.Id
+            ?? defaultAssetId;
+        return new(
+            inventory.Package.PackageId,
+            inventory.Package.Coordinate.Version,
+            BrowserFrameworkText.Available(selection, framework),
+            BrowserFrameworkText.Project(framework) ?? "",
+            icon,
+            defaultAssemblyId,
+            compileLibrary,
+            projected.Assemblies,
+            projected.Types,
+            projected.Accessibility,
+            projected.TotalMembers,
+            BrowserPackage.ProjectDocuments(
+                inventory.Entries,
+                inventory.Package.PackageId,
+                inventory.Package.Coordinate.Version),
+            projected.InspectionErrors,
+            projected.InspectionError);
+    }
+
     internal static BrowserPackageSurfaceInfo ProjectSurface(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate) =>

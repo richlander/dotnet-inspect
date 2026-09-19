@@ -527,6 +527,62 @@ result models before they can act on the new realization. Navigation Consumer
 then installs the authorized Navigation result and owns the resulting location,
 history, focus, and announcement effects.
 
+### Complete candidate presentation
+
+An installation describes every Package and Platform coordinate in the
+completed definition, independently of current focus. Presentation preserves
+owner-issued Navigation IDs, context membership and order, requested framework
+and RID, and the candidate's selected libraries and bounded API inventory.
+Requested framework and selected compile-asset framework remain distinct.
+Package and Platform rows have separate types; a Platform is not a Package
+with a fabricated Package subject.
+
+Browser projection consumes the opt-in
+[complete-restoration inventory](workspace-definitions.md#complete-restoration-inventory).
+Detached values remain readable after the realization closes. Library counts,
+type rows, truncation and inspection-failure disclosure come from the same
+captured API outcome, not a second metadata inspection or a lookup by display
+name in the legacy Browser cache. Package framework choices and documents use
+the captured selection and manifest. The existing bounded Package icon query
+reads the exact retained Root during completion; only its detached image
+payload survives projection.
+
+The packet activation Catalog facade publishes typed definition topology,
+Package surfaces, and Platform surfaces through its generated TypeScript
+contract and ordinary Worker transport. Topology comes from the completed
+canonical packet paired with resolved owner-issued IDs, including inactive,
+Platform-only and registration-only definitions. Typed registrations retain
+their order, package prefixes, exact Package/Platform library coordinates and
+assembly identities, and ecosystem contributions; callers need not reparse the
+packet to recover those facts. This host-specific JSON
+projection is installation state, not a rendered report. Internal definition
+activation may still succeed when no canonical packet can represent it.
+
+A Package-row request is admitted only against the matching active retained
+definition, realization and Navigation ID under the existing operation
+admission protocol. Stale definition or realization identity is superseded;
+a missing Package row is explicitly unavailable. Admission returns detached
+presentation, does not change Navigation focus, and does not transfer a live
+lease or authorize a later Worker response to commit Browser state.
+
+Recovery slice S3 (#7708) supplies this callable presentation and admission
+capability. Activation/deletion completion remains S4 (#7706), Browser
+history/async intent ownership remains S5 (#7705), and complete Save/Open and
+final UI installation remain S6 (#7709). Coordinate replacement and restored
+project RID-selection policy are not part of this slice.
+
+Release gates are
+`BrowserRetainedWorkspaceActivationTests` (real `System.Text.Json@9.0.4`
+inventory, pinned Platform/mixed contexts, registration-only topology,
+post-close presentation, Catalog serialization and stale-row admission) and
+`BrowserSpotlightRetainedWorkspaceActivationTests` (neighboring nonprojectable
+definition activation). Ordinary Worker forwarding is covered by
+`engine-worker-ordinary.test.ts`; generated-facade compilation and authored
+TypeScript typechecking enforce the transport shape.
+The mixed-context and mixed Catalog cases are marked `Speed=Slow` from isolated
+timings; the latter projects the production Platform bounds. The unfiltered
+Browser-engine CI job and focused Release activation gate retain these cases.
+
 ## Deletion
 
 Deleting an inactive retained definition removes only its resource-free host
