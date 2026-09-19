@@ -627,6 +627,28 @@ selection, `ExecutionContext` behavior, or allocation behavior. Runtime-async,
 async iterators, and declined classic lowerings fail closed with no observation.
 The sidecar remains outside default annotations and adds no source Finding.
 
+Annotated Source also preserves Analysis-owned exception-path classification
+for exact allocation Findings. Research reads the typed
+`AllocationOccurrence`, not its formatted `path=...` detail, and joins each
+positive observation to the existing source document `FactId`. A thrown-value
+observation requires `Escape == ThrowPath`; an exception-handler observation
+requires `PathContext == ErrorPath` after excluding thrown values. Browser
+validation requires a unique body allocation fact for every observation. The
+viewer adds structured detail to the selected allocation Finding without
+minting another Finding, chip, or default annotation.
+
+The presentation says either that the allocation constructs the thrown value
+or that it occurs in a catch, filter, or fault handler, followed by an explicit
+compiled-structure-only disclaimer. It does not claim that an exception
+occurred, that a handler ran, path frequency, rarity, latency, or runtime
+allocation count. Ordinary branch and switch-arm allocations are close
+negatives: the current Analysis evidence proves conditional placement but not
+that the branch is semantically a fallback. The motivating real shape is the
+`System.MemoryExtensions` throw helper documented in
+[caret stacking](caret-stacking.md), where the exception allocation already
+carries `path=error-path` and `escape=throw-path`; the typed sidecar removes the
+browser's need to parse that presentation string.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -647,6 +669,10 @@ result. `MemberProjection_ProjectsClassicAwaitCompletionPaths` and
 `MemberFindingCensus_ProjectsClassicAwaitCompletionPaths` gate the authenticated
 classic kickoff, exact Decompiler-issued await-node binding, Browser/Wasm
 transport, and bounded no-runtime-claim presentation.
+`MemberProjection_ProjectsAllocationExceptionPaths` and
+`MemberFindingCensus_ProjectsAllocationExceptionPath` gate the typed allocation
+payload, exact source-Finding join, thrown-value versus handler distinction,
+Browser/Wasm transport, and branch-only close negative.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

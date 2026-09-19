@@ -159,10 +159,10 @@ current Home-bar action inventory remains unchanged by this composition.
 
 `Demos is a dedicated page reached from Home and the data bar` and
 `Package navigation retains the shared System.Text.Json packet and Workspace
-stays separate from Demos` in `library-hierarchy.spec.ts` gate the production
-page composition and motivating navigation flow using the existing typed
-facade fixtures. Product demo execution remains covered by the neighboring
-package and Platform Methods and Call Graph cases.
+stays separate from Demos` in `library-hierarchy.demos.spec.ts` gate the
+production page composition and motivating navigation flow using the existing
+typed facade fixtures. Product demo execution remains covered by the
+neighboring package and Platform Methods and Call Graph cases.
 
 This composition gate begins from a settled canonical inspection and ordinary
 successful browser-history writes. Atomicity while a URL projection is pending,
@@ -864,9 +864,10 @@ Opening a new package retains the acquisition interstitial.
 `System.Text.Json@10.0.0`, switching from `net10.0` to `net9.0`, or to version
 `10.0.1` and back to `10.0.0`, motivates these ordinary same-package interactions.
 The production-composition browser gate in
-`library-hierarchy.spec.ts` covers pending, success, failure/retry, navigation
-away, immediate return to an inspected version, and neighboring initial-package
-loading. No cache-residency preflight is required to choose this presentation.
+`library-hierarchy.package-loading.spec.ts` covers pending, success,
+failure/retry, navigation away, immediate return to an inspected version, and
+neighboring initial-package loading. No cache-residency preflight is required
+to choose this presentation.
 Acquisition and partial-package notices otherwise retain their host
 presentation; this introduces no independent Overview query or acquisition
 state machine.
@@ -1096,10 +1097,10 @@ long/many results, state distinctions, Library switching, and platform controls.
 Scan classification, catalog ownership, other lenses, and subject-strip
 interaction remain separate work. `inspect-web/test/integration-inspector.test.ts`
 and the Integration tab scenarios in
-`inspect-web/browser/library-hierarchy.spec.ts` gate the consolidated frame,
-single-row header geometry and full tab labels down to 320px, manual activation,
-same-Library mode changes, navigation retention, and an inactive scan settling
-without replacing the selected mode or keyboard focus.
+`inspect-web/browser/library-hierarchy.analysis.spec.ts` gate the consolidated
+frame, single-row header geometry and full tab labels down to 320px, manual
+activation, same-Library mode changes, navigation retention, and an inactive
+scan settling without replacing the selected mode or keyboard focus.
 
 #### Opportunities tab
 
