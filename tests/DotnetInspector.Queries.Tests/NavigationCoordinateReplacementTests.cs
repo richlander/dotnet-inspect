@@ -50,7 +50,7 @@ public sealed class NavigationCoordinateReplacementTests
                     prepared.Scope.FindPackageOccurrence(destination)!,
                     TestContext.Current.CancellationToken)).Observation;
         StructuralSubjectIdentity.MemberSubject sourceMember =
-            prepared.Initialization.State.InstalledSnapshot.RetainedContext!.Member!;
+            prepared.Initialization.State.CurrentSnapshot.RetainedContext!.Member!;
         ApiCoordinateCorrespondenceResult memberProof =
             await ApiCoordinateCorrespondenceQuery.ExecuteAsync(
                 workspace, sourceMember, ApiDeclarationKind.Method, before, after,
@@ -272,13 +272,13 @@ public sealed class NavigationCoordinateReplacementTests
             NavigationRejectionKind.StaleGeneration,
             stale.Result!.Consumer.Outcome.Rejection);
 
-        NavigationTransition installed =
-            NavigationTransitions.RecordConsumerInstallation(
+        NavigationTransition posted =
+            NavigationTransitions.RecordConsumerPosting(
                 completed.State,
                 completed.Result.Consumer.Authority!);
         NavigationTransition acknowledged =
             NavigationTransitions.Acknowledge(
-                installed.State,
+                posted.State,
                 completed.Result.Consumer.Authority!);
         Assert.Equal(
             NavigationAuthorityResult.Accepted,
@@ -311,8 +311,8 @@ public sealed class NavigationCoordinateReplacementTests
             "GetObservable", facet, declaringType: typeName,
             memberSignature: "System.IObservable<object?> GetObservable(Avalonia.AvaloniaObject o, Avalonia.AvaloniaProperty property)");
         StructuralSubjectIdentity.MemberSubject original =
-            prepared.Initialization.State.InstalledSnapshot.RetainedContext!.Member!;
-        Assert.Equal(2, prepared.Initialization.State.InstalledSnapshot.Inventory!
+            prepared.Initialization.State.CurrentSnapshot.RetainedContext!.Member!;
+        Assert.Equal(2, prepared.Initialization.State.CurrentSnapshot.Inventory!
             .Types.Rows.SelectMany(type => type.Members)
             .Count(row => row.Subject == original));
 
@@ -343,11 +343,11 @@ public sealed class NavigationCoordinateReplacementTests
             completed.State,
             completed.State.Snapshot.Lenses.First(row => row.Action is not null).Action!)
             .AdmissionRefusal);
-        NavigationTransition installed = NavigationTransitions.RecordConsumerInstallation(
+        NavigationTransition posted = NavigationTransitions.RecordConsumerPosting(
             completed.State, completed.Result.Consumer.Authority!);
         Assert.Equal(NavigationAuthorityResult.Accepted,
             NavigationTransitions.Acknowledge(
-                installed.State, completed.Result.Consumer.Authority!).AuthorityResult);
+                posted.State, completed.Result.Consumer.Authority!).AuthorityResult);
     }
 
     [Fact]
@@ -368,8 +368,8 @@ public sealed class NavigationCoordinateReplacementTests
             workspace, prepared, source, source, registry, availability);
 
         Assert.Equal(
-            prepared.Initialization.State.InstalledSnapshot.ActiveSubject,
-            completed.State.InstalledSnapshot.ActiveSubject);
+            prepared.Initialization.State.CurrentSnapshot.ActiveSubject,
+            completed.State.CurrentSnapshot.ActiveSubject);
         Assert.Equal(NavigationLensBasisKind.ExactRequest,
             completed.State.Snapshot.LensOutcome.Basis);
         Assert.Equal("type.metadata",
