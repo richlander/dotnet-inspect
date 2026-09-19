@@ -862,7 +862,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 PackageInfoMeasurementStatus.Measured,
                 measurements.Status);
             Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-            Assert.Equal("net11.0", measurements.SelectedTargetFramework);
+            Assert.Equal(
+                "net11.0",
+                measurements.SelectedTargetFramework!.ToString());
             Assert.Equal(
                 ["net11.0", "net8.0"],
                 measurements.AvailableTargetFrameworks!
@@ -1080,6 +1082,54 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     out _));
         }
         Assert.Empty(noApplicableError);
+    }
+
+    [Fact]
+    public async Task PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs()
+    {
+        const string UnsafeFramework = "net10.0\u202EHOSTILE";
+        string id = $"Pinned.ToolFrameworkContainment.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ($"tools/{UnsafeFramework}/any/Tool.dll", new byte[11]),
+            ("tools/net8.0/any/Legacy.dll", new byte[7]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (markoutExit, markoutOutput, markoutError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tips", "q"]);
+
+        Assert.True(
+            markoutExit == 0,
+            $"Exit {markoutExit}: {markoutError}");
+        Assert.Contains(
+            @"| Selected TFM | net10.0\u202EHOSTILE |",
+            markoutOutput);
+        Assert.DoesNotContain('\u202E', markoutOutput);
+        Assert.Empty(markoutError);
+
+        var (jsonExit, jsonOutput, jsonError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--json", "--tips", "q"]);
+
+        Assert.True(jsonExit == 0, $"Exit {jsonExit}: {jsonError}");
+        using JsonDocument document = JsonDocument.Parse(jsonOutput);
+        Assert.Equal(
+            @"net10.0\u202EHOSTILE",
+            document.RootElement
+                .GetProperty("package_info_measurements")
+                .GetProperty("selected_target_framework")
+                .GetString());
+        Assert.DoesNotContain('\u202E', jsonOutput);
+        Assert.Empty(jsonError);
     }
 
     [Fact]

@@ -134,9 +134,7 @@ internal sealed class PackageInfoMeasurementsJson(
         measurements.CompressedPackageBytes;
 
     public string? SelectedTargetFramework =>
-        measurements.SelectedTargetFramework is { } framework
-            ? new InertString(TextPolicy.Field, framework).ToString()
-            : null;
+        measurements.SelectedTargetFramework?.ToString();
 
     public List<string>? AvailableTargetFrameworks =>
         Render(measurements.AvailableTargetFrameworks);

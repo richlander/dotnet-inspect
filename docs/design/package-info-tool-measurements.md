@@ -46,9 +46,10 @@ One selected tool Library is one DLL entry under the selected
 
 Package Size remains the compressed retained archive length. Selected-TFM Size
 is the sum of declared uncompressed lengths for every selected tool Library.
-The selected folder inventory contains the distinct top-level package folders
-that carry the selected TFM and is lowered through `InertString` containment in
-the shared envelope.
+The selected TFM, available TFM inventory, and selected folder inventory are
+lowered through `InertString` containment in the shared envelope. The folder
+inventory contains the distinct top-level package folders that carry the
+selected TFM.
 
 An available tool TFM is discovered from any well-formed entry below
 `tools/<tfm>/`, independently of whether the slice contains a Library. A
@@ -94,5 +95,6 @@ slice from which a representative assembly could be chosen.
 | Closed no-slice JSON shape | `NoToolSlicesJsonRejectsNonemptyFrameworkInventory` |
 | CLI `all`, one-download-per-invocation, and cold/warm adoption | `PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm` |
 | CLI JSON outcomes | `PackageCommand_DeclaredToolJsonRetainsMeasuredAndNoApplicableOutcomes` |
+| Selected TFM containment | `PackageInfoEnvelopeMeasuresDeclaredToolPayload` and `PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs` |
 | Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |

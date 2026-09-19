@@ -42,7 +42,11 @@ public sealed record PackageInfoMeasurements
                 ?? throw new ArgumentNullException(nameof(evidence)),
             evidence.Realization.Acquisition.Candidate.Coordinate.Version,
             compressedPackageBytes,
-            selectedTargetFramework,
+            selectedTargetFramework is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    selectedTargetFramework),
             availableTargetFrameworks,
             selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
@@ -72,7 +76,11 @@ public sealed record PackageInfoMeasurements
                 ?? throw new ArgumentNullException(nameof(evidence)),
             evidence.Evidence.Coordinate.Version,
             compressedPackageBytes,
-            selectedTargetFramework,
+            selectedTargetFramework is null
+                ? null
+                : new InertString(
+                    TextPolicy.Field,
+                    selectedTargetFramework),
             availableTargetFrameworks,
             selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
@@ -89,7 +97,7 @@ public sealed record PackageInfoMeasurements
         string packageId,
         string packageVersion,
         long? compressedPackageBytes,
-        string? selectedTargetFramework,
+        InertString? selectedTargetFramework,
         IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
@@ -138,7 +146,7 @@ public sealed record PackageInfoMeasurements
     private static void ValidateShape(
         PackageInfoMeasurementStatus status,
         long? compressedPackageBytes,
-        string? selectedTargetFramework,
+        InertString? selectedTargetFramework,
         IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
@@ -161,13 +169,13 @@ public sealed record PackageInfoMeasurements
                 .Count() == availableTargetFrameworks.Count;
         bool hasSelectedMeasurements =
             compressedPackageBytes.HasValue
-            && !string.IsNullOrWhiteSpace(selectedTargetFramework)
+            && selectedTargetFramework is not null
+            && !string.IsNullOrWhiteSpace(
+                selectedTargetFramework.ToString())
             && hasValidAvailableTargetFrameworks
             && availableTargetFrameworks!.Any(framework =>
                 framework.ToString().Equals(
-                    new InertString(
-                        TextPolicy.Field,
-                        selectedTargetFramework).ToString(),
+                    selectedTargetFramework.ToString(),
                     StringComparison.OrdinalIgnoreCase))
             && selectedTargetFrameworkFolders is not null
             && selectedTargetFrameworkFolders.All(
@@ -250,7 +258,7 @@ public sealed record PackageInfoMeasurements
 
     public long? CompressedPackageBytes { get; }
 
-    public string? SelectedTargetFramework { get; }
+    public InertString? SelectedTargetFramework { get; }
 
     public IReadOnlyList<InertString>? AvailableTargetFrameworks { get; }
 

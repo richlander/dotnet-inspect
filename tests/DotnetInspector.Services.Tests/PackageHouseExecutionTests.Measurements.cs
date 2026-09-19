@@ -14,16 +14,17 @@ public sealed partial class PackageHouseExecutionTests
     public async Task PackageInfoEnvelopeMeasuresDeclaredToolPayload()
     {
         const string UnsafeFolder = "HOSTILE\u202EMARKER";
+        const string UnsafeFramework = "net10.0\u202EHOSTILE";
         byte[] archive = CreateDeclaredToolArchive(
             "DotnetToolRidPackage",
-            ("tools/net10.0/any/Alpha.dll", new byte[13]),
-            ("tools/net10.0/any/Beta.dll", new byte[17]),
-            ("tools/net10.0/any/fr/Alpha.resources.dll", new byte[19]),
+            ($"tools/{UnsafeFramework}/any/Alpha.dll", new byte[13]),
+            ($"tools/{UnsafeFramework}/any/Beta.dll", new byte[17]),
+            ($"tools/{UnsafeFramework}/any/fr/Alpha.resources.dll", new byte[19]),
             (
-                "tools/net10.0/any/runtimes/linux-x64/native/Native.dll",
+                $"tools/{UnsafeFramework}/any/runtimes/linux-x64/native/Native.dll",
                 new byte[23]),
             ("tools/net8.0/any/Alpha.dll", new byte[29]),
-            ($"{UnsafeFolder}/net10.0/data.bin", new byte[31]));
+            ($"{UnsafeFolder}/{UnsafeFramework}/data.bin", new byte[31]));
         var content = new InMemoryPackageContent(
             archive,
             fromCache: true,
@@ -50,9 +51,11 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementStatus.Measured,
             measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
         Assert.Equal(
-            ["net10.0", "net8.0"],
+            @"net10.0\u202EHOSTILE",
+            measurements.SelectedTargetFramework!.ToString());
+        Assert.Equal(
+            [@"net10.0\u202EHOSTILE", "net8.0"],
             measurements.AvailableTargetFrameworks!
                 .Select(static framework => framework.ToString()));
         Assert.Equal(
@@ -82,6 +85,13 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             measurements.SelectedTargetFrameworkFolders,
             roundTripped.Content.SelectedTargetFrameworkFolders);
+        Assert.Equal(
+            measurements.SelectedTargetFramework,
+            roundTripped.Content.SelectedTargetFramework);
+        Assert.Contains(
+            "\"selectedTargetFramework\":\"net10.0\\\\u202EHOSTILE\"",
+            json,
+            StringComparison.Ordinal);
         Assert.DoesNotContain('\u202E', json);
         Assert.Null(roundTripped.Content.ToolEvidence);
         await environment.AssertRootSettledAsync();
@@ -119,7 +129,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageInfoMeasurementStatus.Measured,
             measurements.Status);
-        Assert.Equal("net8.0", measurements.SelectedTargetFramework);
+        Assert.Equal(
+            "net8.0",
+            measurements.SelectedTargetFramework!.ToString());
         Assert.Equal(11, measurements.SelectedLibraryPayloadBytes);
         Assert.Equal(1, measurements.SelectedLibraryCount);
         await environment.AssertRootSettledAsync();
@@ -154,7 +166,9 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageInfoMeasurementStatus.SelectedEmpty,
             measurements.Status);
-        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            measurements.SelectedTargetFramework!.ToString());
         Assert.Equal(
             ["tools"],
             measurements.SelectedTargetFrameworkFolders!
@@ -502,7 +516,9 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementStatus.Measured,
             measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
-        Assert.Equal("net10.0", measurements.SelectedTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            measurements.SelectedTargetFramework!.ToString());
         Assert.Equal(
             ["net10.0", "net8.0"],
             measurements.AvailableTargetFrameworks!
