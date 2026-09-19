@@ -150,6 +150,7 @@
     <Project Path="src/DotnetInspector.PlatformHouse.Execution.Packages/DotnetInspector.PlatformHouse.Execution.Packages.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Installed/DotnetInspector.PlatformHouse.Installed.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj" />
+    <Project Path="src/DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj" />
     <Project Path="src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Formats/DotnetInspector.Platforms.Formats.csproj" />
     <Project Path="src/DotnetInspector.Platforms.Installed/DotnetInspector.Platforms.Installed.csproj" />

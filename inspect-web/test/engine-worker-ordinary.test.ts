@@ -68,6 +68,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
+    queryPlatformMemberDocumentation: () =>
+      unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
     queryPackagePruning: () =>
@@ -286,6 +288,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let pruningArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
+  let platformDocumentationArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -299,6 +302,10 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryPlatformMemberDocumentation: (...args) => {
+        platformDocumentationArguments = args;
+        return Promise.resolve(contractViolation(null));
+      },
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
@@ -357,6 +364,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const platformDocumentation =
+    state.client.package.queryPlatformMemberDocumentation(
+      "net11.0",
+      "11.0.0",
+      "System.Runtime.dll",
+      "netcore.app",
+      "M:System.String.Clone",
+    );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
     ["Example.Root", "Other"],
@@ -393,6 +408,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.equal(await platformDocumentation, null);
+  assert.deepEqual(platformDocumentationArguments, [
+    "net11.0",
+    "11.0.0",
+    "System.Runtime.dll",
+    "netcore.app",
+    "M:System.String.Clone",
+  ]);
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
@@ -915,6 +938,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "prefetchPlatformPacks",
       "queryLibraryApi",
       "queryMemberDocumentation",
+      "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
       "queryPackagePruning",
@@ -985,7 +1009,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 59);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 60);
 
   const state = fixture();
   const groups = [
