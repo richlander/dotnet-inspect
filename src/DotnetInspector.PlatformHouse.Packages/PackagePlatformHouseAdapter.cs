@@ -119,9 +119,10 @@ public sealed class PackagePlatformHouseAdapter
                 ArgumentNullException.ThrowIfNull(discovery);
                 ArgumentNullException.ThrowIfNull(selection);
                 exact = selection.Target;
-                if (request.Target is not PlatformTargetDemand.Selecting
+                if (request.Target
+                        is not PlatformTargetDemand.Selecting selecting
                     || request.Target.Family != exact.Family
-                    || request.Target.TargetFramework != exact.TargetFramework)
+                    || selecting.TargetFramework != exact.TargetFramework)
                     throw new ArgumentException(
                         "The selected target must correspond to this selecting House request.", nameof(selection));
             }

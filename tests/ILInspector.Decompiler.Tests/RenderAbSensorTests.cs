@@ -764,7 +764,7 @@ public class RenderAbSensorTests
         PrinterOptions options)
     {
         var projection = ResearchViews.ProjectMember(
-            new ResearchViews.MemberProjectionRequest(
+            new MemberProjectionRequest(
                 source,
                 type.FullName!,
                 methodName,
