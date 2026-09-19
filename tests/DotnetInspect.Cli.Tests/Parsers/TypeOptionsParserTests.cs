@@ -23,6 +23,8 @@ public class TypeOptionsParserTests
         var projectOption = new Option<string?>("--project");
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
+        var workspaceOption = new Option<string?>("--workspace");
+        var shareOption = WorkspaceShareOption.Create("test");
         var allOption = new Option<bool>("--all");
         var typeFilterOption = new Option<string?>("-t");
         var compactOption = new Option<bool>("--compact");
@@ -40,6 +42,8 @@ public class TypeOptionsParserTests
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(workspaceOption);
+        typeCommand.Options.Add(shareOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
@@ -62,7 +66,8 @@ public class TypeOptionsParserTests
         var args = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption, opts.NoHeaders,
-            shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
+            shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption,
+            workspaceOption, shareOption);
 
         return (root, opts, args);
     }
@@ -188,5 +193,121 @@ public class TypeOptionsParserTests
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
         var error = Assert.IsType<TypeOptionsParser.VersionError>(result);
         Assert.Contains("--project cannot be combined", error.Error.Message);
+    }
+
+    [Fact]
+    public async Task Workspace_PreservesExactTypeAndShare()
+    {
+        var options = await ParseSuccessAsync(
+            "type",
+            "System.Text.Json.JsonSerializer",
+            "--workspace",
+            "packet",
+            "--share",
+            "packet");
+
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            options.TypeName);
+        Assert.Equal("packet", options.WorkspacePacket);
+        Assert.Equal(
+            WorkspaceShareFormat.Packet,
+            options.ShareFormat);
+        Assert.Null(options.PackagePath);
+    }
+
+    [Fact]
+    public async Task Workspace_RejectsUrlInput()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            [
+                "type",
+                "System.Text.Json.JsonSerializer",
+                "--workspace",
+                "https://dotnet-inspect.net/?w=packet",
+            ]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error = Assert.IsType<TypeOptionsParser.VersionError>(
+            result);
+        Assert.Contains(
+            "Base64URL Workspace packet string",
+            error.Error.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "URLs are not supported",
+            error.Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("type", "--workspace", "packet")]
+    [InlineData("type", "System.*", "--workspace", "packet")]
+    [InlineData(
+        "type",
+        "System.Text.Json.JsonSerializer",
+        "--workspace",
+        "packet",
+        "--package",
+        "System.Text.Json")]
+    [InlineData(
+        "type",
+        "System.Text.Json.JsonSerializer",
+        "--workspace",
+        "packet",
+        "--tfm",
+        "net10.0")]
+    public async Task Workspace_RejectsUnsupportedSourceOrSubject(
+        params string[] commandLine)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(commandLine);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        Assert.IsType<TypeOptionsParser.VersionError>(result);
+    }
+
+    [Fact]
+    public async Task ShareWithoutWorkspace_IsRejected()
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        ParseResult parseResult = root.Parse(
+            [
+                "type",
+                "JsonSerializer",
+                "--package",
+                "System.Text.Json",
+                "--share",
+                "packet",
+            ]);
+        Assert.Empty(parseResult.Errors);
+
+        TypeOptionsParser.TypeParseResult result =
+            await TypeOptionsParser.ParseAsync(
+                parseResult,
+                opts,
+                cmdArgs);
+
+        var error = Assert.IsType<TypeOptionsParser.VersionError>(
+            result);
+        Assert.Contains(
+            "--share on type requires --workspace",
+            error.Error.Message);
     }
 }

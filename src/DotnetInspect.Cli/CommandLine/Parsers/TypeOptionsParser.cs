@@ -31,6 +31,8 @@ public static class TypeOptionsParser
         plan = null;
         error = null;
         targetFree = false;
+        if (parseResult.GetValue(args.WorkspaceOption) is not null)
+            return false;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -143,7 +145,9 @@ public static class TypeOptionsParser
         Option<string[]> RepoOption,
         Option<string[]> MemberOption,
         Option<string[]> KindOption,
-        Option<string?> AtOption);
+        Option<string?> AtOption,
+        Option<string?> WorkspaceOption,
+        Option<string?> ShareOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -260,9 +264,16 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        string? workspacePacket =
+            parseResult.GetValue(args.WorkspaceOption);
+        WorkspaceShareFormat? shareFormat =
+            WorkspaceShareOption.Parse(parseResult, args.ShareOption);
 
         // Handle projection discovery or help
-        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && !hasProjectSource)
+        if (sourceInputs.Args.Length == 0
+            && !sourceInputs.HasExplicitSource
+            && !hasProjectSource
+            && workspacePacket is null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -271,6 +282,46 @@ public static class TypeOptionsParser
 
         if (hasProjectSource && hasNonProjectSource)
             return new VersionError("--project cannot be combined with --package, --library, or --platform.");
+        if (shareFormat is not null && workspacePacket is null)
+        {
+            return new VersionError(
+                "--share on type requires --workspace.");
+        }
+        if (workspacePacket is not null)
+        {
+            if (Uri.TryCreate(
+                    workspacePacket,
+                    UriKind.Absolute,
+                    out _))
+            {
+                return new VersionError(
+                    "--workspace accepts a canonical Base64URL Workspace "
+                        + "packet string; URLs are not supported.");
+            }
+            if (hasProjectSource
+                || hasNonProjectSource
+                || parseResult.GetValue(args.FrameworkOption) is not null
+                || parseResult.GetValue(args.TfmOption) is not null
+                || parseResult.GetValue(args.AtOption) is not null)
+            {
+                return new VersionError(
+                    "--workspace is the sole location source and cannot be "
+                        + "combined with --package, --library, --platform, "
+                        + "--project, --framework, --tfm, or --at.");
+            }
+            if (sourceInputs.Args.Length != 1)
+            {
+                return new VersionError(
+                    "--workspace requires exactly one explicit Type selector.");
+            }
+            if (parseResult.GetValue(args.TypeFilterOption) is not null
+                || TypeMatcher.IsTypeGlobPattern(sourceInputs.Args[0]))
+            {
+                return new VersionError(
+                    "--workspace requires one exact Type selector; Type "
+                        + "listing and glob selection are not supported.");
+            }
+        }
 
         bool selectsTypeListingRows =
             IsTypeListingRowSelection(
@@ -297,7 +348,24 @@ public static class TypeOptionsParser
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
-        if (hasProjectSource)
+        if (workspacePacket is not null)
+        {
+            source = new SourceResolver.ResolvedSource(
+                PackagePath: null,
+                AssemblyPath: null,
+                PlatformAssembly: null,
+                FrameworkOverride: null,
+                TypeName: sourceInputs.Args[0]);
+            sourceSelection = new SharedParsers.SourceSelection(
+                sourceInputs.Args,
+                ExplicitPackage: null,
+                ExplicitAssembly: null,
+                ExplicitPlatform: null,
+                IsLibrarySelector: false,
+                HasExplicitSource: true,
+                source);
+        }
+        else if (hasProjectSource)
         {
             source = new SourceResolver.ResolvedSource(
                 PackagePath: null,
@@ -374,6 +442,8 @@ public static class TypeOptionsParser
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            WorkspacePacket = workspacePacket,
+            ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,

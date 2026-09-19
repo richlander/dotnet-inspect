@@ -60,10 +60,10 @@ export function renderPackageInfo(
       content.detail ?? content.unavailableReason ?? "Unavailable",
     ]);
   }
-  if (content.availableTargetFrameworkCount !== null) {
+  if (content.availableTargetFrameworks !== null) {
     rows.push([
-      "TFM Count",
-      content.availableTargetFrameworkCount.toLocaleString("en-US"),
+      "TFMs",
+      content.availableTargetFrameworks.join(", ") || "None",
     ]);
   }
 
