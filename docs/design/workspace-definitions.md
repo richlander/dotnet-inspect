@@ -717,18 +717,31 @@ supplies the Package search scope and effective framework and runtime target.
 Resolution consumes one host-neutral selected-context exact-Package operation.
 It accepts the complete activation and selected context receipt, considers the
 context's Package Roots in declaration order, and joins each Root to exactly
-one Scope-issued occurrence under the same complete-restoration snapshot. It
-returns:
+one Scope-issued occurrence under the same complete-restoration snapshot. For
+one match, it supplies an operation-bounded live target carrying the exact
+`PackageRootBinding` and `WorkspacePackageOccurrenceDescriptor`.
 
-- detached selection evidence in `InspectionEnvelope<TContent>`; and
-- for one match, an operation-bounded live target carrying the exact
-  `PackageRootBinding` and `WorkspacePackageOccurrenceDescriptor`.
-
-The detached evidence records the number of selected-context Package Roots
-considered, every ID-matching candidate, declaration order, declared
+The completed host-neutral Workspace-backed Package operation follows the
+[Inspection Envelope](inspection-envelope.md) boundary. Its ordinary entry
+point returns `InspectionEnvelope<TContent>`. Its evidence-enabled entry point
+performs the same selection and inspection once and returns
+`EvidenceInspectionEnvelope<TContent, SelectedContextPackageRoutingEvidence>`.
+The named detached evidence records the number of selected-context Package
+Roots considered, every ID-matching candidate, declaration order, declared
 floating-or-pinned version policy, effective Package coordinate, selected
 framework and runtime identifier, and correspondence or realization failure.
 It carries no Package content, Root, lease, or Workspace authority.
+
+The approved Debug CLI delivery from
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293) writes that
+complete enriched envelope through `--evidence-envelope PATH` while preserving
+ordinary Package stdout. It is the one CLI route for showing why Package
+routing selected that occurrence; routing evidence is not a new Package
+section, a baseline `--envelope` field, or an ordinary verbosity addition. If
+the generic enrichment or CLI sidecar owner has not settled when baseline
+Package adoption lands, the typed routing evidence remains an implementation
+input for the focused evidence-adoption successor rather than being exposed
+through a parallel transport.
 
 One context cannot realize the same canonical Package ID at different
 versions, targets, or producers. The context owner's existing
@@ -793,7 +806,8 @@ The real multi-Package case uses one selected context containing
 Logging tab. Selecting `Microsoft.Azure.SignalR` must use the selected context,
 activate the existing SignalR occurrence, and reuse its exact Root and target
 rather than follow focus or reacquire the Package. The evidence envelope names
-both considered Package Roots and the one ID match.
+both considered Package Roots and the one ID match while ordinary Package
+stdout remains unchanged.
 
 A binding-consistency fixture declares two versions of one Package ID in one
 context. Complete Restoration rejects that context before Package selection;
@@ -809,8 +823,10 @@ Implementation integrates the active Package/Library CLI adoption rather than
 racing its transitional execution or option policy. #7668 and its successors
 own Package aggregate execution, tools-v2 containment, authoritative Package
 identity, aggregate-by-default routing, namesake narrowing, aliases, and
-`--all-libraries` retirement. #7765 owns only exact Package selection from
-Workspace packet context.
+`--all-libraries` retirement. #7293 owns evidence-envelope CLI transport and
+publication. #7765 owns exact Package selection from Workspace packet context,
+baseline CLI adoption, and the Package routing-evidence adopter after those
+supporting owners settle.
 
 #### Library packet-context adoption
 
