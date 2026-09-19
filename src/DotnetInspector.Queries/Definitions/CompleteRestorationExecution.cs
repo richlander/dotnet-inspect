@@ -1166,7 +1166,7 @@ public static class CompleteRestorationCoordinator
         NavigationOperationInitialization navigation =
             activation.Snapshot.Navigation;
         ImmutableArray<NavigationPackageDescriptor> productPackages =
-            navigation.State.InstalledSnapshot.Packages;
+            navigation.State.CurrentSnapshot.Packages;
         ImmutableArray<NavigationConsumerPackageDescriptor> consumerPackages =
             navigation.Result.Consumer.Snapshot.Packages;
         if (productPackages.Length != consumerPackages.Length)
