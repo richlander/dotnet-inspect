@@ -130,6 +130,14 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     promise: Promise<BrowserRetainedWorkspaceDeactivationResult>;
     resolve(value: BrowserRetainedWorkspaceDeactivationResult): void;
   }> = [];
+  readonly recordingResponses = new Map<
+    string,
+    string | Promise<string>
+  >();
+  readonly acknowledgementResponses = new Map<
+    string,
+    string | Promise<string>
+  >();
   readonly lifecycle: string[] = [];
 
   activateRetainedWorkspaceDefinition():
@@ -185,16 +193,16 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
 
   recordRetainedWorkspaceNavigationInstallation(
     realizationId: string,
-  ): string {
+  ): string | Promise<string> {
     this.lifecycle.push(`record:${realizationId}`);
-    return "accepted";
+    return this.recordingResponses.get(realizationId) ?? "accepted";
   }
 
   acknowledgeRetainedWorkspaceNavigation(
     realizationId: string,
-  ): string {
+  ): string | Promise<string> {
     this.lifecycle.push(`acknowledge:${realizationId}`);
-    return "accepted";
+    return this.acknowledgementResponses.get(realizationId) ?? "accepted";
   }
 
   abandonRetainedWorkspaceNavigation(
@@ -286,11 +294,116 @@ test("post-cutover installation failure abandons authority without rolling back 
     fixture.controller.state.lastFailure,
     "Injected installation failure.",
   );
+  assert.equal(fixture.controller.state.pendingDefinitionId, null);
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
   assert.deepEqual(fixture.client.lifecycle, [
     "validate:realization-1",
     "install:realization-1",
     "abandon:realization-1",
   ]);
+});
+
+test("superseded acknowledgement cannot publish failure over the successor", async () => {
+  const fixture = createFixture();
+  const staleAcknowledgement = deferred<string>();
+  fixture.client.acknowledgementResponses.set(
+    "realization-1",
+    staleAcknowledgement.promise,
+  );
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(
+    fixture.client.lifecycle.includes("acknowledge:realization-1"),
+  );
+
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+  staleAcknowledgement.resolve("invalidAuthority");
+  await selectFirst;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.equal(fixture.controller.state.pendingDefinitionId, null);
+  assert.equal(fixture.controller.state.lastFailure, null);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-1", "realization-2"],
+  );
+  assert.ok(
+    !fixture.client.lifecycle.includes("abandon:realization-1"),
+  );
+});
+
+test("superseded recording cannot publish failure over the successor", async () => {
+  const fixture = createFixture();
+  const staleRecording = deferred<string>();
+  fixture.client.recordingResponses.set(
+    "realization-1",
+    staleRecording.promise,
+  );
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    installation: installation(first.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(fixture.client.lifecycle.includes("record:realization-1"));
+
+  const selectSecond = fixture.controller.activate(second.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    installation: installation(second.id, "realization-2"),
+    failure: null,
+  });
+  await selectSecond;
+  staleRecording.resolve("invalidAuthority");
+  await selectFirst;
+
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.equal(fixture.controller.state.pendingDefinitionId, null);
+  assert.equal(fixture.controller.state.lastFailure, null);
+  assert.deepEqual(
+    fixture.installed.map(value => value.realizationId),
+    ["realization-1", "realization-2"],
+  );
+  assert.ok(
+    !fixture.client.lifecycle.includes("acknowledge:realization-1"),
+  );
+  assert.ok(
+    !fixture.client.lifecycle.includes("abandon:realization-1"),
+  );
 });
 
 test("superseded activation cannot install over the latest selection", async () => {

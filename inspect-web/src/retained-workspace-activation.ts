@@ -254,6 +254,9 @@ export function createRetainedWorkspaceActivationController(
         await client.recordRetainedWorkspaceNavigationInstallation(
           ...authority,
         );
+      if (recorded === "invalidAuthority") {
+        return false;
+      }
       if (recorded !== "accepted") {
         throw new Error(
           `Navigation installation recording returned '${recorded}'.`,
@@ -261,6 +264,9 @@ export function createRetainedWorkspaceActivationController(
       }
       const acknowledged =
         await client.acknowledgeRetainedWorkspaceNavigation(...authority);
+      if (acknowledged === "invalidAuthority") {
+        return false;
+      }
       if (acknowledged !== "accepted") {
         throw new Error(
           `Navigation acknowledgement returned '${acknowledged}'.`,
@@ -358,9 +364,11 @@ export function createRetainedWorkspaceActivationController(
             try {
               await installActivation(installation);
             } catch (error) {
-              lastFailure = error instanceof Error
-                ? error.message
-                : "Retained Workspace installation failed.";
+              if (generation === selectionGeneration) {
+                lastFailure = error instanceof Error
+                  ? error.message
+                  : "Retained Workspace installation failed.";
+              }
               throw error;
             }
           } else if (result.status === "activated"
@@ -393,6 +401,11 @@ export function createRetainedWorkspaceActivationController(
             `Unknown retained Workspace activation status '${result.status}'.`,
           );
       }
+    } catch (error) {
+      if (generation === selectionGeneration) {
+        pendingDefinitionId = null;
+      }
+      throw error;
     } finally {
       endActivation(definition.id);
     }
