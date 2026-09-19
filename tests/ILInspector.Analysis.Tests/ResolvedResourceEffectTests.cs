@@ -3298,7 +3298,7 @@ public sealed partial class DirectCallDefinitionResolutionTests
             ResolveOwnershipFixture();
         CatalogCallGraphParticipant original =
             Assert.Single(baseline.Population);
-        MethodIdentity method = original.Index.Methods[0];
+        MethodIdentity method = original.CallGraph.Methods[0];
         ImmutableArray<AnalysisDiagnostic> diagnostics =
         [
             .. Enumerable.Range(0, count).Select(index =>
@@ -3308,11 +3308,11 @@ public sealed partial class DirectCallDefinitionResolutionTests
                     "Synthetic body failure")),
         ];
         LibraryBodyIndex incompleteIndex = LibraryBodyIndex.FromEvidence(
-            original.Index.Methods,
-            original.Index.UnsafeEvidence,
+            original.CallGraph.Methods,
+            unsafeEvidence: [],
             diagnostics: diagnostics,
-            directCalls: original.Index.DirectCalls,
-            moduleIdentity: original.Index.ModuleIdentity);
+            directCalls: original.CallGraph.DirectCalls,
+            moduleIdentity: original.CallGraph.ModuleIdentity);
         var participant = new CatalogCallGraphParticipant(
             incompleteIndex,
             original.Assembly);
