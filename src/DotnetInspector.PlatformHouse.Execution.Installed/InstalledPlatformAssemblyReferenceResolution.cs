@@ -9,6 +9,38 @@ namespace DotnetInspector.PlatformHouse.Installed;
 /// </summary>
 public static class InstalledPlatformAssemblyReferenceResolver
 {
+    /// <summary>
+    /// Prepares one successful installed result for source-neutral policy
+    /// settlement.
+    /// </summary>
+    public static PlatformAssemblyReferenceSourceAttempt PrepareAttempt(
+        PlatformHouseRequest request,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference,
+        PlatformHouseCandidateIdentity candidate)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(candidate);
+        return new PlatformAssemblyReferenceSourceAttempt.Succeeded(
+            candidate,
+            ReferenceItem(request, reference));
+    }
+
+    /// <summary>
+    /// Prepares one terminal installed result for source-neutral policy
+    /// settlement.
+    /// </summary>
+    public static PlatformAssemblyReferenceSourceAttempt PrepareAttempt(
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.NotSucceeded reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return new PlatformAssemblyReferenceSourceAttempt.NotSucceeded(
+            reference.Contribution,
+            RejectionKind(reference));
+    }
+
     public static ValueTask<
         PlatformHouseOutcome<AssemblyBindingDecision>> ResolveAsync(
             PlatformHouseRequest request,
@@ -48,6 +80,17 @@ public static class InstalledPlatformAssemblyReferenceResolver
         ArgumentNullException.ThrowIfNull(consumedWork);
         request.CancellationToken.ThrowIfCancellationRequested();
 
+        return PlatformHouseAssemblyReferenceResolver.ResolveAsync(
+            request,
+            ReferenceItem(request, reference),
+            consumedWork);
+    }
+
+    static PlatformLibraryArtifactMaterializationItem ReferenceItem(
+        PlatformHouseRequest request,
+        InstalledPlatformHouseResult<
+            InstalledReferenceRealization>.Succeeded reference)
+    {
         AssemblyReferenceIdentity? requestedIdentity =
             request.Operation
                 is PlatformHouseOperation.ResolveAssemblyReference
@@ -73,14 +116,9 @@ public static class InstalledPlatformAssemblyReferenceResolver
                 nameof(reference));
         }
 
-        PlatformLibraryArtifactMaterializationItem item =
-            InstalledPlatformLibraryMaterializer.CreateReferenceItem(
-                reference,
-                library);
-        return PlatformHouseAssemblyReferenceResolver.ResolveAsync(
-            request,
-            item,
-            consumedWork);
+        return InstalledPlatformLibraryMaterializer.CreateReferenceItem(
+            reference,
+            library);
     }
 
     static PlatformHouseRejectionKind? RejectionKind(
