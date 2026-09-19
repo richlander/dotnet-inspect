@@ -633,6 +633,51 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task EvidenceEnvelopePublicationFailurePreservesOrdinaryOutput()
+    {
+        var buildProbe = new DebugBuildProbe();
+        buildProbe.Mark();
+        if (!buildProbe.IsDebugBuild)
+            return;
+
+        string directory = CreateTemporaryDirectory();
+        string evidencePath = Path.Combine(
+            directory,
+            $"{new string('e', 300)}.json");
+        string[] arguments =
+        [
+            "depends",
+            "--nuspec",
+            NuspecFixture,
+        ];
+
+        (int baselineExitCode, string baselineOutput, string baselineError) =
+            await RunCapturedAsync(arguments);
+        (int evidenceExitCode, string evidenceOutput, string evidenceError) =
+            await RunCapturedAsync(
+            [
+                .. arguments,
+                "--evidence-envelope",
+                evidencePath,
+            ]);
+
+        Assert.Equal(0, baselineExitCode);
+        Assert.Equal(1, evidenceExitCode);
+        Assert.Equal(baselineOutput, evidenceOutput);
+        Assert.Equal(string.Empty, baselineError);
+        Assert.Contains(
+            $"The evidence envelope could not be published to '{evidencePath}'",
+            evidenceError,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Evidence envelope:",
+            evidenceError,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(evidencePath));
+        Assert.Empty(Directory.EnumerateFiles(directory));
+    }
+
+    [Fact]
     public async Task EvidenceEnvelopePreservesExactPackageShareWhenManifestIsUnavailable()
     {
         var buildProbe = new DebugBuildProbe();
