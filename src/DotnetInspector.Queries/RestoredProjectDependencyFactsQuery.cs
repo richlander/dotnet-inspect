@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using UntrustedDocuments;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -88,14 +89,13 @@ public enum RestoredProjectPhaseCompletion
 /// validated coordinate text, and an opaque SHA-256 token over exact artifact-authored text.
 /// </summary>
 /// <remarks>
-/// No artifact-authored spelling reaches a public identity string. A framework, runtime
-/// identifier, or coordinate that passes
-/// <see cref="PackageCoordinateResolver.IsAcquisitionTargetText"/> (or the canonical package-id
-/// grammar) is bounded ASCII currency and travels as itself. Everything else — an unrecognized
-/// framework spelling, a project target-entry key — becomes <c>sha256:&lt;hex&gt;</c> over its
-/// exact UTF-8 bytes. The two forms cannot collide: <c>:</c> is outside the canonical grammar,
-/// so no canonical value can spell an opaque token. Distinct source text yields distinct opaque
-/// tokens, so two different unrecognized frameworks never compare equal.
+/// No artifact-authored spelling reaches a public identity string. A recognized framework uses
+/// canonical NuGet short-folder text. A runtime identifier that passes
+/// <see cref="PackageCoordinateResolver.IsAcquisitionTargetText"/> uses lowercase ASCII text.
+/// Everything else — an unrecognized framework spelling or a project target-entry key — becomes
+/// <c>sha256:&lt;hex&gt;</c> over its exact UTF-8 bytes. The forms cannot collide:
+/// <c>:</c> is outside the canonical framework and runtime grammars, so no canonical value can
+/// spell an opaque token. Distinct source text yields distinct opaque tokens.
 /// </remarks>
 static class RestoredProjectIdentityText
 {
@@ -120,11 +120,7 @@ static class RestoredProjectIdentityText
         && value.StartsWith(OpaquePrefix, StringComparison.Ordinal)
         && IsLowerHex(value[OpaquePrefix.Length..]);
 
-    /// <summary>True for one identity segment: canonical acquisition-target text or an opaque token.</summary>
-    public static bool IsSafeSegment(string value) =>
-        PackageCoordinateResolver.IsAcquisitionTargetText(value) || IsOpaque(value);
-
-    /// <summary>True for a whole target identity: empty, one segment, or <c>framework/runtime</c>.</summary>
+    /// <summary>True for a whole target identity: empty, one framework, or <c>framework/runtime</c>.</summary>
     public static bool IsSafeTargetIdentity(string value)
     {
         if (value.Length == 0)
@@ -132,9 +128,25 @@ static class RestoredProjectIdentityText
 
         int separator = value.IndexOf('/');
         return separator < 0
-            ? IsSafeSegment(value)
-            : IsSafeSegment(value[..separator]) && IsSafeSegment(value[(separator + 1)..]);
+            ? IsFrameworkIdentity(value)
+            : IsFrameworkIdentity(value[..separator])
+                && IsRuntimeIdentifierIdentity(value[(separator + 1)..]);
     }
+
+    private static bool IsFrameworkIdentity(string value) =>
+        IsOpaque(value)
+        || (NuGetTargetFrameworkIdentity.TryNormalize(
+                value,
+                out string canonical)
+            && string.Equals(value, canonical, StringComparison.Ordinal));
+
+    private static bool IsRuntimeIdentifierIdentity(string value) =>
+        IsOpaque(value)
+        || (PackageCoordinateResolver.IsAcquisitionTargetText(value)
+            && string.Equals(
+                value,
+                value.ToLowerInvariant(),
+                StringComparison.Ordinal));
 }
 
 /// <summary>
@@ -178,7 +190,7 @@ public sealed record RestoredProjectSelectionIdentity
         if (!RestoredProjectIdentityText.IsSafeTargetIdentity(targetIdentity))
         {
             throw new ArgumentException(
-                "A selection target identity must be canonical target text or an opaque digest.",
+                "A selection target identity must contain canonical or opaque framework and runtime identities.",
                 nameof(targetIdentity));
         }
 
@@ -245,6 +257,10 @@ public readonly record struct RestoredProjectProjectNodeIdentity(
     string SourceIdentity);
 
 /// <summary>The closed set of graph-edge parents: the root, a package node, or a project node.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Root), "root")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Package), "package")]
+[JsonDerivedType(typeof(RestoredProjectGraphParentIdentity.Project), "project")]
 public abstract record RestoredProjectGraphParentIdentity
 {
     private RestoredProjectGraphParentIdentity()

@@ -226,6 +226,60 @@ internal static class WorkspaceProjectionFixture
         Run(audit, new Policy(), [moduleOwner], [moduleOwner], request, included,
             new() { MaxTypeResolutionRequests = budget });
 
+        ResolvedAssemblyReference declarationBudget;
+        MetadataTypeDefinitionName declarationBudgetName;
+        if (variant == 0)
+        {
+            string leaf = new(
+                'X',
+                MetadataSafetyPolicy.MaxTypeNameCharacters - 16);
+            int repetitions =
+                (MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars
+                    / leaf.Length)
+                + 1;
+            declarationBudget =
+                Descriptor(
+                    Image(
+                        "DeclarationBudget",
+                        metadata =>
+                        {
+                            for (int index = 0;
+                                index < repetitions;
+                                index++)
+                            {
+                                Define(
+                                    metadata,
+                                    $"N{index}",
+                                    [leaf]);
+                            }
+                        }));
+            declarationBudgetName = Name("N0", [leaf]);
+        }
+        else
+        {
+            declarationBudget =
+                Descriptor(
+                    Image(
+                        "DeclarationRows",
+                        metadata =>
+                            Forward(
+                                metadata,
+                                Identity("DeclarationRowsTarget"),
+                                count:
+                                    MetadataSafetyPolicy
+                                        .MaxTypeDeclarationRows)));
+            declarationBudgetName = Name();
+        }
+        Run(
+            audit,
+            new Policy(),
+            [declarationBudget],
+            [declarationBudget],
+            TypeResolutionRequest.FromAssembly(
+                declarationBudget,
+                AssemblyResolutionScope.Any,
+                declarationBudgetName));
+
         foreach (AssemblyBindingFailureKind kind in Enum.GetValues<AssemblyBindingFailureKind>())
         foreach (CandidateOpenFailureKind? openKind in Enum.GetValues<CandidateOpenFailureKind>()
             .Select(kind => (CandidateOpenFailureKind?)kind).Prepend(null))

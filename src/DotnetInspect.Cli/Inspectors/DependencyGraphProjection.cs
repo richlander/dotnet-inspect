@@ -353,7 +353,11 @@ internal static class DependencyGraphProjection
                             ? targetProjection.ProjectionIndex
                             : null,
                     edge.Authority,
-                    edge.Diagnostics));
+                    DependencyInspectionPackageAuthorityFailure.CreateRange(
+                        edge.Diagnostics))
+                {
+                    RuntimePackageDiagnostics = edge.Diagnostics,
+                });
         }
 
         ImmutableArray<DependencyGraphPackageProjection> projections =
@@ -365,11 +369,18 @@ internal static class DependencyGraphProjection
                     projection.Kind,
                     projection.Expansion,
                     projection.Evidence,
-                    projection.Candidate,
+                    projection.Candidate is { } candidate
+                        ? DependencyInspectionPackageCandidate.Create(candidate)
+                        : null,
                     projection.RootOccurrenceIndex is { } rootIndex
                         ? rootOccurrenceIndexes[rootIndex]
                         : null,
-                    projection.Diagnostics)),
+                    DependencyInspectionPackageAuthorityFailure.CreateRange(
+                        projection.Diagnostics))
+                {
+                    RuntimeCandidate = projection.Candidate,
+                    RuntimeDiagnostics = projection.Diagnostics,
+                }),
         ];
         ImmutableArray<DependencyGraphDepthBoundary> depthBoundaries =
         [

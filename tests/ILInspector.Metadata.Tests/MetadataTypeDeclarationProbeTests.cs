@@ -405,6 +405,207 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void ProbeDefinition_RejectsRowsBeforeScanning()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+        });
+
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                MetadataTypeDeclarationProbe.ProbeDefinition(
+                    image.Reader,
+                    Name("N", "Type"),
+                    maxRows: 1,
+                    maxNameWork: long.MaxValue));
+
+        Assert.Equal(1, exceeded.Budget);
+        Assert.Contains("metadata-row budget", exceeded.Detail);
+    }
+
+    [Fact]
+    public void Probe_RejectsCombinedDeclarationRowsBeforeScanning()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+            AddForwarder(
+                metadata,
+                AddAssemblyReference(metadata, "Target"),
+                "N",
+                "Forwarded");
+        });
+
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("N", "Type"),
+                    maxRows: 2,
+                    maxNameWork: long.MaxValue));
+
+        Assert.Equal(2, exceeded.Budget);
+        Assert.Contains("metadata-row budget", exceeded.Detail);
+    }
+
+    [Fact]
+    public void Probe_RejectsRepeatedLeafComparisonWork()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "First",
+                "Target");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "Second",
+                "Target");
+        });
+
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                MetadataTypeDeclarationProbe.Probe(
+                    image.Reader,
+                    Name("Missing", "Target"),
+                    maxRows: int.MaxValue,
+                    maxNameWork: 12));
+
+        Assert.Equal(12, exceeded.Budget);
+        Assert.Contains("structural-name work budget", exceeded.Detail);
+    }
+
+    [Fact]
+    public void DeclarationIndex_RejectsRowsBeforeConstruction()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+            AddForwarder(
+                metadata,
+                AddAssemblyReference(metadata, "Target"),
+                "N",
+                "Forwarded");
+        });
+
+        MetadataTypeDeclarationProbe.Index index =
+            MetadataTypeDeclarationProbe.CreateIndex(
+                image.Reader,
+                maxRows: 2,
+                maxNameWork: long.MaxValue);
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                index.Probe(Name("N", "Type")));
+
+        Assert.Equal(2, exceeded.Budget);
+        Assert.Contains("metadata-row budget", exceeded.Detail);
+    }
+
+    [Fact]
+    public void DeclarationIndex_DiscardsPartialStateAfterNameWorkExhaustion()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "First");
+            AddForwarder(
+                metadata,
+                AddAssemblyReference(metadata, "Target"),
+                "N",
+                "Forwarded");
+        });
+        long definitionNameBytes =
+            image.Reader.TypeDefinitions
+                .Sum(
+                    handle =>
+                        (long)image.Reader.GetBlobReader(
+                            image.Reader.GetTypeDefinition(handle).Name)
+                            .Length);
+        MetadataTypeDeclarationProbe.Index index =
+            MetadataTypeDeclarationProbe.CreateIndex(
+                image.Reader,
+                maxRows: int.MaxValue,
+                maxNameWork: definitionNameBytes);
+
+        TypeDeclarationResult first =
+            index.Probe(Name("N", "First"));
+        TypeDeclarationResult missing =
+            index.Probe(Name("N", "Missing"));
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(first);
+
+        Assert.Same(first, missing);
+        Assert.Equal(definitionNameBytes, exceeded.Budget);
+        Assert.Contains("stored-name work budget", exceeded.Detail);
+    }
+
+    [Fact]
+    public void Session_DeclarationIndexResolvesRuntimeCoreLibraryType()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(typeof(object).Assembly.Location);
+
+        var defined =
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                session.ProbeDeclaration(Name("System", "Enum")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            defined.Kind);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Session_DeclarationIndexRejectsRepeatedStructuredNameWork()
+    {
+        const int candidateCount = 1_025;
+        string @namespace = new('N', 4_094);
+        byte[] image = BuildPortableExecutable(metadata =>
+        {
+            for (int i = 0; i < candidateCount; i++)
+            {
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    @namespace,
+                    "T");
+            }
+        });
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        var exceeded =
+            Assert.IsType<TypeDeclarationResult.BudgetExceeded>(
+                session.ProbeDeclaration(Name(@namespace, "T")));
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars,
+            exceeded.Budget);
+        Assert.Contains(
+            "structural-name work budget",
+            exceeded.Detail);
+    }
+
+    [Fact]
     public void ProbeDefinition_ReturnsCurrentDefinitionProjection()
     {
         TypeDefinitionHandle handle = default;
@@ -1310,6 +1511,36 @@ public class MetadataTypeDeclarationProbeTests
 
     static MetadataImage BuildMetadata(Action<MetadataBuilder> addRows)
     {
+        MetadataBuilder metadata = BuildMetadataBuilder(addRows);
+        var rootBuilder =
+            new MetadataRootBuilder(metadata, suppressValidation: true);
+        var image = new BlobBuilder();
+        rootBuilder.Serialize(
+            image,
+            methodBodyStreamRva: 0,
+            mappedFieldDataStreamRva: 0);
+        return new MetadataImage(image.ToImmutableArray());
+    }
+
+    static byte[] BuildPortableExecutable(
+        Action<MetadataBuilder> addRows)
+    {
+        MetadataBuilder metadata = BuildMetadataBuilder(addRows);
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static MetadataBuilder BuildMetadataBuilder(
+        Action<MetadataBuilder> addRows)
+    {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -1326,11 +1557,7 @@ public class MetadataTypeDeclarationProbeTests
             hashAlgorithm: default);
         AddTypeDefinition(metadata, default, "", "<Module>");
         addRows(metadata);
-
-        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
-        var image = new BlobBuilder();
-        rootBuilder.Serialize(image, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
-        return new MetadataImage(image.ToImmutableArray());
+        return metadata;
     }
 
     sealed class MetadataImage(ImmutableArray<byte> image) : IDisposable

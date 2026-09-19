@@ -35,6 +35,10 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
         Assert.Equal(
             BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             catalog.CallCycles.UnavailableReason);
+        Assert.False(catalog.SynchronousCompletions.Available);
+        Assert.Equal(
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            catalog.SynchronousCompletions.UnavailableReason);
     }
 
     [Theory]
@@ -131,6 +135,11 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 IsComplete: false,
                 Limits: [],
                 Findings: []);
+        var unavailableSynchronousCompletions =
+            new BrowserAnnotatedSourceSynchronousCompletionInspection(
+                Available: false,
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+                Observations: []);
         var catalog = new BrowserAnnotatedSourceViewerCatalog(
             defaultFindingIds,
             supportedMedia,
@@ -139,6 +148,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
             unavailable,
             unavailable,
             unavailableCycles,
+            unavailableSynchronousCompletions,
             []);
 
         defaultFindingIds[0] = 99;
@@ -273,6 +283,59 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                         .TraversalBoundary,
                 ],
                 Findings: []));
+    }
+
+    [Fact]
+    public void Create_ProjectsAndValidatesSynchronousCompletionEvidence()
+    {
+        AnnotatedSourceDocument document = CreateMixedDocument();
+        BrowserAnnotatedSourceCallRelationship[] relationships =
+        [
+            new(
+                EdgeRow: 1,
+                FactId: 1,
+                ModuleVersionId:
+                    Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                CallerToken: 0x06000001,
+                IlOffset: 0,
+                OperandToken: 0x0A000001,
+                BrowserAnnotatedSourceCallKind.CallVirtual,
+                InLoop: false,
+                Target("n1", "get_Result")),
+        ];
+        BrowserAnnotatedSourceSynchronousCompletion[] observations =
+        [
+            new(
+                FactId: 1,
+                BrowserSynchronousCompletionKind.TaskResult),
+        ];
+
+        BrowserAnnotatedSourceViewerCatalog catalog =
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                synchronousCompletions: observations);
+
+        Assert.True(catalog.SynchronousCompletions.Available);
+        Assert.Single(
+            catalog.SynchronousCompletions.Observations);
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                synchronousCompletions:
+                [
+                    observations[0] with { FactId = 0 },
+                ]));
+        Assert.Throws<ArgumentException>(() =>
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(
+                document,
+                callRelationships: relationships,
+                synchronousCompletions:
+                [
+                    observations[0],
+                    observations[0],
+                ]));
     }
 
     [Fact]

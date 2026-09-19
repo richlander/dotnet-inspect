@@ -26,7 +26,11 @@ adopts retention, empty/explicit initialization and exact-revision replacement
 under #6577. Application pack correspondence and platform-curated/all-known
 construction were implemented under #6786. Issue #6791 adopts the
 Workspace-Scope-owned `WorkspacePlan` and retires the four live factories.
-Persistence and host activation remain in their separately owned slices.
+Ecosystem Population Loading stage 4 consumes the exact catalog-retained
+declaration as the live loader-selection correspondence without adding a
+callback to the declaration, plan, or Workspace. Durable correspondence
+reissue after portable restoration and host activation remain in separately
+owned slices.
 
 [Subject Relations](subject-relations-workflows.md#broad-discovery-by-default),
 approved in #6763, supplies the platform and all-known construction intents
@@ -231,6 +235,9 @@ pack exists or that a declaration was issued.
 The application catalog explicitly pairs one `EcosystemPackId` with one
 `WorkspaceEcosystemRegistrationDeclaration`. The pair is the correspondence
 authority. Equal strings without that pair are not correspondence.
+The catalog also uses the exact paired declaration object to select an
+optional special-population loader for a live Workspace revision. The
+declaration itself remains inert and contains no loader binding or callback.
 
 Complete catalog construction requires:
 
@@ -560,7 +567,8 @@ A lower declaration and an application pack both spell
 `ecosystem.example`, but they were not paired in the static registration.
 Exact string equality does not authorize projection. Catalog selection returns
 its retained pair or `Unavailable`; it never searches lower declarations by
-text.
+text. Special-population loader selection likewise returns `Rejected` for an
+equal-but-distinct retained declaration.
 
 ### Display-only pack
 
@@ -742,7 +750,7 @@ membership.
 | Gate | Required observation |
 | --- | --- |
 | Lower declaration construction | Canonical identity, immutable snapshots, exact owner values across all three population arms, duplicate rejection, empty-declaration rejection, and authored order are preserved. |
-| Explicit correspondence | Equal text without a retained pair cannot project; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
+| Explicit correspondence | Equal text without a retained pair cannot project or select a loader; mismatched paired spellings and duplicate lower IDs reject complete catalog construction. |
 | Projection fidelity | Known selection returns the exact retained declaration; known unavailable and unknown identities remain distinct. |
 | Resource-free projection | Discovery and selection invoke no prefix query, platform source, package-set lookup, scanner, acquisition, or Workspace mutation. |
 | Curated product Workspace | The current .NET Runtime, ASP.NET Core, Microsoft.Extensions order and required registered-package or population contributions are enforced without filtering ordinary pack discovery. |

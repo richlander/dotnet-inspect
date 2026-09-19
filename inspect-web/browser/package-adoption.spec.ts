@@ -1153,7 +1153,7 @@ test.describe("Package Query website over real Wasm", () => {
     await expect(row.locator("h2")).toHaveText(tool.packageId);
     await expect(row.locator(".query-tier")).toHaveText("package-content");
     await expect(row.locator(".query-evidence")).toContainText(
-      "RID-specific .NET tool CLI v2 format",
+      ".NET tool settings version: 2",
     );
     expect(registry.downloadCount(tool)).toBe(1);
     expect(registry.downloadCount(library)).toBe(0);
@@ -1420,6 +1420,13 @@ test.describe("Package Activity website over real Wasm", () => {
     const requests: URL[] = [];
     const advisoryRequested = deferred<void>();
     const releaseAdvisory = deferred<void>();
+    await context.route("https://azuresearch-usnc.nuget.org/**", route =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: corsHeaders,
+        body: JSON.stringify({ totalHits: 0, data: [] }),
+      }));
     await context.route("**/api/package-changes/**", async route => {
       const url = new URL(route.request().url());
       requests.push(url);
@@ -1533,6 +1540,11 @@ test.describe("Package Activity website over real Wasm", () => {
     const homeSearch = page.locator("#spotlight-input");
     await expect(homeSearch).toBeVisible({ timeout: 120_000 });
     await homeSearch.fill("activity");
+    // Package-search completion replaces the result list, so settle it before clicking
+    // the built-in Activity route.
+    await expect(page.locator(".spotlight-hint"))
+      .toHaveText("Searching nuget.org…");
+    await expect(page.locator(".spotlight-hint")).toHaveCount(0);
     await page.locator('[data-sl-package-activity="1"]').click();
     await expect(page).toHaveURL(/\/activity$/);
     await page.goBack();

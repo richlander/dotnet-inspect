@@ -39,10 +39,16 @@ public static class ApiCommandDefinitions
         var projectOption = new Option<string?>("--project") { Description = "Source: restored project.assets.json context" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard). @version for specific" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description = "Source: canonical Base64URL Workspace packet string",
+        };
         var matchOption = new Option<bool>("--match")
         {
             Description = "Match this Type's API coordinate across two literal package-version endpoints"
         };
+        var shareOption = WorkspaceShareOption.Create(
+            "Emit the resolved Type scenario as a canonical Workspace packet or complete URL");
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter types by glob pattern (e.g., *Json*, Progress*)" };
         typeFilterOption.Aliases.Add("--type");
@@ -74,7 +80,9 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(projectOption);
         typeCommand.Options.Add(frameworkOption);
         typeCommand.Options.Add(tfmOption);
+        typeCommand.Options.Add(workspaceOption);
         typeCommand.Options.Add(matchOption);
+        typeCommand.Options.Add(shareOption);
         typeCommand.Options.Add(allOption);
         typeCommand.Options.Add(typeFilterOption);
         typeCommand.Options.Add(opts.Json);
@@ -103,7 +111,8 @@ public static class ApiCommandDefinitions
         var commandArgs = new TypeOptionsParser.TypeCommandArgs(
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
-            opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
+            opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption,
+            workspaceOption, shareOption);
         structuralArgs = commandArgs;
 
         CliRowSelectionCommandRegistry.Register(
@@ -133,6 +142,14 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(workspaceOption) is not null
+                && parseResult.GetValue(matchOption))
+            {
+                CommandError.Write(
+                    "--workspace cannot be combined with --match.");
+                return 1;
+            }
+
             if (parseResult.GetValue(opts.Envelope)
                 && !parseResult.GetValue(matchOption))
             {
@@ -229,7 +246,8 @@ public static class ApiCommandDefinitions
                 case TypeOptionsParser.Success success:
                     return await TypeCommand.ExecuteAsync(
                         success.Options,
-                        success.Plan);
+                        success.Plan,
+                        ct);
 
                 default:
                     return 1;

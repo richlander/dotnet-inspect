@@ -25,7 +25,7 @@ public abstract record ImplementationProfilesResult
 
 /// <summary>
 /// Collects objective method-body measurements and overload-family call
-/// relationships from an already-acquired whole-assembly body index.
+/// relationships from an already-produced focused Analysis result.
 /// </summary>
 public static class ImplementationProfilesQuery
 {
@@ -34,17 +34,24 @@ public static class ImplementationProfilesQuery
         new("Implementation profiles", InspectionCost.Unbounded);
 
     public static ImplementationProfilesResult Execute(
-        LibraryBodyIndex index)
+        LibraryImplementationProfileAnalysisResult analysis)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         try
         {
+            if (!analysis.WasRequested)
+            {
+                throw new InvalidOperationException(
+                    "Implementation profiles were not requested for this "
+                    + "Analysis execution.");
+            }
+
             return new ImplementationProfilesResult.Available(
-                index.ImplementationProfiles(),
-                index.OverloadRelationships(),
-                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
-                index.Diagnostics);
+                analysis.Profiles,
+                analysis.OverloadRelationships,
+                analysis.GeneratedFrameworkTypes,
+                analysis.Receipt.Diagnostics);
         }
         catch (Exception ex)
         {

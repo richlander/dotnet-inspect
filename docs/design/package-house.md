@@ -67,7 +67,16 @@ Online ordinary `package Package --versions` queries consume a separate shared
 `PackageVersionListingInspection` envelope over PackageHouse listing
 settlement. The House result preserves authoritative or partial Package Source
 discovery, while the inspection detaches version rows, source rows, typed
-failures, and diagnostics for CLI projection. Raw listing may publish
+failures, and diagnostics for CLI projection. Online exact pinned queries also
+consume this detached listing, request prerelease and unlisted evidence, and
+apply their existing exact NuGet match over its rows. A matching pin remains
+usable with visible partial-source diagnostics; a missing pin is not declared
+absent when a configured authority failed, except when the failure concerns
+listing state rather than version existence. Online bare `package Package
+--version` is an authoritative at-most-one-row projection over the same
+listing, preserving stable filtering, optional prerelease and unlisted rows,
+and successful empty output. It remains a listing rather than explicit
+`@latest` coordinate settlement. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
@@ -78,8 +87,8 @@ the same detached listing while retaining Browser-owned predecessor policy.
 receipt, requested progress, and explicit prerelease boundary, while the
 existing latest-settlement, source-failure, listing, rendering, and
 `BrowserPackageVersionInventoryTests` cases preserve neighboring behavior.
-This is payload-free adoption: CLI pinned queries, offline behavior, and
-package-content/Workspace adoption remain separate slices.
+This is payload-free adoption: offline behavior and package-content/Workspace
+adoption remain separate slices.
 `Realize`, target-aware dependency-edge realization, Workspace admission, live
 Library construction, and broader host adoption remain later steps.
 [#4653](https://github.com/richlander/dotnet-inspect/pull/4653) remains useful
@@ -341,8 +350,9 @@ cancellation produces no result.
 the normalized request, authoritative-or-partial completeness, ordered
 deduplicated version rows, and per-authority source rows. Typed non-success
 retains inert reason text, operation timeout, and credential-safe authority
-failures. Available source failures become ordered diagnostics rather than
-disappearing or invalidating usable raw rows.
+failures. Available partial Content retains the same typed authority failures
+for host policy while excluding them from serialized Content; they also become
+ordered diagnostics rather than disappearing or invalidating usable raw rows.
 
 CLI `package Package --versions`, `--versions-with-feed`,
 `--include-unlisted`, and Count are the first production adopter. Existing
@@ -358,9 +368,23 @@ adopter. `BrowserPackageWorkspace` supplies its existing built-in Gallery
 authorization and bounded operation lease to the same inspection, then the
 inventory consumes the detached listing Document while retaining Browser-owned
 current-version insertion and previous-version presentation. The direct
-Gallery version-result input is retired from that inventory path. Exact pinned
-verification, latest selection, range vectors and cells, offline queries, and
-payload acquisition remain outside this listing operation.
+Gallery version-result input is retired from that inventory path.
+
+Online exact pinned CLI verification is the third production adopter. It
+requests prerelease and unlisted rows, applies the existing exact NuGet
+release-version match over detached Content, and uses typed partial authority
+failures to distinguish unavailable version evidence from incomplete listing
+state. The direct desktop version-discovery call is retired from that exact-
+pinned path.
+
+Online bare CLI `package Package --version` is the fourth production adopter.
+It requires authoritative Content and projects at most the first ordered row
+while preserving stable filtering, optional prerelease and unlisted rows, and
+successful empty output. This remains single-version listing rather than
+explicit `@latest` coordinate selection. The direct desktop version-discovery
+call is retired from that bare path. Latest selection, range vectors and cells,
+offline queries, and payload acquisition remain outside this listing
+operation.
 
 ## Version-population settlement
 
@@ -564,7 +588,7 @@ The selected-slice measurement projection joins only evidence from that same
 acquisition generation and compile selection receipt. It reports:
 
 - the retained compressed package archive length;
-- the selected framework and available compile-slice count;
+- the selected framework and ordered available compile frameworks;
 - the ordered, distinct top-level package folders whose admitted entry paths
   contain the selected asset-folder framework as a directory segment;
 - one uncompressed payload length for every selected compile asset; and
@@ -579,7 +603,9 @@ empty-group marker is not content.
 Folder names are package-authored, sink-bound text. A host-neutral projection
 carries each name as `InertString` under `TextPolicy.Field`; structured formats
 retain the collection as an array rather than collapsing it into presentation
-text.
+text. Available framework identities originate in the same package-authored
+paths and use the same containment before crossing the Package Info inspection
+boundary.
 
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a
@@ -602,12 +628,13 @@ correspondence.
 
 The host-neutral Package Info inspection lowers that typed projection into one
 `InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
-size, selected framework, available-framework count, selected-framework folder
-inventory, selected payload size, selected Library count, and typed non-success
-state. The in-process content also retains the resource-free measurement
-outcome so the acquisition generation and compile-selection receipt remain
-available without retaining package content. Hosts consume these fields rather
-than reselecting assets or deriving measurements from extracted paths.
+size, selected framework, ordered available-framework list, selected-framework
+folder inventory, selected payload size, selected Library count, and typed
+non-success state. The in-process content also retains the resource-free
+measurement outcome so the acquisition generation and compile-selection
+receipt remain available without retaining package content. Hosts consume
+these fields rather than reselecting assets or deriving measurements from
+extracted paths.
 
 CLI configured-source Package Info acquisition requests the compile realization
 as part of its existing package acquisition, so measurement does not download a
@@ -615,6 +642,24 @@ second archive. A direct local-file or offline legacy extraction has no
 PackageHouse realization and must not manufacture one; it may report the
 archive size already established by that input path, but it does not report
 House-selected slice fields.
+
+Inspect Web's ordinary package load requests one PackageHouse compile
+realization after version settlement. It projects the same
+`InspectionEnvelope<PackageInfoMeasurements>` and adapts that exact settlement
+through `PackageHouseRootContributionAdapter` into the package Root used by the
+Browser workspace. The Browser therefore neither downloads the archive again
+nor repeats compile selection for its API surface. Its facade preserves
+Content, Share, and diagnostics in a Browser-local wire contract; TypeScript
+retains that envelope and renders Package Info without reconstructing
+measurements from paths or choosing a representative assembly.
+
+The first ordinary request constructs its workspace from that exact contributed
+Root. A repeated ordinary request for the same source-scoped package generation
+and selection request may join the retained workspace even when its new
+PackageHouse realization carries a separately issued selection receipt. This
+logical join is specific to ordinary request admission; a caller that directly
+supplies a bound Root continues to join only the workspace retaining that exact
+binding identity.
 
 An operation that wants multiple framework slices issues separately associated
 package-local selections and reports them as separate projections. It does not

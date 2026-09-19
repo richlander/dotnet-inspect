@@ -13,11 +13,23 @@ optimization-opportunity queries onto that boundary, and moved
 Those consumers established the service but retained `LibraryBodyIndex` as its
 only public result shape.
 
-The current migration phase breaks that compatibility pattern. Selected
-producers publish focused Analysis-owned result types, and each result type
-lands with a production query or section that consumes it. One service
-invocation may still coordinate several producers over one body acquisition;
-that does not make their answers one semantic type.
+The first typed-result migration breaks that compatibility pattern.
+`LibraryBodyAnalysisExecution` associates one receipt with independently named
+`LibrarySafetyAnalysisResult` and
+`LibraryImplementationProfileAnalysisResult` values. The second adds
+`LibraryOptimizationAnalysisResult`, which owns completed optimization
+opportunities, opt-in lazy allocation fanout, and generated-framework type
+identities. The Library Unsafe Evidence, Implementation Profiles, and
+Optimization Opportunities queries consume those focused types directly. One
+service invocation may still coordinate several producers over one body
+acquisition; that does not make their answers one semantic type.
+
+The CLI session adoption moves both path and prefetched-image execution in
+`MethodBodyInspectionSession` onto the service. The session continues to own
+command-selected feature and body-scope policy, resolver binding policy, source
+attribution, and reuse of one execution across requested sections. Migrated
+sections consume focused results from that execution; unmigrated sections
+request its lazy compatibility index.
 
 `LibraryBodyIndex.Open*` remains a temporary compatibility facade for
 unmigrated consumers. `LibraryBodyIndex` itself is also a temporary aggregate
@@ -65,8 +77,9 @@ exact path or caller-owned immutable image
        -> open operation-local PE and Metadata readers
        -> execute the selected Analysis producers
        -> construct owner-typed detached results
-       -> publish one execution receipt for shared identity, coverage,
-          diagnostics, and explicitly named result values
+       -> publish LibraryBodyAnalysisExecution
+          -> one receipt for shared identity, coverage, and diagnostics
+          -> explicitly named focused result values
   -> adopting query or section consumes only its focused result
   -> LibraryBodyIndex compatibility adapter serves unmigrated consumers
 ```
@@ -109,6 +122,10 @@ Each producer result is detached evidence. It retains only the identity,
 coverage, facts, diagnostics, and typed limitations required by its owning
 claim. It owns no PE reader, Metadata reader, resolver, stream, Workspace
 lease, or service instance.
+
+Publishing an unrequested focused result must remain constant-cost over its
+already-produced input references. Result-local derived arrays are constructed
+only when a consumer accesses a result whose producer participated.
 
 Common execution identity, coverage, and diagnostics may be published once in
 an execution receipt. A focused result refers to that common evidence through
@@ -154,7 +171,7 @@ shared semantic input.
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
-| 2 | Library Optimization Opportunities section | Optimization result including its explicitly required allocation and leverage inputs or completed owner-issued projections |
+| 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and call-graph sections | Focused leverage and local call-graph results after their current index-local derivations receive an owner |
 | 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
@@ -171,16 +188,23 @@ Every slice:
 6. gates unchanged section output, diagnostics, cost declaration, and
    single-acquisition behavior.
 
-The first implementation slice should migrate both Unsafe Evidence and
-Implementation Profiles because they already project cohesive internal result
-families and exercise the library section system directly. It must not first
-publish unused public result types.
+The first implementation slice migrated both Unsafe Evidence and
+Implementation Profiles because they already projected cohesive internal
+result families and exercised the library section system directly. The second
+slice moves optimization completion from the index into
+`LibraryOptimizationAnalysisResult`. That result retains the exact
+allocation, call, declared-method, suppression, exception-type, and module-name
+inputs needed to complete opportunities. It publishes completed detached rows
+rather than exposing those inputs to the query. Allocation fanout remains lazy
+until the query's existing opt-in selects it. The compatibility index delegates
+its optimization members to the same focused result instead of maintaining a
+second implementation.
 
-`OptimizationOpportunities`, `TopLeverage`, call trees, and other methods that
-currently compute derived answers on `LibraryBodyIndex` move only after their
-focused owner identifies the exact inputs and result. Resource Triage follows
-issues #6730 and #6731 so the new ownership path reaches a section without
-returning through the old index shape.
+`TopLeverage`, call trees, and other methods that still compute derived answers
+on `LibraryBodyIndex` move only after their focused owner identifies the exact
+inputs and result. Resource Triage follows issues #6730 and #6731 so the new
+ownership path reaches a section without returning through the old index
+shape.
 
 Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
 Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
@@ -189,44 +213,44 @@ result, or type-keyed result bag lands for hypothetical later adoption.
 
 ## Demo
 
-The production query changes from evidence constructing itself:
+The Optimization Opportunities production query changes from accepting the
+compatibility index:
 
 ```csharp
-LibraryBodyIndex index = LibraryBodyIndex.OpenFromPrefetchedImage(
-    sourceName,
-    snapshot.Content,
-    LibraryBodyAnalysisFeatures.OptimizationOpportunities,
-    resolver);
+OptimizationOpportunitiesResult result =
+    OptimizationOpportunitiesQuery.Execute(
+        context.BodyIndex(),
+        includeAllocationFanout);
 ```
 
-to explicit execution:
+to accepting the owner-issued focused result from the shared execution:
 
 ```csharp
-LibraryBodyAnalysisRequest request =
-    LibraryBodyAnalysisRequest.Create(
-        LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-LibraryBodyIndex compatibilityIndex =
-    LibraryBodyAnalysisService.AnalyzeImage(
-        sourceName,
-        snapshot.Content,
-        request,
-        resolver);
+LibraryOptimizationAnalysisResult optimization =
+    context.BodyAnalysis().Optimization;
+OptimizationOpportunitiesResult result =
+    OptimizationOpportunitiesQuery.Execute(
+        optimization,
+        includeAllocationFanout);
 ```
 
-The existing call remains a compatibility stage. A migrated section instead
-asks its query context for the service execution and passes the focused result
-to its typed query:
+Other migrated sections use the same pattern:
 
 ```csharp
-SafetyAnalysisResult safety = context.BodyAnalysis().Safety;
+LibrarySafetyAnalysisResult safety = context.BodyAnalysis().Safety;
 UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
 ```
 
-The concrete execution-publication API lands with that section migration; the
-example fixes the direction rather than pre-approving property names.
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
 queries own service execution and project its evidence.
+The cluster root-path query follows the same request/service shape for
+`MethodEvidence`; its existing section and CLI continue to own composition and
+presentation. `MethodBodyInspectionSession` similarly translates command
+capability and scope policy into one request, delegates path or
+prefetched-image execution to the service, retains the returned execution for
+the command, and creates its detached compatibility index only when an
+unmigrated consumer requests it.
 
 ## Evidence
 
@@ -247,6 +271,12 @@ The initial Release gates are:
 - existing `AssemblyPairCallUseQueryTests` cluster root-path cases for public
   root composition, exact path witnesses, completion boundaries, owner
   diagnostics, and stale-selection rejection;
+- existing `MethodBodyInspectionSessionTests` for path execution, requested
+  features, body scope, source attribution, and cross-assembly composition;
+- existing `IndexBuildInvariantTests` for one Analysis execution per command,
+  plus
+  `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+  for prefetched-image execution over a retained package participant;
 - `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor` and
   `EveryPublicPathMethodOwnerIsBannedOrApprovedNonInspectionSurface` for the
   query-owned Browser/Wasm boundary; and
@@ -265,6 +295,16 @@ Each result-type migration additionally gates:
   separately reviewed correction; and
 - no public result type lands without its adopting production section or
   query.
+
+The typed migrations are gated by
+`LibraryBodyAnalysisExecutionTests`,
+`ImplementationProfilesQueryTests`,
+`OptimizationOpportunitiesQueryTests`,
+`UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
+`OptimizationOpportunitiesQuery_UsesFocusedBodyAnalysis`,
+`OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn`,
+`ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
+`MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`.
 
 ## Non-claims
 

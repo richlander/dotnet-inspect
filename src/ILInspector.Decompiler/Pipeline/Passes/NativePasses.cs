@@ -49,6 +49,8 @@ internal static class NativePasses
     public static TupleSwitchExpressionPass TupleSwitchExpression => new();
     [Native(NativeCategory.EmitArtifact, "a non-union nested type-pattern as/null-test if/return cascade over a plain receiver (with a single-level property subpattern arm) collapsed to a switch expression with a default arm")]
     public static PatternSwitchExpressionPass PatternSwitchExpression => new();
+    [Native(NativeCategory.EmitArtifact, "an equality-selected private result local converging on an immediate return recovered as a single-case switch expression before return sinking")]
+    public static SingleCaseValueSwitchPass SingleCaseValueSwitch => new();
     [Native(NativeCategory.EmitArtifact, "a prologue if (c) goto L; return X; guard folded to a structured if even when the rest of the body stays EH-entangled-flat")]
     public static PrologueGuardReturnPass PrologueGuardReturn => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
@@ -115,6 +117,8 @@ internal static class NativePasses
     public static PointerCompoundAssignmentPass PointerCompoundAssignment => new();
     [Native(NativeCategory.EmitArtifact, "a final scalar store whose binary reads the exact destination annotated with its self-update or unit-step decision, preserving the explicit read/compute/write tree")]
     public static ScalarSelfUpdatePass ScalarSelfUpdate => new();
+    [Native(NativeCategory.EmitArtifact, "checked integer operands bound to the opcode's signedness and unchanged stack width through explicit Coerce boundaries before scalar and destination decisions")]
+    public static CheckedIntegerOperandPass CheckedIntegerOperand => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

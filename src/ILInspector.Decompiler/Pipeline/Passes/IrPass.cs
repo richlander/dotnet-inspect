@@ -302,6 +302,8 @@ public static class IrPasses
         // it as an explicit residual before the printer can leak invalid
         // base(...)/this(...) text from a body statement.
         new ConstructorCallDiagnosticsPass(),
+        // Preserve the value-producing join before return sinking splits it.
+        new SingleCaseValueSwitchPass(),
         // Eliminate return-accumulator temporaries the compiler spilled across
         // an EH region or lock (try { V = e; } finally { } return V; back to
         // try { return e; }). Runs after structuring and the second inlining so
@@ -460,6 +462,7 @@ public static class IrPasses
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
         new PdbLocalScopePass(),
+        new CheckedIntegerOperandPass(),
         new CoercionInsertionPass(),
         new ScalarSelfUpdatePass(),
         // Parameter metadata is imported before nested bodies are known. Allocate
@@ -507,7 +510,7 @@ public static class IrPasses
     /// <see cref="Default"/> before embedding: its body IS final output.
     /// </summary>
     public static ImmutableArray<IIrPass> ForReconstruction<TPass>() where TPass : IIrPass =>
-        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or ScalarSelfUpdatePass))];
+        [.. Default.Where(p => p is not (TPass or SlotMaterializationPass or PdbLocalScopePass or CheckedIntegerOperandPass or ScalarSelfUpdatePass))];
 
     public static void Run(IrFunction function) => Run(function, Default);
 

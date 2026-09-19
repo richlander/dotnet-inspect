@@ -341,11 +341,6 @@ public partial class LibraryBodyIndexTests
         // Evidence-domain caches the release methods deliberately retain.
         string[] retainedCaches =
         [
-            "_allocationFanoutOpportunities",
-            "_directCallerLoops",
-            "_generatedFrameworkTypes",
-            "_opportunities",
-            "_rootReachByToken",
             "_signals",
             "_unsafeEvidenceByMember",
         ];

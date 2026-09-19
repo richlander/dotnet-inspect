@@ -106,6 +106,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         BrowserAnnotatedSourceCapabilityAvailability Destinations,
         BrowserAnnotatedSourceCapabilityAvailability CallRelationships,
         BrowserAnnotatedSourceCallCycleInspection CallCycles,
+        BrowserAnnotatedSourceSynchronousCompletionInspection
+            SynchronousCompletions,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -115,6 +117,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(Destinations);
         ArgumentNullException.ThrowIfNull(CallRelationships);
         ArgumentNullException.ThrowIfNull(CallCycles);
+        ArgumentNullException.ThrowIfNull(SynchronousCompletions);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -131,6 +134,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.Destinations = Destinations;
         this.CallRelationships = CallRelationships;
         this.CallCycles = CallCycles;
+        this.SynchronousCompletions = SynchronousCompletions;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -142,6 +146,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
     public BrowserAnnotatedSourceCapabilityAvailability CallRelationships { get; }
     public BrowserAnnotatedSourceCallCycleInspection CallCycles { get; }
+    public BrowserAnnotatedSourceSynchronousCompletionInspection
+        SynchronousCompletions { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -268,6 +274,59 @@ public sealed record BrowserAnnotatedSourceCallCycleInspection
     public BrowserAnnotatedSourceCallCycle[] Findings => [.. _findings];
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserSynchronousCompletionKind>))]
+public enum BrowserSynchronousCompletionKind
+{
+    TaskWait,
+    TaskResult,
+    TaskAwaiterGetResult,
+}
+
+/// <summary>
+/// One exact physical <c>call.edge</c> Finding whose framework member
+/// synchronously observes task completion.
+/// </summary>
+public sealed record BrowserAnnotatedSourceSynchronousCompletion(
+    int FactId,
+    BrowserSynchronousCompletionKind Kind);
+
+/// <summary>
+/// Positive synchronous-completion observations. Empty carries no absence
+/// claim about blocking behavior outside the classified structures.
+/// </summary>
+public sealed record BrowserAnnotatedSourceSynchronousCompletionInspection
+{
+    private readonly BrowserAnnotatedSourceSynchronousCompletion[]
+        _observations;
+
+    public BrowserAnnotatedSourceSynchronousCompletionInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceSynchronousCompletion[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Synchronous completion availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable synchronous completions cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+    public BrowserAnnotatedSourceSynchronousCompletion[] Observations =>
+        [.. _observations];
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
 {
@@ -387,6 +446,11 @@ public sealed record BrowserMemberFindingCensus
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -510,7 +574,9 @@ public sealed record BrowserMemberFindingCensus
                 callRelationships,
                 callRelationshipsUnavailableReason,
                 callCycles,
-                callCyclesUnavailableReason),
+                callCyclesUnavailableReason,
+                synchronousCompletions,
+                synchronousCompletionsUnavailableReason),
             projectedIdentities);
     }
 
@@ -939,6 +1005,11 @@ public sealed record BrowserAnnotatedSource
         BrowserAnnotatedSourceCallCycleInspection? callCycles = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             callCyclesUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceSynchronousCompletion[]?
+            synchronousCompletions = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            synchronousCompletionsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -958,7 +1029,9 @@ public sealed record BrowserAnnotatedSource
                 callRelationships,
                 callRelationshipsUnavailableReason,
                 callCycles,
-                callCyclesUnavailableReason),
+                callCyclesUnavailableReason,
+                synchronousCompletions,
+                synchronousCompletionsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],

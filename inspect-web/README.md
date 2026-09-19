@@ -65,18 +65,22 @@ selected assembly set.
    that separately. Neither path requests the NuGet.org v3 service index.
    Framework is request context outside version settlement. The package facade
    returns a request-specific load result containing the complete settlement
-   envelope and a nullable rich package surface. A settled result carries both
-   values; `NotSettled` carries the failure Content, Share, and diagnostics to
-   TypeScript with no fabricated surface. The application then reports that
-   typed failure, while payload or Workspace failures retain their existing
+   envelope, the shared Package Info measurement envelope, and a nullable rich
+   package surface. A settled result carries all three values; `NotSettled`
+   carries the failure Content, Share, and diagnostics to TypeScript with no
+   fabricated measurements or surface. The application then reports that typed
+   failure, while payload or Workspace failures retain their existing
    rejected-operation contract. Settlement evidence is not stored on a
-   reusable exact workspace. The Browser adapter then selects one target
-   framework — never "whatever the package happens to ship".
-2. **Select and realize typed roles.** `PackagePayloadAcquisition` downloads and
+   reusable exact workspace.
+2. **Select and realize typed roles.** The ordinary package-open path requests
+   one PackageHouse compile realization. Its payload acquisition downloads and
    admits the package from the Gallery package CDN through the shared typed
-   source, transport, and archive policy. The Gallery payload carries its
-   advertised length into the Browser reservation policy before body
-   materialization.
+   source, transport, archive, and Browser reservation policy. The Gallery
+   payload carries its advertised length into that policy before body
+   materialization. `PackageInfoMeasurementInspection` projects the retained
+   archive and selected slice from that realization, while
+   `PackageHouseRootContributionAdapter` creates the exact package Root used by
+   the Browser workspace without another acquisition or selection.
    `PackageAssemblyContextSelection` applies
    `PackageCompileAssetSelector`'s reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`.
@@ -183,12 +187,15 @@ capacity is held by active work, admission visibly rejects instead. Opening one
 exact demand is single-flighted: concurrent callers join one realization —
 pending or ready — and a caller that queued behind a full registry re-checks
 that join after every capacity wait rather than demanding a second entry.
-Repeated unbound requests join the retained binding before another selection
-token is issued, keyed by the acquired coordinate, its producer, its retained
-content generation, and the selection request, with a default selection
-distinct from an explicit one; a caller that already holds an issued binding
-joins only that exact binding, never a label match. Each caller keeps its own
-cancellation, a cancelled caller receives no scope, and construction carries a
+Repeated ordinary requests join the retained binding by the acquired
+coordinate, its producer, its retained content generation, and the selection
+request, with a default selection distinct from an explicit one. The legacy
+unbound path performs that join before issuing another selection token; the
+PackageHouse path may already carry a fresh receipt, but uses the exact
+contributed Root only when constructing a new workspace. A caller that directly
+holds an issued binding joins only that exact binding, never a label match.
+Each caller keeps its own cancellation, a cancelled caller receives no scope,
+and construction carries a
 bounded deadline. A completion that raced an eviction or a replacing download
 cannot republish that content: the exact archive identity is revalidated after
 every suspension, a stale coordinate fails visibly, and an abandoned
@@ -1118,7 +1125,8 @@ remains a visible failure rather than rendering success-shaped empty output.
 ## Run
 
 The frontend requires Node.js 24 or later; `npm ci` enforces that requirement.
-Install the experimental browser workload selected by the repository SDK:
+Frontend compilation also uses the repository SDK's official Browser/Wasm
+`dotnet.d.ts`. Install the experimental browser workload selected by that SDK:
 
 ```bash
 dotnet workload install wasm-experimental
@@ -1132,6 +1140,8 @@ dotnet run -c Release
 Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `npm run build && dotnet publish -c Release` from the same directories shown
 above. The TypeScript check is part of both `npm run build` and `npm test`.
+Those commands, `npm run dev`, `npm run lint`, and the browser-test command
+derive the facade declarations and JavaScript modules automatically.
 Remote addresses require HTTPS because the .NET loader uses secure-context
 browser APIs. For private cross-machine demos, follow
 [`docs/runbooks/inspect-web-demo-hosting.md`](../docs/runbooks/inspect-web-demo-hosting.md);
@@ -1156,13 +1166,19 @@ generation for its rooted assembly, and copies those bytes unchanged into
 `DotnetInspect.Web/facades/`.
 
 Those native TypeScript files are the authoritative checked-in handoff. The
-script compiles all seven in one exact program against the SDK-owned
-`dotnet.d.ts` from the Browser/Wasm runtime pack selected for the engine build,
-with LF compiler output on every host. The derived declarations live in
-`src/facades/` and the published modules in `DotnetInspect.Web/wwwroot/`; `--check`
-compares all 21 artifacts and rejects extra or missing files. The SDK
-declaration is a compile-time input copied only into a temporary workspace and
-is never published.
+repository contains no checked-in declaration or JavaScript copies.
+`scripts/compile-engine-facades.ts` compiles all seven canonical sources in one
+exact program against the SDK-owned `dotnet.d.ts` from the Browser/Wasm runtime
+pack selected for the engine build, with LF compiler output on every host. It
+cleanly replaces the ignored declarations in `src/facades/` and the ignored
+published modules in `DotnetInspect.Web/wwwroot/`, rejecting an extra or
+missing artifact in either inventory. Frontend commands and the
+`DotnetInspect.Web` build and publish targets invoke this TypeScript-only
+derivation path automatically. MSBuild removes all wildcard-discovered facade
+modules from its evaluated content, then admits only the exact seven generated
+modules after derivation; deleting a stale ignored module therefore cannot
+leave a dangling static-web-asset item. The SDK declaration is copied only
+into a temporary compiler workspace and is never published.
 
 The package facade's assembly-reference result adopts a native C# union through
 this generated handoff. The Library References view consumes an available list
@@ -1170,11 +1186,13 @@ or failure message rather than parallel list/error fields, while its request
 lifecycle stays separate. The focused contract and outcome gates live in
 [Package reference result](../docs/design/inspect-web-package-reference-result.md).
 
-PR CI uses `--fast-check` for ordinary browser changes. It keeps the complete
-artifact inventory and per-root generation comparison while deferring the
-second, product-versioned regeneration to the daily Deep Inspect `inspect-web`
-lane. Changes to the generator or its owning contracts select `--check` in PR
-CI as well.
+PR CI uses `--fast-check` for ordinary browser changes. It regenerates the
+canonical sources from current C#, keeps the complete transient artifact
+inventory and per-root generation comparison, and type-checks authored
+TypeScript against those freshly generated declarations. It defers the second,
+product-versioned regeneration to the daily Deep Inspect `inspect-web` lane.
+Changes to the generator or its owning contracts select `--check` in PR CI as
+well. The complete check compares its two transient declaration sets directly.
 
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
 retained readiness promise. It calls the host module's `createRuntime()` once,
@@ -1472,8 +1490,11 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks all seven compiler-derived production facade artifact triples and
-the multi-facade and managed-operation canary sources as consumer contracts.
+Oxlint checks all seven production facade source, transient declaration, and
+transient JavaScript triples and the multi-facade and managed-operation canary
+sources as consumer contracts. The lint command derives the transient files
+before naming each ignored output explicitly, so repository ignore rules do
+not remove them from analysis.
 The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
 exact seven `DotnetInspect.Web/wwwroot/inspect-web-*.js` modules receive the JavaScript
 correctness and suspicious rules described below. TypeScript's declaration
@@ -1847,12 +1868,10 @@ responses do not inherit static `globalHeaders`; Vite development serving is
 also outside this deployment policy.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
-build/verification scripts for unused files, exports, and dependencies.
-`knip.json` excludes the exact seven generated
-`DotnetInspect.Web/wwwroot/inspect-web-*.js` publish artifacts: they import
-`./_framework/dotnet.js`, which exists only after Wasm publish. The exclusions
-are specific to Knip reachability; Oxlint still checks every generated module.
-It also ignores `type-fest`, which nothing here imports:
+build/verification scripts for unused files, exports, and dependencies. The
+transient `DotnetInspect.Web/wwwroot/inspect-web-*.js` publish artifacts remain
+outside its authored-source inventory; Oxlint checks every generated module
+explicitly after deriving it. Knip ignores `type-fest`, which nothing here imports:
 mermaid's shipped `.d.ts` files import it while declaring it only in mermaid's
 own `devDependencies`, so a consumer has to supply it for `tsc` to resolve
 mermaid's types. It is pinned to the range mermaid builds against.
@@ -2604,8 +2623,9 @@ intermediate assemblies before packaging the shipped WebCIL.
 
 The gate regenerates all seven declarations with
 `generate-inspect-web-engine-facade.sh --contract`, compiles every generated
-source with the pinned consumer program, and requires the declarations and
-JavaScript bytes to equal the checked-in and published artifacts. It then
+source with the pinned consumer program, and requires the independently
+generated transient declaration sets and the freshly compiled and published
+JavaScript bytes to match. It then
 initializes all seven facades through the published Browser/Wasm runtime and
 invokes the host's `AsyncLoweringCanary`. The verifier carries the same
 authoritative product `VersionPrefix` used by the deployment build into

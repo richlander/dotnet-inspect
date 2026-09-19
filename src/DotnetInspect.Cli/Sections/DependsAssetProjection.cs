@@ -33,7 +33,7 @@ internal sealed record DependsAssetRequestPlan(
                 || sections.Contains(DependsAssetSections.RestoredPackages)
                 || failures,
             Traversal:
-                sections.Contains(DependsAssetSections.DependencyGraph),
+                sections.Contains(DependsAssetSections.DependencyHierarchy),
             Pruning: pruning,
             SupplementalEvidence:
                 sections.Contains(DependsAssetSections.Roots)
@@ -77,8 +77,8 @@ internal sealed record DependsRootRow
 
     internal InertString? Identity { get; }
 
-    internal DependencyGraphNodeIdentity? GraphIdentity =>
-        Content.GraphIdentity;
+    internal DependencyGraphNodeIdentity? DependencyIdentity =>
+        Content.DependencyIdentity;
 
     internal DependencyInspectionTraversalCompletion Traversal =>
         Content.Traversal;
@@ -121,25 +121,18 @@ internal sealed record DependsRootRow
 /// </summary>
 internal sealed record DependsAssetProjection(
     InspectionEnvelope<DependencyInspectionContent> Inspection,
-    ImmutableArray<DependencyGraphEdgeRow> GraphRows,
+    DependencyInspectionSummary Summary,
+    DependencyGraphDocument Graph,
+    DependencyHierarchyDocument Hierarchy,
+    ImmutableArray<DependencyHierarchyOccurrenceRow> HierarchyRows,
     ImmutableArray<DependsRootRow> Roots,
+    ImmutableArray<DependencyInspectionDependency> Dependencies,
+    ImmutableArray<DependencyInspectionPruning> Pruning,
     ImmutableArray<DependencyEvidenceRestoredEdgeRow> RestoredEdges,
+    ImmutableArray<DependencyInspectionFailure> Failures,
     ImmutableArray<DependencyEvidenceGroupRow> DependencyGroups,
     ImmutableArray<DependencyEvidenceRestoredPackageRow> RestoredPackages,
     DependencyInspectionEvidenceDocument? Evidence)
 {
     internal DependencyInspectionContent Content => Inspection.Content;
-
-    internal DependencyInspectionSummary Summary => Content.Summary;
-
-    internal DependencyGraphDocument Graph => Content.Graph;
-
-    internal ImmutableArray<DependencyInspectionDependency> Dependencies =>
-        Content.Dependencies;
-
-    internal ImmutableArray<DependencyInspectionPruning> Pruning =>
-        Content.Pruning;
-
-    internal ImmutableArray<DependencyInspectionFailure> Failures =>
-        Content.Failures;
 }
