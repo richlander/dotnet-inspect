@@ -93,5 +93,6 @@ slice from which a representative assembly could be chosen.
 | Structural failures | `DeclaredToolMeasurementRejectsCaseCollidingEntries`, `MalformedToolPathsDoNotCreateSlices`, and `DeclaredToolMeasurementRequiresEntryManifest` |
 | Closed no-slice JSON shape | `NoToolSlicesJsonRejectsNonemptyFrameworkInventory` |
 | CLI `all`, one-download-per-invocation, and cold/warm adoption | `PackageCommand_DeclaredToolUsesAggregateToolMeasurementsColdAndWarm` |
+| CLI JSON outcomes | `PackageCommand_DeclaredToolJsonRetainsMeasuredAndNoApplicableOutcomes` |
 | Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |

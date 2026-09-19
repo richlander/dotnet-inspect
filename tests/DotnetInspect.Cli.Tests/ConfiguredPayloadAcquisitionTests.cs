@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 
 using DotnetInspect.Cli.CommandLine;
@@ -961,6 +962,124 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             2,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task PackageCommand_DeclaredToolJsonRetainsMeasuredAndNoApplicableOutcomes()
+    {
+        string id = $"Pinned.ToolMeasurementJson.{Guid.NewGuid():N}";
+        byte[] archive = CreateToolPackage(
+            id,
+            packageType: "DotnetToolRidPackage",
+            ("tools/net10.0/any/Alpha.dll", new byte[11]),
+            ("tools/net10.0/any/Beta.dll", new byte[17]),
+            ("tools/net8.0/any/Alpha.dll", new byte[29]));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var (measuredExit, measuredOutput, measuredError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--json", "--tips", "q"]);
+
+        Assert.True(
+            measuredExit == 0,
+            $"Exit {measuredExit}: {measuredError}");
+        using (JsonDocument document = JsonDocument.Parse(measuredOutput))
+        {
+            JsonElement measurements = document.RootElement.GetProperty(
+                "package_info_measurements");
+            Assert.Equal(
+                "Measured",
+                measurements.GetProperty("status").GetString());
+            Assert.Equal(
+                archive.LongLength,
+                measurements.GetProperty(
+                    "compressed_package_bytes").GetInt64());
+            Assert.Equal(
+                "net10.0",
+                measurements.GetProperty(
+                    "selected_target_framework").GetString());
+            Assert.Equal(
+                ["net10.0", "net8.0"],
+                measurements.GetProperty(
+                        "available_target_frameworks")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Equal(
+                ["tools"],
+                measurements.GetProperty(
+                        "selected_target_framework_folders")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Equal(
+                28,
+                measurements.GetProperty(
+                    "selected_library_payload_bytes").GetInt64());
+            Assert.Equal(
+                2,
+                measurements.GetProperty(
+                    "selected_library_count").GetInt32());
+            Assert.False(measurements.TryGetProperty("detail", out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "unavailable_reason",
+                    out _));
+        }
+        Assert.Empty(measuredError);
+
+        var (noApplicableExit, noApplicableOutput, noApplicableError) =
+            await RunCommandAsync(
+                ["package", $"{id}@{Version}", "--source", FirstFeed,
+                    "-S", "Package Info", "--tfm", "net6.0",
+                    "--json", "--tips", "q"]);
+
+        Assert.True(
+            noApplicableExit == 0,
+            $"Exit {noApplicableExit}: {noApplicableError}");
+        using (JsonDocument document = JsonDocument.Parse(
+            noApplicableOutput))
+        {
+            JsonElement measurements = document.RootElement.GetProperty(
+                "package_info_measurements");
+            Assert.Equal(
+                "NoApplicableSlice",
+                measurements.GetProperty("status").GetString());
+            Assert.Equal(
+                ["net10.0", "net8.0"],
+                measurements.GetProperty(
+                        "available_target_frameworks")
+                    .EnumerateArray()
+                    .Select(static value => value.GetString()!)
+                    .ToArray());
+            Assert.Contains(
+                "no applicable tool slice",
+                measurements.GetProperty("detail").GetString(),
+                StringComparison.OrdinalIgnoreCase);
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_target_framework",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_library_payload_bytes",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "selected_library_count",
+                    out _));
+            Assert.False(
+                measurements.TryGetProperty(
+                    "unavailable_reason",
+                    out _));
+        }
+        Assert.Empty(noApplicableError);
     }
 
     [Fact]

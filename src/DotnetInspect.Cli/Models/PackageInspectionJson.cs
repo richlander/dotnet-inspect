@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using InertText;
@@ -38,6 +39,10 @@ internal sealed class PackageInspectionJson
     public long? VersionDownloads => _data.VersionDownloads;
     public int? VersionCount => _data.VersionCount;
     public long? PackageSize => _data.PackageSize;
+    public PackageInfoMeasurementsJson? PackageInfoMeasurements =>
+        _data.PackageInfoMeasurementInspection is { } inspection
+            ? new(inspection.Content)
+            : null;
     public bool? IsVerified => _data.IsVerified;
     public bool? Listed => _data.Listed;
     public List<string>? Owners => Render(_text.Owners);
@@ -107,6 +112,41 @@ internal sealed class PackageInspectionJson
 
     private static List<string>? Render(List<InertString>? values)
         => values?.Select(value => value.ToString()).ToList();
+}
+
+internal sealed class PackageInfoMeasurementsJson(
+    PackageInfoMeasurements measurements)
+{
+    public string Status => measurements.Status.ToString();
+
+    public long? CompressedPackageBytes =>
+        measurements.CompressedPackageBytes;
+
+    public string? SelectedTargetFramework =>
+        measurements.SelectedTargetFramework is { } framework
+            ? new InertString(TextPolicy.Field, framework).ToString()
+            : null;
+
+    public List<string>? AvailableTargetFrameworks =>
+        Render(measurements.AvailableTargetFrameworks);
+
+    public List<string>? SelectedTargetFrameworkFolders =>
+        Render(measurements.SelectedTargetFrameworkFolders);
+
+    public long? SelectedLibraryPayloadBytes =>
+        measurements.SelectedLibraryPayloadBytes;
+
+    public int? SelectedLibraryCount =>
+        measurements.SelectedLibraryCount;
+
+    public string? Detail => measurements.Detail?.ToString();
+
+    public string? UnavailableReason =>
+        measurements.UnavailableReason?.ToString();
+
+    private static List<string>? Render(
+        IReadOnlyList<InertString>? values) =>
+        values?.Select(static value => value.ToString()).ToList();
 }
 
 internal sealed class PackageDeprecationJson(PackageDeprecationText text)
