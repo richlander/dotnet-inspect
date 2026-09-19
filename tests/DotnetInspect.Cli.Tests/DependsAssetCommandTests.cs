@@ -324,6 +324,42 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task EvidenceEnvelopeRejectsOptionShapedPathBeforeAcquisition()
+    {
+        string requestedPath =
+            $"-depends-evidence-{Guid.NewGuid():N}.json";
+        string unintendedPath = Path.GetFullPath(requestedPath);
+        try
+        {
+            var result = await RunCapturedAsync(
+            [
+                "depends",
+                "--package",
+                "No.Such.Package@1.0.0",
+                "--evidence-envelope",
+                requestedPath,
+            ]);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "not an option-shaped value",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "No.Such.Package",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(unintendedPath));
+        }
+        finally
+        {
+            if (File.Exists(unintendedPath))
+                File.Delete(unintendedPath);
+        }
+    }
+
+    [Fact]
     public async Task EvidenceEnvelopeRejectsTypeModeBeforeAcquisition()
     {
         using var directory =

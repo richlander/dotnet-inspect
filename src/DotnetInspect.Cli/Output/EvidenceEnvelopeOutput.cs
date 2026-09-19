@@ -23,6 +23,12 @@ internal static class EvidenceEnvelopeOutput
                 "--evidence-envelope requires a file path; '-' is not a stdout shorthand.";
             return false;
         }
+        if (path[0] == '-')
+        {
+            error =
+                "--evidence-envelope requires a file path, not an option-shaped value.";
+            return false;
+        }
 
         try
         {
