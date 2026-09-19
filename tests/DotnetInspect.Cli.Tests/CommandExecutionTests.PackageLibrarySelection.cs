@@ -619,6 +619,92 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task PackageAllLibraries_CustomAttributeOutputsPreserveLiteralMarkup()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalEntityNamedLibraryPackage();
+        try
+        {
+            var jsonl = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.CustomAttributes,
+                "--jsonl",
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.CustomAttributes,
+                "--json",
+                "--tips", "q");
+            var tsv = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.CustomAttributes,
+                "--tsv",
+                "--tips", "q");
+            var markdown = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-S", SectionNames.CustomAttributes,
+                "--markdown",
+                "--tips", "q");
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Equal(0, json.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, markdown.Exit);
+
+            string jsonlLine = Assert.Single(
+                SplitOutputLines(jsonl.Output),
+                line => line.Contains(
+                    "AssemblyMetadata(ReviewValue)",
+                    StringComparison.Ordinal));
+            using var jsonlDocument =
+                System.Text.Json.JsonDocument.Parse(jsonlLine);
+            Assert.Equal(
+                "<code>Literal Attribute</code>",
+                jsonlDocument.RootElement
+                    .GetProperty("value")
+                    .GetString());
+
+            using var jsonDocument =
+                System.Text.Json.JsonDocument.Parse(json.Output);
+            var section = Assert.Single(
+                jsonDocument.RootElement
+                    .GetProperty("sections")
+                    .EnumerateArray());
+            var row = Assert.Single(
+                section.GetProperty("rows").EnumerateArray(),
+                candidate =>
+                    candidate.GetProperty("name").GetString()
+                    == "AssemblyMetadata(ReviewValue)");
+            Assert.Equal(
+                "<code>Literal Attribute</code>",
+                row.GetProperty("value").GetString());
+
+            Assert.Contains(
+                "\tAssemblyMetadata(ReviewValue)\tAssembly\t"
+                + "<code>Literal Attribute</code>",
+                tsv.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "| AssemblyMetadata(ReviewValue) | Assembly | "
+                + "`<code>Literal Attribute</code>` |",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Empty(jsonl.Error);
+            Assert.Empty(json.Error);
+            Assert.Empty(tsv.Error);
+            Assert.Empty(markdown.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--tree")]
     [InlineData("--dependencies")]
@@ -1136,6 +1222,7 @@ public partial class CommandExecutionTests
             using System.Reflection;
 
             [assembly: AssemblyCompany("<code>Literal Company</code>")]
+            [assembly: AssemblyMetadata("ReviewValue", "<code>Literal Attribute</code>")]
 
             public sealed class EntityNamedLibrary { }
             """);

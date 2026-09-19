@@ -2025,7 +2025,8 @@ public record CustomAttributeRow(
     public string Target { get; init; } = LibraryViewText.Contain(Target);
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string Value { get; init; } = LibraryViewText.Contain(Value);
+    public string Value { get; init; } =
+        LibraryViewText.ContainLiteralMarkup(Value);
 }
 
 [MarkoutSerializable]
