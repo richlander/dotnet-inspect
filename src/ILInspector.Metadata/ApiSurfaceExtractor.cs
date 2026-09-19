@@ -1153,7 +1153,38 @@ public static partial class ApiSurfaceExtractor
                         methodName[..explicitSeparator],
                         interfaceName,
                         StringComparison.Ordinal);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+
+                // A class finalizer is the destructor-shaped `object.Finalize`
+                // override the C# `~Type()` declaration compiles to. Both the
+                // overridden slot and the body MethodDef shape are required,
+                // excluding generic, static, new-slot, inaccessible, and
+                // unrelated Finalize methods. There are two slot-anchored shapes:
+                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
+                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
+                //     carries those.
+                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
+                //     with NO MethodImpl — it reuses the inherited object.Finalize
+                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
+                //     that slot roots at `System.Object` over metadata alone.
+                // Authenticate the finalizer before visibility filtering because
+                // destructor methods are protected rather than public.
+                var isFinalizer = apiType.Kind == "class"
+                    && (objectFinalizeOverrides.Contains(methodHandle)
+                        || IsImplicitObjectFinalizeOverride(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            observeDecodeWork)
+                        && !HasMethodImplementationBody(
+                            reader,
+                            typeDef,
+                            methodHandle,
+                            method,
+                            observeDecodeWork));
+                if (methodAccess != MethodAttributes.Public
+                    && !includeAll
+                    && !isExplicitInterfaceImplementation
+                    && !isFinalizer)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1249,34 +1280,6 @@ public static partial class ApiSurfaceExtractor
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
-
-                // A class finalizer is the destructor-shaped `object.Finalize`
-                // override the C# `~Type()` declaration compiles to. Both the
-                // overridden slot and the body MethodDef shape are required,
-                // excluding generic, static, new-slot, inaccessible, and
-                // unrelated Finalize methods. There are two slot-anchored shapes:
-                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
-                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
-                //     carries those.
-                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
-                //     with NO MethodImpl — it reuses the inherited object.Finalize
-                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
-                //     that slot roots at `System.Object` over metadata alone.
-                // Keep the declaration-shape check before the per-type MethodImpl
-                // scan so ordinary methods stay off that path.
-                var isFinalizer = apiType.Kind == "class"
-                    && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(
-                            reader,
-                            typeDefHandle,
-                            method,
-                            observeDecodeWork)
-                        && !HasMethodImplementationBody(
-                            reader,
-                            typeDef,
-                            methodHandle,
-                            method,
-                            observeDecodeWork));
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
                     isExplicitInterfaceImplementation && !isFinalizer);
