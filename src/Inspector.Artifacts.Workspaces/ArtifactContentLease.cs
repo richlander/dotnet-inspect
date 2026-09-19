@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Inspector.Resources;
 
@@ -126,16 +127,26 @@ public readonly ref struct ArtifactContentView
 {
     internal ArtifactContentView(
         ArtifactContentReference reference,
-        ReadOnlySpan<byte> content)
+        ImmutableArray<byte> content)
     {
         Reference = reference;
-        Content = content;
+        _content = content;
     }
+
+    private readonly ImmutableArray<byte> _content;
 
     public ArtifactContentReference Reference { get; }
     public ArtifactGenerationIdentity Generation => Reference.Generation;
     public ArtifactIdentity Artifact => Reference.Artifact;
-    public ReadOnlySpan<byte> Content { get; }
+    public ReadOnlySpan<byte> Content => _content.AsSpan();
+
+    public Stream OpenRead() =>
+        new MemoryStream(
+            ImmutableCollectionsMarshal.AsArray(_content)!,
+            index: 0,
+            count: _content.Length,
+            writable: false,
+            publiclyVisible: false);
 }
 
 public delegate TResult ArtifactContentCallback<TResult>(

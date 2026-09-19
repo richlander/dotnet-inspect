@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
+
 namespace Inspector.Artifacts;
 
 /// <summary>Owner-attested retained bytes borrowed during admission.</summary>
@@ -5,15 +8,25 @@ public readonly ref struct ArtifactAdmissionContentView
 {
     internal ArtifactAdmissionContentView(
         ArtifactIdentity artifact,
-        ReadOnlySpan<byte> content)
+        ImmutableArray<byte> content)
     {
         Artifact = artifact;
-        Content = content;
+        _content = content;
     }
+
+    private readonly ImmutableArray<byte> _content;
 
     public ArtifactGenerationIdentity Generation => Artifact.Generation;
     public ArtifactIdentity Artifact { get; }
-    public ReadOnlySpan<byte> Content { get; }
+    public ReadOnlySpan<byte> Content => _content.AsSpan();
+
+    public Stream OpenRead() =>
+        new MemoryStream(
+            ImmutableCollectionsMarshal.AsArray(_content)!,
+            index: 0,
+            count: _content.Length,
+            writable: false,
+            publiclyVisible: false);
 }
 
 /// <summary>Owner-attested retained bytes borrowed during a query.</summary>
@@ -21,15 +34,25 @@ public readonly ref struct ArtifactQueryContentView
 {
     internal ArtifactQueryContentView(
         ArtifactIdentity artifact,
-        ReadOnlySpan<byte> content)
+        ImmutableArray<byte> content)
     {
         Artifact = artifact;
-        Content = content;
+        _content = content;
     }
+
+    private readonly ImmutableArray<byte> _content;
 
     public ArtifactGenerationIdentity Generation => Artifact.Generation;
     public ArtifactIdentity Artifact { get; }
-    public ReadOnlySpan<byte> Content { get; }
+    public ReadOnlySpan<byte> Content => _content.AsSpan();
+
+    public Stream OpenRead() =>
+        new MemoryStream(
+            ImmutableCollectionsMarshal.AsArray(_content)!,
+            index: 0,
+            count: _content.Length,
+            writable: false,
+            publiclyVisible: false);
 }
 
 public delegate TResult ArtifactAdmissionContentCallback<TResult>(
