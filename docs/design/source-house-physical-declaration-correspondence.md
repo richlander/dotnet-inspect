@@ -218,6 +218,33 @@ One correspondence request consumes:
 - one finite correspondence plan; and
 - zero or more contributions from host-authorized attestation capabilities.
 
+Contribution admission and aggregation are ordered:
+
+1. SourceHouse enumerates the complete bounded contribution set, decodes it,
+   and validates each claimed issuer authorization. Bound exhaustion is
+   `Incomplete`; an operational decode, authentication, hashing, or inspection
+   failure is `Failed`; a completed authentication denial is `Rejected`.
+2. Every decoded authorized contribution must match the request, plan, policy,
+   Library, content reference, Artifact generation, module digest and MVID,
+   Metadata target, source-result identity, exact source bytes and encoding,
+   attestation generation, and validation-profile version authorized by the
+   plan. Any mismatch makes the operation `Rejected`. A valid contribution
+   cannot mask a stale or incorrectly indexed one.
+3. A contribution becomes **accepted** only after all those associations and
+   its declaration-span bounds validate. If no accepted row remains because
+   the supported target has no unique compiler identity or no authorized
+   attestation row, the result is `Unavailable`.
+4. Accepted contributions are aggregated only after every contribution passes
+   the preceding stages. Equal target, source, raw span, and syntax kind may
+   corroborate one `Exact` result. Contributions that agree on every
+   request-bound association but disagree on raw span or syntax kind produce
+   `Conflict`.
+
+This ordering defines outcome precedence after caller cancellation:
+`Incomplete`, `Failed`, `Rejected`, then `Unavailable`, `Conflict`, or `Exact`.
+The first three outcomes prevent aggregation; source order, capability order,
+and first success do not affect the result.
+
 The selected assembly content reference supplies the Artifact identity and
 generation. SourceHouse inspects the same assembly bytes to validate the
 attested digest, MVID, target address, and compiler documentation identity.
@@ -276,12 +303,14 @@ The closed outcome family is:
 - **Unavailable** — no authorized applicable evidence exists, the target is
   outside the supported profile, its compiler documentation identity is not
   unique, or no accepted attestation row names it;
-- **Conflict** — independently accepted contributions disagree about the
-  module target, source content, span, or declaration kind; the result retains
-  bounded descriptors for every conflicting contribution;
+- **Conflict** — fully associated, independently accepted contributions name
+  different raw declaration spans or syntax kinds for the same exact request,
+  target, module, and source content; the result retains bounded descriptors
+  for every conflicting contribution;
 - **Rejected** — an owner-issued input or claimed association names the wrong
   request, Library, content, Artifact generation, module, target, source result,
-  source content, policy, or attestation generation;
+  source content, policy, attestation generation, or authorized
+  validation-profile version;
 - **Failed** — authorized attestation decoding, module inspection, source
   decoding, hashing, or target validation fails; and
 - **Incomplete** — a declared byte, record, source, candidate, span, or deadline
@@ -455,6 +484,11 @@ The implementation must provide Release gates for:
 - exact request, policy, Library, implementation content, Artifact generation,
   module digest, MVID, Metadata target, source result, source digest, encoding,
   span, attestor, and profile association;
+- one valid contribution beside one stale or incorrectly indexed target,
+  module, source, policy, or generation contribution producing `Rejected`
+  rather than `Exact` or `Conflict`;
+- fully associated contributions that disagree only on raw declaration span or
+  syntax kind producing `Conflict` with bounded evidence;
 - a `#line` mapping into another real checksum-valid source document failing to
   authorize that destination declaration;
 - `#pragma checksum` evidence remaining insufficient without an attestation;
@@ -467,7 +501,6 @@ The implementation must provide Release gates for:
   generations requiring new correspondence;
 - a post-emit transform preserving one unique compiler documentation ID
   remaining non-exact without separately authorized target-lineage evidence;
-- conflict retaining bounded evidence without first-candidate selection;
 - malformed attestation, malformed Metadata, invalid source encoding,
   out-of-bounds spans, finite-work exhaustion, and cancellation remaining
   visible; and
