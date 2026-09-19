@@ -502,8 +502,9 @@ does not query the network when that catalog exists. The named default
 deliberately adds the `10.0.1` floor, cross-feature-band typed target selection,
 and package-backed stable fallback rather than wrapping its path-based result.
 
-Preferred `Unavailable` or authoritative discovery with no eligible candidate
-permits the fallback stage. Rejected, incomplete, or failed preferred evidence
+Preferred `Unavailable(Absent)` or authoritative completed discovery with no
+eligible candidate permits the fallback stage. Non-authoritative
+`Unavailable(Unavailable)`, rejected, incomplete, or failed preferred evidence
 does not prove absence and is terminal; cancellation remains cancellation.
 Fallback partial or failed version discovery likewise cannot select from a
 shortened inventory. These rules keep network access capability-gated and
@@ -2155,7 +2156,7 @@ The implementation and adoption slices own these Release gates:
 | Target settlement | An exact demand is retained unchanged; a framework-scoped or family-default demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
 | Versionless installed default | Installed `9.0.11`, `10.0.0`, and `11.0.0-rc.1` candidates under the named policy select exact `DotNetRuntime / net11.0 / 11.0.0-rc.1`; package discovery is never invoked, and the receipt retains the floor, policy generation, selected target, and preferred discovery evidence. |
 | Versionless stable fallback | Preferred discovery containing only versions below `10.0.1` permits one authorized fallback discovery; a complete inventory containing stable `10.0.1` and `10.0.12` plus a later `10.0` preview selects exact stable `10.0.12` and retains both stages' outcome-relevant evidence. |
-| Versionless failure visibility | Rejected, incomplete, or failed preferred discovery invokes no fallback and remains visibly terminal; partial or failed fallback discovery cannot select from its observed prefix. |
+| Versionless failure visibility | Non-authoritative `Unavailable(Unavailable)`, rejected, incomplete, or failed preferred discovery invokes no fallback and remains visibly terminal; only typed `Unavailable(Absent)` or a completed inventory with no eligible candidate proves preferred absence, and partial or failed fallback discovery cannot select from its observed prefix. |
 | Exact-version independence | Exact `runtime@9.0.11` remains exact and bypasses the versionless floor, preferred stage, and stable fallback. |
 | Workspace population correspondence | The operation association retains the owner-issued Workspace revision identity and ecosystem registration; the House request and receipt retain that identity, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
 | Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
