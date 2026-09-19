@@ -369,14 +369,16 @@ Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, ordinary and `--library-literal` Package Query, and online package
-range-version population support the presence-only `--envelope` service-output
-selector. It implies JSON. For `depends`, API Diff, Package Activity, and
-Package Query, unprojected `--json` emits the same Content without the service
-frame. Package version `--json` remains an explicit row projection;
+range-version population, and exact package-backed Type or Library API
+inspection support the presence-only `--envelope` service-output selector. It
+implies JSON. For `depends`, API Diff, Package Activity, Package Query, and
+exact Type or Library API inspection, unprojected `--json` emits the same
+Content without the service frame. Package version `--json` remains an explicit
+row projection;
 `--envelope` instead exposes the complete directed population Document, Share,
 and diagnostics. Asset-mode `depends`, other Diff modes, Discover, Count outside
-package population, projected output, and other commands have not adopted this
-transport.
+package population, projected output, other Type modes, and other commands have
+not adopted this transport.
 
 | Goal | Flags |
 | ---- | ----- |

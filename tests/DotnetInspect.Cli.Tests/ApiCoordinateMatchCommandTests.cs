@@ -218,24 +218,252 @@ public sealed class ApiCoordinateMatchCommandTests
         Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
     }
 
-    [Theory]
-    [InlineData("type")]
-    [InlineData("member")]
-    public async Task Envelope_RequiresMatch(string command)
+    [Fact]
+    public async Task MemberEnvelope_RequiresMatch()
     {
-        string[] subject = command == "type"
-            ? ["type", "Example.Widget"]
-            : ["member", "Example.Widget", "Run:1"];
         var result = await Invoke(
-            [
-                .. subject,
-                "--package", "Example@1.0.0",
-                "--envelope",
-            ]);
+        [
+            "member", "Example.Widget", "Run:1",
+            "--package", "Example@1.0.0",
+            "--envelope",
+        ]);
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
         Assert.Contains("requires --match", result.Error);
+    }
+
+    [Fact]
+    public async Task TypeEnvelope_RequiresExactSharedRoute()
+    {
+        var result = await Invoke(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("System.Text")]
+    [InlineData("Regex")]
+    public async Task TypeEnvelopeRejectsPlatformFallbacks(
+        string type)
+    {
+        var result = await Invoke(
+        [
+            "type", type,
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "best-effort platform prefix matches",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "resolved via platform find",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeEnvelopeRejectsLibraryPackageRangeBeforeAcquisition()
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type",
+            "--package", "Example@1.0.0..2.0.0",
+            "--library", "Example.dll",
+            "--tfm", "net8.0",
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Fact]
+    public async Task TypeEnvelopeRejectsPlatformFrameworkBeforeAcquisition()
+    {
+        string[][] requests =
+        [
+            [
+                "type", "Example.Widget",
+                "--package", "Example@1.0.0",
+                "--tfm", "net8.0",
+                "--framework", "net9.0",
+                "--envelope",
+            ],
+            [
+                "type",
+                "--package", "Example@1.0.0",
+                "--library", "Example.dll",
+                "--tfm", "net8.0",
+                "--framework", "net9.0",
+                "--envelope",
+            ],
+        ];
+
+        foreach (string[] request in requests)
+        {
+            var result = await InvokeWithoutAcquisition(request);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "requires exact package-backed Type or Library API inspection",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+        }
+    }
+
+    [Fact]
+    public async Task TypeEnvelopeRejectsWorkspaceBeforeRestoration()
+    {
+        var result = await Invoke(
+        [
+            "type", "Example.Widget",
+            "--workspace", "not-a-workspace-packet",
+            "--envelope",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires exact package-backed Type or Library API inspection",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Workspace packet",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--bare")]
+    [InlineData("--tree")]
+    [InlineData("--count")]
+    [InlineData("-Q")]
+    [InlineData("-v:n")]
+    [InlineData("-v:d")]
+    public async Task TypeEnvelopeRejectsPresentationOptions(
+        string incompatibleOption)
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--tfm", "net8.0",
+            "--envelope",
+            incompatibleOption,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--envelope cannot be combined with",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Theory]
+    [InlineData("-v:q")]
+    [InlineData("-v:m")]
+    public async Task TypeEnvelopeAdmitsCompleteVerbosityBeforeAcquisition(
+        string verbosity)
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--tfm", "net8.0",
+            "--envelope",
+            verbosity,
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "exact-type",
+            document.RootElement.GetProperty("result_kind").GetString());
+        Assert.DoesNotContain(
+            "--envelope cannot be combined with",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeContentJsonRejectsTreeBeforeAcquisition()
+    {
+        var result = await InvokeWithoutAcquisition(
+        [
+            "type", "Example.Widget",
+            "--package", "Example@1.0.0",
+            "--tfm", "net8.0",
+            "--json",
+            "--tree",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--tree is not supported with JSON output on type",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+    }
+
+    [Fact]
+    public async Task TypeImplicitJsonRejectsTreeBeforeAcquisition()
+    {
+        string? previous =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            var result = await InvokeWithoutAcquisition(
+            [
+                "type", "Example.Widget",
+                "--package", "Example@1.0.0",
+                "--tfm", "net8.0",
+                "--tree",
+            ]);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--tree is not supported with JSON output on type",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("MATCH_ACQUIRED", result.Error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                previous);
+        }
     }
 
     [Fact]
