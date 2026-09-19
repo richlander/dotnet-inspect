@@ -497,7 +497,9 @@ considers all package manifest groups by default; add
 `dependency-target=<TFM>` to select one applicable dependency group instead.
 `dependency-target=all` spells the default explicitly and remains distinct
 from a manifest's real `any` group. Repeat `depends` to require every named
-dependency under the same scope:
+dependency under the same scope. Use
+`depends-ecosystem=<canonical-ecosystem-id>` to match a direct dependency
+against the ecosystem's registered exact packages and package prefixes:
 
 ```bash
 dotnet-inspect package query 'Microsoft.Extensions.*' \
@@ -508,6 +510,8 @@ dotnet-inspect package query 'Polly.*' \
 dotnet-inspect package query 'Microsoft.Extensions.*' \
   --where "depends=Microsoft.Extensions.DependencyInjection" \
   --where "depends=Microsoft.Extensions.Configuration" --count
+dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 ```
 
 License selection also stays at the manifest boundary. `license=any` matches
@@ -544,7 +548,8 @@ directories; notices remain a separate legal-document concern. Reading that
 content is an explicit package projection and never informs license identity.
 
 Add `--where "key=value"` to select product-owned Package Query terms, with one
-matched package per row, semantic answers, and structured evidence. The initial CLI
+matched package per row and semantic answers. Structured evidence remains
+available in unprojected JSON and the inspection envelope. The initial CLI
 vocabulary covers package metadata, dependencies, downloads, README presence,
 .NET tools and their CLI v1/v2 format, skill packages, and nuspec license
 identity. Discover the admitted keys and values before constructing a query:
