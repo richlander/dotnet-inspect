@@ -38,7 +38,7 @@ public class InspectionResultView
                 ? new ByteSizeFormatter().Format(view.PackageSizeBytes.Value)
                 : null),
         new("Selected TFM", static view =>
-            view.PackageMeasurements?.SelectedTargetFramework),
+            view.PackageMeasurements?.SelectedTargetFramework?.ToString()),
         new("Selected-TFM Folders", static view =>
             view.PackageMeasurements?.SelectedTargetFrameworkFolders
                 is { Count: > 0 } folders
@@ -712,9 +712,10 @@ public class InspectionResultView
         fields.Add(new("Type", PackageType));
 
         if (PackageMeasurements?.SelectedTargetFramework
-            is { Length: > 0 } selectedTfm)
+                is { } selectedTfm
+            && selectedTfm.ToString() is { Length: > 0 } selectedTfmText)
         {
-            fields.Add(new("Selected TFM", selectedTfm));
+            fields.Add(new("Selected TFM", selectedTfmText));
         }
         if (PackageMeasurements?.AvailableTargetFrameworks
             is { } targetFrameworks)

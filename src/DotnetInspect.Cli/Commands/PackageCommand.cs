@@ -1198,10 +1198,11 @@ public partial class PackageCommand
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 sourceOptions: options.SourceOptions);
 
-            ApplyPackageInfoMeasurements(
+            await ApplyPackageInfoMeasurementsAsync(
                 result,
                 resolution,
                 packageSize,
+                options.Tfm,
                 logger.Log);
 
             await PopulatePackageSignatureAsync(
