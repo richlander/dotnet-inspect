@@ -414,12 +414,21 @@ internal static class ApiSourceResolver
 
             if (apiSource == SourceKind.Platform && apiVersion != null)
             {
-                var dotIndex = apiVersion.IndexOf('.');
-                if (dotIndex > 0)
+                selectedTfm =
+                    TryGetReferencePackTargetFramework(searchPath);
+                if (selectedTfm is null)
                 {
-                    var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
-                    var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
-                    selectedTfm = $"net{majorMinor}";
+                    var dotIndex = apiVersion.IndexOf('.');
+                    if (dotIndex > 0)
+                    {
+                        var secondDot =
+                            apiVersion.IndexOf('.', dotIndex + 1);
+                        var majorMinor =
+                            secondDot > 0
+                                ? apiVersion[..secondDot]
+                                : apiVersion;
+                        selectedTfm = $"net{majorMinor}";
+                    }
                 }
             }
 
@@ -455,5 +464,22 @@ internal static class ApiSourceResolver
         {
             PackageExtractor.Cleanup(tempDir);
         }
+    }
+
+    private static string? TryGetReferencePackTargetFramework(
+        string assemblyPath)
+    {
+        string? targetFrameworkDirectory =
+            Path.GetDirectoryName(assemblyPath);
+        string? refDirectory =
+            Path.GetDirectoryName(targetFrameworkDirectory);
+        return targetFrameworkDirectory is not null
+            && refDirectory is not null
+            && string.Equals(
+                Path.GetFileName(refDirectory),
+                "ref",
+                StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileName(targetFrameworkDirectory)
+                : null;
     }
 }

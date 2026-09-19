@@ -186,13 +186,15 @@ undocumented rather than failing otherwise valid reference subjects. Deferred
 type/member discovery preserves an explicitly selected framework family and
 version when it adds the discovered assembly identity, so reopening cannot
 silently replace the requested target with the discovery catalog's current
-target. The netstandard path, for which PlatformHouse defines no family,
-constructs the monolithic `netstandard.dll` direct Library with its
-`netstandard.xml` companion, queries only IDs represented by that contract
-surface, and applies a bounded 32-MiB allowance for the XML document. The
-remaining CLI `SourceEnricher` path retains PDB and authored-source acquisition,
-comment search, parsing, field merging, and warnings until the authored channel
-transfers those responsibilities in slice 21.
+target. The resolved platform source retains the actual reference-pack TFM,
+including legacy `netcoreapp*` directory identities, rather than reconstructing
+it from the display version. The netstandard path, for which PlatformHouse
+defines no family, constructs the monolithic `netstandard.dll` direct Library
+with its `netstandard.xml` companion, queries only IDs represented by that
+contract surface, and applies a bounded 32-MiB allowance for the XML document.
+The remaining CLI `SourceEnricher` path retains PDB and authored-source
+acquisition, comment search, parsing, field merging, and warnings until the
+authored channel transfers those responsibilities in slice 21.
 
 ## Relationship to adjacent owners
 

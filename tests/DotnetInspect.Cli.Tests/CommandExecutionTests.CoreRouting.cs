@@ -889,6 +889,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredLegacyRuntimeMember_PreservesReferencePackTfm()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(
