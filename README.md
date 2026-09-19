@@ -1070,7 +1070,7 @@ dotnet-inspect depends NpgsqlOptionsExtension \
 dotnet-inspect depends \
   --project ./src/App/App.csproj \
   --depth 2 \
-  -S "Dependency Graph,Dependencies"
+  -S "Dependency Hierarchy,Dependencies"
 dotnet-inspect depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --nuspec ./artifacts/local.nuspec \
@@ -1121,6 +1121,13 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
+shared targets reached through different parents remain separate occurrences,
+and tables, JSON, JSONL, row windows, and Count use that same occurrence
+currency. `Dependencies` remains the direct declaration evidence section.
+Positional `depends <type>` retains its existing `Dependency Graph` section
+until Type relationships move to the general Graph operation.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

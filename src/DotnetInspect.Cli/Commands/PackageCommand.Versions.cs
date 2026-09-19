@@ -79,7 +79,7 @@ public partial class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
-        if ((latest || isRange || ordinaryListing)
+        if ((latest || isRange || ordinaryListing || options.SingleVersionQuery)
             && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
         {
             CommandError.Write(
@@ -122,7 +122,6 @@ public partial class PackageCommand
                 options);
         }
 
-        if (ordinaryListing || pinned)
         {
             using PackageSourceOperationLease operation =
                 composition.IssueSettlementOperation();
@@ -145,36 +144,58 @@ public partial class PackageCommand
                     pinnedVersion!,
                     options);
             }
+            if (options.SingleVersionQuery)
+            {
+                return WriteSingleVersionListingSettlement(
+                    listing,
+                    packageId,
+                    packageReference,
+                    options);
+            }
             return WriteVersionListingSettlement(
                 listing,
                 packageReference,
                 options);
         }
+    }
 
-        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
-            packageId,
-            options.IncludePrerelease,
-            options.VersionRowSelection is not null
-                ? null : options.Limit,
-            options.SourceOptions,
-            context.Logger.Log,
-            includeUnlisted: options.IncludeUnlisted);
-
-        if (discovery.State != PackageVersionDiscoveryState.Authoritative)
+    private static int WriteSingleVersionListingSettlement(
+        InspectionEnvelope<PackageVersionListingOutcome> envelope,
+        string packageId,
+        string packageReference,
+        InspectionOptions options)
+    {
+        string notFoundMessage =
+            $"Package '{packageReference}' not found on eligible configured sources.";
+        if (envelope.Content
+            is PackageVersionListingOutcome.NotAvailable notAvailable)
         {
-            WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+            return WriteVersionListingFailure(
+                notAvailable.Failure,
+                notFoundMessage);
+        }
+        if (envelope.Content
+            is not PackageVersionListingOutcome.Listed available)
+        {
+            throw new InvalidOperationException(
+                "Unknown package version listing outcome.");
+        }
+        if (available.Document.Completeness
+            == PackageVersionListingCompleteness.Partial)
+        {
+            WriteVersionDiscoveryFailureDetails(
+                packageId,
+                [
+                    .. available.AuthorityFailures.Select(value =>
+                        (value.Kind, value.Message.ToString())),
+                ]);
             return 1;
         }
 
-        IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
-        if (!discovery.HasAnyCandidate)
-        {
-            CommandError.Write(
-                $"Package '{packageReference}' not found on eligible configured sources.");
-            return 1;
-        }
-
-        return WriteVersionQueryRows(listings, discovery.SourceListings, options);
+        return WriteVersionQueryRows(
+            [.. available.Document.Versions.Take(1)],
+            available.Document.SourceListings,
+            options);
     }
 
     private static int WritePinnedVersionListingSettlement(
