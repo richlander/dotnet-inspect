@@ -592,6 +592,8 @@ public static class PackageOptionsParser
             || result.GetResult(opts.Select)
                 is { Implicit: false }
             || result.GetValue(opts.Print)
+            || result.GetResult(opts.Row)
+                is { Implicit: false }
             || result.GetValue(opts.Value)
             || result.GetValue(opts.Urls)
             || result.GetValue(opts.Paths)

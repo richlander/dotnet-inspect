@@ -391,6 +391,15 @@ public partial class CommandExecutionTests
             "-n",
             "1",
             "--json");
+        var unsupportedRow = await RunAppAsync(
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            "--row",
+            "1",
+            "--rows",
+            "1");
 
         Assert.Equal(1, legacyCount.Exit);
         Assert.Empty(legacyCount.Output);
@@ -412,6 +421,21 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(
             "Package.That.Must.Not.Resolve",
             jsonLines.Error,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, unsupportedRow.Exit);
+        Assert.Empty(unsupportedRow.Output);
+        Assert.Contains(
+            "--row requires --print, --value, --urls, --paths, or --roots.",
+            unsupportedRow.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            unsupportedRow.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            unsupportedRow.Error,
             StringComparison.Ordinal);
     }
 
