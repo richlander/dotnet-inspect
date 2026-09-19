@@ -51,9 +51,8 @@ public partial class DependsCommand
 
         bool evidenceEnvelopeRequested =
             options.EvidenceEnvelopePath is not null;
-        if (!evidenceEnvelopeRequested
-            && DependsShareProjection.ValidateOptions(options)
-                is { } shareError)
+        if (DependsShareProjection.ValidateOptions(options)
+            is { } shareError)
         {
             CommandError.Write(shareError);
             return 1;
@@ -150,6 +149,14 @@ public partial class DependsCommand
         var context = new CommandContext(options.Verbose);
         try
         {
+            InspectionShare? requestedShare =
+                options.ShareFormat is null
+                    ? null
+                    : await DependsShareProjection.ProjectAssetAsync(
+                        options,
+                        context.HttpClient,
+                        context.Logger,
+                        cancellationToken).ConfigureAwait(false);
             DependsAssetProjection projection =
                 await AcquireAssetProjectionAsync(
                     options,
@@ -158,6 +165,7 @@ public partial class DependsCommand
                     options.Effective && options.Depth is null
                         ? 1
                         : options.Depth,
+                    requestedShare,
                     pruneSource,
                     cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
@@ -601,6 +609,7 @@ public partial class DependsCommand
             CommandContext context,
             DependsAssetRequestPlan plan,
             int? traversalDepth,
+            InspectionShare? share,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
             CancellationToken cancellationToken)
     {
@@ -893,7 +902,8 @@ public partial class DependsCommand
             additionalFailures,
             pruning.Rows,
             pruning.Failures,
-            pruning.Summary);
+            pruning.Summary,
+            share);
         var builder = new EvidenceInspectionBuilder<
             DependencyInspectionContent,
             DependencyInspectionEvidenceDocument>();

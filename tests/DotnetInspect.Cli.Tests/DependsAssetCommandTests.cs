@@ -14,6 +14,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using InertText;
@@ -484,6 +485,103 @@ public sealed class DependsAssetCommandTests
             Directory.EnumerateFiles(
                 parent.FullName,
                 $".{Path.GetFileName(destination)}.*.tmp"));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesProjectablePackageShare()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-available-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        string[] ordinaryArguments =
+        [
+            "depends",
+            "--package",
+            "System.Text.Json@10.0.0",
+            "--tfm",
+            "net10.0",
+            "--share",
+            "packet",
+        ];
+
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var result = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, ordinary.ExitCode);
+        Assert.Empty(ordinary.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Output);
+        string[] errorLines = result.Error.Split(
+            Environment.NewLine,
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}",
+            errorLines[^2]);
+        string packet = errorLines[^1];
+        Assert.Equal(ordinary.Output.Trim(), packet);
+        WorkspaceSharePacket decoded = WorkspaceSharePacketCodec.Decode(
+            packet,
+            TestContext.Current.CancellationToken);
+        WorkspaceShareTab tab = Assert.Single(decoded.Tabs);
+        Assert.Equal("System.Text.Json", tab.Source);
+        Assert.Equal("10.0.0", tab.Version);
+        Assert.Equal("net10.0", tab.Framework);
+
+        using JsonDocument document =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement share = document.RootElement.GetProperty("share");
+        Assert.Equal("available", share.GetProperty("kind").GetString());
+        Assert.Equal(
+            packet,
+            share.GetProperty("packet").GetString());
+        Assert.Equal(
+            WorkspaceShareOutput.UrlPrefix + packet,
+            share.GetProperty("full_url").GetString());
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeRetainsShareOptionValidation()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-options-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            "No.Such.Package@1.0.0",
+            "--tfm",
+            "net10.0",
+            "--share",
+            "packet",
+            "--json",
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--share selects packet or URL output",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No.Such.Package",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(sidecar));
     }
 
     [Fact]
