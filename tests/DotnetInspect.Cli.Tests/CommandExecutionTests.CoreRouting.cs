@@ -870,6 +870,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredVersionedPlatformMember_PreservesRequestedTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.String.IndexOf",
+            "--framework",
+            "runtime@10.0.10",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 10.0.10", output);
+        Assert.Contains(
+            "Reports the zero-based index of the first occurrence",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(

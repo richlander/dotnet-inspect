@@ -36,7 +36,10 @@ internal sealed record TypeFindIfMissResult(
             TypeName = match.FullName,
             PackagePath = null,
             PlatformAssembly = match.Library,
-            PlatformFramework = match.Source,
+            PlatformFramework =
+                string.IsNullOrWhiteSpace(options.PlatformFramework)
+                    ? match.Source
+                    : options.PlatformFramework,
             OriginalTypeQuery = match.FullName,
             PlatformPrefixQuery = null,
             AllowPlatformPrefixFallback = false
@@ -54,7 +57,10 @@ internal sealed record TypeFindIfMissResult(
             TypeName = match.FullName,
             PackagePath = null,
             PlatformAssembly = match.Library,
-            PlatformFramework = match.Source
+            PlatformFramework =
+                string.IsNullOrWhiteSpace(options.PlatformFramework)
+                    ? match.Source
+                    : options.PlatformFramework
         };
     }
 
