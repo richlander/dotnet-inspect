@@ -77,6 +77,158 @@ public class GetMemberTextPartsTests
     }
 
     [Fact]
+    public void DocumentationOnContainingTypeOpeningLine_AttachesToExactMemberParts()
+    {
+        const string source =
+            "class C { /** <summary>M.</summary> */ void M() { } }";
+
+        var parts = Assert.IsType<MemberTextParts>(
+            MemberTextSlicer.GetMemberTextParts(source, 1, 1, "M"));
+
+        var documentation = Assert.Single(parts.XmlDocumentation);
+        AssertPart(
+            source,
+            documentation,
+            "/** <summary>M.</summary> */",
+            1,
+            1);
+        AssertPart(
+            source,
+            parts.Member,
+            "/** <summary>M.</summary> */ void M() { }",
+            1,
+            1);
+        Assert.Null(MemberTextSlicer.ExtractMemberText(source, 1, 1, "M"));
+    }
+
+    [Fact]
+    public void DocumentationAfterPreviousMemberClosingBrace_AttachesToNextMember()
+    {
+        const string source = """
+            class C
+            {
+                void Before()
+                {
+                } /** <summary>M.</summary> */
+                void M()
+                {
+                }
+            }
+            """;
+
+        var parts = Assert.IsType<MemberTextParts>(
+            MemberTextSlicer.GetMemberTextParts(source, 7, 8, "M"));
+
+        var documentation = Assert.Single(parts.XmlDocumentation);
+        AssertPart(
+            source,
+            documentation,
+            "/** <summary>M.</summary> */",
+            5,
+            5);
+        AssertPart(
+            source,
+            parts.Member,
+            "/** <summary>M.</summary> */\n" +
+            "    void M()\n" +
+            "    {\n" +
+            "    }",
+            5,
+            8);
+        Assert.Equal(
+            "void M()\n{\n}",
+            MemberTextSlicer.ExtractMemberText(source, 7, 8, "M"));
+    }
+
+    [Theory]
+    [InlineData("//// ordinary banner")]
+    [InlineData("/*** ordinary banner */")]
+    [InlineData("/**/")]
+    public void OrdinaryCommentLookalikes_DoNotBecomeDocumentation(string comment)
+    {
+        string source = string.Join(
+            '\n',
+            "class C",
+            "{",
+            $"    {comment}",
+            "    void M() { }",
+            "}");
+
+        var parts = Assert.IsType<MemberTextParts>(
+            MemberTextSlicer.GetMemberTextParts(source, 4, 4, "M"));
+
+        Assert.Empty(parts.XmlDocumentation);
+        AssertPart(source, parts.Member, "void M() { }", 4, 4);
+        Assert.Equal(
+            "void M() { }",
+            MemberTextSlicer.ExtractMemberText(source, 4, 4, "M"));
+    }
+
+    [Theory]
+    [InlineData("/// <summary>M.</summary>")]
+    [InlineData("/** <summary>M.</summary> */")]
+    public void GenuineDocumentationDelimiters_RemainAttached(string documentationText)
+    {
+        string source = string.Join(
+            '\n',
+            "class C",
+            "{",
+            $"    {documentationText}",
+            "    void M() { }",
+            "}");
+
+        var parts = Assert.IsType<MemberTextParts>(
+            MemberTextSlicer.GetMemberTextParts(source, 4, 4, "M"));
+
+        var documentation = Assert.Single(parts.XmlDocumentation);
+        AssertPart(source, documentation, documentationText, 3, 3);
+        Assert.StartsWith(
+            documentationText,
+            Text(source, parts.Member),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OrdinaryComments_SeparateGenuineDocumentationGroups()
+    {
+        const string source = """
+            class C
+            {
+                /// <summary>First.</summary>
+                //// ordinary separator
+                /// <summary>Second.</summary>
+                /*** ordinary separator */
+                /** <summary>Third.</summary> */
+                void M() { }
+            }
+            """;
+
+        var parts = Assert.IsType<MemberTextParts>(
+            MemberTextSlicer.GetMemberTextParts(source, 8, 8, "M"));
+
+        Assert.Collection(
+            parts.XmlDocumentation,
+            documentation => AssertPart(
+                source,
+                documentation,
+                "/// <summary>First.</summary>",
+                3,
+                3),
+            documentation => AssertPart(
+                source,
+                documentation,
+                "/// <summary>Second.</summary>",
+                5,
+                5),
+            documentation => AssertPart(
+                source,
+                documentation,
+                "/** <summary>Third.</summary> */",
+                7,
+                7));
+    }
+
+    [Fact]
     public void SignatureAndBodyBoundaries_DistinguishBlockExpressionAndBodylessMembers()
     {
         const string source = """
