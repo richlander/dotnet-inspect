@@ -338,6 +338,17 @@ public static class PlatformHouseSelectedLibraryExecutor
                                     attempts);
                         realizationSettlements.AddRange(
                             exhausted.Settlements);
+                        if (exhausted.Kind
+                            == PlatformSourcePolicyDecisionKind.Failed)
+                        {
+                            return TerminalDecision(
+                                request,
+                                selection,
+                                work.Consumed,
+                                realizationSettlements,
+                                exhausted,
+                                identityPrefix);
+                        }
                     }
                     return Incomplete(
                         request,
@@ -402,6 +413,17 @@ public static class PlatformHouseSelectedLibraryExecutor
                             attempts);
                     realizationSettlements.AddRange(
                         charged.Settlements);
+                    if (charged.Kind
+                        == PlatformSourcePolicyDecisionKind.Failed)
+                    {
+                        return TerminalDecision(
+                            request,
+                            selection,
+                            work.Consumed,
+                            realizationSettlements,
+                            charged,
+                            identityPrefix);
+                    }
                     return Incomplete(
                         request,
                         selection,

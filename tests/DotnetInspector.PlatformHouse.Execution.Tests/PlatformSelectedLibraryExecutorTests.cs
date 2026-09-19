@@ -263,6 +263,116 @@ public sealed class PlatformSelectedLibraryExecutorTests
     }
 
     [Fact]
+    public async Task AggregationFailureRemainsFailedWhenAllowancePreventsPeer()
+    {
+        Harness context = await CreateContextAsync(
+            PlatformViewDemand.Reference,
+            maxSourceOperations: 2,
+            referenceMode: PlatformSourceSelectionMode.Aggregation);
+        int peerInvocations = 0;
+
+        PlatformLibraryArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                context.Request,
+                [
+                    Discovery(
+                        context,
+                        context.InstalledDiscovery,
+                        context.Target,
+                        new TestAssociation("installed")),
+                    Discovery(
+                        context,
+                        context.PackageDiscovery,
+                        context.PackageTarget,
+                        new TestAssociation("package")),
+                ],
+                [
+                    Failed(
+                        context,
+                        context.InstalledReference,
+                        PlatformSourceFacet.Reference),
+                    Success(
+                        context,
+                        context.PackageReference,
+                        PlatformSourceFacet.Reference,
+                        () => peerInvocations++),
+                ],
+                "selected-library-test");
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                outcome);
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Failed>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, peerInvocations);
+        Assert.Contains(
+            terminal.TerminalRealization.Outcome.Receipt.SourceSettlements,
+            settlement =>
+                ReferenceEquals(
+                    settlement.Contribution.Capability,
+                    context.InstalledReference)
+                && settlement.Contribution
+                    is PlatformSourceContribution.Failed
+                && settlement.Disposition
+                    == PlatformSourceSettlementDisposition
+                        .OutcomeRelevant);
+    }
+
+    [Fact]
+    public async Task AggregationFailureRemainsFailedWhenAttemptExhaustsWork()
+    {
+        Harness context = await CreateContextAsync(
+            PlatformViewDemand.Reference,
+            maxAssemblies: 1,
+            referenceMode: PlatformSourceSelectionMode.Aggregation);
+        int peerInvocations = 0;
+
+        PlatformLibraryArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                context.Request,
+                [
+                    Discovery(
+                        context,
+                        context.InstalledDiscovery,
+                        context.Target,
+                        new TestAssociation("installed")),
+                    Discovery(
+                        context,
+                        context.PackageDiscovery,
+                        context.PackageTarget,
+                        new TestAssociation("package")),
+                ],
+                [
+                    Failed(
+                        context,
+                        context.InstalledReference,
+                        PlatformSourceFacet.Reference,
+                        Work(assemblies: 2, bytes: 0)),
+                    Success(
+                        context,
+                        context.PackageReference,
+                        PlatformSourceFacet.Reference,
+                        () => peerInvocations++),
+                ],
+                "selected-library-test");
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                outcome);
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Failed>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, peerInvocations);
+        Assert.Equal(
+            2,
+            terminal.TerminalRealization.Outcome.Receipt
+                .ConsumedWork.Assemblies);
+    }
+
+    [Fact]
     public async Task MalformedAttemptWorkIsChargedBeforeRejection()
     {
         Harness context = await CreateContextAsync(
@@ -411,7 +521,9 @@ public sealed class PlatformSelectedLibraryExecutorTests
         PlatformViewDemand view,
         int maxSourceOperations = 16,
         int maxAssemblies = 8,
-        TimeSpan? maxDuration = null)
+        TimeSpan? maxDuration = null,
+        PlatformSourceSelectionMode referenceMode =
+            PlatformSourceSelectionMode.Fallback)
     {
         CancellationToken cancellation =
             TestContext.Current.CancellationToken;
@@ -472,7 +584,7 @@ public sealed class PlatformSelectedLibraryExecutorTests
                 [installedDiscovery, packageDiscovery]),
             new(
                 PlatformSourceFacet.Reference,
-                PlatformSourceSelectionMode.Fallback,
+                referenceMode,
                 view == PlatformViewDemand.Reference
                     ? [installedReference, packageReference]
                     : [packageReference]),
@@ -632,7 +744,8 @@ public sealed class PlatformSelectedLibraryExecutorTests
     static PlatformLibraryRealizationSource Failed(
         Harness context,
         PlatformSourceCapabilityIdentity capability,
-        PlatformSourceFacet facet) =>
+        PlatformSourceFacet facet,
+        PlatformHouseConsumedWork? reportedWork = null) =>
         new(
             capability,
             facet,
@@ -646,7 +759,8 @@ public sealed class PlatformSelectedLibraryExecutorTests
                                 capability,
                                 request.Snapshot,
                                 Generation(capability),
-                                target));
+                                target),
+                            consumedWork: reportedWork);
                 return ValueTask.FromResult(attempt);
             });
 
