@@ -1115,7 +1115,7 @@ public static class MemberCommand
                                 effectiveOptions,
                                 logger,
                                 context.HttpClient)
-                            : await ApiCommand.TryAcquirePdbPathAsync(
+                            : await ApiCommand.TryAcquirePdbPathFromSelectedPathAsync(
                                 methodSourceAssemblyPath,
                                 sourceAssembly,
                                 effectiveOptions,
@@ -1808,9 +1808,17 @@ public static class MemberCommand
     internal static bool AuthorizesMemberSourceContent(
         ApiType apiType,
         MemberOptions options)
-        => AuthorizesMemberSourceResolution(apiType, options)
-           && ApiCommand.GetRequestedMemberSections(apiType, options)
-               .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
+    {
+        if (!AuthorizesMemberSourceResolution(apiType, options))
+            return false;
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        return pipeline.GetAuthorizedSections(
+                SectionCapabilities.MayFetchSources,
+                options.UserVerbosity,
+                options.IncludeSections)
+            .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
+    }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;

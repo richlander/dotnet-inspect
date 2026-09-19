@@ -208,6 +208,31 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    // PR-fast: explicit Source Diff retains authored-content authorization through the public CLI.
+    [Fact]
+    public async Task MemberSourceDiff_ExplicitSelectionExecutesTheAuthoredPipeline()
+    {
+        var result = await RunCliAsync(
+            "member",
+            typeof(MemberTextSlicer).FullName!,
+            "ExtractMemberText:1",
+            "--library",
+            typeof(MemberTextSlicer).Assembly.Location,
+            "--repo",
+            FindRepositoryRoot(),
+            "-S",
+            "Source Diff",
+            "--tips",
+            "q");
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Source Diff", result.Output);
+        Assert.Contains("PDB source:", result.Output);
+        Assert.Contains("Integrity:", result.Output);
+        Assert.Contains("Changed lines:", result.Output);
+    }
+
     // PR-fast: bounded offline parts requests against the repository's compiled source.
     [Theory]
     [InlineData(false)]

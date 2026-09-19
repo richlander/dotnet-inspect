@@ -236,9 +236,9 @@ decompiled fallback, and consumes the completed
 MethodDef token retain the same forwarded or implementation assembly identity.
 Both accessor ordinals continue to render the whole authored property.
 
-This host route authorizes source-content capabilities only when PDB Source is
-explicitly selected. Decompiled and analysis sections may still acquire and
-reuse a PDB, but do not authorize source text. The CLI projects only
+This host route authorizes source-content capabilities only when PDB Source or
+Source Diff is explicitly selected. Decompiled and analysis sections may still
+acquire and reuse a PDB, but do not authorize source text. The CLI projects only
 `AssemblyMemberSource.Pdb` as PDB Source and retains the House-issued
 `PdbMemberSourceInspection` outcome for bodyless, unmapped, lexical-complexity,
 invalid-coordinate, acquisition, and checksum failures. Source Diff continues
@@ -251,7 +251,10 @@ declaration slicing pipeline. `AuthoredSourceDocumentPrinter.CreateContext`
 remains the CLI adapter for exact assembly participation, dependency binding,
 PDB stores, source capabilities, package fallback, and logging. The separate
 on-disk PDB acquisition path remains for analysis and decompiler reuse because
-the completed member envelope intentionally exposes no disk path.
+the completed member envelope intentionally exposes no disk path. That path
+opens the selected assembly path first for embedded or adjacent PDB evidence
+and opens the selected supplier only when external PDB acquisition is needed,
+preserving supplier authority without duplicating the ordinary metadata open.
 
 The real repository gate uses
 `richlander/dotnet-inspect@9e5c35b3bd269a1a99d287cbc59e80fc2d6c1d5b`,
@@ -261,8 +264,12 @@ its compiled `CSharpText.MemberSlicing` assembly and Portable PDB, and
 `System.Text.Json.JsonSerializerOptions.MaxDepth` getter and setter ordinals.
 Focused Release CLI cases gate exact Markdown preservation, whole-property
 accessor parity, local source without SourceLink, checksum-mismatch visibility,
-bodyless co-selection, and unchanged Source Diff comparison. Shared query
-Release cases continue to gate the detached House outcome and finite bounds.
+bodyless co-selection, unchanged Source Diff comparison, explicit PDB Source
+and Source Diff authored-content authorization, and a cold-process Detailed
+member request that performs no authored retrieval. Selected-supplier
+decompiler cases with an adjacent PDB gate the path-first acquisition boundary
+and unchanged metadata-open count. Shared query Release cases continue to gate
+the detached House outcome and finite bounds.
 
 ## Authority and exact claim
 
