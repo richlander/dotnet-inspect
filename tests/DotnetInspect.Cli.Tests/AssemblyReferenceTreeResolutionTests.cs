@@ -622,7 +622,7 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
-    public async Task OmittedCultureReference_UsesCulturedSiblingThroughInspectionModel()
+    public void OmittedCultureReference_UsesCulturedSiblingThroughReferenceGraph()
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-reference-tree-").FullName;
@@ -647,21 +647,21 @@ public class AssemblyReferenceTreeResolutionTests
                     new Version(1, 0, 0, 0),
                     assemblyCulture: "fr"));
 
-            using var httpClient = new HttpClient();
-            var inspection = await LibraryMetadataService.InspectAsync(
-                ownerPath,
-                new LibraryOptions
-                {
-                    CollectReferenceTree = true,
-                    ReferenceTreeDepth = 1,
-                },
-                new VerboseLogger(enabled: false),
-                packageName: null,
-                packageVersion: null,
-                httpClient);
+            LibraryMetadataService.AssemblyReferenceGraph graph =
+                LibraryMetadataService.BuildTransitiveReferenceGraph(
+                    AssemblyInspector.ExtractReferenceIdentities(ownerPath),
+                    ownerPath,
+                    AssemblyInspector.ExtractManagedMetadataIdentity(
+                        ownerPath)
+                        ?? throw new InvalidOperationException(
+                            "The fixture must expose managed metadata."),
+                    new VerboseLogger(enabled: false),
+                    maxDepth: 1,
+                    failOnReadError: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
             AssemblyReferenceNode sibling = Assert.Single(
-                Assert.IsType<List<AssemblyReferenceNode>>(
-                    inspection?.AssemblyInfo?.TransitiveReferences),
+                graph.Nodes,
                 node => node.Name == "Sibling");
 
             Assert.Equal(siblingPath, sibling.Path);
@@ -674,7 +674,7 @@ public class AssemblyReferenceTreeResolutionTests
     }
 
     [Fact]
-    public async Task EmptyReferenceSet_DoesNotMaterializeTransitiveReferences()
+    public async Task DirectInspection_DoesNotMaterializeReferenceHierarchy()
     {
         string root = Directory.CreateTempSubdirectory(
             "dotnet-inspect-reference-tree-").FullName;
@@ -686,16 +686,12 @@ public class AssemblyReferenceTreeResolutionTests
             using var httpClient = new HttpClient();
             LibraryInspection? inspection =
                 await LibraryMetadataService.InspectAsync(
-                    ownerPath,
-                    new LibraryOptions
-                    {
-                        CollectReferenceTree = true,
-                        ReferenceTreeDepth = 1,
-                    },
-                    new VerboseLogger(enabled: false),
-                    packageName: null,
-                    packageVersion: null,
-                    httpClient);
+                ownerPath,
+                new LibraryOptions(),
+                new VerboseLogger(enabled: false),
+                packageName: null,
+                packageVersion: null,
+                httpClient);
 
             LibraryInspection resolvedInspection =
                 Assert.IsType<LibraryInspection>(inspection);

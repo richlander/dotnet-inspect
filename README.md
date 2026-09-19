@@ -417,6 +417,8 @@ dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
+dotnet-inspect library System.Text.Json -S References
+dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions \
   -S Integrations --where "integration=integration.logging"

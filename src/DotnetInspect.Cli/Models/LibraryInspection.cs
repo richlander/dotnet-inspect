@@ -327,6 +327,13 @@ public class LibraryInspection
         }
     }
 
+    [JsonIgnore]
+    internal DependsAssetProjection? ReferenceHierarchyProjection
+    {
+        get;
+        set;
+    }
+
     private FindingInspection<SourceDocumentObservation>? _sourceDocumentInspection;
     private FindingInspection<CompilationOptionInfo>? _compilationOptionInspection;
     private FindingInspection<CompilationReferenceInfo>? _compilationReferenceInspection;

@@ -551,6 +551,45 @@ public partial class DependsCommand
             cancellationToken);
     }
 
+    internal static Task<DependsAssetProjection>
+        AcquireLibrarySubjectProjectionAsync(
+            string assemblyPath,
+            string? targetFramework,
+            NuGetSourceOptions? sourceOptions,
+            int? traversalDepth,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyPath);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Library,
+                    assemblyPath),
+            ],
+            Tfm = targetFramework,
+            SourceOptions = sourceOptions,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken);
+    }
+
     private static async Task<DependsAssetProjection>
         AcquireAssetProjectionAsync(
             DependsOptions options,
@@ -2052,7 +2091,8 @@ public partial class DependsCommand
     internal static string RenderHierarchySection(
         DependsAssetProjection projection,
         RowWindow? rows,
-        bool embeddedMermaid)
+        bool embeddedMermaid,
+        string sectionName = DependsAssetSections.DependencyHierarchy)
     {
         var writer = new MarkoutWriter(
             embeddedMermaid
@@ -2065,8 +2105,8 @@ public partial class DependsCommand
                 markWindowedFragments: !embeddedMermaid));
         string hierarchy = writer.ToString().TrimEnd();
         if (embeddedMermaid)
-            return $"## {DependsAssetSections.DependencyHierarchy}\n\n{hierarchy}";
-        return $"## {DependsAssetSections.DependencyHierarchy}\n\n```text\n{hierarchy}\n```";
+            return $"## {sectionName}\n\n{hierarchy}";
+        return $"## {sectionName}\n\n```text\n{hierarchy}\n```";
     }
 
     private static string JoinMarkdown(params string[] fragments) =>
