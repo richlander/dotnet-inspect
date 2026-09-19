@@ -150,7 +150,25 @@ public sealed class DependencyInspectionOperationTests
             admittedAssociations:
             [
                 new DependencyRootOccurrenceIdentity(2),
-            ]);
+            ],
+            graph: new DependencyGraphDocument(
+                [
+                    new DependencyGraphRootOccurrence(1, 0),
+                    new DependencyGraphRootOccurrence(2, 1),
+                ],
+                [
+                    new DependencyGraphNode(
+                        0,
+                        LibraryRoot(1).DependencyIdentity!,
+                        new InertString(TextPolicy.Field, "example.dll")),
+                    new DependencyGraphNode(
+                        1,
+                        PackageRoot(2).DependencyIdentity!,
+                        new InertString(TextPolicy.Field, "Example.Package")),
+                ],
+                [],
+                [],
+                []));
 
         InspectionEnvelope<DependencyInspectionContent> inspection =
             DependencyInspectionOperation.Execute(request);
@@ -414,7 +432,7 @@ public sealed class DependencyInspectionOperationTests
         DependencyInspectionFailure traversalFailure = TraversalFailure();
         DependencyInspectionFailure pruningFailure = PruningFailure();
         var graph = new DependencyGraphDocument(
-            [],
+            [new DependencyGraphRootOccurrence(1, 0)],
             [
                 new DependencyGraphNode(
                     0,
@@ -424,8 +442,26 @@ public sealed class DependencyInspectionOperationTests
                     new InertString(
                         TextPolicy.Field,
                         "Example.Package")),
+                new DependencyGraphNode(
+                    1,
+                    new DependencyGraphNodeIdentity.Package(
+                        "Example.Dependency",
+                        "1.0.0"),
+                    new InertString(
+                        TextPolicy.Field,
+                        "Example.Dependency")),
             ],
-            [],
+            [
+                new DependencyGraphEdge(
+                    0,
+                    0,
+                    1,
+                    "package-dependency",
+                    [1],
+                    1,
+                    DependencyGraphResolutionState.Resolved,
+                    EvidenceIdentity: null),
+            ],
             [],
             []);
         ImmutableArray<DependencyInspectionRootInput> roots =
@@ -462,7 +498,20 @@ public sealed class DependencyInspectionOperationTests
         InspectionEnvelope<DependencyInspectionContent> inspection =
             DependencyInspectionOperation.Execute(request);
 
-        Assert.Empty(inspection.Content.Graph.Nodes);
+        Assert.Empty(inspection.Content.Hierarchy.Roots);
+        Assert.Empty(inspection.Content.Hierarchy.Occurrences);
+        Assert.Empty(inspection.Content.Hierarchy.BackingGraph.Nodes);
+        Assert.Null(
+            Assert.Single(inspection.Content.Roots).DependencyIdentity);
+        Assert.Equal(
+            0,
+            inspection.Content.Summary.HierarchyOccurrences);
+        Assert.Equal(
+            0,
+            inspection.Content.Summary.CanonicalNodes);
+        Assert.Equal(
+            0,
+            inspection.Content.Summary.Relationships);
         Assert.Equal(
             DependencyInspectionTraversalCompletion.NotRequested,
             Assert.Single(inspection.Content.Roots).Traversal);
@@ -489,7 +538,18 @@ public sealed class DependencyInspectionOperationTests
                     pruningFailures: [pruningFailure],
                     pruningSummary: selectedPruningSummary));
 
-        Assert.Single(selected.Content.Graph.Nodes);
+        Assert.Single(selected.Content.Hierarchy.Roots);
+        Assert.Single(selected.Content.Hierarchy.Occurrences);
+        Assert.Equal(2, selected.Content.Hierarchy.BackingGraph.Nodes.Length);
+        Assert.NotNull(
+            Assert.Single(selected.Content.Roots).DependencyIdentity);
+        Assert.Equal(
+            1,
+            selected.Content.Summary.HierarchyOccurrences);
+        Assert.Equal(
+            2,
+            selected.Content.Summary.CanonicalNodes);
+        Assert.Equal(1, selected.Content.Summary.Relationships);
         Assert.Equal(
             DependencyInspectionTraversalCompletion.Complete,
             Assert.Single(selected.Content.Roots).Traversal);
@@ -497,6 +557,32 @@ public sealed class DependencyInspectionOperationTests
         Assert.Equal(
             selectedPruningSummary,
             selected.Content.Summary.Pruning);
+    }
+
+    [Fact]
+    public void SelectedTraversalRejectsAnOmittedAdmittedRoot()
+    {
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                () => DependencyInspectionOperation.Execute(
+                    Request(
+                        PackageOutcome(),
+                        plan: new DependencyInspectionPlan(
+                            Declarations: false,
+                            RestoredRelationships: false,
+                            Traversal: true,
+                            Pruning: false,
+                            RequestedFramework: null,
+                            RequestedDepth: null),
+                        roots: [PackageRoot(1)],
+                        admittedAssociations:
+                        [
+                            new DependencyRootOccurrenceIdentity(1),
+                        ])));
+
+        Assert.Equal(
+            "Dependency hierarchy roots do not match the admitted explicit roots.",
+            exception.Message);
     }
 
     [Theory]
@@ -679,7 +765,7 @@ public sealed class DependencyInspectionOperationTests
             DependencyInspectionRootKind.Library,
             new InertString(TextPolicy.Field, "missing.dll"),
             DependencyInspectionRootState.Failed,
-            GraphIdentity: null,
+            DependencyIdentity: null,
             DependencyInspectionTraversalCompletion.NotRequested);
 
     private static DependencyInspectionRootInput PackageRoot(int occurrence) =>
@@ -700,7 +786,7 @@ public sealed class DependencyInspectionOperationTests
             DependencyInspectionRootKind.Package,
             new InertString(TextPolicy.Field, "Missing.Package"),
             DependencyInspectionRootState.Failed,
-            GraphIdentity: null,
+            DependencyIdentity: null,
             DependencyInspectionTraversalCompletion.Failed);
 
     private static PackageDependencyEvidenceOutcome PackageOutcome(

@@ -210,6 +210,7 @@ package file family is the primary example:
 
 - `Package files`
 - `Package markdown files`
+- `Package license files`
 - `Package skill files`
 - `Package nuspec file`
 - `Package README file`
@@ -576,7 +577,7 @@ The package command's current authored ownership is:
 | Category | Members |
 | --- | --- |
 | `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
-| `@Files` | `Package nuspec file`, `Package README file`, `Package skill files` |
+| `@Files` | `Package nuspec file`, `Package README file`, `Package license files`, `Package skill files` |
 | `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
 | `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |

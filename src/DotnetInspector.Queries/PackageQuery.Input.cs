@@ -138,14 +138,26 @@ public static partial class PackageQuery
     static void AddScopeEvidence(
         PackageQueryPlan plan,
         ImmutableArray<PackageQueryEvidence>.Builder evidence) =>
-        evidence.Add(ScopeEvidence(
+        evidence.Add(new PackageQueryEvidence(
             plan.PackageInput is SourceSelector.Package
                 ? ExactPackageEvidenceId
-                : PrefixEvidenceId,
-            plan.PrefixEvidence));
+                : PrefixEvidenceId)
+        {
+            Scope = PackageQueryEvidenceScope.Query,
+            Properties =
+            [
+                Property(
+                    plan.PackageInput is SourceSelector.Package
+                        ? "package"
+                        : "prefix",
+                    plan.Prefix.ToString()),
+            ],
+        });
 
-    static PackageQueryEvidence ScopeEvidence(string id, InertString text) =>
-        new(id, text) { Scope = PackageQueryEvidenceScope.Query };
+    static PackageQueryEvidenceProperty Property(
+        string name,
+        string value) =>
+        new(name, new InertString(TextPolicy.Field, value));
 
     static async IAsyncEnumerable<PackageQueryInputEvent> AcquireInputAsync(
         IPackageSourceClient source,
