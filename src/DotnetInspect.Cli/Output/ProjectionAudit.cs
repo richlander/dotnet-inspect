@@ -13,7 +13,7 @@ namespace DotnetInspect.Cli.Output;
 /// <remarks>
 /// <para>
 /// The payload-shaping flags (<c>--print</c>, <c>--value</c>, <c>--urls</c>, <c>--paths</c>,
-/// <c>--count</c>) are honored at scattered dispatch points across the commands. A route that
+/// <c>--roots</c>, <c>--count</c>) are honored at scattered dispatch points across the commands. A route that
 /// forgets to dispatch does not fail: it renders the full section and exits 0, so the caller
 /// receives a well-formed answer to a question it did not ask. That failure is invisible to
 /// exit-code checks and to golden-output tests that only cover the unprojected path.
@@ -43,10 +43,12 @@ public static class ProjectionAudit
     public const string Value = "--value";
     public const string Urls = "--urls";
     public const string Paths = "--paths";
+    public const string Roots = "--roots";
     public const string Count = "--count";
 
     /// <summary>Payload-shaping option names, by the name each option is constructed with.</summary>
-    private static readonly string[] ProjectionOptionNames = [Print, Value, Urls, Paths, Count];
+    private static readonly string[] ProjectionOptionNames =
+        [Print, Value, Urls, Paths, Roots, Count];
 
     private sealed class Request
     {
