@@ -527,8 +527,10 @@ public partial class CommandExecutionTests
                 CountMarkdownDataRows(audit.Output));
             Assert.Equal(0, tree.Exit);
             Assert.Empty(tree.Error);
+            // The audit reports one canonical identity, while the hierarchy preserves the
+            // two parent-relative occurrences that reach it.
             Assert.Equal(
-                1,
+                2,
                 tree.Output.Split(
                     concerningName,
                     StringSplitOptions.None).Length - 1);
@@ -3576,15 +3578,15 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);
-            Assert.Equal(0, multiTreeCountExit);
             Assert.Empty(singleCountError);
             Assert.Empty(multiCountError);
-            Assert.Empty(multiTreeCountError);
             Assert.Equal(singleCountOutput, multiCountOutput);
-            Assert.Equal(singleCountOutput, multiTreeCountOutput);
+            Assert.Equal(1, multiTreeCountExit);
+            Assert.Empty(multiTreeCountOutput);
+            Assert.Contains("Reference Hierarchy", multiTreeCountError);
             Assert.Equal(1, multiTreeMapExit);
             Assert.Empty(multiTreeMapOutput);
-            Assert.Contains("exactly one", multiTreeMapError);
+            Assert.Contains("Reference Hierarchy", multiTreeMapError);
         }
         finally
         {

@@ -329,7 +329,7 @@ public partial class CommandExecutionTests
     /// </para>
     /// <para>
     /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
-    /// the per-library test does not reach) is exercised by <c>-S Switches,Dependencies</c> against
+    /// the per-library test does not reach) is exercised by <c>-S Switches,References</c> against
     /// a real package. The per-library path appears there only as the document's last block, where
     /// a trailing newline it emitted would be absorbed by the assembling <c>TrimEnd</c> and go
     /// unnoticed; it is therefore also run against a local two-library package, so that a boundary
@@ -340,7 +340,7 @@ public partial class CommandExecutionTests
     public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
         var (exit, aggregated, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,References");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
