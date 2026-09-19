@@ -1095,8 +1095,7 @@ public partial class LibraryCommand
                     && (options.CoordinateRequest is not null
                         || options.ExtractResources is not null
                         || CloneCandidatesCommand.IsSelected(
-                            options.IncludeSections)
-                        || discoveryInspection))
+                            options.IncludeSections)))
                 {
                     CommandError.Write(
                         "The selected Library operation requires one exact "
@@ -1130,7 +1129,9 @@ public partial class LibraryCommand
                         logger);
                 }
 
-                var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
+                var inspectionPaths = discoveryInspection
+                    && !aggregatePackageSelection
+                    && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
                 List<LibraryInspectionSubjectSelection>?
@@ -1372,6 +1373,30 @@ public partial class LibraryCommand
                     || libraryInspectionIncomplete
                         ? 1
                         : 0;
+
+                if (discoveryInspection
+                    && aggregatePackageSelection)
+                {
+                    string? packageIdentity =
+                        string.IsNullOrEmpty(packageVersion)
+                            ? packageName
+                            : $"{packageName}@{packageVersion}";
+                    return Math.Max(
+                        Math.Max(
+                            evidenceExitCode,
+                            descriptorSelectionExitCode),
+                        WriteAggregateEffectiveSections(
+                            packageIdentity,
+                            inspections,
+                            options,
+                            pipeline,
+                            userVerbosity,
+                            fullEffectiveDiscovery,
+                            discoveryExecutionScope,
+                            columnSchema,
+                            reportIdentifierFailures:
+                                !identifierAuditIncomplete));
+                }
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0],
@@ -3622,6 +3647,128 @@ public partial class LibraryCommand
                 0,
                 reportIdentifierFailures,
                 inspection));
+    }
+
+    internal static int WriteAggregateEffectiveSections(
+        string? packageIdentity,
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        Verbosity userVerbosity,
+        bool fullEffectiveness,
+        HashSet<string>? effectivenessScope,
+        DocumentSchema schemaMap,
+        bool reportIdentifierFailures = true)
+    {
+        // Aggregate discovery is the stable pipeline-order union of every participant. It must
+        // not inherit participant-zero identity or cache a package result under one assembly.
+        HashSet<string> selected = new(
+            StringComparer.OrdinalIgnoreCase);
+        int applicabilityExitCode = 0;
+        foreach (LibraryInspection inspection in inspections)
+        {
+            if (inspection.UnsafeEvidencePresenceError
+                is { } presenceError)
+            {
+                CommandError.Write(
+                    $"Could not determine "
+                    + $"{SectionNames.UnsafeMembers} applicability for "
+                    + $"{inspection.FileName}: "
+                    + $"{presenceError.Message}");
+                applicabilityExitCode = 1;
+            }
+
+            selected.UnionWith(
+                fullEffectiveness
+                    ? pipeline.GetAvailableSections(
+                        inspection,
+                        effectivenessScope)
+                    : pipeline.GetDiscoverableSections(inspection));
+        }
+
+        if (fullEffectiveness
+            && options.Discover is { Length: 0 })
+        {
+            HashSet<string> baseSections = pipeline.BaseSectionNames
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            selected.RemoveWhere(
+                section => !baseSections.Contains(section));
+
+            foreach (LibraryInspection inspection in inspections)
+            {
+                foreach (string section in
+                         pipeline.GetDiscoverableSections(inspection))
+                {
+                    if (!baseSections.Contains(section))
+                        selected.Add(section);
+                }
+            }
+        }
+
+        List<string> allEffective = pipeline.SelectableSectionNames
+            .Where(selected.Contains)
+            .ToList();
+        LibraryOptions failureOptions =
+            options.IncludeSections is not { Count: > 0 }
+            && effectivenessScope is { Count: > 0 }
+                ? options with
+                {
+                    IncludeSections = effectivenessScope
+                }
+                : options;
+        int inspectionFailureExitCode =
+            SelectedInspectionFailureExitCode(
+                failureOptions,
+                pipeline,
+                [.. inspections]);
+        if (inspectionFailureExitCode != 0)
+        {
+            WarnEmptySections(
+                inspections,
+                failureOptions,
+                pipeline,
+                writeEmptyNote: false);
+        }
+
+        List<string> effective =
+            FilterEffective(allEffective, options);
+        int discoveryExitCode = DiscoverOutput.ExecuteEffective(
+            options.Discover,
+            effective,
+            schemaMap,
+            DiscoveryOutputRequest.Create(
+                OutputFormatResolver.ResolveStored(
+                    options.Format,
+                    options.JsonOutput,
+                    options.PlainText,
+                    options.Tabular,
+                    options.Tsv,
+                    options.Jsonl),
+                options.Tree,
+                options.TabularExplicitlySet,
+                options.NoHeader,
+                (int)userVerbosity,
+                options),
+            rootLabel: packageIdentity,
+            fullSchema: schemaMap,
+            sectionCostAnnotations:
+                pipeline.GetCostAnnotations(),
+            sectionCategories: pipeline.GetCategoryMap(),
+            catalogHiddenSections:
+                EffectiveCatalogHidden(pipeline, effective),
+            listedCategoryDoors:
+                pipeline.GetListedCategoryDoors());
+
+        return Math.Max(
+            Math.Max(
+                applicabilityExitCode,
+                discoveryExitCode),
+            Math.Max(
+                inspectionFailureExitCode,
+                IntegrityExitCode(
+                    0,
+                    reportIdentifierFailures,
+                    [.. inspections])));
     }
 
     // ── Effective sections cache ──

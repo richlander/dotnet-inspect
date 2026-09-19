@@ -1113,6 +1113,45 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
+        CreateLocalAggregateDiscoveryPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(
+            packageRoot,
+            "lib",
+            "net10.0");
+        CompileBodyStateFixture(
+            libDir,
+            "Plain",
+            """
+            namespace DiscoveryFixtures;
+
+            public static class Plain
+            {
+                public static int Value => 42;
+            }
+            """);
+        File.Copy(
+            typeof(
+                DotnetInspector.Fixtures
+                    .AppContextSwitchFixture)
+                .Assembly
+                .Location,
+            Path.Combine(libDir, "WithSwitch.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Test.AggregateDiscovery.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(
+            packageRoot,
+            packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
         CreateLocalSwitchLibraryPackage()
     {
         var tempDir = Path.Combine(

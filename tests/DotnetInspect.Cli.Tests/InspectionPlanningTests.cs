@@ -453,6 +453,37 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public async Task PackageAllLibraries_BareDiscoveryPreservesParticipantFailure()
+    {
+        string archive = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+
+        var result = await RunAppAsync(
+            "package",
+            archive,
+            "--all-libraries",
+            "--discover",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            SectionNames.Switches,
+            result.Output);
+        Assert.DoesNotContain(
+            "requires one exact Library",
+            result.Error);
+        Assert.Contains(
+            "Could not determine Unsafe Members applicability for "
+            + "ref/net10.0/Avalonia.Controls.dll",
+            result.Error);
+    }
+
+    [Fact]
     public void PackageLibrarySchema_IsDerivedFromAvailableRouteInputs()
     {
         StructuralSchemaProjection packageLibrary =

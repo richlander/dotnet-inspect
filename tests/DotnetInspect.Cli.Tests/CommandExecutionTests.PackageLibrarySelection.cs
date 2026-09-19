@@ -734,6 +734,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageAllLibraries_BareDiscoveryUnionsLibraryAvailability()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalAggregateDiscoveryPackage();
+        try
+        {
+            var exact = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Plain.dll",
+                "--discover",
+                "--tips",
+                "q");
+            var aggregate = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--discover",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exact.Exit);
+            Assert.DoesNotContain(
+                SectionNames.Switches,
+                exact.Output);
+            Assert.Empty(exact.Error);
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Contains(
+                SectionNames.Switches,
+                aggregate.Output);
+            Assert.Empty(aggregate.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibraries_ReferenceHierarchyRequiresExactLibrary()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
