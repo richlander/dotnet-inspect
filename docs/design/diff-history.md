@@ -19,13 +19,19 @@ Changed Versions an evidence-bearing row cohort and binds optional exact Count
 success or typed Count non-success into that same available Outcome. Population
 discovery, exact-Member Analysis, serializer/output lowering, and host adoption
 remain later slices.
+The bounded investigation revision is tracked by
+[#7805](https://github.com/richlander/dotnet-inspect/issues/7805): it adds an
+adaptive bisection evaluation policy, a settled chronological methodology
+receipt, a typed terminal outcome, and authored History rendering over the same
+Document. It does not add a second Timeline-owned semantic result.
 
 The **Diff History inspection** owner defines temporal inspection and the
 related metadata-only version-population reduction:
 
 > The range supplies addresses; the operation authorizes their use. Plain
 > Diff compares the two endpoints. `--history` evaluates the bounded
-> version population by default; optional `--at` selects checkpoints instead.
+> version population by default; optional `--at` selects checkpoints instead,
+> while `--max-probes` authorizes bounded adaptive bisection.
 > Package population Count counts versions without inspecting payloads.
 > History returns one owner-specific Outcome whose available case carries a detached temporal
 > Document for CLI and Browser/Wasm. Population selection, evaluation selection,
@@ -67,6 +73,15 @@ explicit `--endpoints` flag and the discovery-only meaning of History without
 `--at`. An explicitly named Diff request is itself a range consumer. History
 can use an explicit range or infer bounded population endpoints from exact
 checkpoint versions; neither form authorizes an unbounded version scan.
+
+The 2026-09-19 bounded-investigation revision makes `--max-probes` a third,
+explicit History evaluation policy. It supersedes the earlier prohibition on
+automatic narrowing. Dense History remains the default when neither `--at`
+nor `--max-probes` is supplied; explicit checkpoints remain caller-selected;
+adaptive bisection evaluates endpoints and then chooses midpoint probes from
+observed changed intervals within the authorized budget. This revision does not
+restore `timeline` as a permanent operation or create a parallel Timeline
+Document.
 
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
@@ -113,7 +128,8 @@ named command or mode selects an admitted consumer:
 | Selector | Input and meaning |
 | --- | --- |
 | Plain top-level Diff | Compare the two literal endpoints using existing pairwise behavior, without enumerating interior versions. |
-| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at` selects checkpoints. |
+| Type/Member-focused Diff with `--history` | Discover the bounded package-version population and evaluate all its versions unless `--at` or `--max-probes` selects another evaluation policy. |
+| Type/Member-focused Diff with `--history --max-probes N` | Discover the bounded population and adaptively localize one or more observed endpoint changes with at most `N` evaluated versions. |
 | Package range with `--count` | Count the selected package versions using source metadata alone, outside Diff. |
 
 Plain Diff means endpoint comparison; `--history` explicitly changes the
@@ -163,6 +179,10 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --history \
   --at endpoints --at midpoint
+
+# Adaptively localize an observed endpoint change within eight probes
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  --type System.Text.Json.JsonSerializer --history --max-probes 8
 
 # Equivalent checkpoint selection without spelling the range
 dotnet-inspect diff --package System.Text.Json \
@@ -216,12 +236,12 @@ manufacture an empty `DiffHistoryDocument`. Both hosts consume that same
 Outcome; the Browser can request the version count without opening or
 evaluating History.
 
-### Three independent selections
+### Population, evaluation policy, and result selection
 
 | Selection | Meaning |
 | --- | --- |
 | Explicit range or inferred exact-checkpoint bounds | The inclusive version population; an explicit range retains caller direction, while inferred bounds use ascending version order. |
-| Optional repeated `--at ADDRESS` | The checkpoint versions to evaluate instead of History's default full population. |
+| Evaluation policy | Full population by default, exact checkpoints through repeated `--at ADDRESS`, or bounded adaptive bisection through `--max-probes N`. |
 | `--rows`, `-n`, and other admitted row gestures | Projection over declared result cohorts, not a request to evaluate more versions. |
 
 Version discovery uses the package owner's normalization, source policy,
@@ -248,17 +268,48 @@ with no interior version, it overlaps an endpoint and adds no evaluation.
 
 `--at endpoints --at midpoint` supplies one manual-bisection probe. A caller
 can inspect the evidence and use the returned exact version addresses to form
-the next narrower range. History does not choose a good/bad predicate, assume
-that changes are monotonic, narrow the range automatically, or claim an exact
-onset inside an unevaluated gap. This target selection is not an automated
-bisect operation.
+the next narrower range. This target selection does not itself request an
+automated bisect operation.
 
-Within `--history`, omitting `--at` selects every version in the population,
-equivalent to explicit `--at all`. History itself authorizes that bounded
-evaluation; `--at` only restricts its targets. Work limits and acquisition
+Within `--history`, omitting both `--at` and `--max-probes` selects every
+version in the population, equivalent to explicit `--at all`. History itself
+authorizes that bounded evaluation; `--at` restricts its targets and
+`--max-probes` selects adaptive evaluation. Work limits and acquisition
 failures remain visible and cannot silently shorten the request into
 successful full coverage. Version discovery without payload evaluation belongs
 to Package version listing or population Count, not a dormant History mode.
+
+`--max-probes N` replaces the default full-population evaluation policy with
+bounded adaptive bisection. It cannot be combined with `--at`, and `N` must be
+at least two because the budget includes both endpoints. The producer first
+evaluates the first and last population Versions, compares their selected
+Finding evidence, and then repeatedly evaluates the midpoint of the largest
+observed changed interval. Ties choose the earliest interval in
+caller-directed population order. Midpoints use population positions, not
+version-number or publication-time arithmetic.
+
+Adaptive History requires at least two semantically distinct population
+Versions. A range that resolves to one Version is rejected before payload
+evaluation rather than reporting equal endpoints after one probe.
+
+Each new observation recomputes consecutive evaluated transitions in
+population order. Bisection stops when every observed changed interval is
+adjacent, no changed interval remains, a required comparison is blocked by
+failure, or the probe budget is exhausted. An adjacent changed pair is an exact
+local boundary for those two Versions; it is not a claim that no other
+boundary exists elsewhere in an unevaluated population.
+
+Equal endpoint evidence stops ordinary adaptive migration investigation after
+two probes. It does not recommend interior sampling and does not claim that no
+transient change and reversion occurred. Users who need that forensic question
+request full History or explicit `--at all`; adaptive bisection never silently
+upgrades itself to dense evaluation.
+
+The adaptive policy derives changed intervals from the selected Finding
+comparison; callers do not supply an independent good/bad predicate. It does
+not assume global monotonicity. Its claim is limited to refining intervals
+whose evaluated endpoints differ and reporting the exact observed boundaries,
+remaining unresolved intervals, equal endpoints, or blocking failure.
 
 An exact-Member Analysis History has one additional target-selection rule: the
 selected evaluations must include the first population Version in
@@ -296,7 +347,9 @@ require an explicit range. A bare Package with no checkpoints, one distinct chec
 or a mixture of exact and relative selectors cannot infer this population and
 is rejected before discovery. An exact Package pin is not the range-free
 Package-identity form and is not silently widened by checkpoints. This does not
-add latest-version resolution, open-ended ranges, or automatic bisection.
+add latest-version resolution or open-ended ranges.
+Adaptive `--max-probes` also requires an explicit range because it supplies no
+exact checkpoints from which to infer bounded population endpoints.
 
 ### History focus and producer
 
@@ -396,7 +449,8 @@ positions, or infer continuity from Finding keys. The bounded consumer in
 receives this owner-issued source receipt and returns the detached evaluation
 contract above. It does not choose or reinterpret the seed.
 
-History-only inputs require `--history`; in particular, `--at` must not
+History-only inputs require `--history`; in particular, `--at` and
+`--max-probes` must not
 silently change endpoint Diff or Count into correlation. History rejects
 pairwise classifiers and body-comparison controls such as `--breaking`, `--additive`,
 `--changed`, and `--pdb-source`, rather than silently ignoring them or assigning
@@ -411,6 +465,11 @@ carries one settled, resource-free `DiffHistoryDocument` and the optional
 requested Count result defined below. The Document preserves:
 
 - the resolved version population and requested evaluation selection;
+- the evaluation policy, including an optional authorized adaptive probe
+  budget and its consumed count;
+- a chronological settled receipt for each completed evaluation, including its
+  purpose, selected interval when adaptive, native observation, and the
+  knowledge established after that probe;
 - the optional exact-Member Analysis detached source receipt and
   source-selection outcome, never a Workspace-local structural subject;
 - each completed evaluation's version address, provenance, resolved subject,
@@ -421,6 +480,8 @@ requested Count result defined below. The Document preserves:
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
   association and Count-sufficiency evidence; and
+- one typed terminal investigation outcome and optional typed adjacent-Diff
+  actions, without host-formatted command strings; and
 - coverage, limits, and per-evaluation failures needed to interpret the
   Document.
 
@@ -434,12 +495,46 @@ Do not invent a parallel per-cell inspection vocabulary. In particular,
 Correlation follows producer-issued keys, not display text or value equality.
 Document-local positions do not replace version or subject identity. The
 document remains meaningful after resource disposal and without parsing CLI
-rows, Markdown, or labels. `TimelineDocumentView` is a host projection, not
-the shared semantic model.
+rows, Markdown, or labels. Host views remain projections, not the shared
+semantic model.
 
 The Document's ordered populations serialize as arrays. Its contract does not
 require `ImmutableArray<T>` or another CLR collection implementation; the
 producer publishes a settled snapshot and does not mutate it afterward.
+
+### Evaluation methodology and terminal outcome
+
+The chronological methodology receipt is part of the settled semantic
+Document, not a live progress stream and not a host reconstruction from
+version-ordered transitions. It records full-population, explicit-checkpoint,
+and adaptive evaluations through one typed vocabulary. At minimum, evaluation
+purposes distinguish population start, population end, adaptive midpoint,
+explicit checkpoint, and dense census. Adaptive midpoint entries retain the
+changed interval that selected them and the resulting refined interval,
+adjacent boundary, equal observation, or blocking failure.
+
+The terminal outcome distinguishes:
+
+- full-population completion;
+- explicit-checkpoint completion, including a typed suggested midpoint only
+  when a changed gap can be refined manually;
+- one or more resolved adjacent changed boundaries;
+- equal adaptive endpoints;
+- adaptive budget exhaustion with the unresolved changed interval; and
+- a blocking evaluation or comparison failure.
+
+These outcomes summarize established knowledge without replacing native
+evaluations, correlations, transitions, failures, or coverage. Budget
+exhaustion is not successful full History. Equal adaptive endpoints answer the
+ordinary migration question but are not whole-population unchanged evidence
+and cannot satisfy exact changed-version Count.
+
+When adaptive bisection reaches adjacent changed pairs, optional next actions
+are typed pairwise Diff requests in caller-directed population order. Each
+retains the exact versions, selected Type or Member, Finding producer, TFM,
+visibility, and replayable source context. Hosts lower those actions to CLI
+commands or UI affordances. The shared Document does not serialize shell
+syntax, a section category, or a Timeline-specific command name.
 
 ### Requested Count in shared Content
 
@@ -551,12 +646,18 @@ sibling Document; requested evaluation failures retain their existing nonzero
 behavior.
 
 `--history --count` uses History's default full evaluation unless `--at`
-restricts it. Count never broadens an explicit checkpoint selection; an
-insufficient sample fails rather than inspecting more versions. Equal first
-and last endpoints are insufficient: a change followed by a reversion
-contributes two changed destination versions. Inferred bounds preserve this
-same count meaning; supplying three checkpoints does not turn a longer
-population into a three-version population.
+restricts it or `--max-probes` selects adaptive evaluation. Count never
+broadens an explicit checkpoint selection; an insufficient sample fails rather
+than inspecting more versions. Equal first and last endpoints are insufficient:
+a change followed by a reversion contributes two changed destination versions.
+Inferred bounds preserve this same count meaning; supplying three checkpoints
+does not turn a longer population into a three-version population.
+
+`--history --max-probes N --count` similarly retains adaptive evaluation and
+does not spend additional probes merely to establish Count. It succeeds only
+when the resulting evidence independently establishes every changed-version
+membership required by the selected Count rows; otherwise the Count component
+is typed non-success beside the usable investigation Document.
 
 These illustrative sequences describe the contract, not measured package data:
 
@@ -594,15 +695,35 @@ portable replay identity.
 
 ## Sections and rendering
 
-Type/Member History declares **Evaluations**, **Transitions**, and
-**Changed Versions** as separate result cohorts. For ordinary row output,
-Evaluations remains its single high-value default section at `-v:m`.
-Transitions and Changed Versions are explicitly selectable; `-S "*"` selects
-all three through the existing wildcard grammar. The
+Type/Member History declares **Outcome**, **Probe Trace**, **Evaluations**,
+**Transitions**, and **Changed Versions** as projections over the same
+completed Document. Evaluations, Transitions, and Changed Versions are result
+cohorts. Outcome is a fixed-size knowledge projection, and Probe Trace is the
+chronological evaluation-methodology projection; neither is another semantic
+inspection or Count cohort.
+
+For full-population and explicit-checkpoint History, Evaluations remains the
+single high-value default section at `-v:m`. For adaptive History, Outcome is
+the single high-value default because the primary answer is the resolved
+boundary set, equal endpoints, unresolved intervals, or blocking failure
+together with probe use and stop reason. Section selection is resolved before
+acquisition but does not choose or alter the evaluation policy.
+
+Transitions and Changed Versions remain explicitly selectable. Probe Trace is
+explicitly selectable for every policy and reports evaluations in execution
+order rather than population order. `-S "*"` selects every applicable
+projection through the existing wildcard grammar.
+
+The authored `@History` category initially composes Outcome and Probe Trace as
+the canonical investigation report. Evaluations, Transitions, and Changed
+Versions remain exact alternative projections unless a later focused design
+establishes a coherent broader composition. `@History` is a catalog door over
+the Document, not serialized content and not a universal one-category-per-
+Document rule. The
 [section model](section-model.md#category-doors) remains authoritative; no
-computed `@All` category is introduced. Bare `-S` without Count selects
-Evaluations, not pairwise Changes. The terminal's authoritative temporal
-evidence is not reduced to whichever cohort a renderer selects.
+computed `@All` category is introduced. Bare `-S` without Count follows the
+mode-aware default above, not pairwise Changes. The terminal's authoritative
+temporal evidence is not reduced to whichever projection a renderer selects.
 
 For Type/Member History Count, Changed Versions is the only admitted cohort.
 With no section selector, or with bare `-S`, Count selects that cohort rather
@@ -621,8 +742,9 @@ with History sections. A row window uses the existing
 the selected cohorts; it cannot renumber version addresses or erase coverage.
 
 Markout lowers typed row projections to Markdown, tables, TSV, and JSONL.
-Table/TSV/JSONL require one selected cohort; structured document JSON can carry
-all cohorts. Count consumes the typed reduction outcome through the
+Table/TSV/JSONL require one selected row projection; structured document JSON
+can carry all cohorts and the methodology receipt. Count consumes the typed
+reduction outcome through the
 [Count presentation contract](output-shapes.md#count-results), not a rendered
 row count. Type/Member History never falls back to Package Versions or another
 History cohort when change evidence is insufficient. On endpoint Diff, Count
@@ -642,6 +764,9 @@ and nonzero in either delivery mode; it never becomes a numeric JSON fallback.
 The public envelope mode tracked by #6719 remains a separately owned
 transport, but is now required by top-level Diff and subject-section adoption.
 It serializes this exact constructed envelope without another inspection.
+Envelope delivery is independent of rendered section selection and always
+retains the complete evaluation policy, probe receipt, outcome, native
+evidence, Count component, Share, and diagnostics.
 Complete Browser delivery is also part of adoption; it must preserve Content,
 Share, and ordered typed diagnostics even where the UI renders only a subset.
 This supersedes the earlier delivery plan that deferred envelope exposure.
@@ -653,12 +778,13 @@ third peer beside Diff and Clone. The initial consumers are Type and Member
 Compare; Library-wide History is not claimed by this slice. Population counts
 are metadata-only and do not require a Type or Member focus.
 
-The Browser adopter supplies the same resolved population, full-evaluation or
-checkpoint selection, focus, producer, and scope, then consumes the same
-Outcome and Document. Explicit and checkpoint-inferred bounds normalize through
-the same shared request semantics; hosts do not separately guess the population
-or evaluation defaults. Its owning designs decide controls, applicability, result installation, navigation,
-and retained mode state. This specification does not add a tab, alter sticky
+The Browser adopter supplies the same resolved population, full-evaluation,
+checkpoint, or adaptive policy, focus, producer, and scope, then consumes the
+same Outcome and Document. Explicit and checkpoint-inferred bounds normalize
+through the same shared request semantics; hosts do not separately guess the
+population, midpoint, stop condition, or evaluation defaults. Its owning
+designs decide controls, applicability, result installation, navigation, and
+retained mode state. This specification does not add a tab, alter sticky
 navigation, or create another Workspace lifecycle. Unevaluated versions, gaps,
 and failed points must remain distinguishable in that host's projection.
 Changed Versions and its Count-sufficiency evidence reach that host in the same
@@ -692,6 +818,14 @@ handling, replacement coverage, and active guidance. This History adoption
 supplies the shared semantic implementation and authored section presets; it
 does not preserve a second algorithm or route. The proposed `--timeline` and
 `--pairwise` spellings do not become aliases.
+
+The replacement adaptive CLI gesture is
+`diff --history --max-probes N`. Cutover migrates the reviewed bounded
+bisection behavior and its real-package evidence into that route, exposes the
+complete Diff History envelope and History projections, and removes `timeline`
+in the same focused adoption. There is no separately shipped
+`TimelineInvestigationDocument`, `@Timeline` category, or temporary Browser
+Timeline surface.
 
 This specification PR changes no runtime behavior. Current README/skills remain
 truthful until the cutover; they must not advertise the new consumers early.
@@ -789,12 +923,26 @@ The implementation slices must supply Release gates for:
   deduplication, and population order independent of selector order;
 - midpoint selection for odd/even and reversed populations, including
   endpoint overlap when no interior version exists, without version-number
-  arithmetic or automatic range narrowing;
+  arithmetic or treating manual midpoint selection as automatic narrowing;
+- adaptive endpoint-first evaluation, minimum and exhausted budgets,
+  midpoint choice for odd, even, reversed, and tied changed intervals, and
+  recomputation from all observed transitions after each probe;
+- adaptive equal endpoints stopping after two probes without an interior
+  recommendation, contrasted with dense change-and-reversion evidence over the
+  same endpoints;
+- one and multiple resolved adjacent boundaries, unresolved changed intervals,
+  and failed probes, preserving the exact authorized and consumed probe counts;
+- chronological methodology receipts whose selected intervals and learned
+  outcomes reproduce the adaptive decisions without parsing rendered rows;
+- typed adjacent-Diff actions retaining exact endpoints, focus, Finding, TFM,
+  visibility, and replayable source context without embedded shell syntax;
 - equivalent explicit and inferred bounds, including preserved interior gaps,
   missing/excluded checkpoints, and incomplete discovery;
 - rejection before discovery of unbounded or insufficient range-free requests
-  and relative selectors without explicit bounds; rejection before payload
-  evaluation of invalid/out-of-range selectors or `--at` without History;
+  and relative or adaptive selectors without explicit bounds; rejection before
+  payload evaluation of invalid/out-of-range selectors, a one-Version adaptive
+  population, combined `--at` and `--max-probes`, or either input without
+  History;
 - count-only versions, filtered version counts, and Count after an explicit
   operation, retaining the declared unit and rejecting insufficient evidence;
 - Type/Member changed-version counts for unchanged adjacent versions, several
@@ -815,10 +963,16 @@ The implementation slices must supply Release gates for:
 - metadata-only counts without package payload acquisition or a Type focus;
 - unchanged endpoint content under plain Diff, equivalent
   non-range local pair content, Type/Member History, and rejected retired
-  commands without package fallback; and
+  commands without package fallback;
 - complete CLI/Browser envelope delivery for History and Package version
   counts, preserving gaps, failures, count units, Share, and diagnostic identity
-  and order without duplicate execution for serialization.
+  and order without duplicate execution for serialization;
+- mode-aware default sections, `@History`, and complete envelope delivery
+  projecting one completed Document without changing the evaluation policy or
+  acquiring another package;
+- atomic `diff --history --max-probes` adoption and `timeline` retirement,
+  with no Timeline-specific semantic Document, category, compatibility alias,
+  or Browser route.
 
 These new gates are **unverified** in this design-only slice. Deterministic
 contract cases belong in PR-fast suites; real-package/exhaustive cases are
