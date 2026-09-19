@@ -33,9 +33,12 @@ sealed class AllocationOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
-        if (context.Assembly is not { } assembly || function.MetadataToken == 0)
+        if (context.Analysis is not { } analysis
+            || function.MetadataToken == 0)
             return [];
-        if (!assembly.Index.GetAllocationOccurrences().TryGetValue(function.MetadataToken, out var occurrences))
+        if (!analysis.Allocations.Occurrences.TryGetValue(
+                function.MetadataToken,
+                out var occurrences))
             return [];
 
         FindingSubject subject = occurrences.IsEmpty

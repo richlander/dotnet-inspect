@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Runtime.CompilerServices;
 
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -53,29 +52,10 @@ public sealed class ResearchAssemblyContext
         new(index);
 }
 
-/// <summary>
-/// Memoizes <see cref="ResearchAssemblyContext.Create"/> per <see cref="LibraryBodyIndex"/> instance.
-/// The context's assembly-wide projections are lazy, and sharing the context
-/// ensures each projection is computed at most once for an index when multiple
-/// producers or member queries request it. The weak association does not extend
-/// the lifetime of the index supplied by its owner.
-/// </summary>
-static class ResearchAssemblyContextCache
-{
-    static readonly ConditionalWeakTable<
-        LibraryBodyIndex,
-        ResearchAssemblyContext> s_contexts = new();
-
-    public static ResearchAssemblyContext ForIndex(LibraryBodyIndex index) =>
-        s_contexts.GetValue(
-            index ?? throw new ArgumentNullException(nameof(index)),
-            static owner => ResearchAssemblyContext.Create(owner));
-}
-
 public sealed record ResearchFactContext(
     MetadataSource Source,
     IrFunction Imported,
-    ResearchAssemblyContext? Assembly = null,
+    MemberProjectionAnalysisInput? Analysis = null,
     IReadOnlyList<DirectCall>? CallSites = null);
 
 /// <summary>How much Analysis state one fact producer requires.</summary>
@@ -88,7 +68,7 @@ public enum ResearchAnalysisScope
 
 /// <summary>
 /// Analysis acquisition required by a fact producer. The registry unions these
-/// declarations before opening an index.
+/// declarations before planning one Analysis execution.
 /// </summary>
 public readonly record struct ResearchFactRequirements
 {

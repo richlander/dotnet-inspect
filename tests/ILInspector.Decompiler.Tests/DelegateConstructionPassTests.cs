@@ -24,6 +24,7 @@ public class DelegateConstructionPassTests
         var creation = Assert.Single(function.Descendants.OfType<DelegateCreation>());
         Assert.Equal(DelegateType, creation.DelegateType);
         Assert.Equal(Target, creation.Method);
+        Assert.False(creation.HasCollapsedCompilerCache);
         Assert.Empty(function.Descendants.OfType<NewObject>());
         Assert.Empty(function.Descendants.OfType<LoadFunctionPointer>());
     }
