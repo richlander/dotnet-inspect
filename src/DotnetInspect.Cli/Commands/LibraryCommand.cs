@@ -1731,7 +1731,21 @@ public partial class LibraryCommand
             population.Records;
 
         var rows = new List<ILCoordinateBatchRow>();
-        using var service = subject.OpenSourceLink(logger.Log);
+        var analysisOptions = options with
+        {
+            IncludeSections = sections,
+        };
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(analysisOptions),
+            logger.Log);
+        ILOffsetAnalysisPreparation analysis =
+            ILOffsetQuery.PrepareAnalysis(
+                service,
+                analysisOptions,
+                records
+                    .OfType<
+                        ILCoordinatePopulationRecord.Coordinate>()
+                    .Select(record => record.MethodToken));
         foreach (ILCoordinatePopulationRecord record in records)
         {
             if (record is ILCoordinatePopulationRecord.Malformed malformed)
@@ -1758,7 +1772,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 options,
                 httpClient,
-                logger);
+                logger,
+                analysis: analysis);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
                 : new ILCoordinateBatchRow(
@@ -1830,7 +1845,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool allowNonBoundaryContextAbsence = false)
+        bool allowNonBoundaryContextAbsence = false,
+        ILOffsetAnalysisPreparation? analysis = null)
     {
         var queryOptions = options with
         {
@@ -1856,7 +1872,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 queryOptions,
                 httpClient,
-                logger)
+                logger,
+                analysis)
             : ILOffsetQuery.ResolveBatchAsync(
                 service,
                 packageName,
@@ -1864,7 +1881,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 queryOptions,
                 httpClient,
-                logger);
+                logger,
+                analysis);
     }
 
     private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
@@ -2422,7 +2440,9 @@ public partial class LibraryCommand
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
-        using var service = subject.OpenSourceLink(logger.Log);
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(options),
+            logger.Log);
         var resolved = await ILOffsetQuery.ResolveAsync(
             service, packageName, packageVersion, isPlatformAssembly, options,
             httpClient, logger);
@@ -2458,7 +2478,21 @@ public partial class LibraryCommand
             : [];
         var projections = new List<ILOffsetProjection>();
         var failed = false;
-        using var service = subject.OpenSourceLink(logger.Log);
+        var analysisOptions = options with
+        {
+            IncludeSections = sections,
+        };
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(analysisOptions),
+            logger.Log);
+        ILOffsetAnalysisPreparation analysis =
+            ILOffsetQuery.PrepareAnalysis(
+                service,
+                analysisOptions,
+                population.Records
+                    .OfType<
+                        ILCoordinatePopulationRecord.Coordinate>()
+                    .Select(record => record.MethodToken));
         foreach (ILCoordinatePopulationRecord record in population.Records)
         {
             if (record is ILCoordinatePopulationRecord.Malformed malformed)
@@ -2480,7 +2514,8 @@ public partial class LibraryCommand
                 options,
                 httpClient,
                 logger,
-                allowNonBoundaryContextAbsence: true);
+                allowNonBoundaryContextAbsence: true,
+                analysis);
             if (resolved.Result is { } result)
             {
                 projections.Add(result);
@@ -4230,6 +4265,17 @@ internal sealed record LibraryInspectionSubject(
         AssemblyReference is null
             ? SourceLinkService.Open(Path, log)
             : SourceLinkService.Open(AssemblyReference, log);
+
+    internal SourceLinkService OpenSourceLink(
+        bool prefetch,
+        Action<string>? log = null) =>
+        prefetch
+            ? AssemblyReference is null
+                ? SourceLinkService.OpenPrefetched(Path, log)
+                : SourceLinkService.OpenPrefetched(
+                    AssemblyReference,
+                    log)
+            : OpenSourceLink(log);
 }
 
 internal abstract record LibraryInspectionSubjectSelection
