@@ -319,6 +319,14 @@ jobs:
           cache: npm
           cache-dependency-path: inspect-web/package-lock.json
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
       - name: Build and analyze browser frontend
         working-directory: inspect-web
         run: |
@@ -562,6 +570,14 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: inspect-web/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
 
       - name: Build browser frontend and install dependencies
         working-directory: inspect-web
