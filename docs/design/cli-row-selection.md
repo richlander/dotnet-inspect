@@ -52,7 +52,9 @@ selected sections. #6650 adopts timeline Evaluation and Transition rows while
 preserving its explicit package-cell acquisition plan. The broad #4677 line
 unit rollout defines rendered lines as the fallback item sequence, adds shared
 `--lines`/`--tail-lines`, and retires numeric `-t` as a row-count spelling on
-`implements` and `extensions`. The Workspace top-level inventory adoption
+`implements` and `extensions`. Numeric `-m` is likewise ordinary member-filter
+input rather than a count spelling on Type and Member routes. Nonnumeric `-t`
+and `-m` remain selector aliases. The Workspace top-level inventory adoption
 selects complete owner-issued entries after kind filtering without reducing
 Workspace construction or acquisition. The Integration graph adoption selects
 logical edges after complete induced-set construction without reducing package
@@ -1231,7 +1233,7 @@ The Type catalog adoption is enforced by:
 | --- | --- |
 | `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `TypeListing_FiltersBeforeSemanticSelection`, and `TypeListing_PositionalGlobAcceptsSemanticSelection` | An explicit-source Type catalog, including positional and `-t` Type glob forms, applies semantic Head/Tail or Window after type filtering; Markdown, table, TSV, JSONL, and complete JSON consume the same selected `ApiType`, complete JSON recomputes selected counts, and assembly-level Type forwarders remain companion evidence. |
 | `CommandExecutionTests.TypeListing_UnavailableWindowWithholdsOutput` and `TypeListing_RejectsInvalidRowsBeforeSourceResolution` | One unavailable strict Window emits no partial output, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before source resolution. |
-| `CommandExecutionTests.TypeListing_ExcludedModesInferRenderedLines`, `TypeListing_NumericTypeFilterIsOrdinaryFilterInput`, `TypeOptionsParserTests.NumericMemberLimit_IsDistinctFromTypeFilter`, `SharedParsersTests`, and `InspectionPlanningTests.CommandlessNumericTypeFilterSelectsTypeListing` | Exact-type and selected-section modes remain outside the declaration and infer rendered Lines; numeric `-t` is preserved as ordinary filter input distinct from numeric member limits, including commandless structural routing. |
+| `CommandExecutionTests.TypeListing_ExcludedModesInferRenderedLines`, `TypeListing_NumericTypeFilterIsOrdinaryFilterInput`, `CommandExecutionTests.Member_NumericMemberFilter_MatchesLongSelector`, `TypeOptionsParserTests.NumericMemberAndTypeFilters_AreOrdinaryFilterInput`, `MemberOptionsParserTests.NumericPositionalMember_IsOrdinaryFilterInput`, `SharedParsersTests`, and the commandless numeric-filter cases in `InspectionPlanningTests` | Exact-type and selected-section modes remain outside the declaration and infer rendered Lines; numeric `-t` and `-m` are ordinary Type and Member filter input rather than hidden row counts, including commandless structural routing. |
 
 The Package SourceLink file adoption is enforced by:
 

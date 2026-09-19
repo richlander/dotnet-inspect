@@ -206,6 +206,15 @@ public sealed record AssemblyMemberSourceRequest
     public MemberAnchor Member { get; }
     public int MetadataToken { get; }
     public PrinterOptions? PrinterOptions { get; }
+    public bool IncludeAuthoredParts { get; private init; }
+    public bool AllowDecompiledFallback { get; private init; } = true;
+
+    public AssemblyMemberSourceRequest WithAuthoredParts(bool allowDecompiledFallback = false) =>
+        this with
+        {
+            IncludeAuthoredParts = true,
+            AllowDecompiledFallback = allowDecompiledFallback,
+        };
 
     public static AssemblyMemberSourceRequest From(
         ApiType type,
@@ -264,6 +273,7 @@ public enum AssemblySourceFailureKind
     PdbAndDecompiledUnavailable,
     InspectionFailed,
     AuthoredDocumentUnavailable,
+    AuthoredMemberPartsUnavailable,
 }
 
 public sealed record AssemblySourceFailure(
@@ -277,7 +287,10 @@ public abstract record AssemblyMemberSource(string Text)
         string Text,
         PdbMemberSourceInspection Inspection,
         AssemblyPdbSourceProvenance Provenance)
-        : AssemblyMemberSource(Text);
+        : AssemblyMemberSource(Text)
+    {
+        public SourceHouseAuthoredMemberDocument? MemberDocument { get; init; }
+    }
 
     public sealed record Decompiled(
         string Text,
@@ -751,7 +764,7 @@ public static partial class AssemblyContextSourceQuery
                     context.MemberSourceLimits,
                     context.MemberSourceTimeout,
                     cancellationToken,
-                    retainSymbols: true)
+                    retainSymbols: request.AllowDecompiledFallback)
                 .ConfigureAwait(false);
         if (pdb.Inspection.IsComplete
             && pdb.Inspection.Text is { } pdbText
@@ -763,7 +776,25 @@ public static partial class AssemblyContextSourceQuery
                 new AssemblyMemberSource.Pdb(
                     pdbText,
                     pdb.Inspection,
-                    provenance))
+                    provenance)
+                {
+                    MemberDocument = (pdb.HouseOutcome as SourceHouseOutcome.Available)
+                        ?.Source.MemberDocument,
+                })
+            {
+                HouseOutcome = pdb.HouseOutcome,
+                LibraryFailure = pdb.LibraryFailure,
+            };
+        }
+
+        if (!request.AllowDecompiledFallback)
+        {
+            return new AssemblyMemberSourceEntry.Unavailable(
+                subject,
+                request,
+                new(AssemblySourceFailureKind.AuthoredMemberPartsUnavailable,
+                    "The requested verified authored member parts are unavailable."),
+                pdb.Inspection)
             {
                 HouseOutcome = pdb.HouseOutcome,
                 LibraryFailure = pdb.LibraryFailure,

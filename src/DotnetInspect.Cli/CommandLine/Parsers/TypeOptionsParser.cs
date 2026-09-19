@@ -413,7 +413,7 @@ public static class TypeOptionsParser
             return new VersionError(
                 "The type command's -m filter does not support generic arity selectors; use the member command.");
         }
-        var (memberFilter, memberLimit) = SharedParsers.ParseMemberFilter(memberValues);
+        var memberFilter = SharedParsers.ParseMemberFilter(memberValues);
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
@@ -465,8 +465,6 @@ public static class TypeOptionsParser
                 : null,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit,
-            MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),

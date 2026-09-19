@@ -61,11 +61,10 @@ public static class MemberOptionsParser
             .. positionalMembers,
             .. optionMembers,
         ];
-        var (memberFilter, _) =
+        var memberFilter =
             BuildMemberFilter(
                 members,
-                parseResult.GetValue(args.CtorOption),
-                out _);
+                parseResult.GetValue(args.CtorOption));
         return memberFilter.Count > 0
             || (!string.IsNullOrWhiteSpace(typeName)
                 && StructuralViewRegistry
@@ -562,9 +561,7 @@ public static class MemberOptionsParser
             typeName = dottedTypeFilter;
 
         // Build member filter
-        var (memberFilter, memberLimit) = BuildMemberFilter(allMembers, ctorOnly, out var clearShorthand);
-        if (clearShorthand)
-            shorthandIndex = null;
+        var memberFilter = BuildMemberFilter(allMembers, ctorOnly);
         OptionError? memberSelectionError =
             GetMemberSelectionError(
                 memberGenericArity,
@@ -624,7 +621,6 @@ public static class MemberOptionsParser
             IncludeAll = parseResult.GetValue(args.AllOption),
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit,
             ShowDocs = true,  // Docs always on (local XML); use source command for SourceLink
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
@@ -708,7 +704,7 @@ public static class MemberOptionsParser
 
         options = options with
         {
-            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || memberLimit != null
+            TipLevel = options.FormatExplicitlySet || options.IsRawOutput || options.Verbosity == Verbosity.Quiet || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
@@ -753,7 +749,7 @@ public static class MemberOptionsParser
                 parsedMembers,
                 inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
                 suppliedTypeName: typeName);
-        (memberFilter, _) = BuildMemberFilter(parsedMembers, ctor, out _);
+        memberFilter = BuildMemberFilter(parsedMembers, ctor);
         exactMember = index is not null
             || shorthandIndex is not null
             || !string.IsNullOrWhiteSpace(memberDigest)
@@ -791,23 +787,19 @@ public static class MemberOptionsParser
         return null;
     }
 
-    private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)
+    private static HashSet<string> BuildMemberFilter(
+        string[] allMembers,
+        bool ctorOnly)
     {
-        clearShorthand = false;
-
         if (ctorOnly)
-            return (new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" }, null);
-
-        if (allMembers.Length == 1 && int.TryParse(allMembers[0], out var mNum))
-        {
-            clearShorthand = true;
-            return ([], mNum);
-        }
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".ctor" };
 
         if (allMembers.Length > 0)
-            return (new HashSet<string>(allMembers, StringComparer.OrdinalIgnoreCase), null);
+            return new HashSet<string>(
+                allMembers,
+                StringComparer.OrdinalIgnoreCase);
 
-        return ([], null);
+        return [];
     }
 
     private static OptionError? GetMemberSelectionError(

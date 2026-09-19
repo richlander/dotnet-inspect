@@ -2497,7 +2497,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task StaticMemberSchema_NumericFilterUsesNormalizedLimitIntent()
+    public async Task StaticMemberSchema_NumericFilterUsesMemberSelectionIntent()
     {
         string[] common =
         [
@@ -2505,25 +2505,38 @@ public sealed class InspectionPlanningTests
             "System.String",
             "--platform",
             "System.Private.CoreLib",
-            "-D",
-            SectionNames.TypeInfo,
-            "--schema",
-            "--count",
-            "--tips",
-            "q",
         ];
 
-        var baseline = await RunAppAsync(common);
-        var limited = await RunAppAsync(
+        var shortSelector = await RunAppAsync(
             [
-                .. common[..4],
+                .. common,
                 "-m",
                 "5",
-                .. common[4..],
+                "-D",
+                SectionNames.TypeInfo,
+                "--schema",
+                "--count",
+                "--tips",
+                "q",
+            ]);
+        var longSelector = await RunAppAsync(
+            [
+                .. common,
+                "--member",
+                "5",
+                "-D",
+                SectionNames.TypeInfo,
+                "--schema",
+                "--count",
+                "--tips",
+                "q",
             ]);
 
-        Assert.Equal(baseline, limited);
-        Assert.Equal(0, limited.Exit);
+        Assert.Equal(longSelector, shortSelector);
+        Assert.Equal(1, shortSelector.Exit);
+        Assert.Contains(
+            $"Section '{SectionNames.TypeInfo}' not found.",
+            shortSelector.Error);
     }
 
     [Fact]
@@ -3997,7 +4010,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessNumericMemberLimitRetainsTypeView()
+    public async Task CommandlessNumericMemberFilterMatchesExplicitMember()
     {
         string[] projection =
         [
@@ -4005,10 +4018,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-m",
             "5",
-            "-S",
-            "-D",
-            "Method Groups",
-            "--markdown",
+            "--table",
             "--tips",
             "q",
         ];
@@ -4018,7 +4028,11 @@ public sealed class InspectionPlanningTests
             ["member", "String", .. projection]);
 
         Assert.Equal(explicitMember, commandless);
-        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(1, commandless.Exit);
+        Assert.Empty(commandless.Output);
+        Assert.Contains(
+            "No members matched filter '5'",
+            commandless.Error);
     }
 
     [Fact]

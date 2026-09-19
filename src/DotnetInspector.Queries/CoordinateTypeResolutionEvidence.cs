@@ -199,6 +199,11 @@ public abstract record CoordinateTypeResolutionFailureEvidence
     public sealed record DeclarationRejected(MetadataTypeNameFailure Rejection)
         : CoordinateTypeResolutionFailureEvidence;
 
+    public sealed record DeclarationBudgetExceeded(
+        int Budget,
+        string Detail)
+        : CoordinateTypeResolutionFailureEvidence;
+
     public sealed record ForwarderCycle
         : CoordinateTypeResolutionFailureEvidence;
 
@@ -636,6 +641,11 @@ static class CoordinateTypeResolutionProjector
             TypeResolutionFailure.DeclarationRejected rejected =>
                 new CoordinateTypeResolutionFailureEvidence.DeclarationRejected(
                     rejected.Rejection),
+            TypeResolutionFailure.DeclarationBudgetExceeded exceeded =>
+                new CoordinateTypeResolutionFailureEvidence
+                    .DeclarationBudgetExceeded(
+                        exceeded.Budget,
+                        exceeded.Detail),
             TypeResolutionFailure.ForwarderCycle =>
                 new CoordinateTypeResolutionFailureEvidence.ForwarderCycle(),
             TypeResolutionFailure.HopBudgetExceeded exceeded =>

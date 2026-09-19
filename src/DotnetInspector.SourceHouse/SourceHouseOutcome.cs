@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using CSharpText;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
@@ -234,6 +235,18 @@ public enum SourceHouseAuthoredAttemptKind
     Incomplete,
 }
 
+public sealed class SourceHouseAuthoredMemberDocument
+{
+    internal SourceHouseAuthoredMemberDocument(string text, MemberTextParts parts)
+    {
+        Text = text;
+        Parts = parts;
+    }
+
+    public string Text { get; }
+    public MemberTextParts Parts { get; }
+}
+
 public abstract class SourceHouseAuthoredAttempt
 {
     private protected SourceHouseAuthoredAttempt(
@@ -260,7 +273,8 @@ public abstract class SourceHouseAuthoredAttempt
             string text,
             SourceHouseAuthoredMapping mapping,
             SourceHouseSourceAttempt selected,
-            IReadOnlyList<SourceHouseSourceAttempt> sourceAttempts)
+            IReadOnlyList<SourceHouseSourceAttempt> sourceAttempts,
+            SourceHouseAuthoredMemberDocument? memberDocument = null)
             : base(
                 SourceHouseAuthoredAttemptKind.Available,
                 mapping,
@@ -268,10 +282,12 @@ public abstract class SourceHouseAuthoredAttempt
         {
             Text = text;
             Selected = selected;
+            MemberDocument = memberDocument;
         }
 
         public string Text { get; }
         public SourceHouseSourceAttempt Selected { get; }
+        public SourceHouseAuthoredMemberDocument? MemberDocument { get; }
     }
 
     public sealed class Unavailable : SourceHouseAuthoredAttempt
