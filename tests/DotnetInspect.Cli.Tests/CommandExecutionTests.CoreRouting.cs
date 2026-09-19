@@ -909,6 +909,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredVersionedMember_UsesTargetCatalogLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.AppDomain.FriendlyName",
+            "--framework",
+            "runtime@3.1.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Version: 3.1.0", output);
+        Assert.Contains("TFM: netcoreapp3.1", output);
+        Assert.Contains("System.Runtime.Extensions.dll", output);
+        Assert.Contains(
+            "Gets the friendly name of this application domain.",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
     {
         string missingAssembly = Path.Combine(

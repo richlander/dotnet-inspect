@@ -148,7 +148,8 @@ internal static class TypeFindIfMissResolver
         bool includeAll,
         NuGetSourceOptions? sourceOptions,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        string? frameworkSpec = null)
     {
         if (!LooksLikeSimpleTypeQuery(query))
             return TypeFindIfMissResult.None(query ?? "");
@@ -157,7 +158,10 @@ internal static class TypeFindIfMissResolver
         var findOptions = new FindOptions
         {
             Pattern = normalizedQuery,
-            PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames,
+            PlatformFrameworks =
+                string.IsNullOrWhiteSpace(frameworkSpec)
+                    ? CommandLineBuilder.PlatformFrameworkNames
+                    : [frameworkSpec],
             IncludeAll = includeAll,
             SourceOptions = sourceOptions
         };
@@ -242,13 +246,20 @@ internal static class TypeFindIfMissResolver
         bool includeAll,
         NuGetSourceOptions? sourceOptions,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        string? frameworkSpec = null)
     {
         if (!TrySplitMemberQuery(query, out var typeQuery, out var memberSelector))
             return TypeMemberFindIfMissResult.None(query ?? "");
 
         var selector = MemberTargetSelector.Parse(memberSelector);
-        var typeResolution = await ResolvePlatformAsync(typeQuery, includeAll, sourceOptions, httpClient, logger);
+        var typeResolution = await ResolvePlatformAsync(
+            typeQuery,
+            includeAll,
+            sourceOptions,
+            httpClient,
+            logger,
+            frameworkSpec);
         return TypeMemberFindIfMissResult.FromTypeResolution(
             query!, typeQuery, memberSelector, selector, typeResolution);
     }

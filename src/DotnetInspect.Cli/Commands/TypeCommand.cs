@@ -1717,7 +1717,8 @@ public static class TypeCommand
             options.IncludeAll,
             options.SourceOptions,
             context.HttpClient,
-            logger);
+            logger,
+            options.PlatformFramework);
         if (resolution.Status == TypeFindIfMissStatus.None)
             return null;
 
