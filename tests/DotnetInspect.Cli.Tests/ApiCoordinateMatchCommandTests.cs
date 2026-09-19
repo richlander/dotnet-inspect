@@ -361,6 +361,7 @@ public sealed class ApiCoordinateMatchCommandTests
     [InlineData("--bare")]
     [InlineData("--tree")]
     [InlineData("--count")]
+    [InlineData("-Q")]
     [InlineData("-v:n")]
     [InlineData("-v:d")]
     public async Task TypeEnvelopeRejectsPresentationOptions(

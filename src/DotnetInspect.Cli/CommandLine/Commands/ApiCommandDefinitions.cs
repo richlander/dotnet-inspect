@@ -102,6 +102,7 @@ public static class ApiCommandDefinitions
         opts.AddEnvelopeOptionTo(
             typeCommand,
             opts.Discover,
+            opts.QueryHelp,
             opts.Select,
             opts.Limit,
             opts.Rows,
