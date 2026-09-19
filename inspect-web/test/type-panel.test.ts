@@ -939,6 +939,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
 });
 
+test("the type heading accepts a product-owned defining Library label", () => {
+  const html = typeHeading({
+    item: jsonSerializer,
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    libraryLabel: "System.Text.Json · lib/net9.0/right/System.Text.Json.dll",
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(
+    html,
+    /System\.Text\.Json · lib\/net9\.0\/right\/System\.Text\.Json\.dll/);
+});
+
 test("pending graph-member rendering composes the extracted type heading", () => {
   const html = renderGraphMemberPending({
     item: jsonSerializer,

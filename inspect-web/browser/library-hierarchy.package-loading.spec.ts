@@ -172,22 +172,31 @@ function sameNamedLibrarySurface(
   version: string,
   framework: string,
 ): BrowserPackageSurface {
-  const assemblies = source.assemblies.map((assembly, index) => ({
-    ...assembly,
-    name: "Example.Shared",
-    asset: `lib/${framework}/${index}/Example.Shared.dll`,
+  const assemblyBySourceId = new Map(source.assemblies.map((assembly, index) => {
+    const asset = `lib/${framework}/${index}/Example.Shared.dll`;
+    return [assembly.id, {
+      ...assembly,
+      id: `compile:${asset}`,
+      name: "Example.Shared",
+      asset,
+    }];
   }));
-  const assemblyById = new Map(
-    assemblies.map(assembly => [assembly.id, assembly]));
+  const assemblies = [...assemblyBySourceId.values()];
   return {
     ...source,
     version,
     activeFramework: framework,
+    defaultAssemblyId: source.defaultAssemblyId
+      ? assemblyBySourceId.get(source.defaultAssemblyId)?.id
+        ?? source.defaultAssemblyId
+      : null,
     assemblies,
     types: source.types.map(item => {
-      const assembly = assemblyById.get(item.assemblyId)!;
+      const assembly = assemblyBySourceId.get(item.assemblyId)!;
       return {
         ...item,
+        id: `${assembly.id}:${item.definitionId}`,
+        assemblyId: assembly.id,
         assembly: `${assembly.name}.dll`,
         assemblyName: assembly.name,
       };
@@ -207,7 +216,9 @@ for (const change of packageCoordinateChanges) {
       change.framework);
     await installPackageLoadingFacades(page, {}, replacement, initial);
     await page.goto(frameworkRoot);
-    await selectLibrary(page, other.id);
+    const initialLibrary = initial.assemblies[1]!;
+    const replacementLibrary = replacement.assemblies[1]!;
+    await selectLibrary(page, initialLibrary.id);
     await chooseSubject(page, "package", "Package");
 
     await selectPackageCoordinate(page, change, change.selected);
@@ -225,7 +236,7 @@ for (const change of packageCoordinateChanges) {
       .toHaveCount(0);
     await chooseSubject(page, "library", "Library");
     await expect(page.locator(
-      `.library-subject-list [data-library-subject="${other.id}"]`))
+      `.library-subject-list [data-library-subject="${replacementLibrary.id}"]`))
       .toHaveAttribute("aria-selected", "true");
   });
 }

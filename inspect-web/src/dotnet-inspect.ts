@@ -128,6 +128,7 @@ import {
   graphOnlyImplementationBody,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
+  resolveReplacementPackageLibrary,
   runtimeAssemblyIsResident,
   type AppMemberSurface,
   type AppPackage,
@@ -3395,6 +3396,37 @@ function selectedLibraryName() {
   return selectedLibrary()?.name ?? "";
 }
 
+function aggregateTypeLibraryLabels() {
+  const labels = new Map<string, string>();
+  if (!aggregateLibrarySubjectIsActive() || !state.package) return labels;
+
+  const firstLibraryByDefinition = new Map<string, string>();
+  const collidingDefinitions = new Set<string>();
+  for (const item of state.package.types) {
+    const definition = item.definitionId || item.id;
+    const library = libraryKey(item);
+    const firstLibrary = firstLibraryByDefinition.get(definition);
+    if (firstLibrary !== undefined && firstLibrary !== library)
+      collidingDefinitions.add(definition);
+    else
+      firstLibraryByDefinition.set(definition, library);
+  }
+
+  const libraryNames = librarySubjectDisplayLabels(packageLibraries());
+  for (const item of state.package.types) {
+    if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
+    const library = libraryNames.get(libraryKey(item));
+    if (library) labels.set(item.id, library);
+  }
+  return labels;
+}
+
+function typeDefiningLibraryLabel(
+  item: AppTypeSurface | null | undefined,
+) {
+  return item ? aggregateTypeLibraryLabels().get(item.id) ?? "" : "";
+}
+
 function aggregateLibrarySubjectIsActive() {
   return state.rootKind !== "platform" && state.libraryScope === null;
 }
@@ -5538,7 +5570,7 @@ function inspectedSubjectPath(
       }]
     : [];
   if (state.atPackageRoot) return path;
-  const library = selectedLibraryName();
+  const library = typeDefiningLibraryLabel(current) || selectedLibraryName();
   if (library) {
     path.push({
       kind: "library",
@@ -5634,26 +5666,7 @@ function renderTypeNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
 ) {
-  const definingLibraries = new Map<string, string>();
-  if (aggregateLibrarySubjectIsActive() && state.package) {
-    const firstLibraryByDefinition = new Map<string, string>();
-    const collidingDefinitions = new Set<string>();
-    for (const item of state.package.types) {
-      const definition = item.definitionId || item.id;
-      const library = libraryKey(item);
-      const firstLibrary = firstLibraryByDefinition.get(definition);
-      if (firstLibrary !== undefined && firstLibrary !== library)
-        collidingDefinitions.add(definition);
-      else
-        firstLibraryByDefinition.set(definition, library);
-    }
-    const libraryNames = librarySubjectDisplayLabels(packageLibraries());
-    for (const item of state.package.types) {
-      if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
-      const library = libraryNames.get(libraryKey(item));
-      if (library) definingLibraries.set(item.id, library);
-    }
-  }
+  const definingLibraries = aggregateTypeLibraryLabels();
   return renderTypeNav({
     current: current ?? null,
     visible,
@@ -7317,6 +7330,7 @@ function renderGraphMemberPendingHtml(
     item,
     title,
     packageContext: currentPackage(),
+    libraryLabel: typeDefiningLibraryLabel(item) || item.assembly,
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -7440,12 +7454,16 @@ function renderApiLens(item: AppTypeSurface) {
   };
   const publicGroups = memberGroups(publicSurface);
   const visibleGroups = visibleMemberGroups(publicSurface);
+  const definingLibrary = typeDefiningLibraryLabel(item);
+  const definingLibraryHtml = definingLibrary
+    ? `<span data-type-library>· ${escapeHtml(definingLibrary)}</span>`
+    : "";
   if (state.memberBrowseTypeId === item.id) {
     return `
       <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
         <header class="api-surface-head member-surface-head">
           <h1 id="member-surface-title">Members</h1>
-          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span></p>
+          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span>${definingLibraryHtml}</p>
         </header>
         <div class="member-surface-scroll">
           <section class="empty-member-section">
@@ -7464,7 +7482,7 @@ function renderApiLens(item: AppTypeSurface) {
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
         <h1 id="api-surface-title">Members</h1>
-        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span></p>
+        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span>${definingLibraryHtml}</p>
       </header>
       <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
       <div class="api-surface-scroll">
@@ -9900,6 +9918,7 @@ function capturePackageCoordinateView(): Pick<
       librarySelection: {
         id: library?.id ?? null,
         name: library?.name ?? null,
+        asset: library?.asset ?? null,
         lens: state.libraryLens,
         activate: state.atLibraryRoot,
       },
@@ -15593,6 +15612,7 @@ interface LoadPackageOptions {
   librarySelection?: {
     id: string | null;
     name: string | null;
+    asset: string | null;
     lens: LibraryLens;
     activate: boolean;
   };
@@ -15691,12 +15711,10 @@ async function loadPackage(
       state.atLibraryRoot = false;
       state.packageLens = options.packageLens ?? "overview";
       if (options.librarySelection) {
-        const { id, name, lens, activate } = options.librarySelection;
-        const library =
-          (id ? resolvePackageLibrary(packageModel.assemblies, id) : null)
-          ?? (name
-            ? resolvePackageLibrary(packageModel.assemblies, name)
-            : null);
+        const { id, name, asset, lens, activate } = options.librarySelection;
+        const library = resolveReplacementPackageLibrary(
+          packageModel.assemblies,
+          { id, name, asset });
         if (!id && !name && !packageModel.isRuntimePack) {
           state.libraryScope = null;
           if (activate) {

@@ -509,6 +509,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
 export interface TypeHeadingOptions {
   item: TypeSummary;
   packageContext: TypePanelPackageContext;
+  libraryLabel?: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
@@ -516,7 +517,10 @@ export interface TypeHeadingOptions {
 }
 
 export function typeHeading(options: TypeHeadingOptions): string {
-  const { item, packageContext, escapeHtml, typeDisplayName, kindIcon, highlight } = options;
+  const {
+    item, packageContext, libraryLabel,
+    escapeHtml, typeDisplayName, kindIcon, highlight,
+  } = options;
   return `<header class="type-heading">
     <div class="type-badge">${kindIcon(item.kind)}</div>
     <div>
@@ -527,7 +531,7 @@ export function typeHeading(options: TypeHeadingOptions): string {
     <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
     <dl class="definition-list">
       <div><dt>TFM:</dt><dd>${escapeHtml(packageContext.activeFramework)}</dd></div>
-      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
+      <div><dt>Library:</dt><dd>${escapeHtml(libraryLabel ?? item.assembly)}</dd></div>
       <div><dt>Package:</dt><dd>${escapeHtml(packageContext.id)}@${escapeHtml(packageContext.version)}</dd></div>
     </dl>
   </header>`;
