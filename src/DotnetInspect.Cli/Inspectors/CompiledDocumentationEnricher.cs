@@ -10,9 +10,11 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformHouse.Installed;
+using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.PlatformQueries;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Installed;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -67,10 +69,30 @@ internal static class CompiledDocumentationEnricher
         bool isPlatform =
             source.ApiSource == SourceKind.Platform
             || !string.IsNullOrEmpty(options.PlatformAssembly);
+        PlatformFamily platformFamily = default;
+        bool hasPlatformFamily =
+            isPlatform
+            && TryGetPlatformFamily(
+                source.PlatformFramework,
+                out platformFamily);
+        ResolvedAssemblyReference? selectedPlatformAssembly =
+            isPlatform
+                ? TryResolvePlatformReferenceAssembly(source, options)
+                : null;
+        if (isPlatform && selectedPlatformAssembly is null)
+            return;
+        ResolvedAssemblyReference? documentationPlatformAssembly =
+            isPlatform && !hasPlatformFamily
+                ? TryResolveNetStandardContractAssembly(
+                    source,
+                    selectedPlatformAssembly!)
+                : selectedPlatformAssembly;
+        if (isPlatform && documentationPlatformAssembly is null)
+            return;
 
         foreach (IGrouping<string, ApiType> group in requestedTypes.GroupBy(
                      type => isPlatform
-                         ? loaded.ApiDllPath
+                         ? documentationPlatformAssembly!.Path!
                          : loaded.TryGetSourceAssembly(type)?.Path
                              ?? loaded.ApiDllPath,
                      PathComparer()))
@@ -81,19 +103,12 @@ internal static class CompiledDocumentationEnricher
             if (targets.Ids.Count == 0)
                 continue;
 
-            ResolvedAssemblyReference? assembly =
-                loaded.TryGetSourceAssembly(group.First());
-            PlatformFamily platformFamily = default;
-            bool hasPlatformFamily =
-                isPlatform
-                && TryGetPlatformFamily(
-                    source.PlatformFramework,
-                    out platformFamily);
+            ResolvedAssemblyReference? assembly = isPlatform
+                ? documentationPlatformAssembly
+                : loaded.TryGetSourceAssembly(group.First());
             ResolvedAssemblyReference? platformAssembly =
                 hasPlatformFamily
-                    ? TryResolvePlatformReferenceAssembly(
-                        source,
-                        options)
+                    ? selectedPlatformAssembly
                     : null;
             IReadOnlyDictionary<string, CompiledDocumentationOutcome> outcomes;
             if (platformAssembly is not null)
@@ -158,6 +173,7 @@ internal static class CompiledDocumentationEnricher
                             isPlatform
                                 ? s_monolithicPlatformDocumentationLimits
                                 : s_documentationLimits,
+                            requireAllSubjects: !isPlatform,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }
@@ -203,18 +219,52 @@ internal static class CompiledDocumentationEnricher
                     + "version and target framework.");
         }
 
-        if (!TryGetPlatformHiveRoot(
+        if (!TryGetPlatformReferenceLocation(
                 assemblyPath,
                 source.PlatformFramework!,
                 source.ApiVersion,
                 source.SelectedTfm,
-                out string dotnetRoot))
+                out PlatformReferenceLocation location))
         {
             throw new InvalidOperationException(
                 $"'{assemblyPath}' is not in the exact selected reference "
                     + $"pack {source.PlatformFramework} {source.ApiVersion} "
                     + $"for {source.SelectedTfm}.");
         }
+        var target = new PlatformFamilyTarget(
+            family,
+            PlatformTargetFramework.Parse(source.SelectedTfm),
+            PlatformVersion.Parse(source.ApiVersion));
+
+        return location.IsPackageBacked
+            ? await QueryPackagePlatformAsync(
+                    source,
+                    target,
+                    assemblyIdentity,
+                    documentationIds,
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : await QueryInstalledPlatformAsync(
+                    target,
+                    assemblyIdentity,
+                    location.DotnetRoot!,
+                    documentationIds,
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+    }
+
+    private static async ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        QueryInstalledPlatformAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceIdentity assemblyIdentity,
+            string dotnetRoot,
+            IReadOnlyCollection<string> documentationIds,
+            ApiOptions options,
+            CancellationToken cancellationToken)
+    {
         InstalledDotnetHiveIdentity hive =
             InstalledDotnetHiveIdentity.Create(
                 "cli-platform-documentation");
@@ -222,45 +272,13 @@ internal static class CompiledDocumentationEnricher
             new InstalledReferencePackSource(hive, dotnetRoot),
             new InstalledImplementationPlatformSource(hive, dotnetRoot),
             "cli-platform-documentation");
-        var target = new PlatformFamilyTarget(
-            family,
-            PlatformTargetFramework.Parse(source.SelectedTfm),
-            PlatformVersion.Parse(source.ApiVersion));
-        var request = new PlatformHouseRequest(
-            PlatformHouseRequestIdentity.Create(
-                "cli-platform-documentation"),
-            new PlatformTargetDemand.Exact(target),
-            new PlatformHouseRequestOrigin.Standalone(
-                PlatformStandaloneOperationIdentity.Create(
-                    "cli-platform-documentation")),
-            new PlatformHouseOperation.Realize(
-                new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(
-                        assemblyIdentity)),
-                PlatformViewDemand.Reference,
-                PlatformLibraryContentDemand.CompiledXmlDocumentation),
-            new PlatformSourcePlan(
-                PlatformSourcePlanIdentity.Create(
-                    "cli-platform-documentation"),
-                PlatformSourcePolicyGeneration.Create(
-                    "cli-platform-documentation-v1"),
-                [
-                    new PlatformSourceSelection(
-                        PlatformSourceFacet.Reference,
-                        PlatformSourceSelectionMode.Precedence,
-                        [adapter.Capabilities.ReferenceRealization]),
-                ]),
-            new PlatformHouseWorkBudget(
-                maxSourceOperations: 1,
-                maxTargetCandidates: 0,
-                maxAssemblies: 1,
-                maxXmlDocuments: 1,
-                maxPortablePdbs: 0,
-                maxSourceDocuments: 0,
-                maxBytes: 520L * 1024 * 1024,
-                maxForwardingHops: 0,
-                maxDuration: TimeSpan.FromSeconds(30)),
-            cancellationToken);
+        PlatformHouseRequest request =
+            CreatePlatformDocumentationRequest(
+                target,
+                assemblyIdentity,
+                adapter.Capabilities.ReferenceRealization,
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
 
         Stopwatch stopwatch = Stopwatch.StartNew();
         InstalledPlatformHouseResult<InstalledReferenceRealization>
@@ -313,23 +331,167 @@ internal static class CompiledDocumentationEnricher
         await using (completed.Artifacts.ConfigureAwait(false))
         await using (completed.Library.Owner.ConfigureAwait(false))
         {
-            return await PlatformCompiledDocumentationQuery
-                .ExecuteAvailableManyAsync(
+            return await QueryPlatformLibraryAsync(
                     completed.Library,
                     documentationIds,
-                    new PlatformCompiledDocumentationQueryLimits
-                    {
-                        ApiSurface = s_apiSurfaceBounds,
-                        ApiSurfaceScope = options.IncludeAll
-                            ? ApiSurfaceExtractionScope.IncludeAll
-                            : ApiSurfaceExtractionScope
-                                .PublicWithNonPublicTypes,
-                        Documentation = s_documentationLimits,
-                    },
+                    options,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
     }
+
+    private static async ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        QueryPackagePlatformAsync(
+            ApiSourceResult source,
+            PlatformFamilyTarget target,
+            AssemblyReferenceIdentity assemblyIdentity,
+            IReadOnlyCollection<string> documentationIds,
+            ApiOptions options,
+            CancellationToken cancellationToken)
+    {
+        using var stores = new PackageStoreScope();
+        await using DesktopPackageSourceComposition composition =
+            source.Context.CreatePackageSourceComposition();
+        var packageSource = new PackagePlatformSource(
+            new DesktopPackagePlatformAuthorization(
+                composition,
+                options.SourceOptions),
+            new PackagePayloadAcquisitionPlan(stores.Get));
+        var adapter = new PackagePlatformHouseAdapter(
+            packageSource,
+            "cli-platform-documentation");
+        PlatformHouseRequest request =
+            CreatePlatformDocumentationRequest(
+                target,
+                assemblyIdentity,
+                adapter.ReferenceRealization,
+                TimeSpan.FromMinutes(10),
+                cancellationToken);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        PackagePlatformHouseResult<PackageReferenceRealization> sourceResult =
+            await adapter.RealizeReferenceAsync(
+                    request,
+                    composition.IssueSettlementOperation(cancellationToken))
+                .ConfigureAwait(false);
+        if (sourceResult
+            is not PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference)
+        {
+            var terminal = (PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded)sourceResult;
+            throw new InvalidOperationException(
+                "PlatformHouse could not realize the package-backed reference "
+                    + $"Library: {terminal.Diagnostic.Kind}: "
+                    + terminal.Diagnostic.Summary);
+        }
+
+        stopwatch.Stop();
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies: reference.Value.Libraries.Length,
+            xmlDocuments: reference.Value.Libraries.Count(
+                static library => library.Documentation is not null),
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: reference.Value.Libraries.Sum(
+                static library => library.TotalContentLength),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: stopwatch.Elapsed);
+        PackagePlatformLibraryMaterializationResult materialization =
+            await PackagePlatformLibraryMaterializer
+                .MaterializeReferenceAsync(
+                    request,
+                    reference,
+                    consumed)
+                .ConfigureAwait(false);
+        if (materialization
+            is not PackagePlatformLibraryMaterializationResult.Completed
+                completed)
+        {
+            throw new InvalidOperationException(
+                "PlatformHouse could not materialize the package-backed "
+                    + "reference Library "
+                    + $"({materialization.Realization.Outcome.GetType().Name}).");
+        }
+
+        await using (completed.Artifacts.ConfigureAwait(false))
+        await using (completed.Library.Owner.ConfigureAwait(false))
+        {
+            return await QueryPlatformLibraryAsync(
+                    completed.Library,
+                    documentationIds,
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static PlatformHouseRequest CreatePlatformDocumentationRequest(
+        PlatformFamilyTarget target,
+        AssemblyReferenceIdentity assemblyIdentity,
+        PlatformSourceCapabilityIdentity referenceCapability,
+        TimeSpan maximumDuration,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "cli-platform-documentation"),
+            new PlatformTargetDemand.Exact(target),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "cli-platform-documentation")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(
+                        assemblyIdentity)),
+                PlatformViewDemand.Reference,
+                PlatformLibraryContentDemand.CompiledXmlDocumentation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "cli-platform-documentation"),
+                PlatformSourcePolicyGeneration.Create(
+                    "cli-platform-documentation-v1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [referenceCapability]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 1,
+                maxTargetCandidates: 0,
+                maxAssemblies: 1,
+                maxXmlDocuments: 1,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 520L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: maximumDuration),
+            cancellationToken);
+
+    private static ValueTask<
+        IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+        QueryPlatformLibraryAsync(
+            PlatformLibraryRealizationResult.Completed library,
+            IReadOnlyCollection<string> documentationIds,
+            ApiOptions options,
+            CancellationToken cancellationToken) =>
+        PlatformCompiledDocumentationQuery.ExecuteAvailableManyAsync(
+            library,
+            documentationIds,
+            new PlatformCompiledDocumentationQueryLimits
+            {
+                ApiSurface = s_apiSurfaceBounds,
+                ApiSurfaceScope = options.IncludeAll
+                    ? ApiSurfaceExtractionScope.IncludeAll
+                    : ApiSurfaceExtractionScope
+                        .PublicWithNonPublicTypes,
+                Documentation = s_documentationLimits,
+            },
+            cancellationToken);
 
     private static bool TryGetPlatformFamily(
         string? framework,
@@ -384,7 +546,7 @@ internal static class CompiledDocumentationEnricher
             return null;
         }
         if (string.IsNullOrWhiteSpace(source.SelectedTfm)
-            || !TryGetPlatformHiveRoot(
+            || !TryGetPlatformReferenceLocation(
                 path,
                 source.PlatformFramework,
                 source.ApiVersion,
@@ -400,24 +562,61 @@ internal static class CompiledDocumentationEnricher
         return ResolvedAssemblyReference.CreateFromPath(
             path,
             AssemblyResolutionProvenance.Platform(
-                source.PlatformFramework,
+                source.PlatformFramework!,
                 source.ApiVersion,
                 "CLI compiled documentation"));
     }
 
-    private static bool TryGetPlatformHiveRoot(
+    private static ResolvedAssemblyReference?
+        TryResolveNetStandardContractAssembly(
+            ApiSourceResult source,
+            ResolvedAssemblyReference selectedAssembly)
+    {
+        string path = Path.Combine(
+            Path.GetDirectoryName(selectedAssembly.Path!)!,
+            "netstandard.dll");
+        if (!File.Exists(path))
+        {
+            source.Context.Logger.Log(
+                "The selected netstandard reference pack has no "
+                    + "monolithic contract Library.");
+            return null;
+        }
+
+        return ResolvedAssemblyReference.CreateFromPath(
+            path,
+            AssemblyResolutionProvenance.Platform(
+                source.PlatformFramework!,
+                source.ApiVersion,
+                "CLI compiled documentation"));
+    }
+
+    private static bool TryGetPlatformReferenceLocation(
         string assemblyPath,
         string framework,
         string version,
         string targetFramework,
-        out string dotnetRoot)
+        out PlatformReferenceLocation location)
     {
-        dotnetRoot = null!;
+        location = null!;
         if (!PlatformResolver.FrameworkMappings.TryGetValue(
                 framework,
                 out string? packName))
         {
             return false;
+        }
+        if (string.Equals(
+                framework,
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase)
+            && targetFramework.StartsWith(
+                "net",
+                StringComparison.OrdinalIgnoreCase)
+            && !targetFramework.StartsWith(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            targetFramework = $"netstandard{targetFramework[3..]}";
         }
 
         string assemblyDirectory =
@@ -439,13 +638,29 @@ internal static class CompiledDocumentationEnricher
                 continue;
             }
 
-            dotnetRoot = Path.GetDirectoryName(
-                Path.TrimEndingDirectorySeparator(
-                    Path.GetFullPath(packsDirectory)))!;
+            string fullPacksDirectory = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(packsDirectory));
+            string? cachePacksDirectory =
+                PlatformPackService.GetPacksCachePath();
+            bool isPackageBacked =
+                cachePacksDirectory is not null
+                && PathComparer().Equals(
+                    fullPacksDirectory,
+                    Path.TrimEndingDirectorySeparator(
+                        Path.GetFullPath(cachePacksDirectory)));
+            location = new PlatformReferenceLocation(
+                isPackageBacked
+                    ? null
+                    : Path.GetDirectoryName(fullPacksDirectory)!);
             return true;
         }
 
         return false;
+    }
+
+    private sealed record PlatformReferenceLocation(string? DotnetRoot)
+    {
+        internal bool IsPackageBacked => DotnetRoot is null;
     }
 
     private static PackageDocumentationRoute GetPackageDocumentationRoute(
@@ -576,9 +791,10 @@ internal static class CompiledDocumentationEnricher
             IReadOnlyCollection<string> documentationIds,
             ApiSurfaceExtractionScope apiSurfaceScope,
             DocumentationHouseLimits documentationLimits,
+            bool requireAllSubjects,
             CancellationToken cancellationToken)
     {
-        string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
+            string xmlPath = Path.ChangeExtension(assemblyPath, ".xml");
         bool hasXml = File.Exists(xmlPath);
         await using var artifacts = new ArtifactSetSession(
             new ArtifactSetSessionLimits
@@ -688,7 +904,8 @@ internal static class CompiledDocumentationEnricher
         IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
             ResolveSubjects(
                 completed.Correspondence,
-                documentationIds);
+                documentationIds,
+                requireAllSubjects);
         var outcomes =
             new Dictionary<string, CompiledDocumentationOutcome>(
                 documentationIds.Count,
@@ -696,7 +913,9 @@ internal static class CompiledDocumentationEnricher
         var requests =
             new List<DocumentationHouseRequest>(
                 documentationIds.Count);
-        foreach (string documentationId in documentationIds)
+        string[] resolvedIds =
+            [.. documentationIds.Where(subjects.ContainsKey)];
+        foreach (string documentationId in resolvedIds)
         {
             DocumentationSubjectReference subject =
                 subjects[documentationId];
@@ -730,7 +949,7 @@ internal static class CompiledDocumentationEnricher
                     cancellationToken)
                 .ConfigureAwait(false);
         int index = 0;
-        foreach (string documentationId in documentationIds)
+        foreach (string documentationId in resolvedIds)
         {
             outcomes.Add(
                 documentationId,
@@ -760,7 +979,8 @@ internal static class CompiledDocumentationEnricher
         string,
         DocumentationSubjectReference> ResolveSubjects(
         LibraryApiSurfaceCorrespondence correspondence,
-        IReadOnlyCollection<string> documentationIds)
+        IReadOnlyCollection<string> documentationIds,
+        bool requireAllSubjects)
     {
         var requested =
             new HashSet<string>(documentationIds, StringComparer.Ordinal);
@@ -802,8 +1022,9 @@ internal static class CompiledDocumentationEnricher
             }
         }
 
-        string? missing =
-            requested.FirstOrDefault(id => !subjects.ContainsKey(id));
+        string? missing = requireAllSubjects
+            ? requested.FirstOrDefault(id => !subjects.ContainsKey(id))
+            : null;
         if (missing is not null)
         {
             throw new InvalidOperationException(
@@ -1060,6 +1281,15 @@ internal static class CompiledDocumentationEnricher
                 _temporaryRoot);
             _temporaryRoot = null;
         }
+    }
+
+    private sealed class DesktopPackagePlatformAuthorization(
+        DesktopPackageSourceComposition composition,
+        NuGetSourceOptions? sourceOptions) : IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            composition.AuthorizeSourcesFor(packageId, sourceOptions);
     }
 
 }

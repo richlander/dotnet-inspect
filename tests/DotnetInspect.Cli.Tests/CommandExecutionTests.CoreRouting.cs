@@ -646,6 +646,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_NetStandardForwardedMember_UsesContractDocumentation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Threading.Tasks.Task<T>.Result",
+            "--framework",
+            "netstandard",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Gets the result value of this Task.",
+            output);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypePreservesBodyKindQuery()
     {
         string[] arguments =

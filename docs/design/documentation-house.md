@@ -177,13 +177,16 @@ No adjacent owner should decide the product result:
 The CLI package, direct-Library, and platform paths and the Inspect Web package
 and platform-member paths compose compiled documentation through
 DocumentationHouse. The CLI runtime and ASP.NET Core paths realize the exact
-installed reference Library through PlatformHouse before issuing the shared
-platform query. The CLI queries the IDs represented by that exact reference
-surface and leaves implementation-only members undocumented rather than
-failing otherwise valid reference subjects. The netstandard path, for which
-PlatformHouse defines no family, uses the same direct-Library
-DocumentationHouse composition as other local assemblies, with a bounded
-32-MiB allowance for its monolithic XML companion. The remaining CLI
+reference Library through PlatformHouse before issuing the shared platform
+query. Canonical SDK-pack paths use the installed source; application
+`packs-v2` paths use the package-backed source so the realized provenance
+matches the selected reference pack. The CLI queries the IDs represented by
+that exact reference surface and leaves implementation-only members
+undocumented rather than failing otherwise valid reference subjects. The
+netstandard path, for which PlatformHouse defines no family, constructs the
+monolithic `netstandard.dll` direct Library with its `netstandard.xml`
+companion, queries only IDs represented by that contract surface, and applies
+a bounded 32-MiB allowance for the XML document. The remaining CLI
 `SourceEnricher` path retains PDB and authored-source acquisition, comment
 search, parsing, field merging, and warnings until the authored channel
 transfers those responsibilities in slice 21.
