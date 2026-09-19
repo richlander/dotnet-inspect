@@ -718,7 +718,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    public void TopLeverageQuery_RecordsFocusedAnalysisWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -743,15 +743,22 @@ public partial class SectionPipelineTests
         var available = Assert.IsType<TopLeverageResult.Available>(
             results.Get(TopLeverageQuery.Definition));
         Assert.NotEmpty(available.Methods);
-        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
-        Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+        var bodyAnalysis = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body analysis");
+        Assert.StartsWith("built in", bodyAnalysis.Detail.ToString());
+        Assert.Contains(
+            "MethodEvidence",
+            bodyAnalysis.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
         var drillMap = Assert.Single(trace.Resources, r => r.Resource == "drill map");
         Assert.StartsWith("built in", drillMap.Detail.ToString());
     }
 
     [Fact]
-    public void TopLeverageQuery_BodyIndexFailureRemainsTyped()
+    public void TopLeverageQuery_AnalysisFailureRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [TopLeverageQuery.Definition],
@@ -763,7 +770,21 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void TopLeverageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void TopLeverageQuery_MissingProducerRemainsTyped()
+    {
+        Analysis.LibraryBodyAnalysisExecution execution =
+            Analysis.LibraryBodyAnalysisService.ExecutePath(
+                typeof(SectionPipelineTests).Assembly.Location,
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                    Analysis.LibraryBodyAnalysisFeatures.None));
+
+        var failed = Assert.IsType<TopLeverageResult.Failed>(
+            TopLeverageQuery.Execute(execution.Leverage));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_NoMetadata_DoesNotAcquireAnalysis()
     {
         bool acquired = false;
 

@@ -118,7 +118,8 @@ public sealed record CompleteRestorationPlan
         CompleteRestorationRecipe recipe,
         IReadOnlyDictionary<
             string,
-            PackageNavigationSource> packageSources)
+            PackageNavigationSource> packageSources,
+        IReadOnlyDictionary<string, GroupNavigationSource> groupSources)
     {
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
@@ -127,6 +128,8 @@ public sealed record CompleteRestorationPlan
         Recipe = recipe ?? throw new ArgumentNullException(nameof(recipe));
         PackageSources = packageSources
             ?? throw new ArgumentNullException(nameof(packageSources));
+        GroupSources = groupSources
+            ?? throw new ArgumentNullException(nameof(groupSources));
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -140,6 +143,9 @@ public sealed record CompleteRestorationPlan
     internal IReadOnlyDictionary<
         string,
         PackageNavigationSource> PackageSources
+        { get; }
+
+    internal IReadOnlyDictionary<string, GroupNavigationSource> GroupSources
         { get; }
 }
 
@@ -710,7 +716,11 @@ public static class CompleteRestorationPreparation
                 request,
                 workspacePlan,
                 recipe,
-                packageSources));
+                packageSources,
+                InspectionDefinitionRegistry.ResolveGroupNavigationSources(
+                    definitions.Workspace,
+                    definitions.Navigation,
+                    definitions.NavigationTargetMatchMode)));
     }
 
     private static CompleteRestorationPreparationResult FailedWorkspaceFree(

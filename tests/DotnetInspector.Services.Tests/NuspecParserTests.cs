@@ -215,17 +215,19 @@ public class NuspecParserTests : IDisposable
             result.LicenseDeclaration);
     }
 
-    [Fact]
-    public void Parse_DotnetToolPackageType_SetsIsToolPackage()
+    [Theory]
+    [InlineData("DotnetTool")]
+    [InlineData("DotnetToolRidPackage")]
+    public void Parse_ToolPackageType_SetsIsToolPackage(string packageType)
     {
-        var nuspec = WriteNuspec("""
+        var nuspec = WriteNuspec($"""
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
               <metadata>
                 <id>MyTool</id>
                 <version>1.0.0</version>
                 <packageTypes>
-                  <packageType name="DotnetTool" />
+                  <packageType name="{packageType}" />
                 </packageTypes>
               </metadata>
             </package>
@@ -235,7 +237,7 @@ public class NuspecParserTests : IDisposable
 
         Assert.True(result.IsToolPackage);
         Assert.NotNull(result.PackageTypes);
-        Assert.Contains("DotnetTool", result.PackageTypes);
+        Assert.Contains(packageType, result.PackageTypes);
     }
 
     [Fact]

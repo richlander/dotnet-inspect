@@ -5,22 +5,35 @@ using ILInspector.Metadata;
 namespace ILInspector.Analysis;
 
 /// <summary>
-/// One body index and its acquisition-owner-issued assembly descriptor in a
-/// catalog call-graph scope.
+/// One focused call-graph result and its acquisition-owner-issued assembly
+/// descriptor in a catalog call-graph scope.
 /// </summary>
 public sealed class CatalogCallGraphParticipant
 {
+    /// <summary>
+    /// Adapts a compatibility index to its focused call-graph result.
+    /// </summary>
     public CatalogCallGraphParticipant(
         LibraryBodyIndex index,
         ResolvedAssemblyReference assembly)
+        : this(
+            (index ?? throw new ArgumentNullException(nameof(index)))
+                .CallGraphAnalysis,
+            assembly)
     {
-        ArgumentNullException.ThrowIfNull(index);
+    }
+
+    public CatalogCallGraphParticipant(
+        LibraryCallGraphAnalysisResult callGraph,
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(callGraph);
         ArgumentNullException.ThrowIfNull(assembly);
-        Index = index;
+        CallGraph = callGraph;
         Assembly = assembly;
     }
 
-    public LibraryBodyIndex Index { get; }
+    public LibraryCallGraphAnalysisResult CallGraph { get; }
     public ResolvedAssemblyReference Assembly { get; }
 }
 
@@ -108,8 +121,9 @@ public sealed record CatalogCallGraphDiagnostics(
 public sealed class CatalogCallGraphScope : IDisposable
 {
     readonly ImmutableArray<CatalogCallGraphParticipant> _participants;
-    readonly Dictionary<LibraryBodyIndex, CatalogCallGraphParticipant>
-        _participantByIndex =
+    readonly Dictionary<
+        LibraryCallGraphAnalysisResult,
+        CatalogCallGraphParticipant> _participantByCallGraph =
             new(ReferenceEqualityComparer.Instance);
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly TypeResolutionCatalog _catalog;
@@ -138,7 +152,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             ArgumentNullException.ThrowIfNull(participant);
             ValidateParticipant(participant);
             LibraryBodyModuleIdentity moduleIdentity =
-                participant.Index.ModuleIdentity;
+                participant.CallGraph.ModuleIdentity;
             var artifact = (
                 moduleIdentity.AssemblyIdentity!,
                 moduleIdentity.ModuleVersionId);
@@ -146,24 +160,26 @@ public sealed class CatalogCallGraphScope : IDisposable
                     artifact,
                     out CatalogCallGraphParticipant? canonical))
             {
-                if (_participantByIndex.TryGetValue(
-                        participant.Index,
+                if (_participantByCallGraph.TryGetValue(
+                        participant.CallGraph,
                         out CatalogCallGraphParticipant? mapped)
                     && !ReferenceEquals(mapped, canonical))
                 {
                     throw new ArgumentException(
-                        "A body index cannot describe two physical artifacts.",
+                        "A call-graph result cannot describe two physical "
+                        + "artifacts.",
                         nameof(participants));
                 }
 
-                _participantByIndex.TryAdd(participant.Index, canonical);
+                _participantByCallGraph.TryAdd(participant.CallGraph, canonical);
                 continue;
             }
 
-            if (_participantByIndex.ContainsKey(participant.Index))
+            if (_participantByCallGraph.ContainsKey(participant.CallGraph))
             {
                 throw new ArgumentException(
-                    "A body index cannot describe two physical artifacts.",
+                    "A call-graph result cannot describe two physical "
+                    + "artifacts.",
                     nameof(participants));
             }
             if (!registrations.Add(participant.Assembly.Registration))
@@ -174,7 +190,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             }
 
             artifacts.Add(artifact, participant);
-            _participantByIndex.Add(participant.Index, participant);
+            _participantByCallGraph.Add(participant.CallGraph, participant);
             builder.Add(participant);
         }
 
@@ -224,8 +240,8 @@ public sealed class CatalogCallGraphScope : IDisposable
     /// applying traversal depth or node bounds.
     /// </summary>
     public ImmutableArray<CatalogResolvedCallSite> ResolvedCalls(
-        LibraryBodyIndex source,
-        LibraryBodyIndex target)
+        LibraryCallGraphAnalysisResult source,
+        LibraryCallGraphAnalysisResult target)
     {
         CatalogCallGraphParticipant sourceParticipant =
             Participant(source);
@@ -236,8 +252,19 @@ public sealed class CatalogCallGraphScope : IDisposable
             targetParticipant);
     }
 
+    /// <summary>
+    /// Compatibility overload for callers that have not yet migrated from
+    /// <see cref="LibraryBodyIndex"/>.
+    /// </summary>
+    public ImmutableArray<CatalogResolvedCallSite> ResolvedCalls(
+        LibraryBodyIndex source,
+        LibraryBodyIndex target) =>
+        ResolvedCalls(
+            source.CallGraphAnalysis,
+            target.CallGraphAnalysis);
+
     public CallTreeNode BuildCallerTree(
-        LibraryBodyIndex root,
+        LibraryCallGraphAnalysisResult root,
         int rootMethodToken,
         int maxDepth = 3,
         int maxNodes = 25)
@@ -250,8 +277,23 @@ public sealed class CatalogCallGraphScope : IDisposable
             maxNodes);
     }
 
-    public CallTreeNode BuildCallTree(
+    /// <summary>
+    /// Compatibility overload for callers that have not yet migrated from
+    /// <see cref="LibraryBodyIndex"/>.
+    /// </summary>
+    public CallTreeNode BuildCallerTree(
         LibraryBodyIndex root,
+        int rootMethodToken,
+        int maxDepth = 3,
+        int maxNodes = 25) =>
+        BuildCallerTree(
+            root.CallGraphAnalysis,
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
+
+    public CallTreeNode BuildCallTree(
+        LibraryCallGraphAnalysisResult root,
         int rootMethodToken,
         int maxDepth = 3,
         int maxNodes = 25)
@@ -263,6 +305,21 @@ public sealed class CatalogCallGraphScope : IDisposable
             maxDepth,
             maxNodes);
     }
+
+    /// <summary>
+    /// Compatibility overload for callers that have not yet migrated from
+    /// <see cref="LibraryBodyIndex"/>.
+    /// </summary>
+    public CallTreeNode BuildCallTree(
+        LibraryBodyIndex root,
+        int rootMethodToken,
+        int maxDepth = 3,
+        int maxNodes = 25) =>
+        BuildCallTree(
+            root.CallGraphAnalysis,
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
 
     /// <summary>
     /// Detaches one tree from this scope's catalog generation while preserving
@@ -318,22 +375,22 @@ public sealed class CatalogCallGraphScope : IDisposable
         }
     }
 
-    CatalogCallGraphParticipant Participant(LibraryBodyIndex index)
+    CatalogCallGraphParticipant Participant(LibraryCallGraphAnalysisResult callGraph)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(callGraph);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _participantByIndex.TryGetValue(index, out var participant)
+        return _participantByCallGraph.TryGetValue(callGraph, out var participant)
             ? participant
             : throw new ArgumentException(
-                "The body index does not belong to this call-graph scope.",
-                nameof(index));
+                "The call-graph result does not belong to this scope.",
+                nameof(callGraph));
     }
 
     static void ValidateParticipant(
         CatalogCallGraphParticipant participant)
     {
         LibraryBodyModuleIdentity moduleIdentity =
-            participant.Index.ModuleIdentity;
+            participant.CallGraph.ModuleIdentity;
         if (moduleIdentity.AssemblyIdentity is not { } assemblyIdentity
             || !assemblyIdentity.IsEquivalentTo(
                 participant.Assembly.Identity)
@@ -343,7 +400,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 != moduleIdentity.ModuleVersionId)
         {
             throw new ArgumentException(
-                "The assembly descriptor does not describe the body index.",
+                "The assembly descriptor does not describe the call-graph "
+                + "result.",
                 nameof(participant));
         }
     }
@@ -405,8 +463,9 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
             _reverse;
         readonly Dictionary<GraphNodeIdentity, int> _incoming;
-        readonly Dictionary<(LibraryBodyIndex Index, int Token), StoredDefinition>
-            _definitionByLocation;
+        readonly Dictionary<
+            (LibraryCallGraphAnalysisResult CallGraph, int Token),
+            StoredDefinition> _definitionByLocation;
         readonly TypeResolutionContext _context;
 
         ScopeGraph(
@@ -454,7 +513,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 _bindingIdentityConflicts.Length);
             _definitionByLocation = definitions.ToDictionary(
                 definition =>
-                    (definition.Participant.Index, definition.Method.MetadataToken));
+                    (definition.Participant.CallGraph, definition.Method.MetadataToken));
             _definitionsByIdentity = definitions
                 .GroupBy(definition => definition.Evidence.Identity)
                 .ToDictionary(
@@ -578,7 +637,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             var callSites =
                 ImmutableArray.CreateBuilder<PendingCallSite>();
             var definitionLocations = new Dictionary<
-                (LibraryBodyIndex Index, int Token),
+                (LibraryCallGraphAnalysisResult CallGraph, int Token),
                 PendingDefinition>();
 
             foreach (CatalogCallGraphParticipant participant
@@ -586,17 +645,17 @@ public sealed class CatalogCallGraphScope : IDisposable
             {
                 HashSet<int> bodyTokens =
                 [
-                    .. participant.Index.Methods.Select(
+                    .. participant.CallGraph.Methods.Select(
                         method => method.MetadataToken),
                 ];
                 Dictionary<int, AnalysisDiagnostic> diagnosticsByToken =
-                    participant.Index.Diagnostics
+                    participant.CallGraph.Diagnostics
                         .GroupBy(diagnostic => diagnostic.MethodToken)
                         .ToDictionary(
                             group => group.Key,
                             group => group.First());
                 foreach (MethodIdentity method
-                    in participant.Index.DeclaredMethods)
+                    in participant.CallGraph.DeclaredMethods)
                 {
                     MemberRef member =
                         CallTreeMember.FromDefinition(method);
@@ -622,11 +681,11 @@ public sealed class CatalogCallGraphScope : IDisposable
                             method.MetadataToken));
                     definitions.Add(pending);
                     definitionLocations.Add(
-                        (participant.Index, method.MetadataToken),
+                        (participant.CallGraph, method.MetadataToken),
                         pending);
                 }
 
-                foreach (DirectCall call in participant.Index.DirectCalls)
+                foreach (DirectCall call in participant.CallGraph.DirectCalls)
                 {
                     var storage = GraphNodeStorageKey.CallSite(
                         participant.Assembly,
@@ -709,7 +768,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                     storedCallSites.Add(stored);
                     if (definitionLocations.TryGetValue(
                             (
-                                callSite.Participant.Index,
+                                callSite.Participant.CallGraph,
                                 callSite.Call.Caller.MetadataToken),
                             out PendingDefinition? caller))
                     {
@@ -1284,7 +1343,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             int rootMethodToken)
         {
             if (_definitionByLocation.TryGetValue(
-                    (root.Index, rootMethodToken),
+                    (root.CallGraph, rootMethodToken),
                     out StoredDefinition? definition))
             {
                 return (definition.Member, definition.Evidence);
@@ -1292,7 +1351,9 @@ public sealed class CatalogCallGraphScope : IDisposable
 
             StoredCallSite? callSite = _callSites.FirstOrDefault(
                 candidate =>
-                    ReferenceEquals(candidate.Participant.Index, root.Index)
+                    ReferenceEquals(
+                        candidate.Participant.CallGraph,
+                        root.CallGraph)
                     && candidate.Call.CalleeDefinitionToken
                         == rootMethodToken
                     && candidate.Call.Callee.Kind
@@ -1304,7 +1365,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 $"method token 0x{rootMethodToken:X8}");
             var storage = GraphNodeStorageKey.Definition(
                 root.Assembly,
-                root.Index.ModuleIdentity.ModuleVersionId,
+                root.CallGraph.ModuleIdentity.ModuleVersionId,
                 rootMethodToken);
             return (
                 member,
@@ -1611,7 +1672,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                     resolutionAssemblyIdentity;
                 HasBody = hasBody;
                 Diagnostic = diagnostic;
-                Signals = participant.Index.GetMethodSignals()
+                Signals = participant.CallGraph.GetMethodSignals()
                     .GetValueOrDefault(
                         method.MetadataToken,
                         MethodSignals.None);

@@ -316,7 +316,9 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 Use `member -S @Source` for decompiled C#, annotated source, PDB source, source
 diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
-source locations; these remain outside the default Finding set. Selecting a
+source locations; these remain outside the default Finding set. **Explore**
+also presents one Relationships row per exact physical call, with explicit
+call-site inspection and **Member** or **Source** target actions. Selecting a
 recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
@@ -417,6 +419,8 @@ dotnet-inspect vocabulary -S @Decompiler
 dotnet-inspect vocabulary -S "C# Body Kinds" -n 10
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S @Audit
+dotnet-inspect library System.Text.Json -S References
+dotnet-inspect library System.Text.Json -S "Reference Hierarchy" --tree
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions \
   -S Integrations --where "integration=integration.logging"
@@ -443,6 +447,8 @@ dotnet-inspect package Newtonsoft.Json@13.0.4 \
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
+dotnet-inspect package Newtonsoft.Json@13.0.4 \
+  --layout --tfm net6.0 -n 1 --tail --json
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
@@ -460,6 +466,12 @@ enumeration, optional exact directory-segment `--tfm` filtering, and optional
 `--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
 observe the same selected rows; `--roots` instead emits their ordered distinct
 top-level package roots. Add `--lines` only to clip rendered text.
+
+For one package with `--layout`, `-n`, `--tail`, and `--rows A..B` select
+complete sorted file paths after archive extraction and `--lib`, `--tools`, or
+layout-specific `--tfm` scoping. Count, JSONL, and JSON observe the same
+selected paths; human output renders a tree derived from them. Add `--lines`
+only to clip the rendered tree.
 
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework
