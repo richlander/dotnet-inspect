@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
@@ -406,8 +407,69 @@ internal static class BrowserRetainedWorkspaceActivationService
                                 tabIndex => navigation.Tabs[tabIndex].Id),
                         ])),
             ],
+            [.. workspace.Registrations.Select(Registration)],
             navigation.Focus,
             installation.Definition.Scenario.Context);
+    }
+
+    static BrowserRetainedWorkspaceRegistration Registration(
+        WorkspaceRegistration registration) =>
+        registration switch
+        {
+            WorkspaceRegistration.ExactLibrary exact =>
+                new("exactLibrary", ExactLibrary(exact.Coordinate), null, null),
+            WorkspaceRegistration.PackagePrefix prefix =>
+                new("packagePrefix", null, prefix.Prefix.Prefix, null),
+            WorkspaceRegistration.Ecosystem ecosystem =>
+                new("ecosystem", null, null, new(
+                    ecosystem.Declaration.Id.Value,
+                    [.. ecosystem.Declaration.NamespaceRoots],
+                    [.. ecosystem.Declaration.CorePackages.Select(
+                        static package => package.PackageId)],
+                    [.. ecosystem.Declaration.Populations.Select(EcosystemPopulation)])),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported Workspace registration."),
+        };
+
+    static BrowserRetainedWorkspaceEcosystemPopulation EcosystemPopulation(
+        WorkspaceEcosystemPopulationDeclaration population) =>
+        population switch
+        {
+            WorkspaceEcosystemPopulationDeclaration.ExactLibrary exact =>
+                new("exactLibrary", ExactLibrary(exact.Coordinate), null, null),
+            WorkspaceEcosystemPopulationDeclaration.Platform platform =>
+                new("platform", null, platform.Population.Family.ToString(), null),
+            WorkspaceEcosystemPopulationDeclaration.PackagePrefix prefix =>
+                new("packagePrefix", null, null, prefix.Prefix.Prefix),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported Ecosystem population."),
+        };
+
+    static BrowserRetainedWorkspaceExactLibrary ExactLibrary(
+        ExactLibrarySourceCoordinate coordinate)
+    {
+        ILInspector.Metadata.AssemblyReferenceIdentity identity =
+            coordinate.LibraryIdentity.Identity;
+        var library = new BrowserRetainedWorkspaceLibraryIdentity(
+            identity.Name,
+            identity.Version?.ToString(4)
+                ?? throw new InvalidOperationException(
+                    "A completed exact Library registration requires an assembly version."),
+            identity.Culture,
+            identity.PublicKeyToken);
+        return coordinate switch
+        {
+            ExactLibrarySourceCoordinate.Package package =>
+                new("package", library,
+                    package.PackageCoordinate.PackageId,
+                    package.PackageCoordinate.Version,
+                    null),
+            ExactLibrarySourceCoordinate.Platform platform =>
+                new("platform", library, null, null,
+                    platform.Population.Family.ToString()),
+            _ => throw new InvalidOperationException(
+                "The completed packet contains an unsupported exact Library source."),
+        };
     }
 
     static BrowserRetainedWorkspaceSettlement Settlement(

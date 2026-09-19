@@ -551,7 +551,10 @@ The packet activation Catalog facade publishes typed definition topology,
 Package surfaces, and Platform surfaces through its generated TypeScript
 contract and ordinary Worker transport. Topology comes from the completed
 canonical packet paired with resolved owner-issued IDs, including inactive,
-Platform-only and registration-only definitions. This host-specific JSON
+Platform-only and registration-only definitions. Typed registrations retain
+their order, package prefixes, exact Package/Platform library coordinates and
+assembly identities, and ecosystem contributions; callers need not reparse the
+packet to recover those facts. This host-specific JSON
 projection is installation state, not a rendered report. Internal definition
 activation may still succeed when no canonical packet can represent it.
 

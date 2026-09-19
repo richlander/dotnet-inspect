@@ -449,8 +449,31 @@ export interface BrowserRetainedWorkspaceDeactivationResult {
 export interface BrowserRetainedWorkspaceDefinitionState {
   readonly tabs: ReadonlyArray<BrowserWorkspaceShareTab>;
   readonly contexts: ReadonlyArray<BrowserWorkspaceShareContext>;
+  readonly registrations: ReadonlyArray<BrowserRetainedWorkspaceRegistration>;
   readonly activeTabId: string | null;
   readonly selectedContextId: string | null;
+}
+
+export interface BrowserRetainedWorkspaceEcosystem {
+  readonly id: string;
+  readonly namespaceRoots: ReadonlyArray<string>;
+  readonly corePackages: ReadonlyArray<string>;
+  readonly populations: ReadonlyArray<BrowserRetainedWorkspaceEcosystemPopulation>;
+}
+
+export interface BrowserRetainedWorkspaceEcosystemPopulation {
+  readonly kind: string;
+  readonly exactLibrary: BrowserRetainedWorkspaceExactLibrary | null;
+  readonly platformFamily: string | null;
+  readonly packagePrefix: string | null;
+}
+
+export interface BrowserRetainedWorkspaceExactLibrary {
+  readonly kind: string;
+  readonly library: BrowserRetainedWorkspaceLibraryIdentity;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly platformFamily: string | null;
 }
 
 export interface BrowserRetainedWorkspaceInstallation {
@@ -466,6 +489,13 @@ export interface BrowserRetainedWorkspaceInstallation {
   readonly platforms: ReadonlyArray<BrowserRetainedWorkspacePlatform>;
   readonly predecessor: BrowserRetainedWorkspacePredecessor | null;
   readonly cleanup: BrowserRetainedWorkspaceCleanup | null;
+}
+
+export interface BrowserRetainedWorkspaceLibraryIdentity {
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
 }
 
 export interface BrowserRetainedWorkspacePackage {
@@ -492,6 +522,13 @@ export interface BrowserRetainedWorkspacePlatform {
 export interface BrowserRetainedWorkspacePredecessor {
   readonly settlementId: string;
   readonly reason: string;
+}
+
+export interface BrowserRetainedWorkspaceRegistration {
+  readonly kind: string;
+  readonly exactLibrary: BrowserRetainedWorkspaceExactLibrary | null;
+  readonly packagePrefix: string | null;
+  readonly ecosystem: BrowserRetainedWorkspaceEcosystem | null;
 }
 
 export interface BrowserRetainedWorkspaceSettlement {

@@ -170,6 +170,88 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     public Task CatalogFacade_PreservesPackageDefinitionAndAdmission() =>
         AssertCatalogFacadeAsync(includePlatform: false);
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task CatalogFacade_PreservesRegistrationOnlyDefinition(int format)
+    {
+        string packet = EncodeInventoryPacket(
+            $$$"""
+            {"f":{{{format}}},"t":[],"g":[],"r":[
+                ["p","Microsoft.Extensions."],
+                ["l",["p","system.text.json","9.0.4",["System.Text.Json","9.0.0.0",null,"cc7b13ffcd2ddd51"]]],
+                ["l",["t","DotNetRuntime",["System.Runtime","10.0.0.0",null,"b03f5f7f11d50a3a"]]],
+                ["e","ecosystem.json",["System.Text.Json"],["system.text.json"],[
+                    ["l",["p","system.text.json","9.0.4",["System.Text.Json","9.0.0.0",null,"cc7b13ffcd2ddd51"]]],
+                    ["t","AspNetCore"],
+                    ["p","Microsoft.Extensions."]
+                ]]
+            ],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
+            """);
+        await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
+        try
+        {
+            string json = await Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition(
+                "registrations", "Registration-only", "/workspace", packet);
+            var result = Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                JsonSerializer.Deserialize(
+                    json,
+                    Catalog.BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspaceActivationResult));
+            Assert.Equal("activated", result.Status);
+            var installation = Assert.IsType<Catalog.BrowserRetainedWorkspaceInstallation>(
+                result.Installation);
+            Assert.Empty(installation.Packages);
+            Assert.Empty(installation.Platforms);
+            Assert.Empty(installation.Definition.Tabs);
+            Assert.Empty(installation.Definition.Contexts);
+            Assert.Null(installation.Definition.ActiveTabId);
+            Assert.Null(installation.Definition.SelectedContextId);
+
+            Catalog.BrowserRetainedWorkspaceRegistration[] registrations =
+                installation.Definition.Registrations;
+            Assert.Equal(
+                ["packagePrefix", "exactLibrary", "exactLibrary", "ecosystem"],
+                registrations.Select(registration => registration.Kind));
+            Assert.Equal("Microsoft.Extensions.", registrations[0].PackagePrefix);
+            var package = Assert.IsType<Catalog.BrowserRetainedWorkspaceExactLibrary>(
+                registrations[1].ExactLibrary);
+            Assert.Equal("package", package.Kind);
+            Assert.Equal("system.text.json", package.PackageId);
+            Assert.Equal("9.0.4", package.PackageVersion);
+            Assert.Null(package.PlatformFamily);
+            Assert.Equal(
+                new Catalog.BrowserRetainedWorkspaceLibraryIdentity(
+                    "System.Text.Json", "9.0.0.0", null, "cc7b13ffcd2ddd51"),
+                package.Library);
+            var platform = Assert.IsType<Catalog.BrowserRetainedWorkspaceExactLibrary>(
+                registrations[2].ExactLibrary);
+            Assert.Equal("platform", platform.Kind);
+            Assert.Equal("DotNetRuntime", platform.PlatformFamily);
+            Assert.Null(platform.PackageId);
+            Assert.Null(platform.PackageVersion);
+            Assert.Equal(
+                new Catalog.BrowserRetainedWorkspaceLibraryIdentity(
+                    "System.Runtime", "10.0.0.0", null, "b03f5f7f11d50a3a"),
+                platform.Library);
+            var ecosystem = Assert.IsType<Catalog.BrowserRetainedWorkspaceEcosystem>(
+                registrations[3].Ecosystem);
+            Assert.Equal("ecosystem.json", ecosystem.Id);
+            Assert.Equal(["System.Text.Json"], ecosystem.NamespaceRoots);
+            Assert.Equal(["system.text.json"], ecosystem.CorePackages);
+            Assert.Equal(
+                ["exactLibrary", "platform", "packagePrefix"],
+                ecosystem.Populations.Select(population => population.Kind));
+            Assert.Equal(package, ecosystem.Populations[0].ExactLibrary);
+            Assert.Equal("AspNetCore", ecosystem.Populations[1].PlatformFamily);
+            Assert.Equal("Microsoft.Extensions.", ecosystem.Populations[2].PackagePrefix);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService.ResetForTestsAsync();
+        }
+    }
+
     [Fact]
     [Trait("Speed", "Slow")]
     public Task CatalogFacade_PreservesMixedDefinitionAndAdmission() =>
@@ -217,6 +299,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(packet, installation.CanonicalPacket);
             Assert.Equal(activeTab, installation.Definition.ActiveTabId);
             Assert.Equal("g0", installation.Definition.SelectedContextId);
+            Assert.Empty(installation.Definition.Registrations);
             if (includePlatform)
             {
                 Assert.Equal(["t0", "t1", "t2"],

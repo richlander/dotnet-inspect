@@ -25,6 +25,9 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
+  BrowserRetainedWorkspaceDefinitionState,
+} from "../src/facades/inspect-web-catalog.d.ts";
+import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -277,7 +280,26 @@ test("format 3 packet remains opaque across Browser Worker transport", async () 
   state.host.dispose();
 });
 
-test("retained package admission preserves exact identity and unavailable result", async () => {
+test("retained Catalog transport preserves definition registrations and package admission", async () => {
+  const definition = {
+    tabs: [],
+    contexts: [],
+    registrations: [{
+      kind: "packagePrefix",
+      exactLibrary: null,
+      packagePrefix: "Microsoft.Extensions.",
+      ecosystem: null,
+    }],
+    activeTabId: null,
+    selectedContextId: null,
+  } satisfies BrowserRetainedWorkspaceDefinitionState;
+  const activation = {
+    status: "activated",
+    installation: {
+      definition,
+    },
+    failure: null,
+  };
   const unavailable = {
     status: "unavailable",
     package: null,
@@ -286,6 +308,8 @@ test("retained package admission preserves exact identity and unavailable result
   let receivedArguments: readonly unknown[] = [];
   const state = fixture({
     catalog: {
+      activateRetainedWorkspaceDefinition: async () =>
+        contractViolation(activation),
       admitRetainedWorkspacePackage: async (...args) => {
         receivedArguments = args;
         return unavailable;
@@ -293,6 +317,13 @@ test("retained package admission preserves exact identity and unavailable result
     },
   });
 
+  const activationResult =
+    state.client.catalog.activateRetainedWorkspaceDefinition(
+      "definition-exact",
+      "Example",
+      "/inspect/example",
+      "packet-exact",
+    );
   const result = state.client.catalog.admitRetainedWorkspacePackage(
     "definition-exact",
     "realization-exact",
@@ -300,6 +331,7 @@ test("retained package admission preserves exact identity and unavailable result
   );
   await state.environment.flushAsync();
 
+  assert.deepEqual(await activationResult, activation);
   assert.deepEqual(receivedArguments, [
     "definition-exact",
     "realization-exact",

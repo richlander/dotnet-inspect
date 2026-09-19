@@ -564,9 +564,41 @@ public sealed record BrowserRetainedWorkspacePlatform(
     string? RuntimeIdentifier,
     BrowserPackageSurface Surface);
 
+public sealed record BrowserRetainedWorkspaceLibraryIdentity(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+public sealed record BrowserRetainedWorkspaceExactLibrary(
+    string Kind,
+    BrowserRetainedWorkspaceLibraryIdentity Library,
+    string? PackageId,
+    string? PackageVersion,
+    string? PlatformFamily);
+
+public sealed record BrowserRetainedWorkspaceEcosystemPopulation(
+    string Kind,
+    BrowserRetainedWorkspaceExactLibrary? ExactLibrary,
+    string? PlatformFamily,
+    string? PackagePrefix);
+
+public sealed record BrowserRetainedWorkspaceEcosystem(
+    string Id,
+    string[] NamespaceRoots,
+    string[] CorePackages,
+    BrowserRetainedWorkspaceEcosystemPopulation[] Populations);
+
+public sealed record BrowserRetainedWorkspaceRegistration(
+    string Kind,
+    BrowserRetainedWorkspaceExactLibrary? ExactLibrary,
+    string? PackagePrefix,
+    BrowserRetainedWorkspaceEcosystem? Ecosystem);
+
 public sealed record BrowserRetainedWorkspaceDefinitionState(
     BrowserWorkspaceShareTab[] Tabs,
     BrowserWorkspaceShareContext[] Contexts,
+    BrowserRetainedWorkspaceRegistration[] Registrations,
     string? ActiveTabId,
     string? SelectedContextId);
 

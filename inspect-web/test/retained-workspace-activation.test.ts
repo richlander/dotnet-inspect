@@ -38,6 +38,7 @@ function installation(
     definition: {
       tabs: [],
       contexts: [],
+      registrations: [],
       activeTabId: null,
       selectedContextId: null,
     },
