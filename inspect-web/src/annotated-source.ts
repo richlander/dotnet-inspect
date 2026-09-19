@@ -12,6 +12,7 @@ import {
   factForId,
   findingEvidenceForFact,
   invocationDestinationForNode,
+  localThrowPathsForFact,
   nodesForPrimary,
   renderedFindingTargets,
   renderedStructuralTargets,
@@ -876,6 +877,7 @@ function renderDetail(context: SourceRenderContext): string {
       </section>
       ${renderAllocationExceptionPath(context, fact)}
       ${renderSynchronousCompletion(context, fact)}
+      ${renderLocalThrowPaths(context, fact)}
       ${renderCallCycles(context, fact)}
       ${renderFindingEvidence(context, fact.id)}
       <section class="annotated-detail-capabilities">
@@ -946,6 +948,104 @@ function synchronousCompletionLabel(value: string | number): string {
       return "Task result";
     case "TaskAwaiterGetResult":
       return "Task awaiter GetResult";
+    default:
+      return String(value);
+  }
+}
+
+function renderLocalThrowPaths(
+  context: SourceRenderContext,
+  fact: AnnotatedSourceViewerModel["document"]["facts"][number],
+): string {
+  if (fact.descriptor !== "call.edge") return "";
+  const { model, escapeHtml } = context;
+  const inspection = model.localThrowPaths;
+  if (!inspection.available) {
+    return `
+      <section class="annotated-local-throw-paths">
+        <h4>Local throw paths</h4>
+        <p class="annotated-unavailable">${escapeHtml(
+          capabilityReason(inspection))}</p>
+      </section>`;
+  }
+
+  const limits = inspection.limits;
+  if (limits === null) {
+    throw new TypeError(
+      "Available Annotated Source local throw paths have no limits.");
+  }
+  const paths = localThrowPathsForFact(model, fact.id);
+  const completeness = inspection.isComplete
+    ? `Bounded path search complete · depth ≤ ${limits.maximumDepth}`
+    : `Additional paths may be unobserved · ${inspection.boundaries
+      .map(boundary => localThrowPathBoundaryLabel(boundary.kind))
+      .join(", ")}`;
+  if (paths.length === 0) {
+    const empty = inspection.paths.length === 0
+      ? "No bounded path to a proven local throw was observed in the retained evidence."
+      : "No retained deterministic shortest witness begins with this relationship.";
+    return `
+      <section class="annotated-local-throw-paths">
+        <h4>Local throw paths</h4>
+        <p>${escapeHtml(empty)}</p>
+        <p class="${inspection.isComplete
+          ? ""
+          : "annotated-unavailable"}">${escapeHtml(completeness)}</p>
+      </section>`;
+  }
+
+  return `
+    <section class="annotated-local-throw-paths">
+      <h4>Local throw paths</h4>
+      <ul>${paths.map(path => {
+        const members = path.targets
+          .map(target =>
+            `${target.typeFullName}.${target.memberName}`)
+          .join(" → ");
+        const throws = path.terminalThrows
+          .map(site =>
+            `${site.exceptionType} constructed at ${
+              formatIlOffset(site.constructionOffset)
+            } and thrown at ${formatIlOffset(site.throwOffset)}`)
+          .join("; ");
+        return `<li>
+          <strong>${escapeHtml(`Selected member → ${members}`)}</strong>
+          <br>${escapeHtml(throws)}
+        </li>`;
+      }).join("")}</ul>
+      <p>Static direct-call evidence only. This does not prove the selected
+        method throws, the terminal throw runs or escapes, or an exception
+        propagates through the path.</p>
+      <p class="${inspection.isComplete
+        ? ""
+        : "annotated-unavailable"}">${escapeHtml(completeness)}</p>
+    </section>`;
+}
+
+function localThrowPathBoundaryLabel(value: string | number): string {
+  switch (value) {
+    case "AnalysisIncomplete":
+      return "body analysis incomplete";
+    case "TraversalBoundary":
+      return "callee traversal boundary";
+    case "PartialMethodEvidenceScope":
+      return "partial method scope";
+    case "UnresolvedLocalCalls":
+      return "unresolved local calls";
+    case "UnattributedGeneratedBodies":
+      return "unattributed generated bodies";
+    case "DepthLimit":
+      return "depth limit";
+    case "NodeBudget":
+      return "node budget";
+    case "EdgeBudget":
+      return "edge budget";
+    case "PathBudget":
+      return "path budget";
+    case "IncompleteLocalThrowEvidence":
+      return "local throw evidence incomplete";
+    case "IncompleteCorrespondence":
+      return "source correspondence incomplete";
     default:
       return String(value);
   }
