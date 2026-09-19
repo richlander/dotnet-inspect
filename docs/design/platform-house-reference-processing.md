@@ -7,6 +7,10 @@ composition boundary. It is tracked by
 [#6301](https://github.com/richlander/dotnet-inspect/issues/6301) and is a
 focused prerequisite of the platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228).
+Versionless target defaults are tracked by the composition map
+[#7742](https://github.com/richlander/dotnet-inspect/issues/7742); the focused
+PlatformHouse contract slice is
+[#7743](https://github.com/richlander/dotnet-inspect/issues/7743).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
@@ -348,7 +352,7 @@ algorithm. It is a clearing house over focused owners, not a renamed
 | Term | Meaning |
 | --- | --- |
 | **House target** | One exact owner-issued `PlatformFamilyTarget` against which the operation is settled. |
-| **Target demand** | Either one exact `PlatformFamilyTarget` or one typed family/TFM/version-selection request with explicit host policy and authorized target-discovery capabilities. |
+| **Target demand** | One exact `PlatformFamilyTarget`, one framework-scoped version-selection request, or one family-scoped named host default, each with explicit policy and authorized target-discovery capabilities where selection is required. |
 | **Source plan** | An immutable host-authorized set of platform source capabilities and their explicit selection policy. |
 | **Source capability** | A bounded adapter entry point for one source-specific operation. It is not source authority by display name. |
 | **Source contribution** | One source's typed candidate, non-match, failure, or incomplete evidence, retaining exact target correspondence. |
@@ -419,20 +423,23 @@ Every operation carries:
 - owner-issued prerequisite correspondence; and
 - caller cancellation.
 
-The exact numeric defaults remain host policy. The House owns validation,
+The exact numeric work defaults remain host policy. The House owns validation,
 checked charging, and the rule that a broad source plan or population demand
 is never unbounded work.
 
 ### Target and version settlement
 
-An exact target demand carries an existing `PlatformFamilyTarget` unchanged.
-A selecting target demand carries:
+Target demand has three distinct typed forms:
 
-- one `PlatformFamily`;
-- one target framework;
-- one explicit version requirement or named host-default selection policy;
-- the authorized target-discovery capabilities; and
-- finite discovery and comparison work.
+- an **exact demand** carries one existing `PlatformFamilyTarget` unchanged;
+- a **framework-scoped demand** carries one `PlatformFamily`, one exact target
+  framework, one explicit version requirement, authorized target-discovery
+  capabilities, and finite discovery and comparison work; and
+- a **family-default demand** carries one `PlatformFamily`, one named immutable
+  policy generation, its typed preferred and fallback discovery stages,
+  authorized target-discovery capabilities, and finite discovery and
+  comparison work. It does not manufacture a target framework before
+  discovery.
 
 The House asks only those capabilities for owner-issued exact target
 candidates and composes the version-selection owner's result. It does not
@@ -445,6 +452,104 @@ retains the original target demand and any candidate, policy, or failure
 evidence used to settle it. An omitted CLI version is therefore not an
 implicit target inside the House: the command supplies a named default policy
 that remains visible in the request and receipt.
+
+#### Versionless runtime host default
+
+> Given one versionless runtime-family demand, one staged authorized discovery
+> policy, and finite work, select the greatest eligible installed exact target
+> at or above `10.0.1`; only after authoritative preferred absence, select the
+> greatest stable `net10.0` servicing target from complete fallback discovery.
+> Freeze that exact target before realization while retaining no live discovery
+> or acquisition authority in the terminal outcome.
+
+The versionless `DotNetRuntime` policy is named and immutable by policy
+generation. The `10.0.1` floor is policy data; changing it creates another
+generation rather than reinterpreting an existing request or cache entry. The
+policy has two ordered stages:
+
+1. **Preferred available target.** Aggregate every authorized preferred
+   discovery contribution. Eligible candidates have SemVer precedence greater
+   than or equal to `10.0.1`; installed previews and release candidates are
+   eligible when they meet that floor. Select the eligible exact target with
+   greatest SemVer precedence, breaking equal precedence by greatest ordinal
+   exact canonical version identity. An exact target already joins its TFM and
+   version, so selection does not infer a TFM from display text.
+2. **Stable baseline fallback.** Invoke the authorized fallback discovery
+   capabilities only when every required preferred contribution
+   authoritatively establishes no eligible target. Retain only stable
+   candidates in the `net10.0` release band at or above `10.0.1`, then select
+   the greatest SemVer precedence with the same exact-identity tie-break.
+
+The ordinary desktop plan assigns installed discovery to the preferred stage
+and package-backed discovery to the fallback stage. Consequently an installed
+`10.0.1`, `11.0.0-rc.1`, or later eligible preview prevents network work; an
+installed `10.0.0`, `10.0.0-rc.2`, or `9.0.x` does not. With no eligible
+installed target, the fallback's complete package-version discovery determines
+the current stable `10.0.x` servicing target rather than using a hard-coded
+patch. Browser/Wasm may omit the preferred stage and authorize only the
+package-backed fallback.
+
+Fallback always performs current complete version discovery through the
+authorized package source. A previously downloaded pack, cached payload, prior
+House receipt, or installed `10.0` pack does not prove the latest stable
+servicing version. Package Source retains ownership of configured-authority
+aggregation and version-evidence freshness; when it cannot establish a current
+complete inventory, the House does not guess from cached content.
+
+The transitional `PlatformResolver.LookupType` behavior is supporting evidence:
+it already chooses the greatest installed runtime reference-pack version and
+does not query the network when that catalog exists. The named default
+deliberately adds the `10.0.1` floor, cross-feature-band typed target selection,
+and package-backed stable fallback rather than wrapping its path-based result.
+
+Preferred `Unavailable` or authoritative discovery with no eligible candidate
+permits the fallback stage. Rejected, incomplete, or failed preferred evidence
+does not prove absence and is terminal; cancellation remains cancellation.
+Fallback partial or failed version discovery likewise cannot select from a
+shortened inventory. These rules keep network access capability-gated and
+prevent a source failure from becoming an apparently successful default.
+
+The request binds each discovery capability to exactly one stage. Stage
+membership is typed policy data, not inferred from capability names, source
+enumeration order, paths, or whether a capability happens to use the network.
+The same capability cannot occur in both stages. The source plan must authorize
+every staged capability and may not authorize an unstaged target-discovery
+capability for that demand.
+
+An exact demand such as `runtime@9.0.11` bypasses the host default, including
+its floor and fallback band. A framework-scoped demand applies its own explicit
+version requirement. Neither form silently widens into the versionless policy.
+
+Every completed default settlement retains the original demand, policy identity
+and generation, selected exact target, and every discovery contribution needed
+to justify preferred selection or fallback. Terminal outcomes retain bounded
+resource-free evidence under the same correspondence rules. No source
+operation, package candidate, payload, opener, callback, stream, or other live
+authority enters the settlement or receipt.
+
+Target settlement is an internal phase of the same closed House operation that
+performs realization. When the selected discovery source issued an exact
+source-specific candidate association needed for realization, the executor
+keeps that association ephemeral and passes it only to that source's
+realization adapter. Another authorized realization source receives the frozen
+external exact target under its own contract. The association never enters the
+House value, receipt, contribution, cache, or a separately returned
+target-selection result.
+
+The target-selection reducer consumes source results; it does not define their
+inventories. Cross-feature-band installed discovery remains owned by
+[Installed reference-pack realization](installed-reference-pack-realization.md),
+and complete package-version discovery remains owned by
+[Package-backed Platform realization](package-backed-platform-realization.md).
+Those focused successors decide how their source contracts produce the exact
+candidates required here.
+
+The five-slice production path in #7742 is: lock this contract, add installed
+cross-feature-band discovery, adapt package-backed stable fallback, implement
+the source-neutral reducer, then adopt the same requests and outcomes in the
+CLI and Browser/Wasm before retiring direct router selection. Rendering is not
+part of target settlement; hosts project the retained typed evidence through
+their existing output boundaries.
 
 ### Closed operations
 
@@ -1944,22 +2049,30 @@ completed
   package receipt remains associated but separate
 ```
 
-### Direct platform realization constructs the shared Library
+### Versionless routing selects an exact target before realization
 
 ```text
 request
   target demand:
     family: DotNetRuntime
-    framework: net11.0
-    version policy: highest authorized installed stable in the net11.0 band
+    policy: versionless runtime default
+    minimum preferred version: 10.0.1
+    fallback band: stable net10.0 servicing
   operation: realize
   library: owner-issued System.Text.Json assembly identity
   demand: reference + implementation
-  sources: host-authorized platform plan
+  discovery:
+    preferred: installed Platform
+    fallback: authorized package-backed Platform
 
 House composition
-  version selection:
-    exact target: DotNetRuntime / net11.0 / 11.0.3
+  installed target discovery:
+    9.0.11
+    10.0.0
+    11.0.0-rc.1
+  selection:
+    exact target: DotNetRuntime / net11.0 / 11.0.0-rc.1
+    package discovery: not invoked
     owner-issued candidate and policy evidence retained
   realizes reference and implementation contributions
   verifies view correspondence
@@ -1979,8 +2092,15 @@ completed
 ```
 
 What to notice: the owner and the receipt answer different questions. The
-caller-owned `LibraryContentOwner` keeps the selected Platform contents alive
-and can issue later operation authority. The `LibraryReference`, content
+versionless input does not erase version identity: the policy first selects
+the exact `net11.0` release-candidate target and the owning realization then
+reports it. If the installed inventory instead ended at `10.0.0`, preferred
+discovery would authoritatively establish no eligible target; only then would
+the package-backed stage discover the current stable `10.0.x` inventory and
+select its highest servicing target.
+
+The caller-owned `LibraryContentOwner` keeps the selected Platform contents
+alive and can issue later operation authority. The `LibraryReference`, content
 references, and House receipt explain exactly which Platform target, source,
 and views were selected without keeping those contents alive. A NuGet
 `System.Text.Json` assembly with equal Metadata identity has a different exact
@@ -2032,7 +2152,11 @@ The implementation and adoption slices own these Release gates:
 
 | Property | Required gate |
 | --- | --- |
-| Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
+| Target settlement | An exact demand is retained unchanged; a framework-scoped or family-default demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
+| Versionless installed default | Installed `9.0.11`, `10.0.0`, and `11.0.0-rc.1` candidates under the named policy select exact `DotNetRuntime / net11.0 / 11.0.0-rc.1`; package discovery is never invoked, and the receipt retains the floor, policy generation, selected target, and preferred discovery evidence. |
+| Versionless stable fallback | Preferred discovery containing only versions below `10.0.1` permits one authorized fallback discovery; a complete inventory containing stable `10.0.1` and `10.0.12` plus a later `10.0` preview selects exact stable `10.0.12` and retains both stages' outcome-relevant evidence. |
+| Versionless failure visibility | Rejected, incomplete, or failed preferred discovery invokes no fallback and remains visibly terminal; partial or failed fallback discovery cannot select from its observed prefix. |
+| Exact-version independence | Exact `runtime@9.0.11` remains exact and bypasses the versionless floor, preferred stage, and stable fallback. |
 | Workspace population correspondence | The operation association retains the owner-issued Workspace revision identity and ecosystem registration; the House request and receipt retain that identity, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
 | Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
 | Curated realization | Selecting the current three curated ecosystem registrations issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |
