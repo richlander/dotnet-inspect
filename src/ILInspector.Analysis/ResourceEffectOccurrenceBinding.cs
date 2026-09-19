@@ -88,9 +88,9 @@ internal static class ResourceEffectOccurrenceBinder
                     callbackEffect.Cardinality);
             }
             else if (effect is ResourceEffect.Borrow
-                {
-                    Scope: ResourceBorrowScope.Callback callbackScope,
-                })
+            {
+                Scope: ResourceBorrowScope.Callback callbackScope,
+            })
             {
                 if (ResolveCallback(callbackScope.Index) is null)
                     return _failure!;
@@ -795,19 +795,19 @@ internal static class ResourceEffectOccurrenceBinder
                 switch (result)
                 {
                     case TypeDeclarationResult.Defined defined:
-                    {
-                        var resolved =
-                            new ResolvedResourceEffectTypeDefinition(
-                                assembly,
-                                        selector.DeclarationOrigin.ModuleVersionId,
-                                defined.Definition,
-                                name);
-                        return new ResolvedResourceEffectOutcomeTest(
-                            test,
-                            resolved,
-                            null,
-                            "type:" + TypeDefinitionKey(resolved));
-                    }
+                        {
+                            var resolved =
+                                new ResolvedResourceEffectTypeDefinition(
+                                    assembly,
+                                            selector.DeclarationOrigin.ModuleVersionId,
+                                    defined.Definition,
+                                    name);
+                            return new ResolvedResourceEffectOutcomeTest(
+                                test,
+                                resolved,
+                                null,
+                                "type:" + TypeDefinitionKey(resolved));
+                        }
                     case TypeDeclarationResult.Ambiguous:
                         FailAmbiguous(
                             ResourceEffectOccurrenceBindingGapKind.OutcomeType);
@@ -818,6 +818,18 @@ internal static class ResourceEffectOccurrenceBinder
                         return null;
                     case TypeDeclarationResult.BudgetExceeded:
                         FailIncomplete(
+                            ResourceEffectOccurrenceBindingGapKind.OutcomeType);
+                        return null;
+                    case TypeDeclarationResult.DefinitionKindUnavailable
+                    {
+                        Failure:
+                            MetadataTypeDefinitionKindFailure.BudgetExceeded,
+                    }:
+                        FailIncomplete(
+                            ResourceEffectOccurrenceBindingGapKind.OutcomeType);
+                        return null;
+                    case TypeDeclarationResult.DefinitionKindUnavailable:
+                        FailUnsupported(
                             ResourceEffectOccurrenceBindingGapKind.OutcomeType);
                         return null;
                     default:

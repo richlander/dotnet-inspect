@@ -207,7 +207,12 @@ public static class NuspecParser
                 {
                     result.PackageTypes ??= [];
                     result.PackageTypes.Add(typeName);
-                    if (typeName.Equals("DotnetTool", StringComparison.OrdinalIgnoreCase))
+                    if (typeName.Equals(
+                            "DotnetTool",
+                            StringComparison.OrdinalIgnoreCase)
+                        || typeName.Equals(
+                            "DotnetToolRidPackage",
+                            StringComparison.OrdinalIgnoreCase))
                     {
                         result.IsToolPackage = true;
                     }

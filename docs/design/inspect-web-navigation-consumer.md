@@ -69,6 +69,50 @@ This document consumes, without redefining:
   classification defined by
   [Inspect Web Shell Interaction](inspect-web-shell-interaction.md).
 
+### Retained-realization installation handoff
+
+A successful retained-Workspace restoration supplies one complete initial
+Navigation result and the detached Browser presentation projected from the
+same restoration invocation. The projection is ordered by the product
+Navigation package descriptors and correlates each descriptor's opaque subject
+identity with its exact package Root binding and already-evaluated API surface.
+The Browser does not retain the restoration Workspace, Scope, package Root, or
+evaluation after the callback returns, and it does not repeat package analysis
+to reconstruct the presentation later.
+
+Cutover publishes one indivisible installation identity:
+
+- the host-issued realization ID associated with the exact active
+  `InspectionWorkspaceIdentity`,
+- its page-session publication ordinal, and
+- the opaque effect authority carried by the initial Navigation result.
+
+The realization identity admits managed operations, the ordinal rejects
+out-of-order Browser delivery, and the effect authority governs installation
+and later visible effects. None substitutes for another. A retained-definition
+identity, package coordinate, display label, URL, or equal snapshot contents
+cannot authorize installation.
+
+After managed cutover, the Browser synchronously installs the complete returned
+snapshot and its correlated package presentation. It then records consumer
+installation against the exact current tuple, completes every required visible
+effect, and acknowledges the same authority. Installation or effect failure
+abandons that authority and surfaces the failure. It does not reactivate the
+predecessor realization: cutover has already transferred managed authority.
+A stale tuple or lower publication ordinal is supersession, changes no current
+presentation, and cannot acknowledge a newer result.
+
+Selecting the already active retained definition returns the existing
+installation as `NoEffect`. It neither reinstalls presentation nor records or
+acknowledges the consumed initialization authority again.
+
+Before publishing the successor installation, the retained-realization owner
+retires the predecessor Navigation state slot. Retirement first invalidates
+the slot and abandons its current authority, then cancels outstanding work.
+A cancellation callback failure is visible cleanup evidence attached to the
+successful successor publication; it cannot turn completed cutover into a
+failed activation or restore predecessor authority.
+
 ## Canonical location and refresh
 
 For a package-backed workspace, the visible URL keeps only a human-readable
@@ -362,6 +406,16 @@ entry realignment. The named restoration and synchronization gates carry those
 additional conformance claims. This proves the finite design model; the
 implementation gates below establish conformance in Inspect Web.
 
+The retained-realization boundary is composed separately by
+[`InspectWebRetainedNavigationHandoff.tla`](models/inspect-web-retained-navigation-handoff/InspectWebRetainedNavigationHandoff.tla).
+That model starts before managed cutover and explores out-of-order delivery of
+two realization publications. It checks that only the current exact
+realization/ordinal/authority tuple installs, installation is recorded before
+acknowledgement, stale delivery is abandoned, and the predecessor state slot
+is retired before successor presentation can install. It deliberately leaves
+focus, announcement, history classification, and synchronization debt to
+`UiEffectLifecycle`.
+
 ### Shell and menu focus resolution
 
 Activating an available item for a non-modal transition closes the menu. A
@@ -614,6 +668,13 @@ bypass effect-authority validation merely to observe the renderer.
 These gates are not implemented by this documentation-only design. Until they
 exist and pass, the prose and TLA+ model define the target contract but do not
 claim Inspect Web implementation conformance.
+
+The first #5511 implementation slice replaces the retained-activation
+facade's reduced initial Navigation state with the exact handoff above and
+adopts it in the retained-activation controller tests. Production
+`dotnet-inspect.ts` adoption, ordinary Navigation actions, history, focus,
+announcement, synchronization recovery, and removal of the old TypeScript
+snapshot path remain later consumer work and are not implied by that slice.
 
 ## Acceptance scenarios
 

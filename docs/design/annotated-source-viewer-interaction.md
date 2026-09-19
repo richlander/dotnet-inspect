@@ -75,6 +75,8 @@ not use chip styling.
   Finding's detail.
 - A **Finding inspector action** is the persistent modal opener for a Finding.
   It opens the same detail without changing annotation membership.
+- A **relationship call-site action** opens the exact `call.edge` Finding
+  detail for one physical source occurrence. It does not navigate.
 - A **destination action** names the destination, such as **Member** or
   **Source**. A generic **Navigate** action is prohibited.
 - **Explore** opens the modal. **Close** dismisses it.
@@ -92,6 +94,8 @@ destinations appear interchangeable.
 | Finding annotation chip | Default rendered Findings | Rendered Findings | Makes that Finding primary and opens detail |
 | Finding toggle chip | No | Every annotatable Finding | Adds or removes one active annotation |
 | Finding inspector action | No | Every Finding | Makes that Finding primary and opens detail |
+| Relationship call site | No | Every projected physical call | Opens the exact `call.edge` Finding detail without changing annotations |
+| Relationship target destination | No | Typed target capability | Requests **Member** or **Source** for that exact target |
 | Node selection chip | No | Selected/related nodes | Selects or focuses that exact node |
 | Medium toggle | No | Each document-supported medium | Shows or hides that medium; rejects hiding the last visible medium |
 | Coordinate toggle | No | Product coordinates available | Shows or hides offsets and source ranges |
@@ -190,10 +194,27 @@ inspector actions but are not annotation instances. The browser must not
 invent coordinates to include them in **Default**, **All**, **Clear**, or
 **Custom**.
 
-The modal inspector presents **Selection** and **Findings** as peer sections.
-It does not add a second heading that renames the Findings section. With no
-primary selection, **Selection** renders a non-action **Nothing selected** tile
-in the same content position that selected-node tiles occupy.
+The modal inspector presents **Selection**, **Relationships**, and
+**Findings** as peer sections. It does not add a second heading that renames
+the Findings section. With no primary selection, **Selection** renders a
+non-action **Nothing selected** tile in the same content position that
+selected-node tiles occupy.
+
+**Relationships** is an edge table over the producer-issued typed relationship
+sidecar. It renders one row per physical call occurrence, not one row per
+logical edge, and preserves the shared stable edge row when repeated call sites
+target the same edge. The call-site action opens the existing exact
+`call.edge` Finding detail. Separate **Member** and **Source** actions consume
+the row's typed target. Selecting or inspecting a row never silently navigates.
+Coordinate disclosure adds the method-relative IL offset; the browser does not
+parse source text or labels to recover it.
+
+The table does not participate in **Default**, **All**, **Clear**, or
+**Custom** because those sets own source annotations, not inspector rows.
+When the relationship capability is available with no rows, the section says
+that no direct relationships were projected for this exact body. That is not a
+whole-program or runtime absence claim. When the capability is unavailable,
+the section renders its typed reason rather than an empty table.
 
 Targets on a medium unsupported by the current document do not make a Finding
 annotatable and do not produce a toggle. The default set is the
@@ -209,7 +230,9 @@ Allocation, Unsafety, Cost, Semantics, and Lifetime are current default
 Finding families. The browser consumes that catalog; it does not classify
 Findings from source text. Direct call relationships use the Relationship
 family and remain opt-in: **All** reveals their exact call-site annotations,
-while **Default** preserves the focused Finding-first reader.
+while **Default** preserves the focused Finding-first reader. The modal
+**Relationships** table remains available independently because inspecting a
+typed sidecar row does not activate or draw its source annotation.
 
 The modal exposes:
 

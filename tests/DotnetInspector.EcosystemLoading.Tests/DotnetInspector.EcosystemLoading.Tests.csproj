@@ -17,6 +17,8 @@
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.PlatformHouse.Execution/DotnetInspector.PlatformHouse.Execution.csproj" />
+    <ProjectReference Include="../../src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj" />

@@ -59,7 +59,8 @@ public static class DemoCommand
         OutputFormat format = OutputFormat.Markdown,
         bool noHeader = false,
         bool mermaidRequested = false,
-        RowSelectionIntent<string>? rowSelection = null)
+        RowSelectionIntent<string>? rowSelection = null,
+        bool count = false)
     {
         if (format is OutputFormat.Mermaid || mermaidRequested)
         {
@@ -84,6 +85,12 @@ public static class DemoCommand
                 out demos))
         {
             return 1;
+        }
+
+        if (count)
+        {
+            CountOutput.WriteCount(demos.Count);
+            return 0;
         }
 
         if (format == OutputFormat.Json)

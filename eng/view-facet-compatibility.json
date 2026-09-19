@@ -25,6 +25,11 @@
     "purpose": "Direct assembly references for the active Library."
   },
   {
+    "id": "library.reference-hierarchy",
+    "kind": "Library",
+    "purpose": "Rooted transitive assembly references for the active Library."
+  },
+  {
     "id": "library.integrations",
     "kind": "Library",
     "purpose": "Framework and ecosystem integrations found in the active Library."

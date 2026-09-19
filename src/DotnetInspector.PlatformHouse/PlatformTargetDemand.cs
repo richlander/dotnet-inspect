@@ -361,13 +361,26 @@ public abstract class PlatformTargetDemand
             PlatformSourceCapabilityIdentity capability,
             PlatformFamilyTarget target)
         {
+            int minimumComparison =
+                PlatformVersion.SemanticPrecedenceComparer.Compare(
+                    target.Version,
+                    Policy.MinimumPreferredVersion);
+            return IsEligibleSelection(
+                capability,
+                target,
+                minimumComparison);
+        }
+
+        internal bool IsEligibleSelection(
+            PlatformSourceCapabilityIdentity capability,
+            PlatformFamilyTarget target,
+            int minimumComparison)
+        {
             PlatformTargetDiscoveryStage? stage =
                 Policy.StageFor(capability);
             if (stage is null
                 || !CorrespondsToDiscoveryCandidate(capability, target)
-                || PlatformVersion.SemanticPrecedenceComparer.Compare(
-                    target.Version,
-                    Policy.MinimumPreferredVersion) < 0)
+                || minimumComparison < 0)
             {
                 return false;
             }

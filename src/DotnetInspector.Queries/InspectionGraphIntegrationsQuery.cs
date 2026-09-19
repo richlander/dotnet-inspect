@@ -628,6 +628,7 @@ public enum InspectionGraphIntegrationFailureKind
     TargetTypeAmbiguous,
     TargetTypeForwarded,
     TargetTypeBudgetExceeded,
+    TargetTypeKindUnavailable,
     TargetTypeRejected,
     OpportunityTargetMissing,
     OpportunityTargetAmbiguous,
@@ -1307,6 +1308,14 @@ public static class InspectionGraphIntegrationsQuery
                     + "lookup exceeded its finite work limit "
                     + $"({budgetExceeded.Detail}).");
             }
+            if (validation
+                is DeclarationValidation.KindUnavailable kindUnavailable)
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its TypeDef kind is unavailable "
+                    + $"({KindFailureDetail(kindUnavailable.Failure)}).");
+            }
 
             if (validation is not DeclarationValidation.Declared)
                 throw SubjectNotPresent(subject);
@@ -1341,6 +1350,9 @@ public static class InspectionGraphIntegrationsQuery
                         new Declared(),
                     TypeDeclarationResult.BudgetExceeded exceeded =>
                         new BudgetExceeded(exceeded.Detail),
+                    TypeDeclarationResult.DefinitionKindUnavailable
+                        unavailable =>
+                        new KindUnavailable(unavailable.Failure),
                     TypeDeclarationResult.Rejected rejected =>
                         new Rejected(rejected.Rejection),
                     _ => new Absent(),
@@ -1352,10 +1364,27 @@ public static class InspectionGraphIntegrationsQuery
                 DeclarationValidation;
             internal sealed record BudgetExceeded(string Detail) :
                 DeclarationValidation;
+            internal sealed record KindUnavailable(
+                MetadataTypeDefinitionKindFailure Failure) :
+                DeclarationValidation;
             internal sealed record Rejected(
                 MetadataTypeNameFailure Failure) :
                 DeclarationValidation;
         }
+
+        static string KindFailureDetail(
+            MetadataTypeDefinitionKindFailure failure) =>
+            failure switch
+            {
+                MetadataTypeDefinitionKindFailure.BudgetExceeded exceeded =>
+                    exceeded.Detail,
+                MetadataTypeDefinitionKindFailure.Malformed malformed =>
+                    malformed.Detail,
+                MetadataTypeDefinitionKindFailure.Unsupported unsupported =>
+                    unsupported.Detail,
+                _ => throw new InvalidOperationException(
+                    "Unknown TypeDef kind failure."),
+            };
 
         internal void AddTypeCurrency(
             AssemblyContextIntegrationsResult result)
@@ -2048,6 +2077,9 @@ public static class InspectionGraphIntegrationsQuery
                     TypeDeclarationResult.BudgetExceeded =>
                         InspectionGraphIntegrationFailureKind
                             .TargetTypeBudgetExceeded,
+                    TypeDeclarationResult.DefinitionKindUnavailable =>
+                        InspectionGraphIntegrationFailureKind
+                            .TargetTypeKindUnavailable,
                     TypeDeclarationResult.Rejected =>
                         InspectionGraphIntegrationFailureKind
                             .TargetTypeRejected,

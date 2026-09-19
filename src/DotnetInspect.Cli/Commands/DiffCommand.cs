@@ -1403,11 +1403,14 @@ public class DiffCommand
             path,
             AssemblyResolutionProvenance.Local(
                 "diff implementation comparison"));
-        var session = MethodBodyInspectionSession.Open(assembly);
+        var session = MethodBodyInspectionSession.Open(
+            assembly,
+            includeImplementationProfiles: true);
         return new(
             assembly,
             MetadataSource.DefaultAssemblyReferenceResolver(path),
-            session.BodyIndex);
+            session.BodyIndex,
+            session.AnalysisExecution.ImplementationProfiles);
     }
 
     internal sealed record ImplementationDiffWithSource(

@@ -12,26 +12,7 @@ public sealed partial class CompleteRestorationExecutionTests
     public async Task PinnedPlatformSharedContext_RestoresExactPackageAssociation(
         bool reverseContexts)
     {
-        PackageFixture package = await SystemTextJsonPackageAsync();
-        foreach (string packageId in new[]
-        {
-            "Microsoft.NETCore.App.Ref",
-            "Microsoft.NETCore.App.Runtime.linux-x64",
-        })
-        {
-            string path = Path.Combine(
-                AppContext.BaseDirectory,
-                "RealAssets",
-                "CompleteRestoration",
-                $"{packageId.ToLowerInvariant()}.10.0.10.nupkg");
-            await using FileStream content = File.OpenRead(path);
-            await package.Store.CommitAsync(
-                packageId,
-                "10.0.10",
-                NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
-                content,
-                TestContext.Current.CancellationToken);
-        }
+        PackageFixture package = await SystemTextJsonAndPlatformPackagesAsync();
 
         int mixedContextIndex = reverseContexts ? 1 : 0;
         string contexts = reverseContexts ? "[[2],[0,1]]" : "[[0,1],[2]]";
@@ -120,5 +101,31 @@ public sealed partial class CompleteRestorationExecutionTests
             encoded,
             Assert.IsType<CompleteRestorationProjection.Projectable>(
                 activated.Workspace.Projection).CanonicalPacket);
+    }
+
+    private static async Task<PackageFixture>
+        SystemTextJsonAndPlatformPackagesAsync()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        foreach (string packageId in new[]
+        {
+            "Microsoft.NETCore.App.Ref",
+            "Microsoft.NETCore.App.Runtime.linux-x64",
+        })
+        {
+            string path = Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "CompleteRestoration",
+                $"{packageId.ToLowerInvariant()}.10.0.10.nupkg");
+            await using FileStream content = File.OpenRead(path);
+            await package.Store.CommitAsync(
+                packageId,
+                "10.0.10",
+                NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+                content,
+                TestContext.Current.CancellationToken);
+        }
+        return package;
     }
 }

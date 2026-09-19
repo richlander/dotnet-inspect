@@ -250,6 +250,59 @@ public sealed partial class CompleteRestorationExecutionTests
     }
 
     [Fact]
+    public async Task ProjectionCallback_ReceivesExactReadyPackageInProductOrder()
+    {
+        PackageFixture package = await SystemTextJsonPackageAsync();
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                WorkspaceDefinitionConsumer.PrepareRestoration(
+                    Version2PackageRegistry(),
+                    "scenario",
+                    authority));
+        var host = new TestHost();
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteWorkspaceActivation? callbackActivation = null;
+        CompleteRestorationReadyProjection? callbackProjection = null;
+        int callbackCount = 0;
+
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreWithProjectionAsync(
+                preparation,
+                authority,
+                host,
+                Options(client, package.Store),
+                (activation, projection, _) =>
+                {
+                    callbackCount++;
+                    callbackActivation = activation;
+                    callbackProjection = projection;
+                    return ValueTask.CompletedTask;
+                },
+                TestContext.Current.CancellationToken);
+
+        var activated = Assert.IsType<
+            CompleteRestorationResult<InspectionWorkspace>.Activated>(result);
+        Assert.Equal(1, callbackCount);
+        Assert.Same(activated.Workspace, callbackActivation);
+        CompleteRestorationReadyPackage projected =
+            Assert.Single(callbackProjection!.Packages);
+        Assert.Equal("package", projected.NavigationId);
+        Assert.Equal(
+            Assert.Single(
+                activated.Workspace.Snapshot.Navigation.Result.Consumer
+                    .Snapshot.Packages).Subject.Id,
+            projected.ConsumerPackageSubjectId);
+        Assert.Same(
+            Assert.Single(activated.Workspace.Snapshot.Scope.Packages),
+            projected.Evaluation.Occurrence);
+        Assert.Equal(
+            projected.Binding.Coordinate,
+            projected.Evaluation.Occurrence.Occurrence.Package.Coordinate);
+        Assert.True((await activated.Activation.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
     public async Task PacketV2_RetainsCanonicalPacketAfterExactRestoration()
     {
         PackageFixture package = await SystemTextJsonPackageAsync();
