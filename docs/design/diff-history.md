@@ -711,10 +711,12 @@ Count contract and approved operation/checkpoint defaults, then constructs
 Changed Versions and its completion evidence in the shared History result.
 CLI and Browser/Wasm consume that same result and Count outcome rather than
 introducing host-specific reductions.
-The CLI cutover in #7126 retires the old selected-cohort Timeline count and
-no-`--at` discovery behavior, disclosing the changed unit and evaluation
-authorization under the existing breaking-change policy. There is no
-compatibility alias or second host counting algorithm.
+The focused Diff adoption in #7703 retires the old selected-cohort Timeline
+count and no-`--at` discovery behavior only after complete History replacement
+parity, disclosing the changed unit and evaluation authorization under the
+existing breaking-change policy. Top-level `diff` remains the operation
+command; subject-first History binds the same operation through authored
+sections. There is no compatibility alias or second host counting algorithm.
 Issue #7229 tracks the shared Count terminal and its remaining CLI and
 Browser/Wasm adoption. The host-neutral Type Count implementation and evidence
 are complete; command admission, rendering, and both production consumers
