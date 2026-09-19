@@ -87,7 +87,7 @@ through those owners.
 
 | Projection | Carrier and lowering | Row or line behavior | Envelope, Count, and failure |
 | --- | --- | --- | --- |
-| Diff discovery and schema | `DiscoverOutput.ExecuteEffective` lowers the source-free `DiffSectionCatalog` through shared discovery rendering | Markdown, table, TSV, and JSONL are selected before acquisition; `--schema` includes fields and `--tree` is forwarded to the shared discovery renderer | No envelope, Count, or endpoint failure exists. Invalid schema or selection fails before acquisition; Diff-specific TSV, JSONL, and tree characterization is **unverified**. |
+| Diff discovery and schema | `DiscoverOutput.ExecuteEffective` lowers the source-free `DiffSectionCatalog` through shared discovery rendering | Markdown, table, TSV, and JSONL are selected before acquisition; `--schema` includes declared fields and `--tree` is forwarded to the shared discovery renderer. The current Implementation schema advertises `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`, but omits the row carrier's `Kind` facet. | No envelope, Count, or endpoint failure exists. Invalid schema or selection fails before acquisition; field-level schema, TSV, JSONL, and tree characterization is **unverified**. |
 | Envelope JSON | Native `InspectionEnvelope<LibraryApiDiffOutcome>` through `InspectionEnvelopeOutput`, `result_kind` `library-api-diff`, schema 1 | No display-row window; serializes the completed service value | Supported only by the selected-Library API terminal. Share is currently `NonProjectable` at `comparison/endpoints`. Unavailable and Rejected Content serialize before nonzero exit; acquisition failure fabricates no envelope. |
 | Unprojected Content JSON | Native `LibraryApiDiffOutcome` through `LibraryApiDiffJsonContext` | No display-row window | Omits envelope framing but preserves typed Available, Unavailable, and Rejected cases. |
 | Projected document JSON | CLI `DiffDocumentView`, including section arrays and inspection failures | The selected-Library display-JSON lowerer receives no `RowWindow`; positive row-window behavior is **unverified** | Not an envelope or Count projection. Non-success retains a reason and available failure rows before nonzero exit. |
@@ -127,7 +127,7 @@ History.
 | Selected-Library Content and presentation | `LibraryApiDiffPresentationTests`, `LibraryApiDiffInspectionTests`, `LibraryApiDiffJsonTests` | Complete and empty documents, path and memory inputs, typed truncation, logical-Library rejection, forwarded-constraint failures, serialization, and retention bounds |
 | Selected-Library CLI and transport | `LibraryApiDiffCommandTests`, `LibraryApiDiffEnvelopeCommandTests` | Markdown and structured projections, filters, real `System.Text.Json` package evidence, Content JSON, envelope, compact JSON, modifier rejection, non-success, and no fabricated envelope |
 | General Diff routes | `DiffCommandTests`, `CommandExecutionTests`, `ResearchDiffTests` | API, Analysis, Implementation including normal-flow complexity, mixed sections, filters, Finding Transitions, package and local entrances, output composition, explicit Count rejection before acquisition, and command validation |
-| Diff discovery and schema | `CommandExecutionTests.Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles`, `Diff_SchemaRequiresDiscovery`, `Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions`, `Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition`, `Diff_ComputedCategoryPolesAreRejected` | Source-free authored catalog and category discovery, optional schema, exact-only exclusion, computed-pole rejection, and selection failure before acquisition |
+| Diff discovery and schema | `CommandExecutionTests.Diff_DiscoveryUsesAuthoredCategoryWithoutComputedPoles`, `Diff_SchemaRequiresDiscovery`, `Diff_DiscoveryGlobDoesNotExposeExactOnlyFindingTransitions`, `Diff_SelectGlobMatchingOnlyFindingTransitionsFailsBeforeAcquisition`, `Diff_ComputedCategoryPolesAreRejected` | Source-free authored catalog and category discovery, schema admission and command dependency, exact-only exclusion, computed-pole rejection, and selection failure before acquisition |
 | Diff failure visibility | `CommandExecutionTests.Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes` | Malformed local metadata must return failure across Markdown, document JSON, Finding, Analysis, table, TSV, JSONL, and name-only projections; tracked by #7010 |
 | Diff PDB/source evidence | `SelectedSourceDiffTests`, `DiffCommandTests` | Changed, unchanged, reordered, moved, absent, HTTP, deadline, ambiguity, indexing, read, no-PDB, independent-lane labeling, and visible failure cases lowered into Implementation Diff rows |
 | Focused Workspace Implementation | `WorkspaceImplementationComparisonRunnerTests`, `WorkspaceImplementationComparisonQueryTests`, `SectionPipelineTests.DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges` | Direct and forwarded targets, exact identity, closed-world composition, C#/IL evidence, typed non-success, peer-section incompleteness, and query-plan exclusion |
@@ -149,6 +149,8 @@ gate in this census:
 - positive Diff semantic Head, Tail, and Window behavior across each renderer;
 - selected-Library name-only and display-JSON row-window behavior;
 - grouped Markdown row-window behavior within Diff sections;
+- Diff discovery schema field inventories, including the current omission of
+  Implementation `Kind`;
 - Diff discovery TSV, JSONL, and tree output;
 - end-to-end JSON, JSONL, and TSV serialization of Implementation `Kind`;
 - the command-layer disposition of tree output outside discovery;
@@ -198,6 +200,10 @@ The Round 5 replacement additionally passed nine focused CLI cases covering
 Implementation row `Kind`, source-free authored discovery, schema validation,
 exact-only exclusions, computed-pole rejection, and selection failure before
 acquisition.
+
+The Round 6 production probe confirmed that Implementation schema currently
+advertises the five recorded display fields and omits `Kind`; no field-level
+Release gate is claimed.
 
 ## Non-goals
 
