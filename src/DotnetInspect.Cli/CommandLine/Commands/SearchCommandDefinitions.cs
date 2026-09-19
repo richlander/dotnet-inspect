@@ -961,7 +961,7 @@ public static class SearchCommandDefinitions
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
                     EnvelopeOutput =
-                        parseResult.GetValue(opts.Envelope),
+                        opts.IsEnvelopeOutput(parseResult),
                     EvidenceEnvelopePath = evidenceEnvelopePath,
                     OutputPath = outputPath,
                     CompactJson = parseResult.GetValue(compactOption),

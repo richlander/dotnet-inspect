@@ -245,8 +245,11 @@ public sealed class DependsAssetCommandTests
             actual.RootElement));
     }
 
-    [Fact]
-    public async Task PairedEnvelopeWritesEqualBaselineToDistinctOutputFile()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PairedEnvelopeWritesEqualBaselineToDistinctOutputFile(
+        bool selector)
     {
         using var directory =
             new TemporaryTestDirectory("depends-evidence-paired-");
@@ -256,13 +259,17 @@ public sealed class DependsAssetCommandTests
         string sidecar = Path.Combine(
             directory.FullName,
             "evidence.json");
+        string[] envelope =
+            selector
+                ? ["-o", "envelope"]
+                : ["--envelope"];
 
         var result = await RunCapturedAsync(
         [
             "depends",
             "--project",
             AssetsFixture,
-            "--envelope",
+            .. envelope,
             "--compact",
             "--out",
             primary,
