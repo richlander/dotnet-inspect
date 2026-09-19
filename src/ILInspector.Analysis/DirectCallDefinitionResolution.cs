@@ -403,7 +403,7 @@ public static class DirectCallDefinitionResolver
                 DirectCallDefinitionRejectionKind.DuplicateParticipant);
         }
         if (population.Any(participant =>
-                (participant.Index.Features
+                (participant.CallGraph.Features
                     & LibraryBodyAnalysisFeatures.MethodEvidence) == 0))
         {
             return new DirectCallDefinitionResolutionOutcome.Rejected(
@@ -431,14 +431,16 @@ public static class DirectCallDefinitionResolver
         foreach (CatalogCallGraphParticipant participant in population)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            invocationOccurrences += participant.Index.DirectCalls.Length;
+            invocationOccurrences +=
+                participant.CallGraph.DirectCalls.Length;
         }
         if (invocationOccurrences > limits.MaxInvocationOccurrences)
         {
             foreach (CatalogCallGraphParticipant participant in population)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                foreach (DirectCall call in participant.Index.DirectCalls)
+                foreach (DirectCall call
+                    in participant.CallGraph.DirectCalls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     pending.Add(PendingInvocation.Incomplete(
@@ -468,7 +470,8 @@ public static class DirectCallDefinitionResolver
         foreach (CatalogCallGraphParticipant participant in population)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (DirectCall call in participant.Index.DirectCalls)
+            foreach (DirectCall call
+                in participant.CallGraph.DirectCalls)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (signatureNodes.IsExceeded)
@@ -980,7 +983,7 @@ public static class DirectCallDefinitionResolver
         CatalogCallGraphParticipant participant)
     {
         LibraryBodyModuleIdentity indexed =
-            participant.Index.ModuleIdentity;
+            participant.CallGraph.ModuleIdentity;
         if (indexed.AssemblyIdentity is not { } indexedIdentity
             || indexedIdentity != participant.Assembly.Identity
             || participant.Assembly.Registration.ModuleVersionId
@@ -1063,7 +1066,7 @@ public static class DirectCallDefinitionResolver
         DirectCall call)
     {
         if (call.EvidenceMethod.ModuleVersionId
-                != participant.Index.ModuleIdentity.ModuleVersionId
+                != participant.CallGraph.ModuleIdentity.ModuleVersionId
             || !string.Equals(
                 call.EvidenceMethod.AssemblyName,
                 participant.Assembly.Identity.Name,
@@ -1210,7 +1213,7 @@ public static class DirectCallDefinitionResolver
                 {
                     localCandidates = DiscoverDefinitionCandidates(
                         item.Participant.Assembly,
-                        item.Participant.Index.ModuleIdentity
+                        item.Participant.CallGraph.ModuleIdentity
                             .ModuleVersionId,
                         address: null,
                         item.Call.CalleeDefinitionToken,
@@ -2059,7 +2062,7 @@ public static class DirectCallDefinitionResolver
                 || exactCandidate.Assembly.Identity
                     != invocation.Participant.Assembly.Identity
                 || exactCandidate.ModuleVersionId
-                    != invocation.Participant.Index.ModuleIdentity
+                    != invocation.Participant.CallGraph.ModuleIdentity
                         .ModuleVersionId
                 || exactCandidate.Assembly.Registration.ModuleVersionId
                     is { } localRegisteredMvid
