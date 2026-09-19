@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
@@ -398,7 +399,7 @@ internal static class CloneCandidatesCommand
         return Write(presentation, output);
     }
 
-    static int Write(
+    internal static int Write(
         CloneCandidatePresentationResult result,
         CloneCandidateOutputOptions options)
     {
@@ -409,10 +410,30 @@ internal static class CloneCandidatesCommand
         }
 
         CloneCandidateDocument document = available.Document;
+        if (!CliSemanticRowSelection.TrySelectRanked(
+                options.RowSelection,
+                document.Rows,
+                Comparer<CloneCandidateRow>.Create(
+                    static (left, right) =>
+                        left.Rank.CompareTo(right.Rank)),
+                "Clone Candidates",
+                static failure =>
+                    $"Clone Candidates row selection stage "
+                        + $"{failure.Failure.StageNumber} requires row "
+                        + $"{failure.Failure.RequiredPosition}, but only "
+                        + $"{failure.Failure.AvailableCount} ranked candidates "
+                        + "are available.",
+                out IReadOnlyList<CloneCandidateRow> selected))
+        {
+            if (!document.CoverageIsComplete)
+                WriteIncomplete(document);
+            return 1;
+        }
+
         ImmutableArray<CloneCandidateRow> selectedRows =
-            [.. RowWindow.Apply(options.Rows, document.Rows)];
+            [.. selected];
         List<CloneCandidateRowView> rowViews =
-            [.. document.Rows.Select(CloneCandidateRowView.Create)];
+            [.. selectedRows.Select(CloneCandidateRowView.Create)];
         var view = new CloneCandidateView
         {
             Breadth = document.Breadth.ToString(),
@@ -614,6 +635,7 @@ internal sealed record CloneCandidateOutputOptions(
     string[]? Columns,
     string[]? Fields,
     bool FieldsExplicitlySet,
+    RowSelectionIntent<string>? RowSelection,
     RowWindow? Rows,
     int SelectedSectionCount,
     bool Tree,
@@ -633,6 +655,7 @@ internal sealed record CloneCandidateOutputOptions(
             options.Columns,
             options.Fields,
             options.FieldsExplicitlySet,
+            options.CloneCandidateRowSelection,
             options.Rows,
             options.IncludeSections?.Count ?? 0,
             options.Tree,
@@ -652,6 +675,7 @@ internal sealed record CloneCandidateOutputOptions(
             options.Columns,
             options.Fields,
             options.FieldsExplicitlySet,
+            options.CloneCandidateRowSelection,
             options.Rows,
             options.IncludeSections?.Count ?? 0,
             options.Tree,

@@ -40,7 +40,7 @@ public sealed class WorkspaceResearchTargetProjectionTests
                 typeof(ResearchTargetRequestId), typeof(ResearchTargetAttemptId)],
             M.RetainedOwnerCurrency, "retained owner-issued currency");
         Assert.Equal(34, M.Materializers.Length);
-        Assert.Equal(80, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
+        Assert.Equal(81, M.Materializers.SelectMany(WorkspaceProjectionContractAudit.Flatten).Count());
     }
 
     [Fact]

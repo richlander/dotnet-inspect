@@ -155,14 +155,20 @@ internal sealed record ClassicInverseAwaitNode(
     ClassicInverseBodyNode Operand,
     TypeRef? ResultType,
     MetadataFactState ResultIsDynamic,
-    ImmutableArray<MethodRef> ConsumedMembers)
+    ImmutableArray<MethodRef> ConsumedMembers,
+    bool ProvesClassicCompletionPaths)
     : ClassicInverseBodyNode
 {
     internal override IrNode Materialize()
-        => new AwaitExpression(Expr(Operand), ResultType, ResultIsDynamic, ConsumedMembers);
+        => new AwaitExpression(
+            Expr(Operand),
+            ResultType,
+            ResultIsDynamic,
+            ConsumedMembers,
+            ProvesClassicCompletionPaths);
 
     internal override string Signature =>
-        $"await[{TypeText(ResultType)}:{ResultIsDynamic}:"
+        $"await[{TypeText(ResultType)}:{ResultIsDynamic}:paths={ProvesClassicCompletionPaths}:"
         + $"{ClassicInverseSignature.Sequence(ConsumedMembers.Select(MethodText))}]({Operand.Signature})";
 }
 
@@ -802,7 +808,8 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         operand,
                         binding.OptionalType(await.ResultType, budget),
                         await.ResultIsDynamic,
-                        members.ToImmutable());
+                        members.ToImmutable(),
+                        await.ProvesClassicCompletionPaths);
             }
 
             case LoadArgument load:

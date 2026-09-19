@@ -686,6 +686,23 @@ realization for the implicit calls. A consumed record clone likewise remains
 one typed fact with its dispatch; excluding it from compile-back shell closure
 does not exclude it from semantic or fidelity evidence.
 
+The classic inverse marks each exact `AwaitExpression` that its closed proof
+reconstructs as a positive completion-path witness. Runtime-async recovery does
+not issue this marker. Detached classic plans preserve the marker in both
+materialization and deterministic signatures, so replay cannot add, remove, or
+move the claim. The marker means the closed protocol proved one exact
+`IsCompleted` test whose completed edge reaches the matching `GetResult`, whose
+incomplete edge reaches the matching suspension callback, and whose
+authenticated resume reaches that same `GetResult` continuation. Consumers
+bind this witness to the marked product-issued `AwaitExpression` node; they
+must not recreate it from method classification, rendered text, member names,
+or an awaiter field. The witness states only that both compiled paths exist. It
+does not state which path ran, whether `GetResult` completed successfully, how
+often either path ran, their duration, the continuation scheduler or thread,
+`ExecutionContext` behavior, or allocation behavior. Runtime-async awaits,
+iterators, and classic shapes that the inverse declines produce no such
+witness.
+
 The inverse consumes the existing
 [unsafe-context boundary](../decompiler.md#unsafe-contexts-under-the-updated-memory-safety-rules), rather
 than defining another caller policy. An operand, implicit await member, or

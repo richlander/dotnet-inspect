@@ -157,31 +157,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_HonorsOutputPath()
+    public async Task Package_DependencyHierarchy_HonorsOutputPath()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
         var outputPath = Path.Combine(tempDir, "dependencies.md");
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
-                "--tfm", "net9.0", "--out", outputPath, "--tips", "q");
+                "package", packagePath, "-S", "Dependency Hierarchy",
+                "--tree", "--tfm", "net9.0", "--source", tempDir,
+                "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
             Assert.Empty(error);
             var written = File.ReadAllText(outputPath);
-            Assert.Contains("Test.Dependency.One", written);
-            Assert.Contains("Test.Dependency.Two", written);
+            Assert.Contains("test.dependency.one", written);
+            Assert.Contains("test.dependency.two", written);
 
             var empty = await RunAppAsync(
-                "package", packagePath, "-S", "Dependencies", "--tree",
+                "package", packagePath, "-S", "Dependency Hierarchy", "--tree",
                 "--tfm", "net10.0", "--out", outputPath, "--tips", "q");
 
             Assert.Equal(0, empty.Exit);
             Assert.Empty(empty.Output);
             Assert.Empty(empty.Error);
-            Assert.Contains("No additional dependencies for net10.0", File.ReadAllText(outputPath));
+            Assert.Contains("test.dependencygroups 1.0.0", File.ReadAllText(outputPath));
 
             var (noDependenciesPath, noDependenciesTempDir) =
                 CreateLocalReadmePackage(
@@ -191,14 +192,14 @@ public partial class CommandExecutionTests
             try
             {
                 var noDependencies = await RunAppAsync(
-                    "package", noDependenciesPath, "-S", "Dependencies", "--tree",
+                    "package", noDependenciesPath, "-S", "Dependency Hierarchy", "--tree",
                     "--out", outputPath, "--tips", "q",
                     "-n", "2", "--tail-lines");
 
                 Assert.Equal(0, noDependencies.Exit);
                 Assert.Empty(noDependencies.Output);
                 Assert.Empty(noDependencies.Error);
-                Assert.Contains("No dependencies declared in package", File.ReadAllText(outputPath));
+                Assert.Contains("test.nodependencies 1.0.0", File.ReadAllText(outputPath));
                 Assert.Equal(
                     -1,
                     File.ReadAllBytes(outputPath).AsSpan().IndexOf(

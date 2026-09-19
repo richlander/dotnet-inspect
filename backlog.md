@@ -8,10 +8,6 @@ The tool's defaults were designed for human terminal use, but most callers are n
 
 If the tool detects it's being called by an agent (piped output, non-TTY, or an env var), default to `--table` output. Humans at a terminal keep the current full output. This matches how agents actually work — scan a compact list first, then drill into specific items. Every agent transcript shows this pattern. The win: shorter SKILL.md guidance because the tool does the right thing by default.
 
-### Make `--shape` more visible on `type`
-
-A human user was shown `type` output and liked it, but was wowed by `--shape` and said "this should be the default." Consider making `--shape` the default for `type`, or at least more prominent. The shape view (showing inheritance, interfaces, member categories) gives an immediate structural understanding that the flat type list doesn't. This parallels the table-output discussion — the best default is the one that answers the most common first question.
-
 ### Document comma behavior in `find` for generic types
 
 `dotnet-inspect find "Dictionary<TKey,TValue>"` splits on the comma and treats it as two patterns: `Dictionary<TKey` and `TValue>`. The comma is the multi-pattern delimiter (`find String,Int32`). Users should use glob syntax (`Dictionary*`) instead. Consider documenting this in help text or escaping commas inside `<>` angle brackets.

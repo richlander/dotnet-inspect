@@ -142,13 +142,10 @@ public class FidelityGateTests
         "ClosureWithLinq",
         "CountAbove",
         "SharedCaptureLambdas",
-        // #2945: outer-body reads of a hoisted capture field are substituted back
-        // to the captured source and the display class elides, so this fully
-        // raises. #3505 canonicalized the synthesized ordinals that used to make
-        // this an OperandDiff, and what remains underneath is an import below Full
-        // fidelity, so the harness now reports NotFull and forms no opcode verdict.
-        // Listed in <see cref="KnownNotFull"/> so that state is explicit rather
-        // than an unexamined docket row.
+        // #2945 substitutes outer-body reads of a hoisted capture field back to
+        // the captured source and elides the display class. #7687 restores the
+        // exact PDB local scope across final basic blocks, so the remaining
+        // compiler-generated ordinal difference is a Full OperandDiff.
         "CapturedParamReadInOuterBody",
         "ClosureCapture",
         "DayNumber",
@@ -176,10 +173,7 @@ public class FidelityGateTests
     /// remain an actual diff. A row that newly drops to NotFull is a validity
     /// regression and must fail rather than land here silently.
     /// </summary>
-    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
-    {
-        "CapturedParamReadInOuterBody",
-    };
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Methods a prior fidelity check fix turned exact under the fidelity contract. Pinning them guards the
