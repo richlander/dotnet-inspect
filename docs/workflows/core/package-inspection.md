@@ -194,12 +194,32 @@ lib/netstandard2.0/System.CommandLine.dll
 ### 4c. Files for a specific TFM
 
 ```bash
-dotnet-inspect package System.CommandLine@2.0.3 --path 'lib/net8.0/**'
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --paths
 ```
 
 ```expect
-System.CommandLine.dll
-System.CommandLine.xml
+lib/net8.0/Microsoft.Data.SqlClient.dll
+ref/net8.0/Microsoft.Data.SqlClient.dll
+runtimes/unix/lib/net8.0/Microsoft.Data.SqlClient.dll
+runtimes/win/lib/net8.0/Microsoft.Data.SqlClient.dll
+```
+
+`--tfm` matches a complete directory segment at any depth, independent of
+NuGet asset selection. Combine it with `--path` when both predicates should
+apply.
+
+### 4d. Top-level roots containing files for a TFM
+
+```bash
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --roots
+```
+
+```expect
+lib
+ref
+runtimes
 ```
 
 ## 5. List target frameworks
