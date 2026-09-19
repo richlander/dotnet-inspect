@@ -1589,8 +1589,8 @@ public class DiffCommand
             if (!subjects.ContainsKey(change.Subject.Id))
                 continue;
             MethodIdentity? method = oldSide
-                ? change.OldEvidenceMethod
-                : change.NewEvidenceMethod;
+                ? change.OldProfile?.Method
+                : change.NewProfile?.Method;
             if (method is null)
                 continue;
             if (ambiguous.Contains(change.Subject.Id))

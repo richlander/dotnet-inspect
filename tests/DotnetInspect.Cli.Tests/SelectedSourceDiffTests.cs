@@ -530,6 +530,59 @@ public sealed class SelectedSourceDiffTests
     }
 
     [Fact]
+    public async Task
+        GeneralSourceBatch_UsesLogicalOwnerForMultipleGeneratedContributors()
+    {
+        var options = Options("Value") with
+        {
+            JsonOutput = true,
+            MemberFilter = [],
+        };
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => DiffCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement[] sourceRows = document.RootElement
+            .GetProperty("implementation_diff")
+            .EnumerateArray()
+            .Where(row =>
+                row.GetProperty("mechanism").GetString()
+                    == "PDB Source")
+            .ToArray();
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+     int Increment(int input) => input + 2;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.Contains(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString() == "added"
+                && row.GetProperty("evidence").GetString()
+                    == "+     int Scale(int input) => input * 3;"
+                && row.GetProperty("kind").GetString() == "text.line");
+        Assert.DoesNotContain(
+            sourceRows,
+            row => row.GetProperty("member").GetString()!
+                    .Contains(
+                        "MultipleLocalFunctions",
+                        StringComparison.Ordinal)
+                && row.GetProperty("change").GetString()
+                    is "failed" or "unavailable");
+    }
+
+    [Fact]
     public async Task GeneralBatch_WithoutPdbSource_PerformsNoSourceRetrieval()
     {
         var options = Options("Value") with

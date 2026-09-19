@@ -24,6 +24,13 @@ public sealed class Counter
         return Adjust(value) + Hidden();
     }
 
+    public int MultipleLocalFunctions(int value)
+    {
+        int Increment(int input) => input + 2;
+        int Scale(int input) => input * 3;
+        return Increment(value) + Scale(value);
+    }
+
     public int Reordered()
     {
         int second = 2;

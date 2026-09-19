@@ -278,7 +278,11 @@ The focused general-batch consumer slice is #7857. When `diff --pdb-source`
 does not resolve to the exact selected-member pair operation, the CLI retains
 the Research comparison subject as the outer association and uses Research's
 typed old/new implementation-profile evidence to recover each endpoint's exact
-physical MethodDef. It then creates an authored-only
+logical owner MethodDef from `OldProfile.Method` and `NewProfile.Method`.
+Complexity contributors in `OldEvidenceMethod` and `NewEvidenceMethod`,
+including generated local-function bodies, remain evidence for that logical
+owner and never become authored-source targets. The CLI then creates an
+authored-only
 `AssemblyMemberSourceRequest` from the Metadata/API-issued type, member anchor,
 and token and consumes the completed
 `InspectionEnvelope<AssemblyMemberSourceEntry>` from
@@ -320,17 +324,14 @@ remains outside this SourceHouse consumer slice.
 The motivating production gate compares
 `System.Text.Json@9.0.0..10.0.0`
 `JsonSerializerOptions` with the general Implementation Diff selection. It
-preserves all 97 PDB Source rows, including accessor, non-public, nested, and
-compiler-generated local-function targets plus the five unavailable rows. The
-diagnostic correction intentionally changes two additional rows that previously
-showed added source text: `EqualityComparer.Equals` and `GetHashCode` now expose
-their old/new generated-method identity collisions as failed evidence. All
-other production rows remain byte-identical. Focused Release CLI cases gate
-changed source, a missing endpoint, accessor and non-public bodies,
-compiler-generated local functions, explicit implementations, removed and
-bodyless methods, disabled PDB Source retrieval, and the diagnosed
-nested-generic ambiguity. The exact selected-member pair route and its
-neighboring output remain unchanged.
+preserves all 97 PDB Source rows byte-for-byte, including accessor, non-public,
+nested, and compiler-generated local-function targets plus the five unavailable
+rows. Focused Release CLI cases gate changed source, a missing endpoint,
+accessor and non-public bodies, a normal logical owner with multiple generated
+local-function contributors, generated local-function targets, explicit
+implementations, removed and bodyless methods, disabled PDB Source retrieval,
+and the diagnosed nested-generic ambiguity. The exact selected-member pair
+route and its neighboring output remain unchanged.
 
 ## Authority and exact claim
 
