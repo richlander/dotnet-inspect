@@ -158,6 +158,7 @@ internal static class DeclarationIndexBuilder
         bool previousDocumentationWasLine = false;
         int nestedBraceDepth = 0;
         int lastTerminatorLine = 0;
+        bool lastTerminatorWasBrace = false;
 
         // The section of the terminator that last ended a declaration. A brace-less declaration
         // ends without closing a block, so it clears lastClosed while leaving no closed row and --
@@ -383,6 +384,7 @@ internal static class DeclarationIndexBuilder
         {
             ResetHeader(terminator);
             lastTerminatorLine = terminator.Line + 1;
+            lastTerminatorWasBrace = Text(terminator) is "{" or "}";
             lastTerminatorSection = terminator.Section;
         }
 
@@ -705,13 +707,22 @@ internal static class DeclarationIndexBuilder
                     triviaKnown &= tok.DepthKnown;
                 }
 
-                bool attached = pending.Count == 0
+                // Exact documentation attachment admits the brace-boundary case the legacy
+                // line-only trivia start above cannot represent. Documentation after a type
+                // opener or a preceding member's closing brace can share that brace's line and
+                // still lead the next declaration. Other same-line terminators retain the legacy
+                // refusal. Keeping the predicates separate preserves normalized ExtractMemberText
+                // behavior while exact parts retain the attached comment.
+                bool documentationAttached = pending.Count == 0
                     && !inAttribute
-                    && commentOpenLine > lastTerminatorLine;
+                    && (commentOpenLine > lastTerminatorLine
+                        || (commentOpenLine == lastTerminatorLine
+                            && lastTerminatorWasBrace));
                 if (opens)
                 {
                     openDocumentationBlock = -1;
-                    if (attached && comment.StartsWith("///", StringComparison.Ordinal))
+                    if (documentationAttached
+                        && CSharpLexer.IsSingleLineDocumentationComment(comment))
                     {
                         var end = new SourceTextPoint(tok.Line, tok.End);
                         if (previousDocumentationWasLine
@@ -732,7 +743,8 @@ internal static class DeclarationIndexBuilder
                         previousDocumentationWasLine = true;
                         previousLineDocumentationLine = tok.Line;
                     }
-                    else if (attached && comment.StartsWith("/**", StringComparison.Ordinal))
+                    else if (documentationAttached
+                        && CSharpLexer.IsDelimitedDocumentationComment(comment))
                     {
                         xmlDocumentation.Add(new SourceTextRange(
                             new SourceTextPoint(tok.Line, tok.Column),
