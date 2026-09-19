@@ -82,13 +82,13 @@ The writer (renderer) is selected independently from section selection:
 | Table/TSV | One table at a time, fields (inline), lists | Default when ≤1 section, or explicit `--table`/`--tsv` |
 | Markdown | Tables, fields, code blocks, trees, headings | `-v:d`, `--markdown` |
 | JSON | Full model serialization | `--json` |
-| Shape | Single code-block view | `--shape` |
+| Tree | Single hierarchical view | `--tree` |
 
 ### Format resolution rules
 
 1. `--json` → JSON (always)
 2. `--markdown` → Markdown (always)
-3. `--shape` → Shape (always)
+3. `--tree` → Tree (always)
 4. `-v:d` → Markdown (multi-section content needs a multi-section writer)
 5. `-v:q`, `-v:m`, `-v:n` → do NOT imply markdown; use default writer
 6. Default → Table

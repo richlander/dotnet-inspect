@@ -15,7 +15,8 @@ areas: [output, limiting, count, agents]
 > selects the rows those numbers name. `--value`, `--urls`, and `--paths`
 > project selected sections to scalar/URL/path payloads; `--json-array` makes
 > projected rows one JSON document; `--row N` chooses a projected or printable
-> row. `-t` and `-m` limit result counts for types and members. `--count`
+> row. `-t` and `-m` filter Type and Member names; numeric values are ordinary
+> filter input rather than counts. `--count`
 > reduces a selected section/vector to one integer row count, while `--bare`
 > stays a presentation-only modifier for already-selected payloads. These are
 > essential for agents that need compact, predictable output.
@@ -196,16 +197,17 @@ grep '^|' | tail -n +3 | wc -l | tr -d ' '
 
 > Goal: Return only the first N members from a member listing.
 
-### 6a. Using `member -m N`
+### 6a. Using `member -n N`
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -m 3 --tips q
+dotnet-inspect member System.Text.Json JsonSerializer \
+  --table --no-headers -n 3 --tips q
 ```
 
 ```expect
-# System.Text.Json.JsonSerializer
 IsReflectionEnabledByDefault
 Deserialize
+DeserializeAsync
 ```
 
 ```expect-not

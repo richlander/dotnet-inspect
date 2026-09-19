@@ -110,12 +110,17 @@ dnx dotnet-inspect -y -- depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 \
   --tree
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S Dependencies
+dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
+  -S "Dependency Hierarchy" --tree
 ```
 
 For asset roots, `Dependency Hierarchy` preserves one occurrence per
 root-relative parent relationship. Use `Dependencies` for direct declaration
 evidence; use hierarchy table or JSON output when repeated targets and their
-parent context matter.
+parent context matter. On `package`, selecting `Dependency Hierarchy` invokes
+the same Depends operation, while `--tree` only chooses its projection.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
@@ -125,6 +130,14 @@ the complete dependency relationships plus the selected
 `rowSelection.relationships`; dependency enums remain numeric.
 The service constructs Share for both JSON modes, but `--json` emits Content
 only; `--envelope` exposes Share.
+
+For one exact NuGet.org package version and TFM, `share.kind` is normally
+`available`; its `full_url` opens the analogous Dependencies view in Inspect
+Web and `packet` is the canonical replay state. Mixed dependency sources and
+explicit `--depth` remain valid Content requests but make Share
+`nonProjectable`, because the published browser cannot preserve them. This is
+the high-value envelope path when a dependency answer should include a
+user-drillable graph.
 
 With `--envelope`, use `--compact` for minified JSON. `--depth` remains
 traversal, and `--rows` or `-n`/`--head`/`--tail` remain semantic relationship
@@ -160,6 +173,12 @@ edge rows consistently across these views.
 
 For a type-level dependency summary, `Called Types` groups direct calls by
 target type, assembly, members, and call kinds.
+
+`Call Graph` has no `--envelope` route. Its graph, row selection, and
+completeness evidence belong to Content, so use the graph views or structured
+row formats above. A separate exact-member `--share url` projects the public
+API Overview, not the Call Graph; do not present that URL as a replay of the
+graph analysis.
 
 ```bash
 dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"

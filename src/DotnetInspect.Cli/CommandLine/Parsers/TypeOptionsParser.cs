@@ -140,7 +140,6 @@ public static class TypeOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
         Option<string[]> RepoOption,
         Option<string[]> MemberOption,
@@ -158,7 +157,6 @@ public static class TypeOptionsParser
             || parseResult.GetResult(opts.QueryHelp) is { Implicit: false }
             || opts.ParseSelect(parseResult) is { Length: > 0 }
             || opts.ParseSelectDefault(parseResult)
-            || parseResult.GetValue(args.ShapeOption)
             || string.Equals(
                 parseResult.GetValue(args.TfmOption),
                 "all",
@@ -323,18 +321,25 @@ public static class TypeOptionsParser
             }
         }
 
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         bool selectsTypeListingRows =
-            IsTypeListingRowSelection(
+            !selectsCloneCandidateRows
+            && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
-        RowSelectionIntent<string>? typeListingRowSelection = null;
-        if (selectsTypeListingRows
+        RowSelectionIntent<string>? semanticRowSelection = null;
+        if ((selectsCloneCandidateRows || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
-                    "Type",
-                    out typeListingRowSelection,
+                    selectsCloneCandidateRows
+                        ? "Clone Candidates"
+                        : "Type",
+                    out semanticRowSelection,
                     out string? rowSelectionError))
         {
             return new VersionError(rowSelectionError!);
@@ -406,7 +411,7 @@ public static class TypeOptionsParser
             return new VersionError(
                 "The type command's -m filter does not support generic arity selectors; use the member command.");
         }
-        var (memberFilter, memberLimit) = SharedParsers.ParseMemberFilter(memberValues);
+        var memberFilter = SharedParsers.ParseMemberFilter(memberValues);
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
@@ -440,9 +445,16 @@ public static class TypeOptionsParser
         }
 
         bool envelopeOutput = parseResult.GetValue(opts.Envelope);
-        OutputFormat outputFormat = envelopeOutput
-            ? OutputFormat.Json
-            : opts.ResolveFormat(parseResult);
+        bool tree = parseResult.GetValue(opts.Tree);
+        bool treeOwnsFormat =
+            tree && !opts.IsFormatFlagExplicitlySet(parseResult);
+        OutputFormat outputFormat =
+            envelopeOutput
+                ? OutputFormat.Json
+                : treeOwnsFormat
+                ? OutputFormat.Markdown
+                : opts.ResolveFormat(parseResult);
+
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
@@ -457,24 +469,35 @@ public static class TypeOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             TypeFilter = typeFilter,
-            TypeListingRowSelection = typeListingRowSelection,
+            TypeListingRowSelection = selectsTypeListingRows
+                ? semanticRowSelection
+                : null,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit,
-            MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
             JsonOutput = !envelopeOutput && outputFormat == OutputFormat.Json,
             EnvelopeOutput = envelopeOutput,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = !envelopeOutput && opts.ResolveTabular(parseResult),
-            Tsv = !envelopeOutput && opts.ResolveTsv(parseResult),
-            Jsonl = !envelopeOutput && opts.ResolveJsonl(parseResult),
+            Tabular =
+                !envelopeOutput
+                && outputFormat is
+                    OutputFormat.Table or
+                    OutputFormat.Tsv or
+                    OutputFormat.Jsonl,
+            Tsv = !envelopeOutput && outputFormat == OutputFormat.Tsv,
+            Jsonl = !envelopeOutput && outputFormat == OutputFormat.Jsonl,
             TabularExplicitlySet =
-                !envelopeOutput && opts.IsTableExplicitlySet(parseResult),
+                !envelopeOutput
+                && !treeOwnsFormat
+                && opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet =
-                !envelopeOutput && opts.IsFormatExplicitlySet(parseResult),
+                !envelopeOutput
+                && (tree || opts.IsFormatExplicitlySet(parseResult)),
+            FormatFlagExplicitlySet =
+                !envelopeOutput
+                && (tree || opts.IsFormatFlagExplicitlySet(parseResult)),
             Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
@@ -488,12 +511,10 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
+            Tree = tree,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -502,8 +523,13 @@ public static class TypeOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
             Rows = selectsTypeListingRows
+                || semanticRowSelection is not null
                 ? null
                 : opts.ParseRows(parseResult),
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? semanticRowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

@@ -41,32 +41,31 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
 
-Positional `depends <type>`, single-Library API `diff`, Package Activity,
-ordinary or `--library-literal` Package Query, and eligible exact
-package-backed `type` gestures support presence-only `--envelope`. It implies
-JSON and emits the complete service value with
+`--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.
-For dependencies, `content` is semantically identical to the owner-issued camelCase
-`TypeDependencySectionResult` selected by unprojected `depends <type> --json`;
-whitespace and property order may differ. `--compact`, `--depth`, and semantic
-relationship row selection remain available. Presentation formats,
-Discover/schema/effective modes, `-S`, explicit `-v`, Count, field/column or
-scalar projection, decoration, and rendered-line clipping are incompatible.
-For Library API Diff, unprojected `--json` and envelope `content` both serialize
-the complete `LibraryApiDiffOutcome` using result kind `library-api-diff`.
-`--all` and `--compact` remain admitted; Type/classification filters, sections,
-explicit verbosity, row/line controls, and non-API modes are incompatible with
-envelope output. Explicitly projected Diff JSON retains its presentation
-schema. Load `skill compatibility` for outcome and scope details.
-Package Activity uses `ecosystem-change-report`; ordinary Package Query uses
-`package-query`; assembly-semantic Package Query uses
-`package-assembly-semantic-query`; and exact Type and Library API inspection use
-`exact-type` and `exact-library-api`. Their unprojected `--json` uses the same
-Content serializer. Query controls remain admitted for Package Query. Exact
-Type and Library API admission is limited to complete quiet/minimal output.
-Count, row or section selection, projection, discovery, and competing formats
-are incompatible with envelope output. Asset-mode `depends`, other command
-routes, internal sub-operations, and `--evidence-envelope` remain unadopted.
+Workspace coordinate replacement is the exception: request
+`--json --envelope` together. An envelope is not a presentation format above
+`--json`: use it only when Share or service diagnostics are part of the answer.
+
+| Route | Why the envelope can matter |
+| ----- | --------------------------- |
+| `type` / `member ... --match` | Carries the exact API-coordinate correspondence outcome and diagnostics; ordered match endpoints currently make Share non-projectable. |
+| `depends <type>` | Carries complete dependency Content, semantic relationship selection, diagnostics, and an available Share for an exact projectable NuGet.org package/TFM request. |
+| Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
+| `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
+| `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
+| Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
+| Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
+
+For adopted routes whose unprojected `--json` is complete Content, that JSON is
+semantically identical to `--envelope`'s `content`; whitespace and property
+order may differ. Package version JSON is the exception noted above.
+`--compact` minifies supported JSON boundaries. Post-service presentation
+formats, sections, fields, projections, and row/count controls are generally
+incompatible unless the route explicitly defines them as semantic inputs.
+Asset-mode `depends`, Member `Call Graph`, other command routes, internal
+sub-operations, and `--evidence-envelope` remain unadopted.
 
 On `find`, plain `--json` retains the typed root result array. Adding
 `--columns` or `--fields` requests projected JSON instead: the result is a
@@ -347,34 +346,78 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Arrays" \
 global field-ranked prefix; use `--top N` for the curated global rank, or
 select one concrete kind when a specific field controls the order.
 
-## Limit output
+## Select and count items
 
-Prefer built-in limits to shell pipes:
+Prefer product selection to shell pipes. Every active command or lens has one
+effective item sequence:
 
-- `-n N` and numeric shorthand like `-6` select semantic rows when the active
-  command or lens declares them; otherwise they select rendered lines.
-- Add `--tail` for the last N items. Use `--lines` to switch a semantic command
-  to rendered lines or `--tail-lines` for trailing rendered lines.
-- `--rows N` takes the first N data rows per table on commands that retain the
-  legacy row window, preserving headings and headers; add `--tail` for the last
-  N. On adopted semantic-row surfaces, use `-n N` instead.
-- On commands retaining the legacy row window, `--rows 2..10` is an absolute
-  1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
-  and `10..` runs from row 10 to the end. A legacy range rejects
-  `--head`/`--tail` when no `-n` is present. Legacy `--rows` composes with an
-  inferred or explicit rendered-line `-n`; in that composition, `--head` or
-  `--tail` modifies `-n`.
-- `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
-  it selects one displayed row, not a compacted projection position.
-  `first`/`last` mean rendered endpoints; missing payloads fail instead of
-  sliding. `-n N` may still limit the result.
-- `--count` counts rows in one selected table.
+1. A declared semantic sequence uses complete packages, types, dependencies,
+   graph edges, or other domain rows.
+2. A route without semantic adoption uses rendered lines.
+3. `--lines` explicitly selects rendered lines even when semantic rows exist.
+
+`-n N` and bare `-N` keep the first N items. Add `--tail` for the last N;
+`--head` makes the default direction explicit. `--tail-lines` is the compact
+rendered-line form.
+
+On adopted semantic routes, `--rows` is a strict one-based inclusive window:
+`A..B`, `A..`, or `..B`. A missing required position fails instead of silently
+shortening the result. `-n` and `--rows` are ordered stages, so argument order
+is observable. `--head` and `--tail` modify `-n`, not the range.
+
+Legacy `--rows` composes with an inferred or explicit rendered-line `-n`, but
+not in argument order: the command-owned row window runs before outer line
+clipping.
+
+Member `Call Graph` is the current exception: its legacy command-owned
+`--rows` window clamps an unavailable end to the available edges. It produces
+an empty edge table only when the requested start is beyond the available rows.
 
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
-`timeline`, `package query`, package activity, package `--versions` /
-`--versions-with-feed`, and `demo list` use semantic rows. `-n N` selects
-complete items; `-n N --lines` instead clips rendered output. Where supported,
-`--rows` accepts only `A..B`, `A..`, and `..B`; `-n` and `--rows` compose as
-stages in argv order. `--head` and `--tail` modify `-n`, not the range. On
-`package query`, `--take N` separately bounds package work before semantic row
-selection.
+`timeline`, `match --similar`, `package query`, package activity, package
+`--versions` / `--versions-with-feed`, `demo list`, Workspace inventory,
+Integration graph edges, selected package file/SourceLink inventories,
+selected Project document inventories, and explicit-source Type catalogs have
+semantic adoption in their supported modes. Partially adopted modes fall back
+to rendered lines.
+
+Where a route supports it, `--count` is a terminal projection over the selected
+semantic rows. On sectioned output, select one concrete table for a scalar
+count. Count does not mean “count the unselected input,” and it does not by
+itself authorize unbounded work; incomplete population evidence can prevent an
+exact count.
+
+`--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`, it
+selects one displayed row; `first` and `last` mean the rendered endpoints.
+Missing payloads fail rather than sliding to another row.
+
+Keep work bounds and ranking separate: Package Query `--take N` bounds
+candidate work before final row selection, while `--top N` requires a ranking
+order. Neither is another spelling of `-n`.
+
+## Use a URL as part of the answer
+
+Inspect Web consumes the same inspection and portable-query contracts. For a
+supported envelope, inspect `share.kind`; `available` means the request is
+projectable, not that the browser has adopted its packet format. Do not turn
+`nonProjectable` into an approximate link.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json@10.0.0 Serialize:1 \
+  --tfm net10.0 --share url
+dnx dotnet-inspect -y -- depends \
+  --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
+```
+
+These browser-restorable format-1 URLs carry canonical datapackets, not
+captured output. The receiving Inspect Web host re-runs the represented member
+or package-dependency operation. Format-1 packets are not accepted by CLI
+complete restoration. For formats 2–4, pass opaque packet text to
+`workspace --packet "$packet"`; it rejects URL input. The CLI can issue
+Workspace format-3 and derived-Type format-4 packet or URL Shares, but current
+Inspect Web rejects both formats. Keep them as packet strings for supported
+CLI workflows. Package Query Share is currently `nonProjectable`, and Inspect
+Web does not yet restore query-bearing packets. Keep Package Query answers in
+Content rather than manufacturing a link.
+Offer a URL only for a browser-restorable scenario selection.

@@ -677,6 +677,120 @@ work from #7542 before changing those owners. The older root-level replay
 proposal #4647 remains historical context; #7555 supersedes only its
 Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
+#### Library packet-context adoption
+
+The second noun-command adoption is specified by
+[#7746](https://github.com/richlander/dotnet-inspect/issues/7746). Its exact CLI
+shape is:
+
+```console
+dotnet-inspect library Microsoft.Azure.SignalR.Common \
+  --workspace "$packet"
+
+dotnet-inspect library Microsoft.Azure.SignalR.Common \
+  --workspace "$packet" \
+  --share packet
+```
+
+`--workspace` accepts one canonical Base64URL Workspace packet string as the
+`library` command's aggregate location context; URL input is rejected. The
+Library name remains an ordinary `library` subject. The packet is the sole
+location source and cannot be combined with Package, Platform, project,
+framework/version/TFM, local-path, package-inference, or aggregate-Library
+source selection.
+
+The first slice requires one positional exact assembly simple name. It adds no
+path, filename, wildcard, fuzzy, or full assembly-identity grammar. Matching is
+case-insensitive over the owner-issued assembly identity name; it does not strip
+`.dll` or infer identity from an asset filename. Library listing, replay of the
+packet's prior active subject, the `library coordinate` child, and aggregate
+Library selection remain later work.
+
+Complete Restoration realizes the packet under the receiving host's ordinary
+source authorization and acquisition policy. The packet's **selected context**,
+not its focused Navigation tab, supplies the aggregate Library search scope.
+Resolution consumes one host-neutral selected-context exact-Library operation
+that accepts the complete realized context and returns either:
+
+- one unique exact participant with its live operation-bounded assembly,
+  detached Package source coordinate, and exact assembly identity;
+- no matching participant;
+- multiple exact candidates;
+- incomplete participant evidence; or
+- unavailable selected-context or realization authority.
+
+The detached selection evidence records how many selected-context participants
+were considered, the exact matching candidates, and participant failures. The
+Workspace adopter does not choose a Package or participant before invoking the
+operation. Resolution never:
+
+- searches a global Package, Platform, project, or filesystem fallback;
+- chooses the first Package or Library participant;
+- reconstructs Library identity from a path, asset filename, heading, row
+  position, or rendered text; or
+- adds a packet-specific Library inventory or matching algorithm.
+
+The selected live participant retains its exact Package coordinate, selected
+target and asset provenance while the admitted Workspace operation remains
+valid. Execution must not materialize the selected bytes and silently downgrade
+the request to an unrelated local-file inspection. Without `--share`, the
+command preserves ordinary exact-Library output, sections, formats,
+projections, diagnostics, counts, source-sensitive behavior, and exit behavior.
+
+Appending `--share[=url|packet]` follows the additive
+[CLI Workspace Sharing](cli-workspace-sharing.md) contract and performs neither
+a second Library selection nor a second Library inspection. A schema-4 derived
+packet:
+
+1. moves focus to the existing tab for the exact effective source containing
+   the selected Library;
+2. carries `PortableSubjectRequest.Library`;
+3. retains the owner-issued exact Library identity beneath that direct Package
+   row; and
+4. includes a Library facet or query only when the ordinary command choice has
+   a faithful portable representation.
+
+Schemas 3 and 4 are valid packet inputs for ordinary Library inspection. A
+successful derived Library packet requires schema 4 because
+`PortableSubjectRequest.Library` has no schema-3 representation. A Share
+refusal preserves ordinary stdout, writes no partial scalar, names the first
+non-projectable choice, and makes the explicitly requested side output fail
+nonzero.
+
+Inspected content, metadata rows, acquired bytes, diagnostics, credentials,
+and live Workspace authority do not enter the packet. The receiving host
+applies its own offline mode, source configuration, credentials, cache,
+timeout, preview, and transfer limits.
+
+The real multi-Library case uses
+`Microsoft.Azure.SignalR@1.33.1`. Selecting
+`Microsoft.Azure.SignalR.Common` must inspect that exact participant rather
+than the namesake or first selected compile Library. A two-context case selects
+the SignalR context while focus names a neighboring context; resolution uses
+the selected context, and derived Share focuses the exact SignalR source while
+preserving the neighboring context and dormant state.
+
+A focused ambiguity fixture places two participants with the same assembly
+simple name but different exact identities in the selected context. The
+command reports both candidates and emits no derived Share rather than choosing
+the first participant. Neighboring gates cover one unique Library, no match,
+incomplete evidence, registration-only or null-selected-context packets,
+schema-3 ordinary inspection and Share refusal, schema-4 derived Share, URL
+rejection, invalid and over-limit packets, unauthorized content, and a
+non-projectable section or query choice that preserves ordinary stdout.
+
+Implementation integrates the active Package/Library CLI adoption rather than
+racing its transitional execution or option policy. #7668 and its successors
+own Package aggregate execution, tools-v2 containment, authoritative Package
+identity, aggregate-by-default routing, namesake narrowing, aliases, and
+`--all-libraries` retirement. #7746 owns only exact Library selection from
+Workspace packet context.
+
+Platform, project, local, and registration-only Library activation remain
+outside this slice. Packet format 4 intentionally leaves non-Package
+coordinates as dormant inventory, so this adoption does not imply a
+non-Package active-descendant grammar.
+
 ### Packet completeness
 
 A packet emitted by `workspace` must represent the complete supported portable
@@ -3433,7 +3547,38 @@ Definition records and product demos (this slice):
   ambiguous, duplicate, or target-conflicting tab sources are invalid. The
   transposer validates forward input and reverse output through
   `WorkspaceSharePacketCodec`; it does not resolve groups, acquire artifacts,
-  bind a query, or execute the scenario; and
+  bind a query, or execute the scenario.
+  `WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket` is a separate,
+  explicit producer conversion from one exact resolved schema-version-1
+  Workspace-root definition set to a newly authored complete format-3 packet,
+  implemented under
+  [#7707](https://github.com/richlander/dotnet-inspect/issues/7707).
+  It preserves navigation order and direct-Package focus independently from
+  the selected context, preserves effective targets including RID, and emits
+  the required leading Workspace state. A focused direct-Package row requests
+  the Workspace subject with canonical omitted Package-only context; inactive
+  Package rows retain their ordinary Package state. Exactness is evaluated
+  against the existing unique effective-target projection, so a navigation row
+  may inherit framework and RID from its matched context or member. Floating
+  Package coordinates, unpinned groups, a non-root view, and non-Package focus
+  return the existing typed projection refusal. The validated effective
+  topology is transposed semantically rather than re-encoded through format 1,
+  so complete state above format 1's 12 KiB decoded limit remains projectable
+  through format 3's 24 KiB decoded limit; the final format-3 projection owns
+  that limit and returns the existing typed refusal when it is exceeded. This
+  does not change the public format-1 packet-to-record canonicalization. It
+  does not canonicalize or automatically upgrade an existing packet, and its
+  pure Definitions transposition is not a completed host-orchestration API.
+  `CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState`,
+  `CompleteWorkspaceCapture_PreservesContextInheritedPackageTargets`,
+  `CompleteWorkspaceCapture_PreservesMemberInheritedPackageTargets`,
+  `CompleteWorkspaceCapture_PreservesInactiveGroupInheritedTargets`,
+  `CompleteWorkspaceCapture_AllowsStateBeyondFormat1DecodedLimit`,
+  `CompleteWorkspaceCapture_Format3DecodedLimitIsTypedRefusal`,
+  `CompleteWorkspaceCapture_RejectsFloatingCoordinates`,
+  `CompleteWorkspaceCapture_RejectsFloatingGroup`,
+  `CompleteWorkspaceCapture_RejectsNonRootView`, and
+  `CompleteWorkspaceCapture_RejectsNonPackageFocus` gate this claim; and
 - `PackageAssemblyContextSelection` and
   `InspectionWorkspace.RealizePackageAssemblyContextRoles` select exact,
   already-acquired package content and realize it as coordinated surface and
@@ -3520,9 +3665,14 @@ Definition records and product demos (this slice):
   gates cover canonical query-table ordering, payload identity, references,
   malformed and orphan state, query-only mixtures, typed Package Query
   binding, and cancellation between query binds; and
-- **not yet:** Definitions and Browser binding to the landed View Facet
-  Registry, Inspect Web adoption of complete restoration and query-bearing
-  sharing, CLI use of the codec/transposer for executable `-W`
+- **not yet:** Browser production consumption of complete Workspace-root
+  capture under
+  [#7709](https://github.com/richlander/dotnet-inspect/issues/7709), the final
+  adoption successor of [#7031](https://github.com/richlander/dotnet-inspect/issues/7031)
+  and failed [#7516](https://github.com/richlander/dotnet-inspect/pull/7516);
+  Definitions and Browser binding to the landed View Facet Registry, Inspect
+  Web adoption of complete restoration and query-bearing sharing, CLI use of
+  the codec/transposer for executable `-W`
   ([#4647](https://github.com/richlander/dotnet-inspect/issues/4647)),
   or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still

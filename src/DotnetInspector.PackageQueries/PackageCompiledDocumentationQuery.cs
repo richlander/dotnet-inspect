@@ -141,12 +141,13 @@ public static class PackageCompiledDocumentationQuery
         await using var owner = completed.Owner;
 
         IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
-            CreateSubjects(
-            completed,
-            requestedIds,
-            limits.ApiSurfaceScope,
-            limits.ApiSurface,
-            cancellationToken);
+            CompiledDocumentationSubjectResolver.Resolve(
+                completed.Receipt.Library,
+                completed.Owner,
+                requestedIds,
+                limits.ApiSurfaceScope,
+                limits.ApiSurface,
+                cancellationToken);
         var outcomes =
             new Dictionary<string, CompiledDocumentationOutcome>(
                 requestedIds.Length,
@@ -194,94 +195,6 @@ public static class PackageCompiledDocumentationQuery
                 results[index].Content);
         }
         return outcomes;
-    }
-
-    private static IReadOnlyDictionary<
-        string,
-        DocumentationSubjectReference> CreateSubjects(
-        PackageHouseLibraryMaterializationOutcome.Completed materialized,
-        IReadOnlyCollection<string> documentationIds,
-        ApiSurfaceExtractionScope scope,
-        ApiSurfaceExtractionBounds bounds,
-        CancellationToken cancellationToken)
-    {
-        using LibraryOperationLease operation =
-            IssueOperation(materialized);
-        LibraryApiSurfaceInspectionOutcome inspection =
-            LibraryApiSurfaceInspection.Execute(
-                new(
-                    materialized.Receipt.Library,
-                    scope,
-                    bounds),
-                operation,
-                cancellationToken);
-        if (inspection
-            is not LibraryApiSurfaceInspectionOutcome.Completed completed)
-        {
-            throw new InvalidOperationException(
-                $"The selected package API surface could not be inspected ({inspection}).");
-        }
-
-        var requested =
-            new HashSet<string>(documentationIds, StringComparer.Ordinal);
-        var subjects =
-            new Dictionary<string, DocumentationSubjectReference>(
-                requested.Count,
-                StringComparer.Ordinal);
-        foreach (ApiType type in completed.Correspondence.Surface.Types)
-        {
-            if (ApiMemberIdentity.TryGetXmlDocTypeIdentity(
-                    type,
-                    out XmlDocMemberIdentity typeIdentity)
-                && requested.Contains(typeIdentity.Value))
-            {
-                AddSubject(
-                    typeIdentity.Value,
-                    DocumentationSubjectReference.ForType(
-                        completed.Correspondence,
-                        type));
-            }
-            foreach (ApiMember member in type.Members)
-            {
-                if (member.DeclaringTypeDefinitionName is not null
-                    || !ApiMemberIdentity.TryGetXmlDocMemberIdentity(
-                        type,
-                        member,
-                        out XmlDocMemberIdentity memberIdentity)
-                    || !requested.Contains(memberIdentity.Value))
-                {
-                    continue;
-                }
-                AddSubject(
-                    memberIdentity.Value,
-                    DocumentationSubjectReference.ForMember(
-                        completed.Correspondence,
-                        type,
-                        member));
-            }
-        }
-
-        string[] missing =
-        [
-            .. requested.Where(id => !subjects.ContainsKey(id)),
-        ];
-        if (missing.Length > 0)
-        {
-            throw new InvalidOperationException(
-                $"The selected package Library has no subject '{missing[0]}'.");
-        }
-        return subjects;
-
-        void AddSubject(
-            string documentationId,
-            DocumentationSubjectReference subject)
-        {
-            if (!subjects.TryAdd(documentationId, subject))
-            {
-                throw new InvalidOperationException(
-                    $"The selected package Library has multiple subjects '{documentationId}'.");
-            }
-        }
     }
 
     private static LibraryOperationLease IssueOperation(

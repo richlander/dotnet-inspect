@@ -683,9 +683,9 @@ Its explicit imports are SRM/framework effects, the independently owned
 MetadataPrimitives admission/name/traversal contracts, and compiler lowering.
 It does not re-prove those implementations. `SignatureOccurrenceDecoderTests`,
 `SignatureBlobGuardTests`, `MetadataTypeNameBudgetTests`, and
-`ProviderSignatureDecodeBoundaryTests` exercise the consumed bounds and their
-decoder wiring. The source audit cannot convert an incorrect imported contract
-into a sound one.
+`SignatureDecoderSafetyTests` exercise the consumed bounds and named decoder
+outcomes. They do not claim exhaustive closure over future call sites. The
+source audit cannot convert an incorrect imported contract into a sound one.
 
 This inventory is derived from reachable source effects, not from charge sites
 that happened to execute in the corpus. The V2 census complements it with
