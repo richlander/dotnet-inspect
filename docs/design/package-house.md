@@ -72,7 +72,11 @@ consume this detached listing, request prerelease and unlisted evidence, and
 apply their existing exact NuGet match over its rows. A matching pin remains
 usable with visible partial-source diagnostics; a missing pin is not declared
 absent when a configured authority failed, except when the failure concerns
-listing state rather than version existence. Raw listing may publish
+listing state rather than version existence. Online bare `package Package
+--version` is an authoritative at-most-one-row projection over the same
+listing, preserving stable filtering, optional prerelease and unlisted rows,
+and successful empty output. It remains a listing rather than explicit
+`@latest` coordinate settlement. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
@@ -371,8 +375,16 @@ requests prerelease and unlisted rows, applies the existing exact NuGet
 release-version match over detached Content, and uses typed partial authority
 failures to distinguish unavailable version evidence from incomplete listing
 state. The direct desktop version-discovery call is retired from that exact-
-pinned path. Latest selection, range vectors and cells, offline queries, and
-payload acquisition remain outside this listing operation.
+pinned path.
+
+Online bare CLI `package Package --version` is the fourth production adopter.
+It requires authoritative Content and projects at most the first ordered row
+while preserving stable filtering, optional prerelease and unlisted rows, and
+successful empty output. This remains single-version listing rather than
+explicit `@latest` coordinate selection. The direct desktop version-discovery
+call is retired from that bare path. Latest selection, range vectors and cells,
+offline queries, and payload acquisition remain outside this listing
+operation.
 
 ## Version-population settlement
 
