@@ -105,6 +105,13 @@ public sealed partial class CompleteRestorationExecutionTests
             activated.Activation.Identity,
             activated.Workspace.Workspace);
         Assert.Single(activated.Workspace.Snapshot.Contexts);
+        Assert.Single(activated.Workspace.Contexts);
+        Assert.Same(
+            activated.Workspace.Contexts[0],
+            activated.Workspace.SelectedContext);
+        Assert.Same(
+            activated.Workspace.Snapshot.Contexts[0],
+            activated.Workspace.Contexts[0].Receipt);
         Assert.Empty(activated.Workspace.Snapshot.Scope.Packages);
         Assert.IsType<CompleteRestorationProjection.NonProjectable>(
             activated.Workspace.Projection);
@@ -1398,6 +1405,7 @@ public sealed partial class CompleteRestorationExecutionTests
                 prepared.Activation.Intent,
                 prepared.Activation.Request,
                 prepared.Activation.Workspace,
+                prepared.Activation.Contexts,
                 prepared.Activation.Snapshot,
                 prepared.Activation.Projection);
             CloseReport = await workspace.CloseAsync();
