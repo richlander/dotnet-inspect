@@ -240,7 +240,9 @@ getter with a non-indexed property without a setter and a matching private,
 readonly compiler-generated backing field. The existing whole-property
 auto-accessor proof supplies association, field-type, staticness, and
 compiler-marker checks. Its exact field definition remains the identity for
-storage flags and attributes; a same-name field cannot supply those facts.
+storage signature, flags and attributes; a same-name field cannot supply those
+facts. Required and optional custom modifiers, including nested modifiers,
+are outside the automatic-storage subset.
 Complete IL must contain only the current receiver
 load (for instance storage), one exact backing-field load, and return, with
 optional no-ops but no locals or exception regions. A generic field reference
@@ -283,6 +285,8 @@ mutable/init, computed-body and field-attribute boundaries.
 implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
 the metadata-only foreign-instantiation, mutable-storage, and same-name
 different-field-type boundaries.
+`AutomaticGetterDeclinesModifiedStorage` gates required/optional field
+modifiers at both the outer signature and the array-element boundary.
 The real-library case is `Speed=Slow` (measured 5.4 seconds in isolation),
 covered by focused pre-merge validation and daily Deep Inspect.
 The CLI four-view case also requires the original

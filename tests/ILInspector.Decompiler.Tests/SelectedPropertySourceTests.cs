@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
@@ -312,6 +314,73 @@ public sealed class SelectedPropertySourceTests
                 AssertCompiles(MemberBodyProducer.Project(type, path, pdbPath: null).Output!);
             else
                 Assert.Contains("get_Count()", result.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public void AutomaticGetterDeclinesModifiedStorage(bool required, bool nested)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"modified-storage-{Guid.NewGuid():N}.dll");
+        try
+        {
+            var assembly = new PersistedAssemblyBuilder(new AssemblyName("ModifiedStorage"), typeof(object).Assembly);
+            var module = assembly.DefineDynamicModule("ModifiedStorage");
+            var declaringType = module.DefineType("ModifiedStorage", TypeAttributes.Public);
+            Type storageType = nested ? typeof(int[]) : typeof(int);
+            Type modifier = required ? typeof(System.Runtime.CompilerServices.IsVolatile)
+                : typeof(System.Runtime.CompilerServices.IsConst);
+            var field = declaringType.DefineField(
+                "<Count>k__BackingField", storageType,
+                required ? [modifier] : null, required ? null : [modifier],
+                FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
+            var marker = new CustomAttributeBuilder(
+                typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []);
+            field.SetCustomAttribute(marker);
+            var getter = declaringType.DefineMethod(
+                "get_Count", MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig, storageType, Type.EmptyTypes);
+            getter.SetCustomAttribute(marker);
+            getter.GetILGenerator().Emit(OpCodes.Ldsfld, field);
+            getter.GetILGenerator().Emit(OpCodes.Ret);
+            declaringType.DefineProperty("Count", PropertyAttributes.None, storageType, Type.EmptyTypes)
+                .SetGetMethod(getter);
+            declaringType.CreateType();
+            assembly.Save(path);
+
+            if (nested)
+            {
+                // Reflection.Emit exposes top-level modifiers; place this one on the array element.
+                byte[] image = File.ReadAllBytes(path);
+                using var pe = new PEReader(new MemoryStream(image));
+                var reader = pe.GetMetadataReader();
+                var signatureHandle = reader.GetFieldDefinition(Assert.Single(reader.FieldDefinitions)).Signature;
+                byte[] signature = reader.GetBlobBytes(signatureHandle);
+                Assert.Equal((byte)SignatureTypeCode.SZArray, signature[^2]);
+                Assert.Equal((byte)SignatureTypeCode.Int32, signature[^1]);
+                int offset = pe.PEHeaders.MetadataStartOffset
+                    + reader.GetHeapMetadataOffset(HeapIndex.Blob) + MetadataTokens.GetHeapOffset(signatureHandle);
+                Assert.Equal(signature.Length, image[offset]);
+                image[offset + 2] = (byte)SignatureTypeCode.SZArray;
+                signature.AsSpan(1, signature.Length - 3).CopyTo(image.AsSpan(offset + 3));
+                File.WriteAllBytes(path, image);
+            }
+
+            var type = Extract(path, "ModifiedStorage");
+            var property = Assert.Single(type.Members, member => member.Kind == "property");
+            var accessor = Assert.Single(ApiMemberAccessors.Create(property, type));
+            type.Members = [accessor];
+            var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+            Assert.Contains("get_Count()", result.Text);
+            Assert.DoesNotContain("{ get; }", result.Text);
         }
         finally
         {

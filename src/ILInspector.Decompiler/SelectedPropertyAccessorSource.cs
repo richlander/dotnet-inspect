@@ -201,9 +201,10 @@ public sealed class SelectedPropertyAccessorSource
         var genericNames = type.GetGenericParameters()
             .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
             .ToImmutableArray();
+        var scope = new GenericScope(genericNames, []);
         var field = IrImporter.ResolveField(
             reader, MetadataTokens.EntityHandle((int)fieldInstruction.OperandValue),
-            new GenericScope(genericNames, []));
+            scope);
         if (field.Type.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(field.Type))
             return false;
         if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
@@ -219,6 +220,9 @@ public sealed class SelectedPropertyAccessorSource
             return false;
 
         var definition = reader.GetFieldDefinition(backingFieldHandle);
+        var fieldType = GuardedDecode.FieldType(reader, definition, scope);
+        if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers)
+            return false;
         var expected = FieldAttributes.Private | FieldAttributes.InitOnly
             | (property.IsStatic ? FieldAttributes.Static : 0);
         if (definition.Attributes != expected || definition.GetOffset() >= 0)
