@@ -38,7 +38,7 @@ public sealed class OrderedBinarySpillTests
             string output = CSharpPrinter.Print(function).Output!;
             Assert.DoesNotContain("S_", output);
             if (method == "Conditional")
-                Assert.Contains("checked { value += (choose ? unchecked(amount + 1) : (amount * 2)); }", output);
+                Assert.Contains("checked { value += choose ? unchecked(amount + 1) : amount * 2; }", output);
         }
     }
 

@@ -536,7 +536,7 @@ export interface BrowserPackageInfoMeasurements {
     readonly packageVersion: string;
     readonly compressedPackageBytes: number | null;
     readonly selectedTargetFramework: string | null;
-    readonly availableTargetFrameworkCount: number | null;
+    readonly availableTargetFrameworks: ReadonlyArray<string> | null;
     readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
     readonly selectedLibraryPayloadBytes: number | null;
     readonly selectedLibraryCount: number | null;
