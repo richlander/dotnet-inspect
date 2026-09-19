@@ -129,6 +129,7 @@ internal sealed class SelectedGetterStorage(
     {
         if (!CanBindBody(function))
             throw new InvalidOperationException("The selected getter body no longer matches its proven storage binding.");
+        function.HasAccessorStorageBinding = true;
         foreach (var load in function.Descendants.OfType<LoadField>())
             load.UsesAccessorStorage = true;
     }

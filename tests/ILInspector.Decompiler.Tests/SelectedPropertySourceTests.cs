@@ -277,6 +277,28 @@ public sealed class SelectedPropertySourceTests
         Assert.DoesNotContain("this.List", result.Text);
     }
 
+    [Theory]
+    [InlineData("FieldKeywordGetterSamples", "Value", "field.Keep(field)")]
+    [InlineData("FieldKeywordGetterSamples", "Count", "field.Keep(field)")]
+    [InlineData("FieldKeywordGetterSamples", "StaticCount", "field.Keep(field)")]
+    [InlineData("GenericFieldKeywordGetterSamples`1", "Count", "field<T>.Keep(field)")]
+    public void FieldKeywordTypeQualifierKeepsItsStaticCallTarget(
+        string typeName, string propertyName, string call)
+    {
+        foreach (bool updated in new[] { false, true })
+        {
+            string path = FixturePath(updated);
+            var (type, accessor) = Select(path,
+                $"ILInspector.Decompiler.Fixtures.FieldKeyword.{typeName}", propertyName, "get");
+            var member = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+            Assert.Equal(MemberBodyProductionStatus.Complete, member.Status);
+            Assert.Contains($"global::ILInspector.Decompiler.Fixtures.FieldKeyword.{call}", member.Text);
+            Assert.DoesNotContain($"get_{propertyName}(", member.Text);
+            string listing = MemberBodyProducer.Project(type, path, pdbPath: null).Output!;
+            AssertGetterInstructionsMatch(AssertCompiles(listing, path), path, accessor);
+        }
+    }
+
     static void AssertGetterInstructionsMatch(CSharpCompilation compilation, string path, ApiMember accessor)
     {
         using var original = new PEReader(File.OpenRead(path));
@@ -298,11 +320,21 @@ public sealed class SelectedPropertySourceTests
         Assert.Equal(originalInstructions.Instructions.Select(instruction => instruction.OpCode),
             projectedInstructions.Instructions.Select(instruction => instruction.OpCode));
         Assert.Equal(originalInstructions.Instructions
-                .Where(instruction => instruction.Operand != OperandKind.InlineField)
+                .Where(instruction => instruction.Operand is not (OperandKind.InlineField or OperandKind.InlineMethod))
                 .Select(instruction => instruction.OperandValue),
             projectedInstructions.Instructions
-                .Where(instruction => instruction.Operand != OperandKind.InlineField)
+                .Where(instruction => instruction.Operand is not (OperandKind.InlineField or OperandKind.InlineMethod))
                 .Select(instruction => instruction.OperandValue));
+        // The unchanged projection references helpers that were local to the input assembly.
+        string inputAssembly = $"[{originalReader.GetString(originalReader.GetAssemblyDefinition().Name)}]";
+        Assert.Equal(originalInstructions.Instructions
+                .Where(instruction => instruction.Operand == OperandKind.InlineMethod)
+                .Select(instruction => CanonicalIL.ResolveMethod(originalReader, (int)instruction.OperandValue)
+                    .Replace(inputAssembly, "", StringComparison.Ordinal)),
+            projectedInstructions.Instructions
+                .Where(instruction => instruction.Operand == OperandKind.InlineMethod)
+                .Select(instruction => CanonicalIL.ResolveMethod(projectedReader, (int)instruction.OperandValue)
+                    .Replace(inputAssembly, "", StringComparison.Ordinal)));
     }
 
     [Theory]

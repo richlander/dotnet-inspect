@@ -80,6 +80,8 @@ public sealed partial class CSharpPrinter
         _reservedScopeNames = reservedScopeNames is null
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
+        if (function.HasAccessorStorageBinding)
+            _reservedScopeNames.Add("field");
         _capturedScopeNames = new HashSet<string>(
             CSharpSpellability
                 .ExternalArgumentNamesInScope(

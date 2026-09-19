@@ -34,11 +34,14 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(envelope.Diagnostics);
     }
 
-    [Fact]
-    public async Task MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition()
+    [Theory]
+    [InlineData("SelectedFieldPropertySamples", "field + 1")]
+    [InlineData("FieldKeywordGetterSamples", "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)")]
+    public async Task MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition(
+        string typeName, string expression)
     {
         TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.DecompilerUnsafeLegacy);
-        var (type, property) = assembly.MemberTarget("Count", "SelectedFieldPropertySamples");
+        var (type, property) = assembly.MemberTarget("Count", typeName);
         var getter = Assert.Single(ApiMemberAccessors.Create(property, type));
         using var host = QueryHost.WithoutPdb();
         await using var workspace = new InspectionWorkspace();
@@ -49,7 +52,7 @@ public sealed partial class AssemblyContextSourceQueryTests
 
         var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
         var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
-        Assert.Contains("public int Count => field + 1;", source.Text);
+        Assert.Contains($"public int Count => {expression};", source.Text);
         Assert.DoesNotContain("get_Count()", source.Text);
         Assert.DoesNotContain("this.Count", source.Text);
         Assert.Empty(envelope.Diagnostics);

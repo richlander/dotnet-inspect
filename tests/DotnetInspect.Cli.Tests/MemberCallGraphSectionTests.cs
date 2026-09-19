@@ -1510,14 +1510,20 @@ public class MemberCallGraphSectionTests
         Assert.DoesNotContain("declaration formatting failed", result.Output);
     }
 
-    [Fact]
-    public async Task SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews()
+    [Theory]
+    [InlineData("SelectedFieldPropertySamples", "Count", "field + 1", "// IL_0007: add")]
+    [InlineData("FieldKeyword.FieldKeywordGetterSamples", "Count",
+        "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)", "// IL_0006: call")]
+    [InlineData("FieldKeyword.FieldKeywordGetterSamples", "Value",
+        "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)", "// IL_0006: call")]
+    public async Task SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews(
+        string typeName, string propertyName, string expression, string instruction)
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
-            TypeName = "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples",
+            TypeName = $"ILInspector.Decompiler.Fixtures.{typeName}",
             AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
-            MemberFilter = ["Count"],
+            MemberFilter = [propertyName],
             IncludeSections =
             [
                 SectionNames.DecompiledSource,
@@ -1531,22 +1537,26 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Equal(4, result.Output.Split("public int Count", StringSplitOptions.None).Length - 1);
-        Assert.Equal(4, result.Output.Split("field + 1", StringSplitOptions.None).Length - 1);
+        if (propertyName == "Count")
+            Assert.Equal(4, result.Output.Split("public int Count", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, result.Output.Split(expression, StringSplitOptions.None).Length - 1);
         Assert.Contains("// IL_0000: ldarg.0", result.Output);
-        Assert.Contains("// IL_0007: add", result.Output);
-        Assert.DoesNotContain("get_Count(", result.Output);
+        Assert.Contains(instruction, result.Output);
+        Assert.DoesNotContain($"get_{propertyName}(", result.Output);
         Assert.DoesNotContain("declaration formatting failed", result.Output);
     }
 
-    [Fact]
-    public async Task SelectedProperty_FieldBindingDoesNotReachBodyOnlyDocument()
+    [Theory]
+    [InlineData("SelectedFieldPropertySamples", "Count", "this.Count + 1", "field + 1")]
+    [InlineData("FieldKeyword.FieldKeywordGetterSamples", "Value", "field.Keep(this.Value)", "global::")]
+    public async Task SelectedProperty_FieldBindingDoesNotReachBodyOnlyDocument(
+        string typeName, string propertyName, string expected, string boundSpelling)
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
-            TypeName = "ILInspector.Decompiler.Fixtures.SelectedFieldPropertySamples",
+            TypeName = $"ILInspector.Decompiler.Fixtures.{typeName}",
             AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
-            MemberFilter = ["Count"],
+            MemberFilter = [propertyName],
             IncludeSections = [SectionNames.AnnotatedSourceDocument],
             JsonOutput = true,
             TipLevel = TipLevel.Quiet,
@@ -1555,8 +1565,8 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         using var document = System.Text.Json.JsonDocument.Parse(result.Output);
         string text = document.RootElement.GetProperty("text").GetString()!;
-        Assert.Contains("this.Count + 1", text);
-        Assert.DoesNotContain("field + 1", text);
+        Assert.Contains(expected, text);
+        Assert.DoesNotContain(boundSpelling, text);
     }
 
     [Fact]

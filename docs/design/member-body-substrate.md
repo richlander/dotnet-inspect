@@ -333,6 +333,10 @@ The replacement consumes no blocks, edges, or sibling methods. Every admitted
 storage read retains its typed field, receiver, and IL provenance; the shared
 composition owner materializes its accessor binding before raising. The printer
 spells the materialized binding without recognizing storage or accessor names.
+Composition also establishes the accessor's `field` binding as reserved in the
+body's lexical scope. Existing type-qualifier disambiguation must preserve a
+helper type named `field` rather than capture it as the backing value. This
+scope does not apply to independently imported body-only documents.
 Unchanged arithmetic and branches remain the responsibility of the existing
 body pipeline. Body-only documents and native projections do not opt into this
 declaration-scoped spelling.
@@ -355,6 +359,11 @@ implementation and accessor attributes exercise the supported boundary.
 `FieldGetterRequiresOnlyOrdinaryReadsOfItsOwnStorage` gates other receivers,
 addresses, volatile reads, additional fields and incompatible readonly storage.
 `FieldNamedPdbLocalRetainsMethodForm` covers the contextual-keyword collision.
+`FieldKeywordTypeQualifierKeepsItsStaticCallTarget` compiles unchanged product
+artifacts and compares resolved call targets and getter instructions. Its
+static helper has a same-named instance-method neighbor: compilation success
+alone would accept a changed callee. Integer, static-property and generic-type
+neighbors cover the adjacent qualifier forms.
 `PublishedDocoptGetterKeepsItsFieldAndNullFallback` exercises the pinned published
 `netstandard2.1` image, acquired at restore time rather than over the network
 during the test. It gates selected declaration/body spelling, not whole-type
