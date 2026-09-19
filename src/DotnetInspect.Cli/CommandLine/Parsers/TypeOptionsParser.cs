@@ -445,8 +445,8 @@ public static class TypeOptionsParser
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
 
-        bool envelopeOutput = parseResult.GetValue(opts.Envelope);
-        bool tree = parseResult.GetValue(opts.Tree);
+        bool envelopeOutput = opts.IsEnvelopeOutput(parseResult);
+        bool tree = opts.IsTreeOutput(parseResult);
         bool treeOwnsFormat =
             tree && !opts.IsFormatFlagExplicitlySet(parseResult);
         OutputFormat outputFormat =
@@ -500,8 +500,8 @@ public static class TypeOptionsParser
                 !envelopeOutput
                 && (tree || opts.IsFormatFlagExplicitlySet(parseResult)),
             Format = outputFormat,
-            MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
-            PlainText = !envelopeOutput && parseResult.GetValue(opts.PlainText),
+            MarkdownExplicitlySet = opts.IsMarkdownOutput(parseResult),
+            PlainText = !envelopeOutput && opts.IsPlainTextOutput(parseResult),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),

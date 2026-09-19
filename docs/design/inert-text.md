@@ -235,7 +235,7 @@ package-authored field through the inventory. Structurally invalid Agent Skills
 metadata still fails visibly under the existing validation rules.
 
 Every package-relative `skills/**/SKILL.md` document applies `TextPolicy.Prose`
-before link normalization and before any stdout, JSON, JSONL, or `--output`
+before link normalization and before any stdout, JSON, JSONL, or `--out`
 destination, whether reached through the skill section, `--content`, or a
 package README declaration. A document carrying a `TextConcern` is replaced as
 a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its full

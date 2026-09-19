@@ -77,6 +77,12 @@ public static class PackageChangesCommandDefinitions
         command.Options.Add(opts.Tips);
         command.Options.Add(opts.Info);
         command.Options.Add(opts.Verbosity);
+        opts.AddOutputSelectorTo(
+            command,
+            CliOutputSelection.Markdown,
+            CliOutputSelection.Json,
+            CliOutputSelection.Envelope,
+            CliOutputSelection.PlainText);
         opts.AddEnvelopeOptionTo(
             command,
             opts.Discover,
@@ -146,8 +152,8 @@ public static class PackageChangesCommandDefinitions
                     + "for package activity.");
             }
             if (IsExplicit(result, compactOption)
-                && !result.GetValue(opts.Json)
-                && !result.GetValue(opts.Envelope))
+                && !opts.IsJsonOutput(result)
+                && !opts.IsEnvelopeOutput(result))
             {
                 result.AddError(
                     "--compact requires package activity --json or --envelope.");
@@ -188,6 +194,7 @@ public static class PackageChangesCommandDefinitions
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,
+                opts.Output,
                 opts.Json,
                 opts.Markdown,
                 opts.PlainText,
@@ -230,7 +237,7 @@ public static class PackageChangesCommandDefinitions
                     out DateTimeOffset parsedThrough)
                     ? parsedThrough
                     : null;
-            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+            bool envelopeOutput = opts.IsEnvelopeOutput(parseResult);
             var options = new PackageChangesOptions
             {
                 Ecosystem = parseResult.GetValue(ecosystemOption)!,

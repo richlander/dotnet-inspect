@@ -169,7 +169,7 @@ public static class PackageCommandDefinitions
             bool hasPluralVersionSelector =
                 result.GetValue(versionsOption)
                 || result.GetValue(versionsWithFeedOption);
-            if (result.GetValue(opts.Envelope))
+            if (opts.IsEnvelopeOutput(result))
             {
                 string[] packageReferences =
                     result.GetValue(packageNameArg) ?? [];
@@ -442,6 +442,15 @@ public static class PackageCommandDefinitions
         queryCommand.Options.Add(opts.QueryHelp);
         queryCommand.Options.Add(opts.Select);
         queryCommand.Options.Add(opts.Tree);
+        opts.AddOutputSelectorTo(
+            queryCommand,
+            CliOutputSelection.Markdown,
+            CliOutputSelection.Table,
+            CliOutputSelection.Tsv,
+            CliOutputSelection.Jsonl,
+            CliOutputSelection.Json,
+            CliOutputSelection.Envelope,
+            CliOutputSelection.Tree);
         opts.AddNuGetOptionsTo(queryCommand);
         opts.AddEnvelopeOptionTo(
             queryCommand,
@@ -458,14 +467,14 @@ public static class PackageCommandDefinitions
         queryCommand.Validators.Add(result =>
         {
             if (result.GetResult(compactOption) is { Implicit: false }
-                && !result.GetValue(opts.Json)
-                && !result.GetValue(opts.Envelope))
+                && !opts.IsJsonOutput(result)
+                && !opts.IsEnvelopeOutput(result))
             {
                 result.AddError(
                     "--compact requires package query --json or --envelope.");
             }
-            if (result.GetValue(opts.Json)
-                && result.GetValue(opts.Tree)
+            if (opts.IsJsonOutput(result)
+                && opts.IsTreeOutput(result)
                 && result.GetResult(opts.Discover) is not { Implicit: false })
             {
                 result.AddError(
@@ -478,6 +487,7 @@ public static class PackageCommandDefinitions
             var acceptedParentOptions = new HashSet<Option>
             {
                 opts.Envelope,
+                opts.Output,
                 opts.Json,
                 opts.Markdown,
                 opts.Table,
@@ -539,13 +549,13 @@ public static class PackageCommandDefinitions
             }
 
             string[]? discover = opts.ParseDiscover(parseResult);
-            bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+            bool envelopeOutput = opts.IsEnvelopeOutput(parseResult);
             OutputFormat format =
                 envelopeOutput
                     ? OutputFormat.Json
                     : opts.ResolveFormat(parseResult);
             if (format == OutputFormat.Json
-                && parseResult.GetValue(opts.Tree)
+                && opts.IsTreeOutput(parseResult)
                 && discover is null)
             {
                 CommandError.Write(

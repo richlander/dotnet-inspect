@@ -587,7 +587,7 @@ public static class ArgumentPreprocessor
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
         "--metadata-root", "--extract-resources", "--version",
-        "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
+        "--out", "--output-file", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",

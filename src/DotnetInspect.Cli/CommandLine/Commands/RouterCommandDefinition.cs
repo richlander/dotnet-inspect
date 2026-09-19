@@ -449,6 +449,7 @@ public static class RouterCommandDefinition
             opts.Discover,
             opts.Select,
             opts.QueryHelp,
+            opts.Output,
             opts.Tree,
             opts.Json,
             opts.Tsv,

@@ -241,7 +241,7 @@ public static class WorkspaceCommandDefinitions
                     ReplacePackage = parseResult.GetValue(replacePackageOption),
                     ReplacementVersion = parseResult.GetValue(replacementVersionOption),
                     ReplacementTfm = parseResult.GetValue(replacementTfmOption),
-                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                    EnvelopeOutput = opts.IsEnvelopeOutput(parseResult),
                     OrderedRegistrations = orderedRegistrations,
                     RegisteredLibraries =
                         parseResult.GetValue(registerLibraryOption) ?? [],

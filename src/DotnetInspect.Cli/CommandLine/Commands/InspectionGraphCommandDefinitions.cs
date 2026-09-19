@@ -109,19 +109,19 @@ public static class InspectionGraphCommandDefinitions
             {
                 result.AddError("--max-nodes must be positive.");
             }
-            if (result.GetValue(opts.Tree)
-                && result.GetValue(opts.Mermaid))
+            if (opts.IsTreeOutput(result)
+                && opts.IsMermaidOutput(result))
             {
                 result.AddError(
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
-            if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+            if (opts.IsTreeOutput(result)
+                && (opts.IsJsonOutput(result)
+                    || opts.IsMarkdownOutput(result)
+                    || opts.IsPlainTextOutput(result)
+                    || opts.IsTableOutput(result)
+                    || opts.IsTsvOutput(result)
+                    || opts.IsJsonlOutput(result)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {
@@ -191,7 +191,7 @@ public static class InspectionGraphCommandDefinitions
                     Format = opts.ResolveFormat(parseResult),
                     EmbeddedMermaid =
                         opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
+                    Tree = opts.IsTreeOutput(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     RowSelection = rowSelection,
                     Rows = rowSelection is null
@@ -362,19 +362,19 @@ public static class InspectionGraphCommandDefinitions
                 result.AddError(
                     $"--relationship requires a relationship id before '{missingRelationshipValue}'.");
             }
-            if (result.GetValue(opts.Tree)
-                && result.GetValue(opts.Mermaid))
+            if (opts.IsTreeOutput(result)
+                && opts.IsMermaidOutput(result))
             {
                 result.AddError(
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
-            if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+            if (opts.IsTreeOutput(result)
+                && (opts.IsJsonOutput(result)
+                    || opts.IsMarkdownOutput(result)
+                    || opts.IsPlainTextOutput(result)
+                    || opts.IsTableOutput(result)
+                    || opts.IsTsvOutput(result)
+                    || opts.IsJsonlOutput(result)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {
@@ -426,7 +426,7 @@ public static class InspectionGraphCommandDefinitions
                     Format = format,
                     EmbeddedMermaid =
                         opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
+                    Tree = opts.IsTreeOutput(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     RowSelection = rowSelection,
                     Rows = rowSelection is null

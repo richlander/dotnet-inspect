@@ -109,7 +109,7 @@ public static class DiffOptionsParser
         if (memberFilterValues?.Length > 0)
             memberFilter = new HashSet<string>(memberFilterValues, StringComparer.OrdinalIgnoreCase);
 
-        bool envelopeOutput = parseResult.GetValue(opts.Envelope);
+        bool envelopeOutput = opts.IsEnvelopeOutput(parseResult);
         var options = new DiffOptions
         {
             PackageVersionRange = packageVersionRange,
@@ -148,7 +148,7 @@ public static class DiffOptionsParser
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Schema = opts.ParseSchema(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
+            Tree = opts.IsTreeOutput(parseResult),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),

@@ -166,7 +166,7 @@ public partial class CommandExecutionTests
                 "-S",
                 "Package files",
                 "--paths",
-                "-o=-1",
+                "--output-file=-1",
                 "--lines",
                 "-1",
                 "--tips",
@@ -2503,12 +2503,38 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "--path", "@readme", "--content", "--bare",
-                "--output", outputPath);
+                "--output-file", outputPath);
 
             Assert.Equal(0, exit);
             Assert.Empty(output);
             Assert.Empty(error);
             Assert.Equal(readme, File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OutputLongNameSelectsMarkdownInsteadOfDestination()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Output.Selector",
+            "README.md",
+            "selector-output");
+        try
+        {
+            var (exit, output, error) = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath,
+                "-S", "Package README file", "--print", "--bare",
+                "--output", "markdown");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("selector-output", output);
+            Assert.Empty(error);
+            Assert.False(File.Exists(Path.Combine(tempDir, "markdown")));
         }
         finally
         {

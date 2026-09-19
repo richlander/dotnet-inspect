@@ -91,11 +91,9 @@ public class CommandLineTests
 
     [Theory]
     [InlineData("package", "Newtonsoft.Json", "--out")]
-    [InlineData("package", "Newtonsoft.Json", "--output")]
-    [InlineData("package", "Newtonsoft.Json", "-o")]
+    [InlineData("package", "Newtonsoft.Json", "--output-file")]
     [InlineData("project", ".", "--out")]
-    [InlineData("project", ".", "--output")]
-    [InlineData("project", ".", "-o")]
+    [InlineData("project", ".", "--output-file")]
     public void ProjectionOutputPath_RejectsExplicitEmptyValues(
         string command,
         string target,
@@ -603,6 +601,126 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    [InlineData("jsonl")]
+    [InlineData("json")]
+    [InlineData("envelope")]
+    [InlineData("plaintext")]
+    [InlineData("mermaid")]
+    [InlineData("tree")]
+    [InlineData("JsOnL")]
+    public void OutputSelector_AcceptsSupportedValuesCaseInsensitively(
+        string output)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "--output", output]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void OutputSelector_RequiresAKnownValue()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var missing = root.Parse(["depends", "System.Int128", "-o"]);
+        var unknown = root.Parse(
+            ["depends", "System.Int128", "-o", "yaml"]);
+
+        Assert.NotEmpty(missing.Errors);
+        Assert.Contains(
+            unknown.Errors,
+            error => error.Message.Contains(
+                "yaml",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            unknown.Errors,
+            error => error.Message.Contains(
+                "markdown",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void OutputSelector_SpecialCommandsDeclareExactCapabilities()
+    {
+        string[][] supported =
+        [
+            ["package", "activity", "--ecosystem", "aspire", "-o", "envelope"],
+            ["package", "query", "System.Text.*", "-o", "tree"],
+            ["skill", "list", "-o", "tsv"],
+            ["demo", "list", "-o", "mermaid"],
+        ];
+        string[][] unsupported =
+        [
+            ["package", "activity", "--ecosystem", "aspire", "-o", "table"],
+            ["package", "query", "System.Text.*", "-o", "plaintext"],
+            ["skill", "list", "-o", "plaintext"],
+        ];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.All(
+            supported,
+            args => Assert.Empty(root.Parse(args).Errors));
+        Assert.All(
+            unsupported,
+            args => Assert.Contains(
+                root.Parse(args).Errors,
+                error => error.Message.Contains(
+                    "does not support",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void OutputSelector_RejectsUnsupportedCommandValue()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["cache", "-o", "envelope"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains(
+            "cache does not support '-o envelope'",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OutputSelector_AllowsMatchingLongAlias()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "-o", "json", "--json"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void OutputSelector_RejectsCompetingLongAlias()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "-o", "json", "--table"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains(
+            "-o json cannot be combined with --table",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("markdown", "--mermaid")]
+    [InlineData("mermaid", "--markdown")]
+    public void OutputSelector_PreservesEmbeddedMermaidComposition(
+        string output,
+        string companion)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "-o", output, companion]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
@@ -1007,9 +1125,11 @@ public class CommandLineTests
     [Theory]
     [InlineData("--out=-1")]
     [InlineData("--out:-1")]
-    [InlineData("-o=-1")]
-    [InlineData("-o:-1")]
-    [InlineData("-o-1")]
+    [InlineData("--output-file=-1")]
+    [InlineData("--output-file:-1")]
+    [InlineData("-o=json")]
+    [InlineData("-o:json")]
+    [InlineData("-ojson")]
     public void PreprocessArgs_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
         string output)
     {
@@ -1112,6 +1232,7 @@ public class CommandLineTests
 
     [Theory]
     [InlineData("--out", "-n1")]
+    [InlineData("--output-file", "-n1")]
     [InlineData("--output", "-n1")]
     [InlineData("-o", "-n1")]
     [InlineData("--nugetconfig", "-n1")]

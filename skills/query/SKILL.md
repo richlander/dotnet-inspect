@@ -26,7 +26,9 @@ dnx dotnet-inspect -y -- <command>
 
 ## Output formats
 
-Default output is Markdown. Pick a machine or compact shape when you need one:
+Default output is Markdown. Use `-o` / `--output` with `markdown`, `table`,
+`tsv`, `jsonl`, `json`, `envelope`, `plaintext`, `mermaid`, or `tree` when the
+active command supports that operation. The readable long flags remain aliases:
 
 - `--table` — compact aligned rows.
 - `--tsv` — stable snake_case headers, no embedded tabs/newlines.
@@ -40,6 +42,9 @@ Default output is Markdown. Pick a machine or compact shape when you need one:
 - `--tree` — a standalone tree for graph sections that support tree lowering.
 - `--mermaid` — a standalone diagram; combine it with `--markdown` to embed
   the diagram in a Markdown document.
+
+Write the selected output to a file with `--out` or `--output-file`; omit the
+destination to use stdout.
 
 `--envelope` normally implies JSON and emits the complete service value with
 `schema_version`, `result_kind`, `content`, `share`, and `diagnostics`.

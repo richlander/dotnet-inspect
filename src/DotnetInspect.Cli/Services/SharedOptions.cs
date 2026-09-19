@@ -13,7 +13,26 @@ namespace DotnetInspect.Cli.Services;
 /// </summary>
 public class SharedOptions
 {
+    private static readonly string[] OutputSelectionValues =
+    [
+        "markdown",
+        "table",
+        "tsv",
+        "jsonl",
+        "json",
+        "envelope",
+        "plaintext",
+        "mermaid",
+        "tree",
+    ];
+
     // Output format options
+    public Option<string?> Output { get; } = new("-o")
+    {
+        Description =
+            "Select output: markdown, table, tsv, jsonl, json, envelope, plaintext, mermaid, or tree",
+        Arity = ArgumentArity.ExactlyOne,
+    };
     public Option<bool> Json { get; } = new("--json") { Description = "Output as JSON" };
     public Option<bool> Envelope { get; } = new("--envelope")
     {
@@ -122,6 +141,11 @@ public class SharedOptions
 
     public SharedOptions()
     {
+        Output.Aliases.Add("--output");
+        CliOptionValueValidation.AcceptOnlyFromAmong(
+            Output,
+            StringComparer.OrdinalIgnoreCase,
+            OutputSelectionValues);
         CliOptionValueValidation.AcceptOnlyFromAmong(
             Verbosity,
             StringComparer.OrdinalIgnoreCase,
@@ -226,8 +250,7 @@ public class SharedOptions
         {
             Description = "Write output to file instead of stdout"
         };
-        option.Aliases.Add("--output");
-        option.Aliases.Add("-o");
+        option.Aliases.Add("--output-file");
         return option;
     }
 
@@ -304,6 +327,7 @@ public class SharedOptions
         bool supportsRowWindows = true,
         Func<CommandResult, bool>? validateLegacyRowWindow = null)
     {
+        AddOutputSelectorTo(command);
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
         command.Options.Add(Tips);
@@ -474,6 +498,45 @@ public class SharedOptions
         command.Options.Add(Json);
     }
 
+    internal void AddOutputSelectorTo(
+        Command command,
+        params CliOutputSelection[] supportedSelections)
+    {
+        if (command.Options.Contains(Output))
+            return;
+
+        command.Options.Add(Output);
+        var declaredSelections =
+            supportedSelections.Length == 0
+                ? null
+                : new HashSet<CliOutputSelection>(supportedSelections);
+        command.Validators.Add(result =>
+        {
+            string? value = GetOutputSelectionValue(result);
+            if (!TryParseOutputSelection(
+                    value,
+                    out CliOutputSelection selection))
+            {
+                return;
+            }
+
+            if (!SupportsOutput(
+                    command,
+                    selection,
+                    declaredSelections))
+            {
+                result.AddError(
+                    $"{command.Name} does not support '-o "
+                    + $"{OutputSelectionName(selection)}'.");
+                return;
+            }
+
+            ValidateOutputSelectionAliases(
+                result,
+                selection);
+        });
+    }
+
     public void AddEnvelopeOptionTo(Command command, params Option[] incompatibleOptions)
     {
         command.Options.Add(Envelope);
@@ -486,7 +549,7 @@ public class SharedOptions
         ];
         command.Validators.Add(result =>
         {
-            if (!result.GetValue(Envelope))
+            if (!IsEnvelopeOutput(result))
                 return;
 
             foreach (Option option in presentationOptions)
@@ -699,13 +762,13 @@ public class SharedOptions
     /// </summary>
     public OutputFormat ResolveFormat(ParseResult parseResult, OutputFormat defaultFormat = OutputFormat.Markdown)
     {
-        bool jsonFlag = parseResult.GetValue(Json);
-        bool markdownFlag = parseResult.GetValue(Markdown);
-        bool plainTextFlag = parseResult.GetValue(PlainText);
-        bool mermaidFlag = parseResult.GetValue(Mermaid);
-        bool tableFlag = IsExplicitTrue(parseResult, Table);
-        bool tsvFlag = IsExplicitTrue(parseResult, Tsv);
-        bool jsonlFlag = IsExplicitTrue(parseResult, Jsonl);
+        bool jsonFlag = IsJsonOutput(parseResult);
+        bool markdownFlag = IsMarkdownOutput(parseResult);
+        bool plainTextFlag = IsPlainTextOutput(parseResult);
+        bool mermaidFlag = IsMermaidOutput(parseResult);
+        bool tableFlag = IsTableOutput(parseResult);
+        bool tsvFlag = IsTsvOutput(parseResult);
+        bool jsonlFlag = IsJsonlOutput(parseResult);
         bool hasVerbosity = parseResult.GetResult(Verbosity) is { Implicit: false };
         Verbosity? verbosity = hasVerbosity ? ParseVerbosity(parseResult) : null;
         ValidateRendererFlags(jsonFlag, markdownFlag, plainTextFlag, mermaidFlag, tableFlag || tsvFlag || jsonlFlag, hasVerbosity);
@@ -726,14 +789,16 @@ public class SharedOptions
         (resolveOutputFormat is null
             ? ResolveFormat(parseResult)
             : resolveOutputFormat(parseResult)) == OutputFormat.Json
-        || IsExplicitTrue(parseResult, Envelope)
+        || IsEnvelopeOutput(parseResult)
         || IsExplicitTrue(parseResult, JsonArray);
 
     /// <summary>
     /// Returns true when --mermaid is combined with --markdown (embedded mermaid in markdown).
     /// </summary>
     public bool IsEmbeddedMermaid(ParseResult parseResult)
-        => OutputFormatResolver.IsEmbeddedMermaid(parseResult.GetValue(Markdown), parseResult.GetValue(Mermaid));
+        => OutputFormatResolver.IsEmbeddedMermaid(
+            IsMarkdownOutput(parseResult),
+            IsMermaidOutput(parseResult));
 
     /// <summary>
     /// Resolves whether tabular output should be used, considering --table, --tsv, and --jsonl.
@@ -768,10 +833,10 @@ public class SharedOptions
     public bool IsFormatFlagExplicitlySet(ParseResult parseResult)
     {
         if (IsTableFlagExplicitlySet(parseResult)) return true;
-        if (IsExplicitTrue(parseResult, Json)) return true;
-        if (IsExplicitTrue(parseResult, Markdown)) return true;
-        if (IsExplicitTrue(parseResult, PlainText)) return true;
-        if (IsExplicitTrue(parseResult, Mermaid)) return true;
+        if (IsJsonOutput(parseResult)) return true;
+        if (IsMarkdownOutput(parseResult)) return true;
+        if (IsPlainTextOutput(parseResult)) return true;
+        if (IsMermaidOutput(parseResult)) return true;
         if (IsExplicitTrue(parseResult, Bare)) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
         return false;
@@ -783,19 +848,19 @@ public class SharedOptions
             && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl);
 
     public bool IsTableFlagExplicitlySet(ParseResult parseResult) =>
-        IsExplicitTrue(parseResult, Table)
-        || IsExplicitTrue(parseResult, Tsv)
-        || IsExplicitTrue(parseResult, Jsonl);
+        IsTableOutput(parseResult)
+        || IsTsvOutput(parseResult)
+        || IsJsonlOutput(parseResult);
 
     internal bool IsTableOrTsvOutput(CommandResult result)
     {
-        if (IsExplicitTrue(result, Table)
-            || IsExplicitTrue(result, Tsv))
+        if (IsTableOutput(result)
+            || IsTsvOutput(result))
         {
             return true;
         }
 
-        if (IsExplicitTrue(result, Jsonl)
+        if (IsJsonlOutput(result)
             || IsNonTabularFormatExplicitlySet(result))
         {
             return false;
@@ -859,7 +924,79 @@ public class SharedOptions
     public bool IsDiscoveryMode(ParseResult parseResult)
         => parseResult.GetResult(Discover) is { Implicit: false };
 
-    public bool ParseTree(ParseResult parseResult) => parseResult.GetValue(Tree);
+    public bool ParseTree(ParseResult parseResult) => IsTreeOutput(parseResult);
+
+    public bool IsEnvelopeOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Envelope)
+        || IsOutputSelection(parseResult, CliOutputSelection.Envelope);
+
+    public bool IsEnvelopeOutput(CommandResult result) =>
+        IsExplicitTrue(result, Envelope)
+        || IsOutputSelection(result, CliOutputSelection.Envelope);
+
+    public bool IsTreeOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Tree)
+        || IsOutputSelection(parseResult, CliOutputSelection.Tree);
+
+    public bool IsTreeOutput(CommandResult result) =>
+        IsExplicitTrue(result, Tree)
+        || IsOutputSelection(result, CliOutputSelection.Tree);
+
+    public bool IsJsonOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Json)
+        || IsOutputSelection(parseResult, CliOutputSelection.Json);
+
+    public bool IsJsonOutput(CommandResult result) =>
+        IsExplicitTrue(result, Json)
+        || IsOutputSelection(result, CliOutputSelection.Json);
+
+    public bool IsMarkdownOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Markdown)
+        || IsOutputSelection(parseResult, CliOutputSelection.Markdown);
+
+    public bool IsMarkdownOutput(CommandResult result) =>
+        IsExplicitTrue(result, Markdown)
+        || IsOutputSelection(result, CliOutputSelection.Markdown);
+
+    public bool IsPlainTextOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, PlainText)
+        || IsOutputSelection(parseResult, CliOutputSelection.PlainText);
+
+    public bool IsPlainTextOutput(CommandResult result) =>
+        IsExplicitTrue(result, PlainText)
+        || IsOutputSelection(result, CliOutputSelection.PlainText);
+
+    public bool IsMermaidOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Mermaid)
+        || IsOutputSelection(parseResult, CliOutputSelection.Mermaid);
+
+    public bool IsMermaidOutput(CommandResult result) =>
+        IsExplicitTrue(result, Mermaid)
+        || IsOutputSelection(result, CliOutputSelection.Mermaid);
+
+    public bool IsTableOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Table)
+        || IsOutputSelection(parseResult, CliOutputSelection.Table);
+
+    public bool IsTableOutput(CommandResult result) =>
+        IsExplicitTrue(result, Table)
+        || IsOutputSelection(result, CliOutputSelection.Table);
+
+    public bool IsTsvOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Tsv)
+        || IsOutputSelection(parseResult, CliOutputSelection.Tsv);
+
+    public bool IsTsvOutput(CommandResult result) =>
+        IsExplicitTrue(result, Tsv)
+        || IsOutputSelection(result, CliOutputSelection.Tsv);
+
+    public bool IsJsonlOutput(ParseResult parseResult) =>
+        IsExplicitTrue(parseResult, Jsonl)
+        || IsOutputSelection(parseResult, CliOutputSelection.Jsonl);
+
+    public bool IsJsonlOutput(CommandResult result) =>
+        IsExplicitTrue(result, Jsonl)
+        || IsOutputSelection(result, CliOutputSelection.Jsonl);
 
     /// <summary>
     /// Resolves static discovery. <c>--schema</c> opts out of effective discovery.
@@ -919,18 +1056,18 @@ public class SharedOptions
         IsExplicit(result, option) && result.GetValue(option);
 
     private bool IsNonTabularFormatExplicitlySet(ParseResult parseResult) =>
-        IsExplicitTrue(parseResult, Json)
-        || IsExplicitTrue(parseResult, Markdown)
-        || IsExplicitTrue(parseResult, PlainText)
-        || IsExplicitTrue(parseResult, Mermaid)
+        IsJsonOutput(parseResult)
+        || IsMarkdownOutput(parseResult)
+        || IsPlainTextOutput(parseResult)
+        || IsMermaidOutput(parseResult)
         || IsExplicitTrue(parseResult, Bare)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
 
     private bool IsNonTabularFormatExplicitlySet(CommandResult result) =>
-        IsExplicitTrue(result, Json)
-        || IsExplicitTrue(result, Markdown)
-        || IsExplicitTrue(result, PlainText)
-        || IsExplicitTrue(result, Mermaid)
+        IsJsonOutput(result)
+        || IsMarkdownOutput(result)
+        || IsPlainTextOutput(result)
+        || IsMermaidOutput(result)
         || IsExplicitTrue(result, Bare)
         || result.GetResult(Verbosity) is { Implicit: false };
 
@@ -942,6 +1079,161 @@ public class SharedOptions
         && !explicitNonTabularFormat
         && IsExplicitTrue(parseResult, Bare)
         && OutputFormatResolver.GetEnvironmentOverride() is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl;
+
+    private static bool SupportsOutput(
+        Command command,
+        CliOutputSelection selection,
+        IReadOnlySet<CliOutputSelection>? declaredSelections)
+    {
+        if (declaredSelections is not null)
+            return declaredSelections.Contains(selection);
+
+        if (selection == CliOutputSelection.Markdown)
+            return true;
+
+        Option? requiredOption = selection switch
+        {
+            CliOutputSelection.Table => FindOption(command, "--table"),
+            CliOutputSelection.Tsv => FindOption(command, "--tsv"),
+            CliOutputSelection.Jsonl => FindOption(command, "--jsonl"),
+            CliOutputSelection.Json => FindOption(command, "--json"),
+            CliOutputSelection.Envelope => FindOption(command, "--envelope"),
+            CliOutputSelection.PlainText => FindOption(command, "--plaintext"),
+            CliOutputSelection.Mermaid => FindOption(command, "--mermaid"),
+            CliOutputSelection.Tree => FindOption(command, "--tree"),
+            _ => null,
+        };
+        return requiredOption is not null;
+    }
+
+    private static Option? FindOption(
+        Command command,
+        string alias) =>
+        command.Options.FirstOrDefault(
+            option =>
+                option.Name == alias
+                || option.Aliases.Contains(alias));
+
+    private void ValidateOutputSelectionAliases(
+        CommandResult result,
+        CliOutputSelection selection)
+    {
+        (CliOutputSelection Selection, Option<bool> Option)[] aliases =
+        [
+            (CliOutputSelection.Json, Json),
+            (CliOutputSelection.Markdown, Markdown),
+            (CliOutputSelection.PlainText, PlainText),
+            (CliOutputSelection.Mermaid, Mermaid),
+            (CliOutputSelection.Table, Table),
+            (CliOutputSelection.Tsv, Tsv),
+            (CliOutputSelection.Jsonl, Jsonl),
+            (CliOutputSelection.Tree, Tree),
+            (CliOutputSelection.Envelope, Envelope),
+        ];
+        foreach ((CliOutputSelection aliasSelection, Option<bool> option) in aliases)
+        {
+            if (!IsExplicitTrue(result, option)
+                || aliasSelection == selection
+                || IsEmbeddedMermaidPair(
+                    selection,
+                    aliasSelection))
+            {
+                continue;
+            }
+
+            result.AddError(
+                $"-o {OutputSelectionName(selection)} cannot be combined with "
+                + $"{option.Name}.");
+            return;
+        }
+
+        if (selection != CliOutputSelection.Markdown
+            && result.GetResult(Verbosity) is { Implicit: false })
+        {
+            result.AddError(
+                $"-o {OutputSelectionName(selection)} cannot be combined with -v.");
+        }
+    }
+
+    private static bool IsEmbeddedMermaidPair(
+        CliOutputSelection left,
+        CliOutputSelection right) =>
+        (left is CliOutputSelection.Markdown or CliOutputSelection.Mermaid)
+        && (right is CliOutputSelection.Markdown or CliOutputSelection.Mermaid);
+
+    private bool IsOutputSelection(
+        ParseResult parseResult,
+        CliOutputSelection selection) =>
+        TryParseOutputSelection(
+            GetOutputSelectionValue(parseResult),
+            out CliOutputSelection parsed)
+        && parsed == selection;
+
+    private bool IsOutputSelection(
+        CommandResult result,
+        CliOutputSelection selection) =>
+        TryParseOutputSelection(
+            GetOutputSelectionValue(result),
+            out CliOutputSelection parsed)
+        && parsed == selection;
+
+    private string? GetOutputSelectionValue(ParseResult parseResult)
+    {
+        OptionResult? output = parseResult.GetResult(Output);
+        return output is { Tokens: [{ Value: string value }] }
+            && !output.Errors.Any()
+                ? value
+                : null;
+    }
+
+    private string? GetOutputSelectionValue(CommandResult result)
+    {
+        OptionResult? output = result.GetResult(Output);
+        return output is { Tokens: [{ Value: string value }] }
+            && !output.Errors.Any()
+                ? value
+                : null;
+    }
+
+    private static bool TryParseOutputSelection(
+        string? value,
+        out CliOutputSelection selection)
+    {
+        selection = value?.ToLowerInvariant() switch
+        {
+            "markdown" => CliOutputSelection.Markdown,
+            "table" => CliOutputSelection.Table,
+            "tsv" => CliOutputSelection.Tsv,
+            "jsonl" => CliOutputSelection.Jsonl,
+            "json" => CliOutputSelection.Json,
+            "envelope" => CliOutputSelection.Envelope,
+            "plaintext" => CliOutputSelection.PlainText,
+            "mermaid" => CliOutputSelection.Mermaid,
+            "tree" => CliOutputSelection.Tree,
+            _ => default,
+        };
+        return value is not null
+            && OutputSelectionValues.Contains(
+                value,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string OutputSelectionName(
+        CliOutputSelection selection) =>
+        selection switch
+        {
+            CliOutputSelection.Markdown => "markdown",
+            CliOutputSelection.Table => "table",
+            CliOutputSelection.Tsv => "tsv",
+            CliOutputSelection.Jsonl => "jsonl",
+            CliOutputSelection.Json => "json",
+            CliOutputSelection.Envelope => "envelope",
+            CliOutputSelection.PlainText => "plaintext",
+            CliOutputSelection.Mermaid => "mermaid",
+            CliOutputSelection.Tree => "tree",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(selection)),
+        };
 
     private static readonly char[] ListSeparators = [',', ';'];
 

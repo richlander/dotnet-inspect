@@ -176,6 +176,13 @@ public static class UtilityCommandDefinitions
         var listCommand = new Command("list", "List available focused skills");
         listCommand.Options.Add(opts.Json);
         opts.AddTableOptionsTo(listCommand);
+        opts.AddOutputSelectorTo(
+            listCommand,
+            CliOutputSelection.Markdown,
+            CliOutputSelection.Table,
+            CliOutputSelection.Tsv,
+            CliOutputSelection.Jsonl,
+            CliOutputSelection.Json);
         opts.AddLineSelectionOptionsTo(
             listCommand,
             limit: skillLineLimit);
@@ -231,6 +238,15 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.PlainText);
         demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
+        opts.AddOutputSelectorTo(
+            demoCommand,
+            CliOutputSelection.Markdown,
+            CliOutputSelection.Table,
+            CliOutputSelection.Tsv,
+            CliOutputSelection.Jsonl,
+            CliOutputSelection.Json,
+            CliOutputSelection.PlainText,
+            CliOutputSelection.Mermaid);
         demoCommand.Options.Add(limitOption);
         demoCommand.Options.Add(rowsOption);
         demoCommand.Options.Add(opts.Head);
@@ -245,6 +261,15 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.Markdown);
         listCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(listCommand);
+        opts.AddOutputSelectorTo(
+            listCommand,
+            CliOutputSelection.Markdown,
+            CliOutputSelection.Table,
+            CliOutputSelection.Tsv,
+            CliOutputSelection.Jsonl,
+            CliOutputSelection.Json,
+            CliOutputSelection.PlainText,
+            CliOutputSelection.Mermaid);
         listCommand.Options.Add(limitOption);
         listCommand.Options.Add(rowsOption);
         listCommand.Options.Add(opts.Head);
@@ -344,7 +369,7 @@ public static class UtilityCommandDefinitions
 
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
-            var mermaid = parseResult.GetValue(opts.Mermaid);
+            var mermaid = opts.IsMermaidOutput(parseResult);
             return DemoCommand.ExecuteList(
                 format,
                 noHeader,
@@ -362,7 +387,7 @@ public static class UtilityCommandDefinitions
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
-            var mermaid = parseResult.GetValue(opts.Mermaid);
+            var mermaid = opts.IsMermaidOutput(parseResult);
             var scenario = parseResult.GetValue(scenarioArg);
             if (IsDemoListMode(scenario))
             {
@@ -429,13 +454,13 @@ public static class UtilityCommandDefinitions
     /// </summary>
     private static int? RejectInvalidDemoMermaidFlags(SharedOptions opts, ParseResult parseResult)
     {
-        var mermaid = parseResult.GetValue(opts.Mermaid);
-        var markdown = parseResult.GetValue(opts.Markdown);
-        var json = parseResult.GetValue(opts.Json);
-        var plainText = parseResult.GetValue(opts.PlainText);
-        var tabular = parseResult.GetValue(opts.Table)
-            || parseResult.GetValue(opts.Tsv)
-            || parseResult.GetValue(opts.Jsonl);
+        var mermaid = opts.IsMermaidOutput(parseResult);
+        var markdown = opts.IsMarkdownOutput(parseResult);
+        var json = opts.IsJsonOutput(parseResult);
+        var plainText = opts.IsPlainTextOutput(parseResult);
+        var tabular = opts.IsTableOutput(parseResult)
+            || opts.IsTsvOutput(parseResult)
+            || opts.IsJsonlOutput(parseResult);
         if (!DemoCommand.TryValidateMermaidCombinations(
                 mermaid, markdown, json, plainText, tabular, out var comboError))
         {

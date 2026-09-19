@@ -22,6 +22,8 @@ focused-owner gaps; it defines no product syntax, behavior, or gates.
 
 Related docs:
 
+- [CLI output selection](cli-output-selection.md) — common `-o`/`--output`
+  grammar and destination separation
 - [Output style guide](style-guide.md#machine-names-and-identifiers) — machine
   property and semantic identifier naming
 - [Output composition model](output-composition.md) — section selection, filtering, and writer capabilities

@@ -4360,7 +4360,7 @@ public partial class CommandExecutionTests
             "must-not-reach-stdout");
         try
         {
-            foreach (string option in new[] { "--out", "--output", "-o" })
+            foreach (string option in new[] { "--out", "--output-file" })
             {
                 foreach (string[] prefix in new[]
                 {

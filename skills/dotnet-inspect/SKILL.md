@@ -35,7 +35,7 @@ Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"
 
 ## Tips
 
-- `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for selection, envelopes, Share URLs, projection, and limits.
+- `package` and `library` produce terse, token-efficient, high-value domain content by default. Use `-o` / `--output` for supported named output operations and `--out` / `--output-file` only for file destination; load `dotnet-inspect skill query` for values, envelopes, Share URLs, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - `workspace` reports committed Packages before inert Exact Library, Package Prefix, and Ecosystem registrations; JSON/JSONL retain typed entry arms. It never selects an occurrence implicitly. Copy a Library asset ID, Type full name, and optional Member stable selector from direct `workspace --active-package N`, then add `--lens type.*` or `--lens member.*` for one exact stateless descendant request. Selector failures remain structured; JSON/JSONL retain Library asset ancestry and Member containing-versus-declaring Type joins. Packet input supports inventory, resource-free `--share` re-emission, or explicit `--replace-package` transformation, not noun-selector refinement.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.

@@ -242,25 +242,38 @@ public partial class CommandExecutionTests
             "--rows", "2..3", "--tips", "q",
         ];
         var count = await RunAppAsync([.. window, "--count"]);
-        var table = await RunAppAsync([.. window, "--table"]);
-        var tsv = await RunAppAsync([.. window, "--tsv"]);
-        var jsonl = await RunAppAsync([.. window, "--jsonl"]);
-        var json = await RunAppAsync([.. window, "--json"]);
-        var mermaid = await RunAppAsync([.. window, "--mermaid"]);
+        var markdown = await AssertSelectorParity("--markdown", "markdown");
+        var table = await AssertSelectorParity("--table", "table");
+        var tsv = await AssertSelectorParity("--tsv", "tsv");
+        var jsonl = await AssertSelectorParity("--jsonl", "jsonl");
+        var json = await AssertSelectorParity("--json", "json");
+        var envelope = await AssertSelectorParity("--envelope", "envelope");
+        var plaintext = await AssertSelectorParity("--plaintext", "plaintext");
+        var mermaid = await AssertSelectorParity("--mermaid", "mermaid");
+        var embeddedMermaid = await RunAppAsync(
+            [.. window, "-o", "markdown", "--mermaid"]);
+        var embeddedMermaidAlias = await RunAppAsync(
+            [.. window, "--markdown", "--mermaid"]);
 
         foreach (var result in new[]
                  {
                      count,
+                     markdown,
                      table,
                      tsv,
                      jsonl,
                      json,
+                     envelope,
+                     plaintext,
                      mermaid,
+                     embeddedMermaid,
+                     embeddedMermaidAlias,
                  })
         {
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
         }
+        Assert.Equal(embeddedMermaidAlias, embeddedMermaid);
 
         Assert.Equal("2", count.Output.Trim());
         Assert.Equal(3, NonEmptyLineCount(table.Output));
@@ -283,6 +296,17 @@ public partial class CommandExecutionTests
             value.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries).Length;
+
+        async Task<(int Exit, string Output, string Error)> AssertSelectorParity(
+            string alias,
+            string selection)
+        {
+            var longForm = await RunAppAsync([.. window, alias]);
+            var selector = await RunAppAsync(
+                [.. window, "-o", selection]);
+            Assert.Equal(longForm, selector);
+            return longForm;
+        }
     }
 
     [Fact]
@@ -406,15 +430,19 @@ public partial class CommandExecutionTests
             Environment.SetEnvironmentVariable(
                 "DOTNET_INSPECT_FORMAT",
                 "json");
-            var (exit, output, error) = await RunAppAsync(
+            var alias = await RunAppAsync(
                 "depends", "System.Int128",
                 "--tree", "--rows", "1", "--tips", "q");
+            var selector = await RunAppAsync(
+                "depends", "System.Int128",
+                "-o", "tree", "--rows", "1", "--tips", "q");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("System.Int128", output);
-            Assert.Contains("└", output);
-            Assert.DoesNotContain("[{", output);
+            Assert.Equal(alias, selector);
+            Assert.Equal(0, alias.Exit);
+            Assert.Empty(alias.Error);
+            Assert.Contains("System.Int128", alias.Output);
+            Assert.Contains("└", alias.Output);
+            Assert.DoesNotContain("[{", alias.Output);
         }
         finally
         {

@@ -540,13 +540,13 @@ public partial class CommandExecutionTests
                 projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
             var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--bare",
-                "--output", packageOutputPath);
+                "--out", packageOutputPath);
             var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
-                "--content", "--bare", "--output", contentOutputPath);
+                "--content", "--bare", "--output-file", contentOutputPath);
             var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare",
-                "--output", projectOutputPath);
+                "--out", projectOutputPath);
 
             Assert.Equal(0, packageExit);
             Assert.Equal(0, contentExit);
@@ -642,8 +642,8 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("-o")]
-    [InlineData("--output")]
+    [InlineData("--out")]
+    [InlineData("--output-file")]
     public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
     {
         const string bidi = "\u202E";

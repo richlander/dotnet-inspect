@@ -2824,9 +2824,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("--library=-1")]
     [InlineData("--library:-1")]
-    [InlineData("-o=-1")]
-    [InlineData("-o:-1")]
-    [InlineData("-o-1")]
+    [InlineData("-ojson")]
     public async Task Router_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
         string requiredValue)
     {
@@ -2853,6 +2851,23 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries));
         Assert.Equal(direct.Output, routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_OutputSelectorPreservesValueDiagnostics()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Int128",
+            "--output",
+            "yaml");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("yaml", error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "Unrecognized option",
+            error,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

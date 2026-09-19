@@ -129,7 +129,7 @@ Or ask dotnet-inspect to write the same contained payload:
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S "Package skill files" --print --row 4 --prefer-rendered-urls --bare \
-  --output skills/markout-output-formats/SKILL.md
+  --output-file skills/markout-output-formats/SKILL.md
 ```
 
 For authored package content, `--prefer-rendered-urls` retains the existing
@@ -149,7 +149,7 @@ every package upgrade, rerun the project inventory, compare every installed
 skill with its new packaged counterpart, add newly relevant focused skills,
 and remove a skill only when the code no longer uses the behavior it covers.
 
-Omit `-o`/`--output` to review the document on stdout before writing it. Load
+Omit `--out`/`--output-file` to review the document on stdout before writing it. Load
 `dotnet-inspect skill private-feeds` when exact reacquisition needs custom
 sources or credentials. Use a local `.nupkg` path in place of `Package@Version`
 for an unpublished package canary.

@@ -652,19 +652,19 @@ public static class SearchCommandDefinitions
 
         dependsCommand.Validators.Add(result =>
         {
-            if (result.GetValue(opts.Tree)
-                && result.GetValue(opts.Mermaid))
+            if (opts.IsTreeOutput(result)
+                && opts.IsMermaidOutput(result))
             {
                 result.AddError(
                     "--tree and --mermaid are alternate graph renderings; choose one.");
             }
-            if (result.GetValue(opts.Tree)
-                && (result.GetValue(opts.Json)
-                    || result.GetValue(opts.Markdown)
-                    || result.GetValue(opts.PlainText)
-                    || result.GetValue(opts.Table)
-                    || result.GetValue(opts.Tsv)
-                    || result.GetValue(opts.Jsonl)
+            if (opts.IsTreeOutput(result)
+                && (opts.IsJsonOutput(result)
+                    || opts.IsMarkdownOutput(result)
+                    || opts.IsPlainTextOutput(result)
+                    || opts.IsTableOutput(result)
+                    || opts.IsTsvOutput(result)
+                    || opts.IsJsonlOutput(result)
                     || result.GetResult(opts.Verbosity)
                         is { Implicit: false }))
             {
@@ -673,7 +673,7 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
-            if (result.GetValue(opts.Envelope) && !typeMode)
+            if (opts.IsEnvelopeOutput(result) && !typeMode)
             {
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
@@ -850,7 +850,7 @@ public static class SearchCommandDefinitions
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                    Tree = parseResult.GetValue(opts.Tree),
+                    Tree = opts.IsTreeOutput(parseResult),
                     Rows = rows,
                     Count = parseResult.GetValue(opts.Count),
                     Tabular = opts.ResolveTabular(parseResult),
@@ -923,11 +923,11 @@ public static class SearchCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Format = outputFormat,
                 JsonOutput = outputFormat == OutputFormat.Json,
-                EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+                EnvelopeOutput = opts.IsEnvelopeOutput(parseResult),
                 CompactJson = parseResult.GetValue(compactOption),
                 MermaidOutput = outputFormat == OutputFormat.Mermaid,
                 EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
-                Tree = parseResult.GetValue(opts.Tree),
+                Tree = opts.IsTreeOutput(parseResult),
                 Rows = rows,
                 TypeDependencyRowQuery = typeDependencyRowQuery,
                 Count = parseResult.GetValue(opts.Count),

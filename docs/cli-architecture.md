@@ -17,6 +17,8 @@ See:
   defaults, explicit-source suppression, and named scope-group expansion;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
+- [CLI output selection](design/cli-output-selection.md) for `-o`/`--output`,
+  readable output aliases, and destination separation;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
   discovery, section selection, capabilities, and limits;
 - [Output shapes](design/output-shapes.md) and the

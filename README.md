@@ -364,10 +364,13 @@ dotnet-inspect library System.Private.CoreLib --metadata-root r2r-manifest -S "M
 
 ## Output and querying
 
-Default output is Markdown. For compact human scanning use `--table`; for
-machine-friendly rows use `--tsv` or `--jsonl`; for structured graphs use
-`--json`; for plain text use `--plaintext`; and for diagrams use `--mermaid`.
-Use `-T q` to suppress tips in script-oriented commands.
+Default output is Markdown. Select output uniformly with `-o` or `--output`:
+`markdown`, `table`, `tsv`, `jsonl`, `json`, `envelope`, `plaintext`,
+`mermaid`, or `tree`, where the active command supports that operation. The
+existing `--table`, `--tsv`, `--jsonl`, `--json`, `--envelope`, `--plaintext`,
+`--mermaid`, `--tree`, and `--markdown` flags remain readable aliases. Write
+the selected output to a file with `--out` or `--output-file`; otherwise it is
+written to stdout. Use `-T q` to suppress tips in script-oriented commands.
 
 Positional `depends <type>`, ordinary single-Library API `diff`, `package
 activity`, ordinary and `--library-literal` Package Query, and online package
@@ -390,6 +393,8 @@ not adopted this transport.
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
+| Select output | `-o`, `--output` |
+| Write output to a file | `--out`, `--output-file` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |

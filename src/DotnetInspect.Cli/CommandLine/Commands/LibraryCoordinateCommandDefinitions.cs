@@ -283,8 +283,8 @@ internal static class LibraryCoordinateCommandDefinitions
                 PreferRenderedUrls =
                     parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = format == OutputFormat.Json,
-                Markdown = parseResult.GetValue(opts.Markdown),
-                PlainText = parseResult.GetValue(opts.PlainText),
+                Markdown = opts.IsMarkdownOutput(parseResult),
+                PlainText = opts.IsPlainTextOutput(parseResult),
                 Tabular =
                     format is OutputFormat.Table
                         or OutputFormat.Tsv
@@ -301,7 +301,7 @@ internal static class LibraryCoordinateCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Effective = parseResult.GetValue(opts.Effective),
-                Tree = parseResult.GetValue(opts.Tree),
+                Tree = opts.IsTreeOutput(parseResult),
                 Select = select,
                 SelectDefault = selectDefault,
                 SelectExplicitlySet = hasExplicitSelect,

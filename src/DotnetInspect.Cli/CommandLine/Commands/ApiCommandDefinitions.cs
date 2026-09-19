@@ -170,7 +170,7 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
+            if (opts.IsEnvelopeOutput(parseResult)
                 && parseResult.GetResult(opts.Verbosity)
                     is { Implicit: false }
                 && opts.ParseVerbosity(parseResult)
@@ -192,7 +192,7 @@ public static class ApiCommandDefinitions
 
             if (parseResult.GetValue(compactOption)
                 && opts.ResolveFormat(parseResult) != OutputFormat.Json
-                && !parseResult.GetValue(opts.Envelope))
+                && !opts.IsEnvelopeOutput(parseResult))
             {
                 CommandError.Write("--compact requires --json or --envelope.");
                 return 1;
@@ -217,7 +217,7 @@ public static class ApiCommandDefinitions
             }
 
             if (opts.ResolveFormat(parseResult) == OutputFormat.Json
-                && parseResult.GetValue(opts.Tree)
+                && opts.IsTreeOutput(parseResult)
                 && parseResult.GetValue(opts.Discover) is null)
             {
                 CommandError.Write(
@@ -503,7 +503,7 @@ public static class ApiCommandDefinitions
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
-            if (parseResult.GetValue(opts.Envelope)
+            if (opts.IsEnvelopeOutput(parseResult)
                 && !parseResult.GetValue(matchOption))
             {
                 CommandError.Write("--envelope on member requires --match.");

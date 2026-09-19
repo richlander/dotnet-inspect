@@ -93,7 +93,7 @@ public static class PackageOptionsParser
             Paths = result.GetValue(opts.Paths),
             Roots = result.GetValue(args.RootsOption),
             ShowDependencies = result.GetValue(args.DependenciesOption),
-            Tree = result.GetValue(opts.Tree),
+            Tree = opts.IsTreeOutput(result),
             Discover = opts.ParseDiscover(result),
             Count = result.GetValue(opts.Count),
             PackageLibrary = result.GetResult(args.LibraryOption) is { Implicit: false } ? "" : null,
@@ -358,7 +358,7 @@ public static class PackageOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,
             Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
+            Tree = opts.IsTreeOutput(parseResult),
             Select = opts.ParseSelect(parseResult),
             SelectDefault = opts.ParseSelectDefault(parseResult),
             Columns = opts.ParseColumns(parseResult),
@@ -367,7 +367,7 @@ public static class PackageOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Schema = opts.ParseSchema(parseResult),
             Count = parseResult.GetValue(opts.Count),
-            EnvelopeOutput = parseResult.GetValue(opts.Envelope),
+            EnvelopeOutput = opts.IsEnvelopeOutput(parseResult),
             Rows = selectsVersionPopulation
                 || selectsSourceLinkFiles
                 || selectsPackageFiles
@@ -597,9 +597,9 @@ public static class PackageOptionsParser
         PackageCommandArgs args)
         => result.GetResult(opts.Discover) is { Implicit: false }
             || result.GetResult(opts.Select) is { Implicit: false }
-            || result.GetValue(opts.Tree)
+            || opts.IsTreeOutput(result)
             || result.GetValue(opts.Schema)
-            || result.GetValue(opts.Envelope)
+            || opts.IsEnvelopeOutput(result)
             || result.GetValue(opts.Print)
             || result.GetResult(opts.Row) is { Implicit: false }
             || result.GetValue(opts.Value)
@@ -706,9 +706,9 @@ public static class PackageOptionsParser
         PackageCommandArgs args)
         => result.GetResult(opts.Discover) is { Implicit: false }
             || result.GetResult(opts.Select) is { Implicit: false }
-            || result.GetValue(opts.Tree)
+            || opts.IsTreeOutput(result)
             || result.GetValue(opts.Schema)
-            || result.GetValue(opts.Envelope)
+            || opts.IsEnvelopeOutput(result)
             || result.GetValue(opts.Print)
             || result.GetResult(opts.Row) is { Implicit: false }
             || result.GetValue(opts.Value)

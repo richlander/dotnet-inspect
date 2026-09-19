@@ -300,7 +300,7 @@ public static class InspectionCommandDefinitions
             repoOption, findingOption, legendOption);
         diffCommand.Validators.Add(result =>
         {
-            if (!result.GetValue(opts.Envelope))
+            if (!opts.IsEnvelopeOutput(result))
                 return;
 
             bool explicitSource =
@@ -641,8 +641,8 @@ public static class InspectionCommandDefinitions
                 MetadataRoot = metadataRoot,
                 PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
-                Markdown = parseResult.GetValue(opts.Markdown),
-                PlainText = parseResult.GetValue(opts.PlainText),
+                Markdown = opts.IsMarkdownOutput(parseResult),
+                PlainText = opts.IsPlainTextOutput(parseResult),
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
@@ -654,7 +654,7 @@ public static class InspectionCommandDefinitions
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
                 Effective = parseResult.GetValue(opts.Effective),
-                Tree = parseResult.GetValue(opts.Tree),
+                Tree = opts.IsTreeOutput(parseResult),
                 Select = select,
                 SelectDefault = selectDefault,
                 SelectExplicitlySet = hasExplicitSelect,
