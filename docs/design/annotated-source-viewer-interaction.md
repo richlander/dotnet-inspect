@@ -347,6 +347,22 @@ that no runtime blocking or duration was measured. The browser does not infer
 this evidence from a member label or source spelling, and it renders no negative
 claim when the relationship has no such observation.
 
+The same detail may show Research-composed bounded local-throw paths that begin
+with the selected physical relationship. Each observation is an ordered typed
+member path ending at a method whose Analysis evidence proves a construction-fed
+local `throw`, followed by the qualified exception type and the construction
+and throw IL offsets. Repeated source calls sharing one logical first edge keep
+their separate Finding identities while displaying the same witness.
+
+The detail describes only a static direct-call path to a method containing a
+local throw. It explicitly does not say that the selected method throws, that
+the terminal throw executes or escapes, that an exception propagates through
+the path, or that any handler intercepts it. Positive paths remain visible
+under incomplete evidence. Empty incomplete evidence says no path was observed
+within the available bounds; only a complete bounded result may say none was
+observed within those bounds. Path labels and exception spelling are
+presentation, never identity.
+
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the

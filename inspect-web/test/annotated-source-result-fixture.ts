@@ -111,6 +111,15 @@ export const sampleViewerCatalog = {
     unavailableReason: "NotProjected",
     observations: [],
   },
+  localThrowPaths: {
+    available: false,
+    unavailableReason: "NotProjected",
+    isComplete: false,
+    boundaries: [],
+    limits: null,
+    receipt: null,
+    paths: [],
+  },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;
 
 export const csharpOnlyEmptyViewerCatalog = {
@@ -151,5 +160,14 @@ export const csharpOnlyEmptyViewerCatalog = {
     available: false,
     unavailableReason: "NotProjected",
     observations: [],
+  },
+  localThrowPaths: {
+    available: false,
+    unavailableReason: "NotProjected",
+    isComplete: false,
+    boundaries: [],
+    limits: null,
+    receipt: null,
+    paths: [],
   },
 } as const satisfies BrowserAnnotatedSourceViewerCatalog;

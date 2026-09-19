@@ -328,8 +328,11 @@ shows the exact synchronous-completion structure without claiming that runtime
 blocking was measured. Selecting a proven classic `await` explains its inline
 and suspension/resume paths, while selecting an exception-related allocation
 distinguishes a thrown value from an allocation inside a catch, filter, or
-fault handler. Both are compiled-structure evidence and make no runtime path or
-frequency claim.
+fault handler. A relationship can also show a bounded direct-call path to a
+method containing an Analysis-proven local `throw new`, including its exception
+type and physical construction and throw offsets. These are compiled-structure
+claims only: they do not prove that a path ran, that a throw escapes, or that an
+exception propagates to the selected method.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source

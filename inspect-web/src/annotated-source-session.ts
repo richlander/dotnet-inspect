@@ -23,6 +23,8 @@ import type {
   BrowserAnnotatedSourceFindingEvidence,
   BrowserAnnotatedSourceFindingEvidenceDocument,
   BrowserAnnotatedSourceInvocationDestination,
+  BrowserAnnotatedSourceLocalThrowPath,
+  BrowserAnnotatedSourceLocalThrowPathInspection,
   BrowserAnnotatedSourceSynchronousCompletion,
   BrowserAnnotatedSourceSynchronousCompletionInspection,
   BrowserAnnotatedSourceViewerCatalog,
@@ -124,6 +126,10 @@ export interface AnnotatedSourceViewerModel {
     BrowserAnnotatedSourceAllocationExceptionPathInspection;
   allocationExceptionPathsByFactId:
     ReadonlyMap<number, BrowserAnnotatedSourceAllocationExceptionPath>;
+  localThrowPaths:
+    BrowserAnnotatedSourceLocalThrowPathInspection;
+  localThrowPathsByFactId:
+    ReadonlyMap<number, readonly BrowserAnnotatedSourceLocalThrowPath[]>;
   findingEvidence: readonly AnnotatedSourceFindingEvidence[];
   findingEvidenceByFactId:
     ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
@@ -200,6 +206,8 @@ export function createAnnotatedSourceViewerModel(
     validateAwaitCompletionPaths(result);
   const allocationExceptionPaths =
     validateAllocationExceptionPaths(result);
+  const localThrowPaths =
+    validateLocalThrowPaths(result, callRelationships);
   const findingEvidence =
     validateFindingEvidence(
       result.document,
@@ -233,6 +241,9 @@ export function createAnnotatedSourceViewerModel(
     allocationExceptionPathsByFactId:
       new Map(allocationExceptionPaths.observations.map(
         observation => [observation.factId, observation])),
+    localThrowPaths,
+    localThrowPathsByFactId:
+      indexLocalThrowPaths(localThrowPaths),
     findingEvidence,
     findingEvidenceByFactId:
       new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
@@ -273,6 +284,13 @@ export function synchronousCompletionForFact(
   factId: number,
 ): BrowserAnnotatedSourceSynchronousCompletion | null {
   return model.synchronousCompletionsByFactId.get(factId) ?? null;
+}
+
+export function localThrowPathsForFact(
+  model: AnnotatedSourceViewerModel,
+  factId: number,
+): readonly BrowserAnnotatedSourceLocalThrowPath[] {
+  return model.localThrowPathsByFactId.get(factId) ?? [];
 }
 
 export function awaitCompletionPathForNode(
@@ -1062,6 +1080,152 @@ function validateAllocationExceptionPaths(
     observedFactIds.add(observation.factId);
   }
   return inspection;
+}
+
+function validateLocalThrowPaths(
+  result: AnnotatedSourceResult,
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): BrowserAnnotatedSourceLocalThrowPathInspection {
+  const inspection = result.viewerCatalog.localThrowPaths;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.isComplete
+      || inspection.boundaries.length > 0
+      || inspection.limits !== null
+      || inspection.receipt !== null
+      || inspection.paths.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source local throw paths cannot carry evidence or completeness state.");
+    }
+    return inspection;
+  }
+  if (inspection.unavailableReason !== null
+    || !result.viewerCatalog.callRelationships.available
+    || inspection.limits === null
+    || inspection.receipt === null
+    || inspection.isComplete !== (inspection.boundaries.length === 0)) {
+    throw new TypeError(
+      "Available Annotated Source local throw paths require relationships, limits, a receipt, and matching completeness.");
+  }
+
+  const limits = inspection.limits;
+  const receipt = inspection.receipt;
+  if (!Number.isSafeInteger(limits.maximumDepth)
+    || limits.maximumDepth < 0
+    || !Number.isSafeInteger(limits.maximumNodes)
+    || limits.maximumNodes < 1
+    || !Number.isSafeInteger(limits.maximumEdges)
+    || limits.maximumEdges < 1
+    || !Number.isSafeInteger(limits.maximumPaths)
+    || limits.maximumPaths < 1
+    || !Number.isSafeInteger(receipt.destinationSearches)
+    || receipt.destinationSearches < 0
+    || !Number.isSafeInteger(receipt.searchNodes)
+    || receipt.searchNodes < 0
+    || !Number.isSafeInteger(receipt.searchedEdges)
+    || receipt.searchedEdges < 0
+    || !Number.isSafeInteger(receipt.observedReachablePairs)
+    || receipt.observedReachablePairs < 0
+    || receipt.returnedPaths !== inspection.paths.length) {
+    throw new TypeError(
+      "Annotated Source local throw path limits or receipt are invalid.");
+  }
+
+  const knownBoundaries = new Set([
+    "AnalysisIncomplete",
+    "TraversalBoundary",
+    "PartialMethodEvidenceScope",
+    "UnresolvedLocalCalls",
+    "UnattributedGeneratedBodies",
+    "DepthLimit",
+    "NodeBudget",
+    "EdgeBudget",
+    "PathBudget",
+    "IncompleteLocalThrowEvidence",
+    "IncompleteCorrespondence",
+  ]);
+  const boundaryKinds = new Set<string>();
+  for (const [index, boundary] of inspection.boundaries.entries()) {
+    if (typeof boundary.kind !== "string"
+      || !knownBoundaries.has(boundary.kind)
+      || boundaryKinds.has(boundary.kind)
+      || !Number.isSafeInteger(boundary.value)
+      || boundary.value < 0) {
+      throw new TypeError(
+        `Annotated Source local throw path boundary ${index} is invalid or duplicate.`);
+    }
+    boundaryKinds.add(boundary.kind);
+  }
+
+  const relationshipsByFact = new Map(
+    relationships.map(relationship =>
+      [relationship.factId, relationship] as const),
+  );
+  for (const [index, path] of inspection.paths.entries()) {
+    const anchored = path.factIds.map(factId =>
+      relationshipsByFact.get(factId));
+    if (path.factIds.length === 0
+      || new Set(path.factIds).size !== path.factIds.length
+      || anchored.some(relationship => relationship === undefined)
+      || path.targets.length === 0
+      || path.targets.length > limits.maximumDepth
+      || path.terminalThrows.length === 0) {
+      throw new TypeError(
+        `Annotated Source local throw path ${index} has invalid source or path evidence.`);
+    }
+    const edgeRows = new Set(
+      anchored.map(relationship => relationship!.edgeRow),
+    );
+    if (edgeRows.size !== 1) {
+      throw new TypeError(
+        `Annotated Source local throw path ${index} spans more than one first edge.`);
+    }
+    const edgeRow = anchored[0]!.edgeRow;
+    const expectedFactIds = relationships
+      .filter(relationship => relationship.edgeRow === edgeRow)
+      .map(relationship => relationship.factId);
+    const actualFactIds = new Set(path.factIds);
+    if (expectedFactIds.length !== actualFactIds.size
+      || expectedFactIds.some(factId => !actualFactIds.has(factId))) {
+      throw new TypeError(
+        `Annotated Source local throw path ${index} is not anchored to every physical occurrence of its first edge.`);
+    }
+    path.targets.forEach((target, targetIndex) =>
+      validateCallGraphTarget(
+        target,
+        `local throw path ${index} target ${targetIndex}`));
+    for (const [siteIndex, site] of path.terminalThrows.entries()) {
+      if (!nonEmptyString(site.exceptionType)
+        || !nonEmptyString(site.definitionModuleVersionId)
+        || !Number.isSafeInteger(site.definitionToken)
+        || (site.definitionToken & 0xff000000) !== 0x02000000
+        || !Number.isSafeInteger(site.constructionOffset)
+        || site.constructionOffset < 0
+        || !Number.isSafeInteger(site.constructorToken)
+        || site.constructorToken <= 0
+        || !Number.isSafeInteger(site.throwOffset)
+        || site.throwOffset < 0) {
+        throw new TypeError(
+          `Annotated Source local throw path ${index} terminal site ${siteIndex} is invalid.`);
+      }
+    }
+  }
+  return inspection;
+}
+
+function indexLocalThrowPaths(
+  inspection: BrowserAnnotatedSourceLocalThrowPathInspection,
+): ReadonlyMap<number, readonly BrowserAnnotatedSourceLocalThrowPath[]> {
+  const indexed =
+    new Map<number, BrowserAnnotatedSourceLocalThrowPath[]>();
+  for (const path of inspection.paths) {
+    for (const factId of path.factIds) {
+      const paths = indexed.get(factId) ?? [];
+      paths.push(path);
+      indexed.set(factId, paths);
+    }
+  }
+  return indexed;
 }
 
 function validateFindingEvidence(

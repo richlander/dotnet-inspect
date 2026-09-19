@@ -10,6 +10,8 @@ export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandl
 
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
 
+export type BrowserAnnotatedSourceLocalThrowPathBoundaryKind = "AnalysisIncomplete" | "TraversalBoundary" | "PartialMethodEvidenceScope" | "UnresolvedLocalCalls" | "UnattributedGeneratedBodies" | "DepthLimit" | "NodeBudget" | "EdgeBudget" | "PathBudget" | "IncompleteLocalThrowEvidence" | "IncompleteCorrespondence" | number;
+
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
 
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
@@ -130,6 +132,51 @@ export interface BrowserAnnotatedSourceInvocationDestination {
   readonly target: BrowserCallGraphTarget;
 }
 
+export interface BrowserAnnotatedSourceLocalThrowPath {
+  readonly factIds: ReadonlyArray<number>;
+  readonly targets: ReadonlyArray<BrowserCallGraphTarget>;
+  readonly terminalThrows: ReadonlyArray<BrowserAnnotatedSourceLocalThrowSite>;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathBoundary {
+  readonly kind: BrowserAnnotatedSourceLocalThrowPathBoundaryKind;
+  readonly value: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly isComplete: boolean;
+  readonly boundaries: ReadonlyArray<BrowserAnnotatedSourceLocalThrowPathBoundary>;
+  readonly limits: BrowserAnnotatedSourceLocalThrowPathLimits | null;
+  readonly receipt: BrowserAnnotatedSourceLocalThrowPathReceipt | null;
+  readonly paths: ReadonlyArray<BrowserAnnotatedSourceLocalThrowPath>;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathLimits {
+  readonly maximumDepth: number;
+  readonly maximumNodes: number;
+  readonly maximumEdges: number;
+  readonly maximumPaths: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowPathReceipt {
+  readonly destinationSearches: number;
+  readonly searchNodes: number;
+  readonly searchedEdges: number;
+  readonly observedReachablePairs: number;
+  readonly returnedPaths: number;
+}
+
+export interface BrowserAnnotatedSourceLocalThrowSite {
+  readonly exceptionType: string;
+  readonly definitionModuleVersionId: string;
+  readonly definitionToken: number;
+  readonly constructionOffset: number;
+  readonly constructorToken: number;
+  readonly throwOffset: number;
+}
+
 export interface BrowserAnnotatedSourceSynchronousCompletion {
   readonly factId: number;
   readonly kind: BrowserSynchronousCompletionKind;
@@ -153,6 +200,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
   readonly awaitCompletionPaths: BrowserAnnotatedSourceAwaitCompletionPathInspection;
   readonly allocationExceptionPaths: BrowserAnnotatedSourceAllocationExceptionPathInspection;
+  readonly localThrowPaths: BrowserAnnotatedSourceLocalThrowPathInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {
@@ -762,4 +810,3 @@ export async function queryTypeSource(operationId: string, packageId: string, ve
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeSourceResult;
 }
-

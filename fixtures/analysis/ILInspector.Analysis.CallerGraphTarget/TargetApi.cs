@@ -177,6 +177,24 @@ namespace Target
             useAlternative ? new object() : Shared;
     }
 
+    public static class LocalThrowPathApi
+    {
+        public static void Entry(string value)
+        {
+            Forward(value);
+            Forward(value);
+        }
+
+        static void Forward(string value) =>
+            Throw(value);
+
+        static void Throw(string value)
+        {
+            if (value is null)
+                throw new ArgumentNullException(nameof(value));
+        }
+    }
+
     public readonly struct CustomAwaitable
     {
         public CustomAwaiter GetAwaiter() => new();

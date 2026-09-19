@@ -1487,6 +1487,140 @@ test("Finding detail renders typed synchronous completion without a runtime clai
   assert.doesNotMatch(html, /blocks the current thread awaiting/);
 });
 
+test("Finding detail renders a bounded local throw path without propagation claims", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const localThrowResult: AnnotatedSourceResult = {
+    ...source,
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: true,
+        boundaries: [],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 2,
+          observedReachablePairs: 1,
+          returnedPaths: 1,
+        },
+        paths: [{
+          factIds: [factId],
+          targets: [
+            {
+              ...sampleInvocationTarget,
+              memberName: "Forward",
+            },
+            {
+              ...sampleInvocationTarget,
+              selectorKey: "method:Throw",
+              memberName: "Throw",
+            },
+          ],
+          terminalThrows: [{
+            exceptionType: "System.ArgumentNullException",
+            definitionModuleVersionId:
+              "11111111-1111-1111-1111-111111111111",
+            definitionToken: 0x02000002,
+            constructionOffset: 2,
+            constructorToken: 0x0A000002,
+            throwOffset: 7,
+          }],
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /<h4>Local throw paths<\/h4>/);
+  assert.match(
+    html,
+    /Selected member → Example\.Targets\.Forward → Example\.Targets\.Throw/);
+  assert.match(
+    html,
+    /System\.ArgumentNullException constructed at IL_0002 and thrown at IL_0007/);
+  assert.match(html, /Static direct-call evidence only/);
+  assert.match(html, /does not prove the selected\s+method throws/);
+  assert.match(html, /or an exception\s+propagates through the path/);
+  assert.doesNotMatch(html, /exception propagates to the selected method/);
+});
+
+test("Finding detail keeps empty incomplete local throw evidence bounded", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const localThrowResult: AnnotatedSourceResult = {
+    ...source,
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: false,
+        boundaries: [{
+          kind: "TraversalBoundary",
+          value: 1,
+        }],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 2,
+          observedReachablePairs: 0,
+          returnedPaths: 0,
+        },
+        paths: [],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /No path to a proven local throw was observed through this relationship/);
+  assert.match(html, /Additional paths may be unobserved/);
+  assert.match(html, /callee traversal boundary/);
+  assert.doesNotMatch(html, /cannot throw|does not throw/);
+});
+
 test("Finding detail renders allocation exception paths without a runtime claim", () => {
   const cases = [
     [
@@ -1657,6 +1791,15 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         available: false,
         unavailableReason: "NotProjected",
         observations: [],
+      },
+      localThrowPaths: {
+        available: false,
+        unavailableReason: "NotProjected",
+        isComplete: false,
+        boundaries: [],
+        limits: null,
+        receipt: null,
+        paths: [],
       },
     },
     findingEvidenceDocuments: [],
