@@ -327,6 +327,11 @@ candidate matters, `--mermaid` for a standalone diagram, or
 script will consume the same edge rows. Requested cost cues remain annotations
 in the node labels; they do not become separate machine columns.
 
+`Call Graph` has not adopted `--envelope`; use `--jsonl` for edge rows or
+structured `--json` when the complete graph Content matters. Exact-member
+`--share url` is a separate public API Overview projection and does not retain
+the performance or Call Graph lens.
+
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
