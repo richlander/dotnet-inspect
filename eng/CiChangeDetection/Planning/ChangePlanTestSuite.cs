@@ -175,6 +175,8 @@ internal static class ChangePlanTestSuite
             ("eng/validate-inspect-web-promotion.sh", "web"),
             ("eng/generate-inspect-web-engine-facade.sh",
                 "web,web-comprehensive"),
+            ("inspect-web/scripts/compile-engine-facades.ts",
+                "web,web-comprehensive"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
             ("eng/verify-inspect-web-async-deployment.sh", "web"),
