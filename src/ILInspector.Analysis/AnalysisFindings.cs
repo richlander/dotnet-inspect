@@ -23,6 +23,9 @@ public static class AnalysisFindings
     public static readonly FindingDescriptor ResourceLifecycleDescriptor =
         new("analysis.resource-lifecycle", "Resource lifecycle occurrence");
 
+    public static readonly FindingDescriptor ComplexityDescriptor =
+        new("analysis.complexity.normal-flow", "Normal-flow cyclomatic complexity");
+
     /// <summary>
     /// Projects one method's allocation occurrences into IL order. An empty occurrence sequence is
     /// a complete empty census; acquisition failures belong to the caller that builds the body index.

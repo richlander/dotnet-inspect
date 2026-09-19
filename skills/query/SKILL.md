@@ -15,10 +15,10 @@ field/column projection. `timeline` supports section selection and projection
 but not `-D` discovery. `workspace` supports output formats, `--count`, and
 `--rows`, but not discovery, section selection, or field projection.
 `depends` supports `-D`, `-S`, categories, row windows, count, and field/column
-projection across its dependency graph and evidence sections. Positional
-`depends <type>` also has a separate complete-service `--envelope` path
-described below. Other relationship commands may still expose fixed output.
-Discover the shape first where available, then select and project.
+projection across its dependency graph and evidence sections. Several commands
+also expose a separate complete-service `--envelope` path described below.
+Other relationship commands may still expose fixed output. Discover the shape
+first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -54,6 +54,7 @@ Workspace coordinate replacement is the exception: request
 | Single-Library API `diff` | Carries the complete typed comparison outcome and diagnostics; ordered comparison endpoints currently make Share non-projectable. |
 | `package activity` | Carries the complete ecosystem change report and diagnostics; Share may be non-projectable. |
 | `package query` | Carries complete ordinary or assembly-semantic query Content and diagnostics; Package Query Share is currently non-projectable. |
+| Exact package-backed Type or Library API `type` | Carries the complete `exact-type` or `exact-library-api` Content and diagnostics; quiet/minimal output is admitted. |
 | Online package version population | Unlike projected version JSON, carries the complete directed population Document and source/completion evidence; `--count --envelope` uses the scalar Count as Content. |
 | Workspace coordinate replacement (`--json --envelope`) | Carries the derived Share, actual Scope outcome, retention/fallback decision, and diagnostics. |
 

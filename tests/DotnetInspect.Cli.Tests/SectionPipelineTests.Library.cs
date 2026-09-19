@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(48 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(49 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
@@ -511,6 +511,9 @@ public partial class SectionPipelineTests
                 // The synthetic library fixture is not backed by a ReadyToRun image. These
                 // explicit-only sections are covered by the CoreLib-backed ReadyToRun lens tests.
                 .Except(ReadyToRunSectionNames.All, StringComparer.OrdinalIgnoreCase)
+                // The hierarchy is structurally discoverable without traversal; effective
+                // discovery deliberately does not acquire it merely to prove applicability.
+                .Except([SectionNames.ReferenceHierarchy], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))

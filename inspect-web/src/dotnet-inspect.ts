@@ -8527,6 +8527,16 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
     }
+    case "relationship-open": {
+      const next = selectFinding(session, {
+        kind: "relationship",
+        factId: action.factId,
+      });
+      setSession(next);
+      syncFindingSelectionFromAnnotatedSession(next);
+      renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
+      return;
+    }
     case "annotation-set": {
       const transition = action.value === "Default"
         ? selectDefaultAnnotations(model, session)
@@ -8571,6 +8581,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
           "annotated")
         ?? blockedCallGraphNodeBinding(
           destination.target,
+          "the exact target is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
+      return;
+    }
+    case "relationship-destination-open": {
+      const relationship =
+        model.callRelationships[action.relationshipIndex];
+      if (!relationship) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          relationship.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          relationship.target,
           "the exact target is unavailable in the current workspace",
           "annotated");
       dismissAnnotatedSourceModal(false);

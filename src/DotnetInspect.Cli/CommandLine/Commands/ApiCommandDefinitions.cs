@@ -99,7 +99,16 @@ public static class ApiCommandDefinitions
         opts.AddPerformanceTriageOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Markdown);
         typeCommand.Options.Add(opts.PlainText);
-        typeCommand.Options.Add(opts.Envelope);
+        opts.AddEnvelopeOptionTo(
+            typeCommand,
+            opts.Discover,
+            opts.QueryHelp,
+            opts.Select,
+            opts.Limit,
+            opts.Rows,
+            opts.Head,
+            opts.Tail,
+            opts.Count);
         typeCommand.Options.Add(opts.Bare);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
@@ -161,6 +170,18 @@ public static class ApiCommandDefinitions
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetValue(opts.Envelope)
+                && parseResult.GetResult(opts.Verbosity)
+                    is { Implicit: false }
+                && opts.ParseVerbosity(parseResult)
+                    is Verbosity.Normal or Verbosity.Detailed)
+            {
+                CommandError.Write(
+                    "--envelope cannot be combined with normal or detailed "
+                        + "verbosity.");
+                return 1;
+            }
+
             if (parseResult.GetValue(workspaceOption) is not null
                 && parseResult.GetValue(matchOption))
             {
@@ -169,10 +190,11 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (parseResult.GetValue(opts.Envelope)
-                && !parseResult.GetValue(matchOption))
+            if (parseResult.GetValue(compactOption)
+                && opts.ResolveFormat(parseResult) != OutputFormat.Json
+                && !parseResult.GetValue(opts.Envelope))
             {
-                CommandError.Write("--envelope on type requires --match.");
+                CommandError.Write("--compact requires --json or --envelope.");
                 return 1;
             }
 
@@ -192,6 +214,15 @@ public static class ApiCommandDefinitions
                             ct),
                     _ => 1,
                 };
+            }
+
+            if (opts.ResolveFormat(parseResult) == OutputFormat.Json
+                && parseResult.GetValue(opts.Tree)
+                && parseResult.GetValue(opts.Discover) is null)
+            {
+                CommandError.Write(
+                    "--tree is not supported with JSON output on type.");
+                return 1;
             }
 
             if (TypeOptionsParser.TryCreateStructuralPlan(

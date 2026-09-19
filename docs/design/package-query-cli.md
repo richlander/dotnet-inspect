@@ -17,11 +17,16 @@ inputs to this design; `package query` supersedes that command surface. See
 for the retained implementation evidence.
 
 The current sources implement one host-neutral L1 Package Query vocabulary as
-`PackageQuery`: product-owned ordered term descriptors, complete Portable Query
-Intent planning, ANDed predicate evaluation with vocabulary-owned OR families,
-an explicit package-content provider for archive-derived terms, semantic
-answers with structured evidence, separate candidate and match bounds, retained
-Head/Tail/Window stages, visible failures, and typed completion.
+`PackageQuery`: one Query Operation definition and effective route,
+product-owned ordered term descriptors, complete Portable Query Intent
+planning, ANDed predicate evaluation with vocabulary-owned OR families, an
+explicit package-content provider for archive-derived terms, semantic answers
+with structured evidence, separate candidate and match bounds, retained
+Head/Tail/Window stages, visible failures, and typed completion. The route
+registers the Package result grain and complete default Query Profile once.
+`PackageQuery.RegisteredTerms` projects its effective terms and operators for
+both hosts, while `PackageQuery.ResolveIntent` resolves every complete intent
+through the same profile-scoped route.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -73,6 +78,13 @@ term editors all lower to `(key, operator, value)` triples in one intent.
 Portable Query Intent owns serialization and generic resolution; Package Query
 owns this vocabulary, binding, compatibility, bounds, acquisition tiers,
 execution, evidence, and plan construction.
+
+The Query Operation adoption under
+[#7712](https://github.com/richlander/dotnet-inspect/issues/7712) removes the
+remaining host-local capability inventories. CLI `-Q` and parsing consume the
+effective registered inspection terms; Inspect Web presets and free-input
+controls consume the same route projection. Host gestures remain distinct, but
+equivalent gestures author the same canonical intent and owner-issued plan.
 
 Related docs:
 

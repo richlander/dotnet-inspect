@@ -63,7 +63,8 @@ not a new rung in this ladder or an already available output option.
 
 Baseline transport is adopted by positional `depends <type>`, ordinary
 Library API Diff with exactly one Library per endpoint, Package Activity,
-ordinary Package Query, and Package Query assembly-semantic evaluation.
+ordinary Package Query, Package Query assembly-semantic evaluation, and exact
+package-backed Type and Library API inspection.
 The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
@@ -118,7 +119,17 @@ selection, projection, section selection, Count, discovery, and competing
 output formats are rejected with `--envelope`. Typed incomplete or failed
 Documents remain visible before the command returns a nonzero exit.
 
-Asset-mode `depends`, other commands, Discover, Count,
+Exact package-backed Type inspection registers `exact-type`, while exact
+package-backed Library API inspection registers `exact-library-api`, both at
+schema version `1`. Unprojected `--json` and `--envelope.content` share the
+owner-issued `ExactTypeInspectionResult` or
+`ExactLibraryApiInspectionResult` serializer. Admission is limited to the
+complete quiet/minimal operation. Richer verbosity, tree or bare output,
+projection, discovery, Count, and competing formats remain on compatibility
+paths or are rejected with `--envelope`. Typed incomplete or unavailable
+Content remains visible before the command returns a nonzero exit.
+
+Asset-mode `depends`, other Type routes, other commands, Discover, Count,
 `--evidence-envelope`, optional evidence capture from
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
 unadopted. Library API Diff's complete Browser baseline transport is governed
@@ -320,6 +331,8 @@ The registered adopter identities are:
 | `ecosystem-change-report` | `EcosystemChangeReportDocument` |
 | `package-query` | `PackageQueryDocument` |
 | `package-assembly-semantic-query` | `PackageAssemblySemanticQueryDocument` |
+| `exact-type` | `ExactTypeInspectionResult` |
+| `exact-library-api` | `ExactLibraryApiInspectionResult` |
 
 The enriched `asset-dependencies` form binds
 `DependencyInspectionEvidenceDocument` under the dependency owner's

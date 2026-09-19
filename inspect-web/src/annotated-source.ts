@@ -56,6 +56,7 @@ export type AnnotatedSourceAction =
   | { kind: "close-detail" }
   | { kind: "annotation-open"; opener: FindingDetailOpener }
   | { kind: "inspector-open"; factId: number }
+  | { kind: "relationship-open"; factId: number }
   | { kind: "annotation-set"; value: "Default" | "All" | "Clear" }
   | { kind: "finding-toggle"; factId: number }
   | { kind: "medium-toggle"; medium: SourceMedium }
@@ -64,6 +65,11 @@ export type AnnotatedSourceAction =
   | {
       kind: "destination-open";
       destinationIndex: number;
+      destination: "member" | "source";
+    }
+  | {
+      kind: "relationship-destination-open";
+      relationshipIndex: number;
       destination: "member" | "source";
     }
   | {
@@ -213,6 +219,7 @@ export function renderAnnotatedSourceModal(
           <aside class="annotated-modal-inspector" aria-label="Annotated source inspector"
             data-annotated-scroll="modal-inspector">
             ${renderPrimary(context)}
+            ${renderRelationships(context)}
             ${renderFindingInspector(context)}
           </aside>
         </div>
@@ -301,6 +308,8 @@ export function annotatedFocusSelector(
       return "#annotated-coordinate-toggle";
     case "inspector":
       return `#annotated-inspector-${target.factId}`;
+    case "relationship":
+      return `#annotated-relationship-${target.factId}`;
     case "annotation":
       return annotationTargetSelector(surface, target);
     case "node":
@@ -620,6 +629,114 @@ function renderFindingInspector(context: SourceRenderContext): string {
           </button>`).join("")}
       </div>
     </section>`;
+}
+
+function renderRelationships(context: SourceRenderContext): string {
+  const { model, session, escapeHtml } = context;
+  const availability = model.catalog.callRelationships;
+  return `
+    <section class="annotated-inspector-section annotated-relationships">
+      <p class="section-eyebrow">Relationships</p>
+      <h3>Direct calls</h3>
+      ${!availability.available
+        ? `<p class="annotated-unavailable">${escapeHtml(
+            capabilityReason(availability))}</p>`
+        : model.callRelationships.length === 0
+          ? `<p class="annotated-empty">No direct call relationships were projected for this exact body.</p>`
+          : `<div class="annotated-relationship-table-wrap">
+              <table class="annotated-relationship-table" aria-label="Direct call relationships">
+                <thead>
+                  <tr>
+                    <th scope="col">Call</th>
+                    <th scope="col">Target</th>
+                    <th scope="col">Open</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${model.callRelationships.map((relationship, index) => {
+                    const targetLabel = callTargetLabel(relationship.target);
+                    const callDetails = [
+                      `edge ${relationship.edgeRow}`,
+                      relationship.inLoop ? "in loop" : null,
+                      session.coordinatesVisible
+                        ? formatIlOffset(relationship.ilOffset)
+                        : null,
+                    ].filter((value): value is string => value !== null);
+                    return `
+                      <tr data-relationship-fact-id="${relationship.factId}">
+                        <td>
+                          <button type="button"
+                            id="annotated-relationship-${relationship.factId}"
+                            class="annotated-relationship-site"
+                            data-annotated-action="relationship-open"
+                            data-fact-id="${relationship.factId}"
+                            aria-label="Inspect ${escapeHtml(
+                              callKindLabel(relationship.kind))} relationship, ${escapeHtml(
+                              callDetails.join(", "))}"
+                            title="Inspect this exact call relationship">
+                            <strong>${escapeHtml(
+                              callKindLabel(relationship.kind))}</strong>
+                            <small>${escapeHtml(callDetails.join(" · "))}</small>
+                          </button>
+                        </td>
+                        <td class="annotated-relationship-target">
+                          <strong>${escapeHtml(targetLabel)}</strong>
+                          <small>${escapeHtml(relationship.target.assembly)}</small>
+                        </td>
+                        <td>
+                          <div class="annotated-relationship-actions">
+                            <button type="button"
+                              data-annotated-action="relationship-destination-open"
+                              data-relationship-index="${index}"
+                              data-destination="member"
+                              aria-label="Open member overview for ${escapeHtml(targetLabel)}"
+                              title="Open member overview for ${escapeHtml(targetLabel)}">Member</button>
+                            <button type="button"
+                              data-annotated-action="relationship-destination-open"
+                              data-relationship-index="${index}"
+                              data-destination="source"
+                              aria-label="Open source for ${escapeHtml(targetLabel)}"
+                              title="Open source for ${escapeHtml(targetLabel)}">Source</button>
+                          </div>
+                        </td>
+                      </tr>`;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>`}
+    </section>`;
+}
+
+function callTargetLabel(
+  target: AnnotatedSourceViewerModel["callRelationships"][number]["target"],
+): string {
+  const member = target.genericArity === 0
+    ? target.memberName
+    : `${target.memberName}\`${target.genericArity}`;
+  return `${target.typeFullName}.${member}(${target.parameterTypes.join(", ")})`;
+}
+
+function callKindLabel(value: string | number): string {
+  switch (value) {
+    case "Call":
+      return "Call";
+    case "CallVirtual":
+      return "Virtual call";
+    case "NewObject":
+      return "Object creation";
+    case "LoadFunction":
+      return "Function pointer";
+    case "LoadVirtualFunction":
+      return "Virtual function pointer";
+    case "CallIndirect":
+      return "Indirect call";
+    default:
+      return String(value);
+  }
+}
+
+function formatIlOffset(offset: number): string {
+  return `IL_${offset.toString(16).padStart(4, "0").toUpperCase()}`;
 }
 
 function renderDetail(context: SourceRenderContext): string {
@@ -997,6 +1114,10 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
       const factId = dataInteger(element, "factId");
       return factId === null ? null : { kind: "inspector-open", factId };
     }
+    case "relationship-open": {
+      const factId = dataInteger(element, "factId");
+      return factId === null ? null : { kind: "relationship-open", factId };
+    }
     case "annotation-set": {
       const value = element.dataset.annotatedSet;
       return value === "Default" || value === "All" || value === "Clear"
@@ -1026,6 +1147,18 @@ function actionForElement(element: HTMLElement): AnnotatedSourceAction | null {
         : {
             kind: "destination-open",
             destinationIndex,
+            destination,
+          };
+    }
+    case "relationship-destination-open": {
+      const relationshipIndex = dataInteger(element, "relationshipIndex");
+      const destination = dataDestination(element);
+      return relationshipIndex === null
+        || destination === null
+        ? null
+        : {
+            kind: "relationship-destination-open",
+            relationshipIndex,
             destination,
           };
     }
