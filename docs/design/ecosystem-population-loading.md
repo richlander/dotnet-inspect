@@ -489,6 +489,24 @@ Workspace revision
   -> ordinary Workspace admission
 ```
 
+The public nominal input types retain the same Platform population declaration
+object used by the static pack registration. A live Platform capability exposes
+the exact capability-plan identity retained by the loader request and receives
+that declaration plus the operation cancellation token. It owns construction
+and execution of the authorized PlatformHouse request; the product loader does
+not accept a service locator, source callback bag, target text, or family text.
+Package-backed and installed population materializers return the same
+source-neutral `PlatformPopulationArtifactMaterializationOutcome` consumed by
+the capability, so hosts do not reconstruct or reflect over source-specific
+results.
+
+The loader validates that the returned PlatformHouse request retains the
+declaration's exact family before transferring any authority. A mismatch
+retires every completed Library owner and the adjacent Artifact session, then
+returns owner-issued `InvalidTargetCorrespondence` rejection evidence. A
+retirement failure remains a typed Platform failure instead of being reported
+as rejection or completion.
+
 The `.NET Runtime` loader must retain the
 `PlatformLibraryPopulationDeclaration(DotNetRuntime)` association through the
 PlatformHouse result. It cannot infer `DotNetRuntime` from `.NET Runtime`, `System.`,
@@ -678,12 +696,17 @@ This shared capability has eight focused stages:
    application loader selection without moving executable callbacks into
    Workspace state. Durable correspondence reissue after portable restoration
    remains staged.
-5. **Platform handoff prerequisites implemented:** Platform populations retain
-   exact focus and binding-support membership; Ecosystem loading retains exact
-   PlatformHouse request and receipt evidence, projects the terminal outcomes
-   issued by current population producers, and transfers Library owners and
-   the adjacent Artifact session once.
-   Implement the `.NET Runtime` and ASP.NET Core loaders over that handoff.
+5. **Implemented:** the `.NET Runtime` and ASP.NET Core loaders expose nominal
+   public inputs, retain their exact static Platform population declarations,
+   invoke one host-authorized typed PlatformHouse population capability, and
+   project completed or terminal results through the common handoff. Platform
+   focus and binding-support roles, exact request and receipt evidence, Library
+   owners, and the adjacent Artifact session remain owner-issued. Missing host
+   capability and unsupported exact-Library demand return typed `Unavailable`
+   without source work or Package fallback. Package-backed and installed
+   materializers return the common capability outcome directly, and the loader
+   rejects a returned request for a different Platform family only after
+   retiring any completed authorities.
 6. Have Workspace admission and Navigation retain loader and admission
    correspondence and issue exact `.NET Runtime` and ASP.NET Core contribution
    relations.
@@ -713,6 +736,8 @@ stages add these focused Release gates:
 | Partial ownership | A loader-level incomplete result transfers owners only from independently completed children; incomplete PlatformHouse work transfers none |
 | Admission separation | A loader has no Workspace mutation authority; admission retains the loader receipt and owns occurrence publication |
 | Owner disposition | Every returned Library owner and adjacent Artifact session transfers once or is retired on non-success, cancellation, or partial admission; Artifact retirement follows untransferred Library retirement and cleanup failure remains visible |
+| Product family correspondence | A Runtime or ASP.NET Core loader rejects a Platform outcome whose request names another family; a completed mismatch retires every Library owner and Artifact authority before returning |
+| Adapter composition | A public package-backed capability wraps the package PlatformHouse adapter and completes the Runtime loader without private conversion, reflection, or friend access |
 | Platform-family source distinction | Runtime and Package `System.Text.Json`, and ASP.NET Core and Package `Microsoft.AspNetCore.Http.Abstractions`, remain distinct through loading, admission, and Navigation |
 | ASP.NET Core focus role | Runtime binding-support Libraries do not receive an ASP.NET Core Ecosystem relation without an independent exact witness |
 | Host parity | CLI and Browser/Wasm issue equivalent logical requests and interpret the same outcomes with different authorized source plans |

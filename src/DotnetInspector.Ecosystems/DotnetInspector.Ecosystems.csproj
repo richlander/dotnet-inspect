@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.EcosystemLoading\DotnetInspector.EcosystemLoading.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.PlatformHouse.Execution\DotnetInspector.PlatformHouse.Execution.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />

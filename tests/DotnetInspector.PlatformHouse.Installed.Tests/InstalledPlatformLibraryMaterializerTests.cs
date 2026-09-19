@@ -54,7 +54,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 static library => library.ContentLength));
 
         var completed = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeReferencePopulationAsync(
                         request,
@@ -151,7 +151,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 static library => library.ContentLength));
 
         var completed = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -277,7 +277,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 static library => library.ContentLength));
 
         var completed = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -351,7 +351,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                 static library => library.ContentLength));
 
         var completed = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -429,7 +429,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                     static library => library.ContentLength));
 
         var completed = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeReferenceAndImplementationPopulationAsync(
                         request,
@@ -534,7 +534,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
                         foreignRequest));
 
         var terminal = Assert.IsType<
-            InstalledPlatformPopulationMaterializationResult.Terminal>(
+            PlatformPopulationArtifactMaterializationOutcome.Terminal>(
                 await InstalledPlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -1192,7 +1192,7 @@ public sealed class InstalledPlatformLibraryMaterializerTests
             typeof(InstalledReferenceArtifactProvenance),
             typeof(InstalledImplementationArtifactProvenance),
             typeof(InstalledPlatformLibraryMaterializationResult.Terminal),
-            typeof(InstalledPlatformPopulationMaterializationResult.Terminal),
+            typeof(PlatformPopulationArtifactMaterializationOutcome.Terminal),
         ];
 
         foreach (Type type in types)
