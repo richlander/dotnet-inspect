@@ -46,6 +46,7 @@ public static class PackageOptionsParser
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
+        Option<bool> RootsOption,
         Option<bool> NoHeaderOption);
 
     /// <summary>
@@ -90,6 +91,7 @@ public static class PackageOptionsParser
             Value = result.GetValue(opts.Value),
             Urls = result.GetValue(opts.Urls),
             Paths = result.GetValue(opts.Paths),
+            Roots = result.GetValue(args.RootsOption),
             ShowDependencies = result.GetValue(args.DependenciesOption),
             Tree = result.GetValue(opts.Tree),
             Discover = opts.ParseDiscover(result),
@@ -312,6 +314,7 @@ public static class PackageOptionsParser
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
             Paths = parseResult.GetValue(opts.Paths),
+            Roots = parseResult.GetValue(args.RootsOption),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             ShowContent = parseResult.GetValue(args.ContentOption),
             ContentScope = contentScope,
@@ -617,6 +620,7 @@ public static class PackageOptionsParser
             || result.GetValue(opts.Value)
             || result.GetValue(opts.Urls)
             || result.GetValue(opts.Paths)
+            || result.GetValue(args.RootsOption)
             || result.GetValue(opts.JsonArray)
             || result.GetValue(opts.PreferRenderedUrls)
             || (!result.GetValue(opts.Count)

@@ -937,7 +937,7 @@ add and pass these named Inspect Web tests:
 - `workspace-titlebar.spec.ts` covers same-lifetime stable-identity retention
   with new action rebinding, asynchronous replacement parking, and rejection
   of an outgoing generation's menu action or DOM target.
-- `library-hierarchy.spec.ts` exercises the production Browser shell and
+- `library-hierarchy.navigation.spec.ts` exercises the production Browser shell and
   bindings with deterministic facade results, including Package-to-Library
   activation, explicit lens and subject commits, direct 390-pixel entry and
   reload, empty inspector inventories, and unchanged URL and history during
@@ -945,7 +945,7 @@ add and pass these named Inspect Web tests:
 
 The adaptive-presentation gates in `scope-bar.test.ts`,
 `adaptive-navigation.spec.ts`, `workspace-titlebar.spec.ts`, and
-`library-hierarchy.spec.ts` exercise the Browser's current supported
+`library-hierarchy.navigation.spec.ts` exercise the Browser's current supported
 inventories through its normal rendering boundary. They do not construct a
 parallel host catalog merely to observe the renderer.
 

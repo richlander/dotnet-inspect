@@ -384,7 +384,7 @@ transport.
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
-| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
@@ -445,6 +445,10 @@ dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
@@ -452,9 +456,10 @@ dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
-enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
-`--value`, and `--paths` observe the same selected rows; add `--lines` only to
-clip rendered text.
+enumeration, optional exact directory-segment `--tfm` filtering, and optional
+`--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
+observe the same selected rows; `--roots` instead emits their ordered distinct
+top-level package roots. Add `--lines` only to clip rendered text.
 
 For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
 complete target-framework rows after archive extraction, framework
@@ -871,6 +876,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S C
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -892,6 +899,19 @@ structured JSON, and Count observe the same selected call sites. Add `--lines`
 only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed sections,
 discovery, and scope-implied Callers without the exact selector retain their
 existing row contracts or rendered-line fallback.
+
+Focused member `-S "Source Locations" --json` reports `member`, `document`, and
+`pdb_span` without fetching source text or adding generic section/row wrappers.
+PDB spans describe executable source, not the entire declaration.
+Opt in with `--source-parts` to acquire checksum-verified source and discover
+lexical ranges. `--print --part member|xml-docs|attributes|signature|body`
+prints the selected part; both gestures imply Source Locations when `-S` is
+omitted. The full member includes attached XML documentation and attributes;
+the body includes its delimiters. Missing parts fail visibly, and unqualified
+`--print` still prints the whole source document. These are lexical source
+parts, not parsed documentation or stronger physical-authorship evidence.
+Human-readable part output restores the original first-line indentation;
+structured JSON content remains the exact token-selected text.
 
 Use a Workspace packet as reusable aggregate context when the Type may be
 defined by any Library in its selected context:

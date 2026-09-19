@@ -312,6 +312,14 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json or --envelope where supported)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
+        var sourcePartsOption = new Option<bool>("--source-parts")
+        {
+            Description = "Acquire verified authored source and show member, XML documentation, attribute, signature, and body ranges"
+        };
+        var sourcePartOption = new Option<string?>("--part")
+        {
+            Description = "With --print, select an authored member part: member, xml-docs, attributes, signature, or body"
+        };
         var shareOption = WorkspaceShareOption.Create(
             "Emit one exact public NuGet member as a canonical Workspace packet or complete URL");
         var binOption = new Option<string[]>("--bin")
@@ -366,6 +374,8 @@ public static class ApiCommandDefinitions
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
+        memberCommand.Options.Add(sourcePartsOption);
+        memberCommand.Options.Add(sourcePartOption);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
@@ -457,7 +467,7 @@ public static class ApiCommandDefinitions
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
         structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>
