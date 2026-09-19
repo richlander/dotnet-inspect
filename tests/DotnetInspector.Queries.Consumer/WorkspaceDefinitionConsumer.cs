@@ -86,4 +86,20 @@ public static class WorkspaceDefinitionConsumer
             host,
             options,
             cancellationToken);
+
+    public static ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreWithProjectionAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CompleteRestorationProjectionOperation operation,
+            CancellationToken cancellationToken = default) =>
+        CompleteRestorationCoordinator.RestoreWithProjectionAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            operation,
+            cancellationToken);
 }
