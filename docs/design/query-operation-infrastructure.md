@@ -2,20 +2,26 @@
 
 ## Status
 
-**Proposed cross-cutting pattern for
+**Implemented host-neutral substrate with Package Query adopted in CLI and
+Inspect Web; remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
 
 The repository already has implemented portable intent, typed row-query
 resolution, semantic row selection, operation-specific plans, and query
-discovery. It does not yet have one executable registration that composes those
-parts for every route. Current CLI query discovery is partly maintained through
-command-specific catalogs, while Package Query and Graph bind their syntax
-through separate paths.
+discovery. `DotnetInspector.QueryEngine` now carries
+`QueryOperationDefinition<TPredicate, TPlan>`, executable term and order
+bindings, Query Profiles, validated typed routes, profile-scoped portable
+resolution, effective capability projection, and heterogeneous
+`QueryOperationRegistry` lookup. `QueryOperationInfrastructureGateTests` is the
+Release gate for this substrate.
 
-This document locks the missing composition contract. It does not declare any
-adopter complete.
+Current CLI query discovery remains partly maintained through command-specific
+catalogs. Package Query is the first production adopter: one effective route
+now supplies plan resolution, CLI discovery terms, and Browser control terms.
+Graph and the remaining operations still bind their syntax through separate
+paths.
 
 ## Authority and exact claim
 
@@ -532,21 +538,31 @@ The migration begins from useful but separate systems:
 
 - `PortableQueryIntent` and `PortableQueryVocabulary<TPredicate, TPlan>`
   provide canonical intent and atomic owner resolution.
-- Package Query supplies the first production portable vocabulary and
-  `PackageQueryPlan`.
+- `QueryOperationDefinition<TPredicate, TPlan>`,
+  `QueryOperationRoute<TPredicate, TPlan>`, and `QueryOperationRegistry`
+  provide executable registration, applicability validation, effective
+  capability projection, and profile-scoped resolution over that intent.
+- Package Query supplies the first production operation definition and route
+  over its portable vocabulary and `PackageQueryPlan`. Its effective route
+  projects the ordered registered terms consumed by CLI `-Q` and Inspect Web
+  controls, and all complete intents resolve through that route.
 - `RowQueryIntent`, `ResolvedRowQueryPlan<TRow>`, `RowQueryResolver`, and
   `RowQueryExecutor` implement the host-neutral row path.
 - `InspectionQueryPlan<TContext>` implements prerequisite-aware producer
   scheduling for inspection queries.
-- `SectionQueryCatalog` currently binds CLI query descriptions and adopters
-  explicitly.
+- `SectionQueryCatalog` still binds command sections and summaries explicitly,
+  but its Package Query term rows are projected from the effective operation
+  route.
 - Graph Libraries parses and advertises its Cluster selector through a
   command-specific path.
 - Find exposes its Results and Members sections to discovery but currently has
   no executable query-term or order inventory.
 
-The new registry replaces parallel route-local capability descriptions. It
-does not replace the implemented intent, row, producer, or operation plans.
+The new registry is implemented, and Package Query has replaced its
+host-local term inventories with one route-backed projection. Remaining
+production adopters still need to replace their parallel route-local capability
+descriptions. The registry does not replace the implemented intent, row,
+producer, or operation plans.
 
 ## Counted production adoption
 
@@ -556,8 +572,9 @@ eight-step path:
 1. Lock this pattern and its authority map.
 2. Implement executable operation, query-term, order, profile, and route
    registration; derive `-Q` from the effective binding.
-3. Adopt Package Query in CLI and Inspect Web without changing its vocabulary,
-   package aggregation, evidence, bounds, failures, or result rows.
+3. **Implemented:** adopt Package Query in CLI and Inspect Web without changing
+   its vocabulary, package aggregation, evidence, bounds, failures, or result
+   rows.
 4. Adopt Graph query surfaces and operation-backed Graph sections without
    changing Graph topology or projection semantics.
 5. Adopt Depends and operation-backed Dependency sections without changing
@@ -572,28 +589,44 @@ eight-step path:
 Each operation adoption is a separate focused owner change. A broad
 implementation PR spanning those owners is not authorized by this design.
 
-Package Query is the first CLI-plus-Browser adopter because it already has a
-portable vocabulary and both production hosts. Later hosts may consume the
-same definitions without requiring every CLI operation to gain a Browser page
-in this release.
+Package Query is the first CLI-plus-Browser adopter. Its operation definition
+registers the package-population subject role, Package result grain, Packages
+row set, complete term profile, candidate and match dimensions, admitted row
+stages, acquisition tiers, and package-content capability. `PackageQuery.Terms`
+and `PackageQuery.RegisteredTerms` are projections of that effective route;
+CLI and Browser host adapters add only their syntax and control presentation.
+Later hosts may consume the same pattern without requiring every CLI operation
+to gain a Browser page in this release.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
 
 ## Required gates
 
-The implementation and adopter slices must provide Release gates for:
+`QueryOperationInfrastructureGateTests` provides the substrate Release gates
+for:
 
 - construction-time rejection of descriptive query terms or orders without
   executable binders;
 - rejection of route bindings naming inapplicable subject roles, result
   grains, row sets, facets, bounds, or orders;
-- exact `-Q` derivation from effective registrations;
-- atomic resolution that executes nothing after any unsupported or invalid
-  term;
+- exact effective term, order, dimension, and stage projection from the
+  selected registration;
+- profile-scoped atomic resolution that starts no plan after an unsupported
+  term or order; and
+- required term families, dimensions, and Top ranking remaining executable
+  through the selected route.
+
+Package Query's Release gates cover exact route projection, exact CLI `-Q`
+projection, exact Browser-control projection, and equivalent canonical intent
+from corresponding CLI and Browser gestures. Existing Package Query gates
+continue to cover independent candidate and match bounds, row selection,
+visible failures, acquisition authorization, execution, and result rows.
+
+Remaining adopter slices must add Release gates for:
+
 - command and operation-backed-section equivalence for one Graph and one
   Dependency scenario;
-- CLI and Browser/Wasm intent and plan equivalence for Package Query;
 - separation of candidate work bounds from result-row selection;
 - visible acquisition, decode, traversal, and row-resolution failures; and
 - Package and Library reference qualification at their distinct result grains.

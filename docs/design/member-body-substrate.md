@@ -140,6 +140,166 @@ unsafe" is answerable cheaply, before any IR import — and those same
 offset-keyed facts are what Research joins onto a body to answer "which
 *regions*."
 
+## Selected property accessor source
+
+The Decompiler body-composition boundary owns the selected-accessor envelope:
+when the selected MethodDef belongs to a non-indexed property and its body can
+retain its existing bindings inside an accessor, compose that body with a
+property declaration. Metadata's PropertyDef/MethodSemantics association is
+the authority, not the method's display name. CSharp still owns declaration
+spelling, and CSharpText owns expression/block layout.
+
+The real motivating witness is .NET 11 RC1
+`System.Data.SqlTypes.SqlBytes.get_MaxLength`: the faithful switch-expression
+body should appear as `public long MaxLength => ...`, not as a `get_MaxLength`
+method. This is declaration recovery, not a new body raise or an IL-fidelity
+improvement. Existing whole-property composition and CSharp's typed
+property/accessor bodies provide the analogous implementation boundaries.
+
+Only the selected getter, setter, or init body participates. Selection and
+native evidence remain addressed by the original MethodDef. The property
+envelope uses that accessor's physical accessibility and modifiers, not its
+sibling's aggregate accessibility. Thus selecting a private setter produces
+a private setter-only property, not an incomplete `public` property with an
+illegal lone `private set`. This intentionally presents one accessor, not the
+entire original property. Attributes on the accessor remain on the accessor;
+they must not migrate to its enclosing property.
+
+Static virtual interface properties retain static virtual dispatch. Their CLR
+Virtual/ReuseSlot flags must not be spelled as a C# `override`; CSharp owns
+that context-sensitive declaration lowering, not the body printer.
+The .NET 11 RC1 `System.Numerics.IBinaryNumber<TSelf>.AllBitsSet` getter is a
+real declaration witness. Its body is outside this modifier-spelling claim.
+
+Interface declaration spelling preserves dispatch, not a one-to-one copy of
+CLR-derived flags. A non-virtual instance accessor needs `sealed` when C# would
+otherwise make it implicitly virtual. Private interface members already default
+to non-virtual and retain their private spelling. Metadata's final-override
+`IsSealed` flag is not the sole reason CSharp may need the `sealed` keyword.
+
+An overriding accessor with narrower accessibility than its property's
+declaration retains method form. For example, a protected setter cannot become
+a protected override property when the inherited property is public, and a
+lone `protected set` cannot preserve that accessibility inside a public
+property. Metadata's accessor-accessibility facts establish this boundary.
+The existing lowered method representation is not a compilable property
+reconstruction; this slice neither promotes accessibility nor invents a sibling.
+Public override accessors and non-overriding narrowed accessors remain supported.
+
+Genuine accessor-like methods, actual indexers, and event accessors retain their
+existing representation. Unsupported compiler backing storage retains method
+form: existing body projection can spell that storage as a property access, and
+changing only the envelope would introduce recursion. The getter-only
+auto-property subset below is the first independently supported storage slice;
+other backing-storage recovery and indexer parameter coordination require
+separate body/binding work. No rendered expression establishes storage identity.
+An unnamed or differently named setter parameter retains method form, rather
+than inventing an implicit `value` binding. If body projection subsequently
+changes a supported accessor's parameter bindings, composition fails visibly
+instead of substituting text.
+
+The single adoption slice covers CLI Decompiled Source, Annotated Source and
+overlays, and the shared member-source producer used by Source Diff and
+Browser/Wasm. It replaces the producer's separate explicit-property envelope
+with the same composition boundary; no second host property formatter is
+introduced. Body-level structural and native evidence remains useful but does
+not establish declaration correctness: the gates must also observe the actual
+selected-member source and compile product-composed artifacts.
+
+`SelectedPropertySourceTests` is the PR-fast Release gate for the real
+`SqlBytes` witness, get/set/init selection, physical modifiers, attribute
+attachment, product-composed source compilation, and the decline boundaries.
+Its narrowed-override fixtures cover both getter and setter declines and
+compile the neighboring public overrides and non-overriding narrowed accessors.
+Static-interface fixtures compile the unchanged product artifact and assert its
+static/virtual symbols, with non-virtual static, sealed-instance, private-instance
+and virtual-instance neighbors. Sealed getters and setters must remain
+non-virtual after compilation; compilation success alone is insufficient. The
+runtime `AllBitsSet` case gates declaration spelling, not whole-body validity.
+It is `Speed=Slow` (measured 3.5 seconds), covered by daily Deep Inspect and
+the focused pre-merge gate rather than the PR-fast leg.
+`CSharpDeclarationWriterTests.ExplicitPropertyDeclaration_PreservesReadonlyModifier`
+gates the CSharp formatter's existing physical-modifier obligation. The CLI
+`MemberCallGraphSectionTests` selected-accessor cases gate actual presentation;
+the four-view real-library case is `Speed=Slow` (measured above two seconds)
+and runs in daily Deep Inspect plus this slice's focused pre-merge gate.
+`Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` also retains
+the unnamed setter control in its lowered method form.
+
+### Getter-only automatic storage
+
+The same composition owner may replace a selected, proven getter-only
+auto-property body with `get;`. The motivating runtime witness is .NET 11 RC1
+`System.Diagnostics.CodeAnalysis.NotNullIfNotNullAttribute.ParameterName`.
+Its original source is `public string ParameterName { get; }`; retaining the
+lowered `return this.ParameterName` inside a property would recurse.
+
+The proof consumes the complete getter body, not its printed spelling or the
+mere presence of a compiler-shaped field. Metadata must associate the selected
+getter with a non-indexed property without a setter and a matching private,
+readonly compiler-generated backing field. The existing whole-property
+auto-accessor proof supplies association, field-type, staticness, and
+compiler-marker checks. Its exact field definition remains the identity for
+storage signature, flags and attributes; a same-name field cannot supply those
+facts. Required and optional custom modifiers, including nested modifiers,
+are outside the automatic-storage subset.
+Complete IL must contain only the current receiver
+load (for instance storage), one exact backing-field load, and return, with
+optional no-ops but no locals or exception regions. A generic field reference
+must retain the declaring type's own ordered type arguments, not another
+instantiation's static storage. Explicit storage layout, nonstandard field
+flags, and custom field contracts are outside this subset, including an
+explicit debugger-browsing state other than the compiler's `Never` default.
+
+This consumes no external edge or sibling body: the admitted body has one
+straight-line return and no branches, handlers, temporaries, nested functions,
+or extra calls. The C# compiler recreates its private readonly storage and
+getter. Static and instance storage remain distinct. Initializer/constructor
+reconstruction is not inferred from an accessor; selected source remains a
+member projection, not a reconstructed object initialization lifecycle.
+
+The convention is ordinary C# getter-only automatic-property syntax, as
+described by the [C# auto-property guide][automatic-properties]. The repository's
+whole-property composition is the analogous implementation; selected-member
+composition deliberately does not invent a setter to make a mutable field
+look automatic. Mutable/init properties, non-trivial field-backed bodies,
+unsafe storage, and unproven shapes retain the prior method representation.
+Issue #7748 tracks those remaining storage/binding slices.
+
+The materialized decision belongs to member composition, not the body printer.
+Annotation and overlay comments remain attached to the automatic accessor;
+comment layout does not authorize the replacement. Body-only documents retain
+their existing body and therefore cannot establish the new declaration's
+correctness. The shared composer adopts this behavior in one slice for the
+CLI's four C# views and the member-source/Source Diff path consumed by
+Browser/Wasm; neither host adds a second recognition or formatting path.
+
+`SelectedPropertySourceTests.GetterOnlyAutoPropertyPreservesBackingStorage`
+compiles unchanged product-owned projections in Release and checks that each
+getter has its own readonly storage and no invented setter. Compiler-produced
+instance, static, generic, struct, virtual/override and keyword-name neighbors
+exercise that gate. `UnsupportedBackingStorageRetainsMethodForm` gates the
+mutable/init, computed-body and field-attribute boundaries.
+`AutomaticGetterRetainsAccessorAttributes` gates attribute attachment.
+`ExplicitAutomaticGetterKeepsItsInterfaceBinding` compiles the interface
+implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
+the metadata-only foreign-instantiation, mutable-storage, and same-name
+different-field-type boundaries.
+`AutomaticGetterDeclinesModifiedStorage` gates required/optional field
+modifiers at both the outer signature and the array-element boundary.
+The real-library case is `Speed=Slow` (measured 5.4 seconds in isolation),
+covered by focused pre-merge validation and daily Deep Inspect.
+The CLI four-view case also requires the original
+IL comments to remain visible. The shared-query gate
+`MemberSourceInspection_SelectedAutoGetterUsesSharedStorageComposition`
+exercises the completed Source operation consumed by Browser/Wasm.
+A changed getter load target, additional
+operation lost to `get;`, lost storage readonly/staticness, or newly recursive
+property is a falsifier. Native compile-back evidence is measured separately
+from these source-artifact and binding gates.
+
+[automatic-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/auto-implemented-properties
+
 ## Address: identity, not an ordinal
 
 Every experience addresses a member, and the substrate replaces the positional

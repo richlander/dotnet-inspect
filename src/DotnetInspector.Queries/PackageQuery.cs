@@ -76,6 +76,8 @@ public enum PackageQueryRequestFailureReason
     DuplicateTerm,
     IncompatibleTerms,
     DependencyTargetRequiresDependencyPredicate,
+    UnknownEcosystem,
+    EcosystemPackagePopulationUnavailable,
     RequiredPopulationMissing,
     RequiredPrereleaseMissing,
     RequiredCandidateBoundMissing,
@@ -94,18 +96,21 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason reason,
         IEnumerable<string>? termKeys = null,
         int? value = null,
-        PortableQueryFailure? portableFailure = null)
+        PortableQueryFailure? portableFailure = null,
+        string? ecosystemId = null)
     {
         Reason = reason;
         TermKeys = termKeys is null ? [] : [.. termKeys];
         Value = value;
         PortableFailure = portableFailure;
+        EcosystemId = ecosystemId;
     }
 
     public PackageQueryRequestFailureReason Reason { get; }
     public ImmutableArray<string> TermKeys { get; }
     public int? Value { get; }
     public PortableQueryFailure? PortableFailure { get; }
+    public string? EcosystemId { get; }
 
     public string Message => Reason switch
     {
@@ -132,7 +137,11 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.IncompatibleTerms =>
             "The selected package-query terms cannot be combined.",
         PackageQueryRequestFailureReason.DependencyTargetRequiresDependencyPredicate =>
-            "dependency-target requires a depends or dependencies term.",
+            "dependency-target requires a depends, depends-ecosystem, or dependencies term.",
+        PackageQueryRequestFailureReason.UnknownEcosystem =>
+            $"Unknown ecosystem '{EcosystemId}'.",
+        PackageQueryRequestFailureReason.EcosystemPackagePopulationUnavailable =>
+            $"Ecosystem '{EcosystemId}' does not register a package population.",
         PackageQueryRequestFailureReason.RequiredPopulationMissing =>
             "Package Query requires exactly one package or prefix population term.",
         PackageQueryRequestFailureReason.RequiredPrereleaseMissing =>
@@ -212,12 +221,26 @@ public sealed class PackageQueryPlan
     internal bool HasDependencyPredicate =>
         BoundTerms.Any(term =>
             term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
-                or PackageQueryPredicateKind.Depends);
+                or PackageQueryPredicateKind.Depends
+                or PackageQueryPredicateKind.DependsEcosystem);
     internal bool HasExplicitDependencyTarget =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
     internal bool HasDependencyTerms =>
         HasDependencyPredicate || HasExplicitDependencyTarget;
+
+    internal PackageQueryPlan WithBoundTerms(
+        ImmutableArray<BoundPackageQueryTerm> terms) =>
+        new(
+            Intent,
+            Prefix,
+            terms,
+            DependencyTarget,
+            MaximumCandidates,
+            MaximumMatches,
+            IncludePrerelease,
+            RowSelection,
+            PackageInput);
 }
 
 /// <summary>Whether evidence describes the query input or an inspected package.</summary>
@@ -415,6 +438,12 @@ internal sealed record PackageQueryDependencyMatch(
     DeclaredPackageDependencyGroup Group,
     DeclaredPackageDependency Dependency);
 
+internal sealed record PackageQueryEcosystemDependencyMatch(
+    DeclaredPackageDependencyGroup Group,
+    DeclaredPackageDependency Dependency,
+    PackageQueryEcosystemMembershipDeclaration Ecosystem,
+    PackageQueryEcosystemMembershipMatch Membership);
+
 internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion);
@@ -446,6 +475,7 @@ public static partial class PackageQuery
     public const string DependencyTargetTermKey = "dependency-target";
     public const string DependencyTargetAllValue = "all";
     public const string DependsTermKey = "depends";
+    public const string DependsEcosystemTermKey = "depends-ecosystem";
     public const string DownloadsTermKey = "downloads";
     public const string LicenseTermKey = "license";
     public const string ReadmeTermKey = "readme";
@@ -459,8 +489,8 @@ public static partial class PackageQuery
     private static readonly ImmutableArray<string> EqualityOperator =
         [PortableQueryModel.TextOf(PortableQueryOperator.Equal)];
 
-    /// <summary>The complete ordered Package Query vocabulary.</summary>
-    public static ImmutableArray<PackageQueryTermDescriptor> Terms { get; } =
+    private static readonly ImmutableArray<PackageQueryTermDescriptor>
+        DeclaredTerms =
     [
         new(
             PackageTermKey,
@@ -556,6 +586,17 @@ public static partial class PackageQuery
             EqualityOperator,
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input),
+        new(
+            DependsEcosystemTermKey,
+            "depends on ecosystem",
+            "Matches a direct dependency in a registered ecosystem package population.",
+            210,
+            PackageQueryAcquisitionTier.Nuspec,
+            EqualityOperator,
+            "canonical ecosystem ID",
+            "ecosystem.aspire",
             PackageQueryTermRole.Inspection,
             PackageQueryTermControlKind.Input),
         new(
@@ -682,8 +723,12 @@ public static partial class PackageQuery
         },
     ];
 
+    /// <summary>The complete ordered Package Query vocabulary.</summary>
+    public static ImmutableArray<PackageQueryTermDescriptor> Terms =>
+        OperationRegistration.TermDescriptors;
+
     static readonly IReadOnlyDictionary<string, PackageQueryTermDescriptor>
-        TermsByKey = Terms.ToDictionary(
+        TermsByKey = DeclaredTerms.ToDictionary(
             descriptor => descriptor.Key,
             StringComparer.Ordinal);
 
@@ -695,6 +740,7 @@ public static partial class PackageQuery
         Key(DependenciesTermKey, BindDependencies),
         Key(DependencyTargetTermKey, BindDependencyTarget),
         Key(DependsTermKey, BindDepends),
+        Key(DependsEcosystemTermKey, BindDependsEcosystem),
         Key(LicenseTermKey, BindLicense),
         Key(DownloadsTermKey, BindDownloads),
         Key(ReadmeTermKey, static (op, value) =>
@@ -735,6 +781,27 @@ public static partial class PackageQuery
     public static PackageQueryPlanResult ResolveIntent(
         PortableQueryIntent intent,
         CancellationToken cancellationToken = default)
+        => ResolveIntentCore(
+            intent,
+            ecosystemMemberships: null,
+            cancellationToken);
+
+    public static PackageQueryPlanResult ResolveIntent(
+        PortableQueryIntent intent,
+        PackageQueryEcosystemMembershipCatalog ecosystemMemberships,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ecosystemMemberships);
+        return ResolveIntentCore(
+            intent,
+            ecosystemMemberships,
+            cancellationToken);
+    }
+
+    private static PackageQueryPlanResult ResolveIntentCore(
+        PortableQueryIntent intent,
+        PackageQueryEcosystemMembershipCatalog? ecosystemMemberships,
+        CancellationToken cancellationToken)
     {
         if (intent.Terms.Count > PortableQueryPayloadCodec.MaxTerms)
         {
@@ -744,22 +811,25 @@ public static partial class PackageQuery
         }
 
         PortableQueryResolution<PackageQueryPlan> resolution =
-            PortableQueryResolver.Resolve(
-                Vocabulary.Identity,
-                Vocabulary,
+            OperationRegistration.Route.Resolve(
                 intent,
                 cancellationToken);
         if (!resolution.IsResolved)
             return Rejected(resolution.Failure);
 
         PackageQueryPlan plan = resolution.Plan;
-        return plan.HasExplicitDependencyTarget
-            && !plan.HasDependencyPredicate
-                ? Rejected(
-                    PackageQueryRequestFailureReason
-                        .DependencyTargetRequiresDependencyPredicate,
-                    [DependencyTargetTermKey])
-                : new PackageQueryPlanResult.Accepted(plan);
+        if (plan.HasExplicitDependencyTarget
+            && !plan.HasDependencyPredicate)
+        {
+            return Rejected(
+                PackageQueryRequestFailureReason
+                    .DependencyTargetRequiresDependencyPredicate,
+                [DependencyTargetTermKey]);
+        }
+
+        return ecosystemMemberships is null
+            ? new PackageQueryPlanResult.Accepted(plan)
+            : BindEcosystemMemberships(plan, ecosystemMemberships);
     }
 
     public static PackageQueryPlanResult Plan(PackageQueryRequest request)
@@ -772,6 +842,72 @@ public static partial class PackageQuery
             request.MaximumMatches,
             request.IncludePrerelease,
             request.RowSelection);
+    }
+
+    public static PackageQueryPlanResult Plan(
+        PackageQueryRequest request,
+        PackageQueryEcosystemMembershipCatalog ecosystemMemberships)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(ecosystemMemberships);
+        return PlanInput(
+            request.Input,
+            ecosystemMemberships,
+            request.Terms,
+            request.MaximumCandidates,
+            request.MaximumMatches,
+            request.IncludePrerelease,
+            request.RowSelection);
+    }
+
+    public static PackageQueryPlanResult BindEcosystemMemberships(
+        PackageQueryPlan plan,
+        PackageQueryEcosystemMembershipCatalog ecosystemMemberships)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(ecosystemMemberships);
+
+        var terms = ImmutableArray.CreateBuilder<BoundPackageQueryTerm>(
+            plan.BoundTerms.Length);
+        foreach (BoundPackageQueryTerm term in plan.BoundTerms)
+        {
+            if (term.Predicate.Kind != PackageQueryPredicateKind.DependsEcosystem)
+            {
+                terms.Add(term);
+                continue;
+            }
+
+            WorkspaceEcosystemRegistrationId id =
+                WorkspaceEcosystemRegistrationId.Create(term.Predicate.Text!);
+            if (!ecosystemMemberships.TryGet(id, out
+                    PackageQueryEcosystemMembershipDeclaration? membership))
+            {
+                return Rejected(
+                    PackageQueryRequestFailureReason.UnknownEcosystem,
+                    [DependsEcosystemTermKey],
+                    ecosystemId: id.Value);
+            }
+
+            if (!membership.HasPackagePopulation)
+            {
+                return Rejected(
+                    PackageQueryRequestFailureReason
+                        .EcosystemPackagePopulationUnavailable,
+                    [DependsEcosystemTermKey],
+                    ecosystemId: id.Value);
+            }
+
+            terms.Add(term with
+            {
+                Predicate = term.Predicate with
+                {
+                    EcosystemMembership = membership,
+                },
+            });
+        }
+
+        return new PackageQueryPlanResult.Accepted(
+            plan.WithBoundTerms(terms.MoveToImmutable()));
     }
 
     private static PackageQueryKeyDeclaration Key(
@@ -867,6 +1003,18 @@ public static partial class PackageQuery
     }
 
     private static PortableQueryBinding<PackageQueryPredicate>
+        BindDependsEcosystem(
+            PortableQueryOperator @operator,
+            string value) =>
+        @operator == PortableQueryOperator.Equal
+        && WorkspaceEcosystemRegistrationId.TryCreate(value, out var id)
+            ? Bound(
+                PackageQueryPredicateKind.DependsEcosystem,
+                id.Value,
+                id.Value)
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
+    private static PortableQueryBinding<PackageQueryPredicate>
         BindDependencyTarget(
             PortableQueryOperator @operator,
             string value)
@@ -928,7 +1076,7 @@ public static partial class PackageQuery
         @operator == PortableQueryOperator.Equal
         && value.Equals("true", StringComparison.OrdinalIgnoreCase)
             ? PortableQueryBinding<PackageQueryPredicate>.Bound(
-                $"{Terms.Single(term => term.Key == KeyOf(kind)).Key}:true",
+                $"{Descriptor(KeyOf(kind)).Key}:true",
                 new(kind, Flag: true))
             : PortableQueryBinding<PackageQueryPredicate>.Rejected;
 
@@ -968,6 +1116,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.DependencyTarget =>
                 DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
+            PackageQueryPredicateKind.DependsEcosystem =>
+                DependsEcosystemTermKey,
             PackageQueryPredicateKind.Downloads => DownloadsTermKey,
             PackageQueryPredicateKind.License => LicenseTermKey,
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
@@ -980,6 +1130,19 @@ public static partial class PackageQuery
 
     private static string Normalize(string value) =>
         value.ToUpperInvariant();
+
+    private static void EnsureEcosystemMembershipsBound(
+        PackageQueryPlan plan)
+    {
+        if (plan.BoundTerms.Any(term =>
+                term.Predicate.Kind
+                    == PackageQueryPredicateKind.DependsEcosystem
+                && term.Predicate.EcosystemMembership is null))
+        {
+            throw new InvalidOperationException(
+                "depends-ecosystem requires an application ecosystem-membership binding before execution.");
+        }
+    }
 
     internal static async ValueTask<ImmutableArray<PackageQueryEvent>>
         ExecuteToArrayAsync(
@@ -1047,6 +1210,7 @@ public static partial class PackageQuery
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plan);
+        EnsureEcosystemMembershipsBound(plan);
         bool requiresPackageContent = plan.BoundTerms.Any(term =>
             term.Predicate.RequiresPackageContent);
         if (requiresPackageContent && contentProvider is null)
@@ -1539,6 +1703,13 @@ public static partial class PackageQuery
                     ?? throw new InvalidOperationException(
                         "Dependency matching requires one dependency selection."))
                     .Length > 0,
+            PackageQueryPredicateKind.DependsEcosystem =>
+                MatchingEcosystemDependencies(
+                    term,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
             PackageQueryPredicateKind.Downloads =>
                 match.TotalDownloads >= term.Predicate.Number,
             PackageQueryPredicateKind.License =>
@@ -1637,6 +1808,34 @@ public static partial class PackageQuery
                             dependency))),
         ];
 
+    static PackageQueryEcosystemDependencyMatch[]
+        MatchingEcosystemDependencies(
+            BoundPackageQueryTerm term,
+            PackageQueryDependencySelection selection)
+    {
+        PackageQueryEcosystemMembershipDeclaration membership =
+            term.Predicate.EcosystemMembership
+            ?? throw new InvalidOperationException(
+                "depends-ecosystem requires a bound ecosystem package population.");
+        return
+        [
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies.Select(dependency =>
+                    (Group: group, Dependency: dependency)))
+                .Select(candidate =>
+                    membership.TryMatch(
+                        candidate.Dependency.Id,
+                        out PackageQueryEcosystemMembershipMatch match)
+                            ? new PackageQueryEcosystemDependencyMatch(
+                                candidate.Group,
+                                candidate.Dependency,
+                                membership,
+                                match)
+                            : null)
+                .OfType<PackageQueryEcosystemDependencyMatch>(),
+        ];
+    }
+
     static bool MatchesLicense(
         PackageLicenseDeclaration? declaration,
         string? requested)
@@ -1686,6 +1885,27 @@ public static partial class PackageQuery
             + match.Dependency.VersionRange;
     }
 
+    static string DescribeEcosystemDependencyMatch(
+        PackageQueryEcosystemDependencyMatch match)
+    {
+        string group = string.IsNullOrWhiteSpace(
+            match.Group.TargetFramework)
+                ? "any"
+                : match.Group.TargetFramework;
+        string basis = match.Membership.Basis switch
+        {
+            PackageQueryEcosystemMembershipBasis.ExactPackage =>
+                "exact package",
+            PackageQueryEcosystemMembershipBasis.PackagePrefix =>
+                "package prefix",
+            _ => throw new InvalidOperationException(
+                "Unknown ecosystem package-membership basis."),
+        };
+        return $"{group}: {match.Dependency.Id} "
+            + $"{match.Dependency.VersionRange} -> {match.Ecosystem.Id.Value} "
+            + $"({basis} {match.Membership.Registration})";
+    }
+
     static PackageQueryEvidenceSummary SummarizeItems(
         IEnumerable<string> items,
         StringComparer comparer)
@@ -1721,6 +1941,10 @@ public static partial class PackageQuery
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
                             "Dependency answers require a bound package ID."),
+                    PackageQueryPredicateKind.DependsEcosystem =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Ecosystem dependency answers require a bound ecosystem ID."),
                     PackageQueryPredicateKind.Downloads => term.Term.Value,
                     PackageQueryPredicateKind.License =>
                         term.Predicate.Text switch
@@ -1770,6 +1994,18 @@ public static partial class PackageQuery
                             ?? throw new InvalidOperationException(
                                 "Dependency evidence requires one dependency selection."))
                             .Select(DescribeDependencyMatch),
+                        StringComparer.Ordinal),
+                },
+            PackageQueryPredicateKind.DependsEcosystem =>
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeItems(
+                        MatchingEcosystemDependencies(
+                            term,
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))
+                            .Select(DescribeEcosystemDependencyMatch),
                         StringComparer.Ordinal),
                 },
             PackageQueryPredicateKind.Downloads =>
@@ -1972,12 +2208,14 @@ public static partial class PackageQuery
         PackageQueryRequestFailureReason reason,
         IEnumerable<string>? termKeys = null,
         int? value = null,
-        PortableQueryFailure? portableFailure = null) =>
+        PortableQueryFailure? portableFailure = null,
+        string? ecosystemId = null) =>
         new(new PackageQueryRequestFailure(
             reason,
             termKeys,
             value,
-            portableFailure));
+            portableFailure,
+            ecosystemId));
 
     static PackageQueryPlanResult.Rejected Rejected(
         PortableQueryFailure failure)

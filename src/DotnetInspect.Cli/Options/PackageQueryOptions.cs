@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -42,27 +43,29 @@ public sealed record PackageQueryOptions : IProjectionOptions
         && IncludeSections is null
         && !SelectDefault;
 
-    private static ImmutableArray<PackageQueryTermDescriptor> CliTerms { get; } =
+    private static ImmutableArray<
+        PackageQueryRegisteredTerm> CliTerms { get; } =
     [
-        .. PackageQuery.Terms.Where(term =>
-            term.Role == PackageQueryTermRole.Inspection),
+        .. PackageQuery.RegisteredTerms.Where(term =>
+            term.Descriptor.Role == PackageQueryTermRole.Inspection),
     ];
 
     public static ImmutableArray<SectionQueryKey> QueryKeys { get; } =
     [
         .. CliTerms.Select(term => new SectionQueryKey(
-            term.Key,
+            term.Descriptor.Key,
             ["--where"],
-            ["="],
-            term.ValueKind,
-            [.. term.Options.Select(option => option.Value)],
-            $"--where \"{term.Key}={term.ExampleValue}\"")),
+            [.. term.Operators.Select(Comparison)],
+            term.Descriptor.ValueKind,
+            [.. term.Descriptor.Options.Select(option => option.Value)],
+            $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"")),
     ];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "
         + "A lone Head is pushed into execution when no explicit --take is present. "
@@ -192,14 +195,14 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 return false;
             }
 
-            PackageQueryTermDescriptor? descriptor = CliTerms.FirstOrDefault(
-                term => term.Key.Equals(
+            PackageQueryRegisteredTerm? registeredTerm = CliTerms.FirstOrDefault(
+                term => term.Descriptor.Key.Equals(
                     syntax.Field,
                     StringComparison.OrdinalIgnoreCase));
-            if (descriptor is not null)
+            if (registeredTerm is not null)
             {
                 terms.Add(new PortableQueryTerm(
-                    descriptor.Key,
+                    registeredTerm.Descriptor.Key,
                     PortableQueryOperator.Equal,
                     syntax.Value));
                 continue;
@@ -212,9 +215,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         }
 
         bool requiresPackageContent = terms.Any(term =>
-            CliTerms.Any(descriptor =>
-                descriptor.Key == term.Key
-                && descriptor.Tier == PackageQueryAcquisitionTier.PackageContent));
+            CliTerms.Any(registered =>
+                registered.Descriptor.Key == term.Key
+                && registered.Descriptor.Tier
+                    == PackageQueryAcquisitionTier.PackageContent));
         if (nuspecOnly && requiresPackageContent)
         {
             error =
@@ -245,6 +249,7 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
         PackageQueryPlanResult result = PackageQuery.PlanInput(
             input,
+            EcosystemPackCatalog.PackageQueryMemberships,
             terms.ToImmutable(),
             maximumCandidates,
             maximumMatches: semanticHead,
@@ -277,4 +282,16 @@ public sealed record PackageQueryOptions : IProjectionOptions
             ? operation.Count
             : null;
     }
+
+    private static string Comparison(
+        PortableQueryOperator @operator) =>
+        @operator switch
+        {
+            PortableQueryOperator.Equal => "=",
+            PortableQueryOperator.NotEqual => "!=",
+            PortableQueryOperator.AtLeast => ">=",
+            PortableQueryOperator.AtMost => "<=",
+            _ => throw new InvalidOperationException(
+                "Package Query registered an unsupported CLI comparison."),
+        };
 }

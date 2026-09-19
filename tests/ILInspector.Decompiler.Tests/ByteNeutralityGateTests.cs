@@ -132,6 +132,9 @@ public sealed class ByteNeutralityGateTests
         new("object-creation-style", "explicit",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NestedObjectCreation),
             "() -> corelib:System.Int32"),
+        new("prefer-long-literal-suffix", "false",
+            typeof(LongLiteralFoldFixture), nameof(LongLiteralFoldFixture.SmallReturn),
+            "() -> corelib:System.Int64"),
         // Synthesis: suppress symbols so the product default invents `num`, while
         // slot-local-names restores V_0. Both forms must compile back identically.
         new("slot-local-names", "true",

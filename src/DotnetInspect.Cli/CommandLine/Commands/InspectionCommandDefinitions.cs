@@ -258,6 +258,7 @@ public static class InspectionCommandDefinitions
         var findingOption = new Option<string?>("--finding") { Description = "Finding Transitions producer: api.type, api.member, api.attribute, analysis.allocation, or analysis.call-site" };
         var legendOption = new Option<bool>("--legend") { Description = "Show legend explaining change symbols" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified complete Library API diff JSON (use with unprojected --json or --envelope)" };
+        var unavailableCountOption = new Option<bool>("--count") { Hidden = true };
 
         diffCommand.Arguments.Add(argsArg);
         diffCommand.Options.Add(packageOption);
@@ -282,6 +283,7 @@ public static class InspectionCommandDefinitions
         diffCommand.Options.Add(findingOption);
         diffCommand.Options.Add(legendOption);
         diffCommand.Options.Add(compactOption);
+        diffCommand.Options.Add(unavailableCountOption);
         opts.AddOutputOptionsTo(diffCommand);
         opts.AddNuGetOptionsTo(diffCommand);
         diffCommand.Options.Add(opts.Discover);
@@ -319,6 +321,14 @@ public static class InspectionCommandDefinitions
 
         diffCommand.SetAction(async (parseResult, ct) =>
         {
+            if (parseResult.GetResult(unavailableCountOption) is { Implicit: false })
+            {
+                CommandError.Write(
+                    "--count is not supported by the 'diff' command because "
+                    + "its current modes do not declare countable row semantics.");
+                return 1;
+            }
+
             var result = DiffOptionsParser.Parse(parseResult, opts, commandArgs);
 
             switch (result)
@@ -364,8 +374,8 @@ public static class InspectionCommandDefinitions
         assemblyPathArg.DefaultValueFactory = _ => null;
 
         var referencesOption = new Option<bool>("--references") { Description = "Legacy alias for -S References" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S References --tree" };
-        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Removed; use -S \"Reference Hierarchy\"" };
+        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S \"Reference Hierarchy\": maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
@@ -383,6 +393,7 @@ public static class InspectionCommandDefinitions
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
         };
+        var outOption = SharedOptions.CreateOutputPathOption();
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
@@ -397,6 +408,8 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(metadataRootOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        assemblyCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(assemblyCommand, outOption);
         // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
         // trace should advertise the flag. A flag every command accepts and only one honours is
         // worse than an unrecognized argument, which at least fails loudly.
@@ -616,7 +629,7 @@ public static class InspectionCommandDefinitions
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
-                ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
+                ReferenceHierarchyDepth = parseResult.GetValue(referenceDepthOption),
                 PackagePath = packagePath,
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
                 PlatformAssembly = platformAssembly,
@@ -667,6 +680,7 @@ public static class InspectionCommandDefinitions
                 CloneCandidateQuery = cloneCandidateQuery,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
+                OutputPath = parseResult.GetValue(outOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
                 ExtractResources = parseResult.GetValue(extractResourcesOption)
             };

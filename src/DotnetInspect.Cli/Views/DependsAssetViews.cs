@@ -186,6 +186,14 @@ public sealed class DependsAssetTableView
 }
 
 [MarkoutSerializable]
+public sealed class LibraryReferenceHierarchyTableView
+{
+    [MarkoutSection(Name = SectionNames.ReferenceHierarchy)]
+    public List<DependsHierarchyOccurrenceView>? ReferenceHierarchy
+    { get; init; }
+}
+
+[MarkoutSerializable]
 public sealed class DependsGraphTableView
 {
     [MarkoutSection(Name = DependsTypeSections.DependencyGraph)]
@@ -1114,6 +1122,7 @@ public sealed class DependsFailureView
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(DependsAssetView))]
 [MarkoutContext(typeof(DependsAssetTableView))]
+[MarkoutContext(typeof(LibraryReferenceHierarchyTableView))]
 [MarkoutContext(typeof(DependsGraphTableView))]
 [MarkoutContext(typeof(DependsRootView))]
 [MarkoutContext(typeof(DependsHierarchyOccurrenceView))]

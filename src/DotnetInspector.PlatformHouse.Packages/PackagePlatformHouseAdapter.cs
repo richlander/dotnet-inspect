@@ -61,11 +61,46 @@ public sealed class PackagePlatformHouseAdapter
         try
         {
             ArgumentNullException.ThrowIfNull(request);
-            if (request.Target is not PlatformTargetDemand.Selecting selecting)
-                throw new ArgumentException("Target discovery requires a selecting House target.", nameof(request));
+            PlatformFamily family;
+            PlatformTargetFramework targetFramework;
+            PlatformTargetDiscoveryBudget discoveryWork;
+            bool demandAuthorizes;
+            switch (request.Target)
+            {
+                case PlatformTargetDemand.Selecting selecting:
+                    family = selecting.Family;
+                    targetFramework = selecting.TargetFramework;
+                    discoveryWork = selecting.Work;
+                    demandAuthorizes =
+                        selecting.DiscoveryCapabilities.Any(
+                            capability => ReferenceEquals(
+                                capability,
+                                TargetDiscovery));
+                    break;
+                case PlatformTargetDemand.FamilyDefault familyDefault
+                    when familyDefault.Policy.Fallback.Capabilities.Any(
+                        capability => ReferenceEquals(
+                            capability,
+                            TargetDiscovery))
+                    && familyDefault.Policy.Fallback.Scope
+                        is PlatformTargetDiscoveryScope.ExactFramework exact:
+                    family = familyDefault.Family;
+                    targetFramework = exact.TargetFramework;
+                    discoveryWork = familyDefault.Work;
+                    demandAuthorizes = true;
+                    break;
+                case PlatformTargetDemand.FamilyDefault:
+                    return Task.FromResult(Stop<PackagePlatformTargetInventory>(
+                        request, PlatformSourceFacet.TargetDiscovery, null,
+                        "Package-backed family-default discovery requires the exact-framework fallback stage."));
+                default:
+                    throw new ArgumentException(
+                        "Target discovery requires a selecting House target.",
+                        nameof(request));
+            }
             request.CancellationToken.ThrowIfCancellationRequested();
             if (!request.Sources.Authorizes(PlatformSourceFacet.TargetDiscovery, TargetDiscovery)
-                || !selecting.DiscoveryCapabilities.Contains(TargetDiscovery))
+                || !demandAuthorizes)
                 return Task.FromResult(Stop<PackagePlatformTargetInventory>(
                     request, PlatformSourceFacet.TargetDiscovery, null,
                     "The package-backed target-discovery capability is not authorized."));
@@ -75,8 +110,8 @@ public sealed class PackagePlatformHouseAdapter
                     "The House work allowance does not permit target discovery.", incomplete: true));
             ValidateOperation(request, operation);
             Task<PackagePlatformSourceOutcome<PackagePlatformTargetInventory>> pending =
-                _source.DiscoverAsync(new(selecting.Family, selecting.TargetFramework,
-                    Math.Min(selecting.Work.MaxCandidates, request.Work.MaxTargetCandidates)), operation);
+                _source.DiscoverAsync(new(family, targetFramework,
+                    Math.Min(discoveryWork.MaxCandidates, request.Work.MaxTargetCandidates)), operation);
             transferred = true;
             return ProjectDiscoveryAsync(request, pending);
         }
@@ -119,9 +154,10 @@ public sealed class PackagePlatformHouseAdapter
                 ArgumentNullException.ThrowIfNull(discovery);
                 ArgumentNullException.ThrowIfNull(selection);
                 exact = selection.Target;
-                if (request.Target is not PlatformTargetDemand.Selecting
+                if (request.Target
+                        is not PlatformTargetDemand.Selecting selecting
                     || request.Target.Family != exact.Family
-                    || request.Target.TargetFramework != exact.TargetFramework)
+                    || selecting.TargetFramework != exact.TargetFramework)
                     throw new ArgumentException(
                         "The selected target must correspond to this selecting House request.", nameof(selection));
             }

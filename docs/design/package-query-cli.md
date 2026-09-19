@@ -17,11 +17,16 @@ inputs to this design; `package query` supersedes that command surface. See
 for the retained implementation evidence.
 
 The current sources implement one host-neutral L1 Package Query vocabulary as
-`PackageQuery`: product-owned ordered term descriptors, complete Portable Query
-Intent planning, ANDed predicate evaluation with vocabulary-owned OR families,
-an explicit package-content provider for archive-derived terms, semantic
-answers with structured evidence, separate candidate and match bounds, retained
-Head/Tail/Window stages, visible failures, and typed completion.
+`PackageQuery`: one Query Operation definition and effective route,
+product-owned ordered term descriptors, complete Portable Query Intent
+planning, ANDed predicate evaluation with vocabulary-owned OR families, an
+explicit package-content provider for archive-derived terms, semantic answers
+with structured evidence, separate candidate and match bounds, retained
+Head/Tail/Window stages, visible failures, and typed completion. The route
+registers the Package result grain and complete default Query Profile once.
+`PackageQuery.RegisteredTerms` projects its effective terms and operators for
+both hosts, while `PackageQuery.ResolveIntent` resolves every complete intent
+through the same profile-scoped route.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -73,6 +78,13 @@ term editors all lower to `(key, operator, value)` triples in one intent.
 Portable Query Intent owns serialization and generic resolution; Package Query
 owns this vocabulary, binding, compatibility, bounds, acquisition tiers,
 execution, evidence, and plan construction.
+
+The Query Operation adoption under
+[#7712](https://github.com/richlander/dotnet-inspect/issues/7712) removes the
+remaining host-local capability inventories. CLI `-Q` and parsing consume the
+effective registered inspection terms; Inspect Web presets and free-input
+controls consume the same route projection. Host gestures remain distinct, but
+equivalent gestures author the same canonical intent and owner-issued plan.
 
 Related docs:
 
@@ -127,6 +139,7 @@ The production inspection vocabulary is:
 | `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
 | `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
 | `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends-ecosystem` | canonical ecosystem ID | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
@@ -150,6 +163,9 @@ dotnet-inspect package query 'Microsoft.Extensions.*' \
 dotnet-inspect package query 'Polly.*' \
   --where "depends=System.Threading.Tasks.Extensions" \
   --where "dependency-target=netstandard2.0"
+
+dotnet-inspect package query Aspire.Hosting.PostgreSQL \
+  --where "depends-ecosystem=ecosystem.aspire"
 
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
@@ -179,14 +195,31 @@ dependency. Without `dependency-target`, or with
 `all` is Package Query scope rather than a target-framework identity and is
 distinct from a manifest's real `any` group.
 
+`depends-ecosystem` accepts one canonical, case-sensitive
+`ecosystem.<name>` identity and matches a direct dependency against the
+Ecosystems owner's resource-free package-population declaration. Membership is
+the union of exact package-set members and registered package-ID prefixes,
+using NuGet package-ID comparison semantics; an exact registration takes
+evidence precedence when both rules match. Repeated ecosystem terms are
+independent conjunctions, so each named ecosystem must match at least one
+direct dependency in the selected scope.
+
+The CLI and Browser package-query facades inject the same immutable
+`PackageQueryEcosystemMembershipCatalog` projected from the application
+ecosystem catalog. A malformed identity, a valid but unknown identity, or a
+known ecosystem without exact-package or package-prefix membership is rejected
+before package-source work. The shared portable intent stores only the
+canonical term value, so Workspace Share packet formats do not change; a
+decoded plan must bind the application snapshot before execution.
+
 `dependency-target=<tfm>` canonicalizes the requested NuGet target and uses
 the dependency-group owner's compatible selection. The plan and evidence
 retain the requested target and selected manifest group separately. A selected
 empty group and a manifest with no dependency groups satisfy
 `dependencies=none`; no matching target framework does not. The target term
-requires at least one `depends` or `dependencies` term, applies to all such
-terms in the query, and does not traverse, resolve version ranges, or select
-package assets.
+requires at least one `depends`, `depends-ecosystem`, or `dependencies` term,
+applies to all such terms in the query, and does not traverse, resolve version
+ranges, or select package assets.
 
 ## Adaptive result section
 
@@ -222,6 +255,8 @@ count of whichever adaptive section rendered. It therefore supports the
 
 Matching dependency evidence identifies each declaration's manifest group,
 package ID, and declared range, subject to the bounded evidence preview.
+Ecosystem dependency evidence additionally identifies the canonical ecosystem
+and whether an exact package or package prefix established membership.
 
 `license=any` matches any recognized nuspec `<license>` declaration or legacy
 `<licenseUrl>`. Named values are a closed product vocabulary, not arbitrary
@@ -672,21 +707,24 @@ one-candidate selected-asset and producer contract remains in
 [Package Query assembly-pattern
 evaluation](package-query-assembly-evaluation.md).
 
-## Row declaration: coercing a wide per-package fact set into a Table
+## Row declaration: keeping package evidence out of the Table
 
 A term-matched package is not naturally one flat row: it may match zero or
 more terms, each with its own answer and evidence, and evaluating a capability-bearing
 term may add fields a nuspec-only row never had. Before this can be a Table,
 something has to decide the row grain — the same "declared row unit"
 decision #4551 already makes once for package/dependency pairs. This
-document proposes:
+document specifies:
 
 - **Default grain: one row per package.** Multiple matched terms produce an
   ordered semantic `Answer` vector and separate structured `Evidence`. The
-  query layer retrieves values, facts, and counts; it never authors
-  explanatory text. CLI and Browser consume the same typed values and each host
-  may render presentation suited to its surface without re-deriving semantic
-  identity.
+  human-readable and projected package row contains `Package`, `Version`,
+  `Tier`, `Source`, and `Answer`. Evidence is explanatory structured content
+  rather than a tabular field, so it remains on each `PackageQueryMatch` in
+  unprojected JSON and the `InspectionEnvelope<PackageQueryDocument>` instead
+  of being flattened into an `Evidence` column. The query layer retrieves
+  values, facts, and counts; hosts render any explanation from those typed
+  values without re-deriving semantic identity.
 - **Denormalization is a per-term decision, not a generic mechanism.** A
   term whose answer is inherently per-sub-item (for example, "which of this
   package's target frameworks are out of support" when a package targets

@@ -89,17 +89,20 @@ through the shared
 Blank package input stays idle. Spotlight owns open-text package discovery; the
 Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
-The Browser catalog projects `PackageQuery.Terms`; it does not own an
-independent predicate table. Closed options become preset controls carrying the
-explicit product-issued `(key, operator, value)` triple plus label, summary,
-weight, tier, optional resolver selection group, optional preset replacement
-group, and optional display group. Free-input descriptors carry the same key,
-operator, value-kind, and example metadata.
+The Browser catalog projects `PackageQuery.RegisteredTerms`, the
+Package-specific projection of the effective Query Operation route; it does
+not own an independent predicate table. Closed options become preset controls
+carrying the explicit product-issued `(key, operator, value)` triple plus
+label, summary, weight, tier, optional resolver selection group, optional
+preset replacement group, and optional display group. Free-input descriptors
+carry the same route-issued key and operators plus product-owned value-kind and
+example metadata.
 
 ### Active term delivery
 
 The Browser and CLI share the first production vocabulary:
-`dependencies=none`, `depends=<package-id>`, `downloads=10k|100k|1m`,
+`dependencies=none`, `dependency-target=all|<tfm>`,
+`depends=<package-id>`, `depends-ecosystem=<ecosystem-id>`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
 `skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
@@ -125,12 +128,14 @@ render resumes.
 Cancel discards a draft, Remove discards the corresponding active editor with
 its term, and leaving Package Query discards all unapplied editor values.
 Package Query remains the authority for vocabulary, NuGet package-ID
-validation, duplicate collapse, compatibility, bounds, and failures; a planning
-rejection is a visible expected query failure and performs no acquisition. The
-shared planner admits at most 22 authored inspection terms before duplicate
-collapse, reserving the two required structural slots in the canonical
-24-term Portable Query payload; Browser transport limits remain outer wire
-shape rather than a parallel product policy.
+validation, canonical ecosystem-ID syntax, duplicate collapse, compatibility,
+bounds, and failures. The Browser package-query facade supplies the
+Ecosystems-owned immutable package-membership snapshot, so unknown and
+known-but-unbound ecosystems are visible planning failures before acquisition.
+The shared planner admits at most 22 authored inspection terms before
+duplicate collapse, reserving the two required structural slots in the
+canonical 24-term Portable Query payload; Browser transport limits remain
+outer wire shape rather than a parallel product policy.
 
 Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected terms, and starts

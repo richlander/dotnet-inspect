@@ -216,14 +216,30 @@ public class LibraryInspectionView
         Version = LibraryInspectionDisplay.ResolveVersion(_data),
     };
 
-    [MarkoutSection(Name = "References")]
+    [MarkoutSection(Name = "References", EmptyText = "No references.")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
         _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(
                 r.Name,
                 r.Version,
                 LibraryViewText.Field(r.PublicKeyToken ?? "-")))
-            .ToList() is { Count: > 0 } list ? list : null;
+            .ToList() is { Count: > 0 } list
+                ? list
+                : _data.AssemblyReferenceInspection is { } inspection
+                  && inspection.Failure() is null
+                    ? []
+                    : null;
+
+    [MarkoutSection(
+        Name = SectionNames.ReferenceHierarchy,
+        EmptyText = "No reference relationships.")]
+    public Markout.Graph? ReferenceHierarchySection =>
+        _data.ReferenceHierarchyProjection is { } projection
+            ? DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                projection.HierarchyRows,
+                markWindowedFragments: true)
+            : null;
 
     [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };

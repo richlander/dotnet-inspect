@@ -3,8 +3,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
+using DotnetInspector.QueryOperations;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
@@ -139,6 +141,7 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
+                ("depends-ecosystem", 210),
                 ("license", 250),
                 ("downloads", 300),
                 ("readme", 400),
@@ -153,6 +156,7 @@ public sealed class PackageQueryTests
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
                 PackageQueryTermRole.Population,
+                PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
                 PackageQueryTermRole.Inspection,
@@ -200,6 +204,18 @@ public sealed class PackageQueryTests
             depends.Operators);
         Assert.Equal(PackageQueryAcquisitionTier.Nuspec, depends.Tier);
         Assert.Equal(PackageQueryTermControlKind.Input, depends.ControlKind);
+        PackageQueryTermDescriptor dependsEcosystem =
+            PackageQuery.Terms.Single(
+                term => term.Key == PackageQuery.DependsEcosystemTermKey);
+        Assert.Equal(
+            "canonical ecosystem ID",
+            dependsEcosystem.ValueKind);
+        Assert.Equal(
+            PackageQueryAcquisitionTier.Nuspec,
+            dependsEcosystem.Tier);
+        Assert.Equal(
+            PackageQueryTermControlKind.Input,
+            dependsEcosystem.ControlKind);
         PackageQueryTermDescriptor dependencyTarget =
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DependencyTargetTermKey);
@@ -224,6 +240,83 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["any", "MIT", "OSMF"],
             license.Options.Select(option => option.Value));
+    }
+
+    [Fact]
+    public void OperationRoute_ProjectsTheCompleteExecutableVocabulary()
+    {
+        IQueryOperationRoute route = PackageQuery.OperationRoute;
+
+        Assert.Equal(PackageQuery.OperationRouteIdentity, route.Identity);
+        Assert.Equal(PackageQuery.OperationIdentity, route.OperationIdentity);
+        Assert.Equal(
+            PackageQuery.OperationSubjectRole,
+            route.SubjectRole);
+        Assert.Equal(
+            PackageQuery.OperationResultGrain,
+            route.ResultGrain);
+        Assert.Equal(
+            [PackageQuery.OperationPackagesRowSet],
+            route.RowSets);
+        Assert.Equal(
+            PackageQuery.OperationProfileIdentity,
+            route.ProfileIdentity);
+        Assert.Equal(
+            PackageQuery.VocabularyIdentity,
+            route.Capabilities.Vocabulary);
+        Assert.Equal(
+            PackageQuery.Terms.Select(term => term.Key),
+            route.Capabilities.Terms.Select(term =>
+                term.Binding.Key));
+        Assert.All(
+            route.Capabilities.Terms,
+            term => Assert.Equal(
+                [PortableQueryOperator.Equal],
+                term.Operators));
+        Assert.Equal(
+            ["candidates", "matches"],
+            route.Capabilities.Dimensions);
+        Assert.Equal(
+            [
+                RowSelectionStageKind.Head,
+                RowSelectionStageKind.Tail,
+                RowSelectionStageKind.Window,
+            ],
+            route.Capabilities.Stages);
+
+        QueryOperationTermCapability packageContent =
+            route.Capabilities.Terms.Single(term =>
+                term.Binding.Key == PackageQuery.SkillTermKey);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.Capability
+                && effect.Identity
+                    == PackageQuery.PackageContentCapability);
+        Assert.Contains(
+            packageContent.Binding.Effects,
+            effect =>
+                effect.Kind == QueryOperationEffectKind.AcquisitionTier
+                && effect.Identity == "package-content");
+    }
+
+    [Fact]
+    public void RegisteredTerms_AreTheEffectiveOperationProjection()
+    {
+        Assert.Equal(
+            PackageQuery.OperationRoute.Capabilities.Terms.Select(
+                capability => capability.Binding.Key),
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor.Key));
+        Assert.Equal(
+            PackageQuery.OperationRoute.Capabilities.Terms.Select(
+                capability => capability.Operators.Single()),
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Operators.Single()));
+        Assert.Equal(
+            PackageQuery.RegisteredTerms.Select(term =>
+                term.Descriptor),
+            PackageQuery.Terms);
     }
 
     [Theory]
@@ -756,6 +849,250 @@ public sealed class PackageQueryTests
         Assert.Equal(
             PackageQueryEvidenceScope.Package,
             selectedMatch.Evidence[1].Scope);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsEcosystemMatchesExactAndPrefixMembership()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Exact"),
+            Match("Contoso.Prefix"),
+            Match("Contoso.Similar"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.exact@1.0.0"] = Manifest(
+                    "Contoso.Exact",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="[9.0.0, 10.0.0)" />
+                    </group>
+                    """),
+                ["contoso.prefix@1.0.0"] = Manifest(
+                    "Contoso.Prefix",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Future.Integration" version="9.1.0" />
+                    </group>
+                    """),
+                ["contoso.similar@1.0.0"] = Manifest(
+                    "Contoso.Similar",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Contoso.Aspire.Hosting" version="1.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                EcosystemCatalog(
+                    Ecosystem(
+                        "ecosystem.aspire",
+                        exactPackages: ["Aspire.Hosting"],
+                        packagePrefixes: ["Aspire."])),
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                ],
+                maximumCandidates: 3,
+                maximumMatches: null));
+
+        PackageQueryMatch[] matches =
+        [
+            .. (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+                .OfType<PackageQueryEvent.Match>()
+                .Select(queryEvent => queryEvent.Value),
+        ];
+
+        Assert.Equal(
+            ["Contoso.Exact", "Contoso.Prefix"],
+            matches.Select(match => match.Package.PackageId));
+        Assert.All(matches, match => Assert.Equal(
+            "ecosystem.aspire",
+            Assert.Single(match.Answers).Value));
+        Assert.Equal(
+            "net8.0: Aspire.Hosting [9.0.0, 10.0.0)"
+                + " -> ecosystem.aspire (exact package Aspire.Hosting)",
+            Assert.Single(matches[0].Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey)
+                .Summary!.Preview).ToString());
+        Assert.Equal(
+            "net8.0: Aspire.Future.Integration 9.1.0"
+                + " -> ecosystem.aspire (package prefix Aspire.)",
+            Assert.Single(matches[1].Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey)
+                .Summary!.Preview).ToString());
+        Assert.Equal(3, source.ManifestRequests.Count);
+        Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DependsEcosystemTermsAndWithinSelectedGroup()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Both"),
+            Match("Contoso.Split"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.both@1.0.0"] = Manifest(
+                    "Contoso.Both",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="9.0.0" />
+                      <dependency id="Microsoft.Extensions.AI" version="9.0.0" />
+                    </group>
+                    """),
+                ["contoso.split@1.0.0"] = Manifest(
+                    "Contoso.Split",
+                    dependencies:
+                    """
+                    <group targetFramework="net8.0">
+                      <dependency id="Aspire.Hosting" version="9.0.0" />
+                    </group>
+                    <group targetFramework="net9.0">
+                      <dependency id="Microsoft.Extensions.AI" version="9.0.0" />
+                    </group>
+                    """),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                EcosystemCatalog(
+                    Ecosystem(
+                        "ecosystem.aspire",
+                        packagePrefixes: ["Aspire."]),
+                    Ecosystem(
+                        "ecosystem.ai",
+                        packagePrefixes: ["Microsoft.Extensions.AI"])),
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.ai"),
+                    Term(PackageQuery.DependencyTargetTermKey, "net8.0"),
+                ],
+                maximumCandidates: 2,
+                maximumMatches: null));
+
+        PackageQueryMatch match = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+
+        Assert.Equal("Contoso.Both", match.Package.PackageId);
+        Assert.Equal(
+            2,
+            match.Evidence.Count(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey));
+        Assert.Equal(
+            ["ecosystem.ai", "ecosystem.aspire", "net8.0"],
+            match.Answers
+                .Select(answer => answer.Value)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            match.Evidence.Where(evidence =>
+                evidence.Id == PackageQuery.DependsEcosystemTermKey),
+            evidence => Assert.StartsWith(
+                "net8.0:",
+                Assert.Single(evidence.Summary!.Preview).ToString(),
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DependsEcosystemRejectsMalformedUnknownAndUnboundIdentities()
+    {
+        PackageQueryEcosystemMembershipCatalog catalog = EcosystemCatalog(
+            Ecosystem("ecosystem.platform"));
+
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidTermValue,
+            Rejected(PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [Term(PackageQuery.DependsEcosystemTermKey, "Aspire")]))
+                .Reason);
+
+        PackageQueryRequestFailure unknown = Rejected(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.unknown"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.UnknownEcosystem,
+            unknown.Reason);
+        Assert.Equal("ecosystem.unknown", unknown.EcosystemId);
+
+        PackageQueryRequestFailure unbound = Rejected(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                catalog,
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.platform"),
+                ]));
+        Assert.Equal(
+            PackageQueryRequestFailureReason
+                .EcosystemPackagePopulationUnavailable,
+            unbound.Reason);
+        Assert.Equal("ecosystem.platform", unbound.EcosystemId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsPortableUnboundEcosystemBeforeSourceWork()
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan portablePlan = Accepted(
+            PackageQuery.PlanInput(
+                "Contoso.*",
+                terms:
+                [
+                    Term(
+                        PackageQuery.DependsEcosystemTermKey,
+                        "ecosystem.aspire"),
+                ],
+                maximumCandidates: 1,
+                maximumMatches: 1));
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => CollectAsync(PackageQuery.ExecuteAsync(
+                    source,
+                    portablePlan,
+                    TestContext.Current.CancellationToken)));
+
+        Assert.Contains(
+            "ecosystem-membership binding",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, source.LastSearchTake);
+        Assert.Empty(source.ManifestRequests);
     }
 
     [Fact]
@@ -2508,6 +2845,20 @@ public sealed class PackageQueryTests
 
     private static PortableQueryTerm Term(string key, string value) =>
         new(key, PortableQueryOperator.Equal, value);
+
+    private static PackageQueryEcosystemMembershipCatalog EcosystemCatalog(
+        params PackageQueryEcosystemMembershipDeclaration[] declarations) =>
+        new(declarations);
+
+    private static PackageQueryEcosystemMembershipDeclaration Ecosystem(
+        string id,
+        string[]? exactPackages = null,
+        string[]? packagePrefixes = null) =>
+        new(
+            WorkspaceEcosystemRegistrationId.Create(id),
+            (exactPackages ?? []).Select(package => new PackageCoordinate(package)),
+            (packagePrefixes ?? []).Select(prefix =>
+                new PackagePrefixDeclaration(prefix)));
 
     private static string EvidenceProperty(
         PackageQueryMatch match,

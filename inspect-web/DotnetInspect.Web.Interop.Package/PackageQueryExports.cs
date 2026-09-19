@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
@@ -19,19 +20,21 @@ namespace DotnetInspect.Web.Interop.Package
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
-                    .. PackageQuery.Terms
+                    .. PackageQuery.RegisteredTerms
                         .Where(term =>
-                            term.Role == PackageQueryTermRole.Inspection)
-                        .SelectMany(term => term.Options.Select(option =>
+                            term.Descriptor.Role
+                                == PackageQueryTermRole.Inspection)
+                        .SelectMany(term =>
+                            term.Descriptor.Options.Select(option =>
                         new BrowserPackageQueryPresetDescriptor(
-                            term.Key,
+                            term.Descriptor.Key,
                             PortableQueryModel.TextOf(
-                                PortableQueryOperator.Equal),
+                                SingleControlOperator(term)),
                             option.Value,
                             option.Label,
                             option.Summary,
-                            term.Weight,
-                            term.Tier switch
+                            term.Descriptor.Weight,
+                            term.Descriptor.Tier switch
                             {
                                 PackageQueryAcquisitionTier.Nuspec =>
                                     BrowserPackageQueryAcquisitionTier.Nuspec,
@@ -42,25 +45,26 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
-                            term.SelectionGroupId,
-                            term.CombinesWithinSelectionGroup,
-                            term.ReplacementGroupId,
-                            term.DisplayGroupId,
-                            term.DisplayGroupLabel))),
+                            term.Descriptor.SelectionGroupId,
+                            term.Descriptor.CombinesWithinSelectionGroup,
+                            term.Descriptor.ReplacementGroupId,
+                            term.Descriptor.DisplayGroupId,
+                            term.Descriptor.DisplayGroupLabel))),
                 ],
                 [
-                    .. PackageQuery.Terms
+                    .. PackageQuery.RegisteredTerms
                         .Where(term =>
-                            term.Role == PackageQueryTermRole.Inspection
-                            && term.ControlKind
+                            term.Descriptor.Role
+                                == PackageQueryTermRole.Inspection
+                            && term.Descriptor.ControlKind
                                 == PackageQueryTermControlKind.Input)
                         .Select(term =>
                         new BrowserPackageQueryTermDescriptor(
-                            term.Key,
-                            term.Label,
-                            term.Summary,
-                            term.Weight,
-                            term.Tier switch
+                            term.Descriptor.Key,
+                            term.Descriptor.Label,
+                            term.Descriptor.Summary,
+                            term.Descriptor.Weight,
+                            term.Descriptor.Tier switch
                             {
                                 PackageQueryAcquisitionTier.Nuspec =>
                                     BrowserPackageQueryAcquisitionTier.Nuspec,
@@ -71,10 +75,21 @@ namespace DotnetInspect.Web.Interop.Package
                                 _ => throw new InvalidOperationException(
                                     "Unknown package-query term tier."),
                             },
-                            [.. term.Operators],
-                            term.ValueKind,
-                            term.ExampleValue)),
+                            [
+                                .. term.Operators.Select(
+                                    PortableQueryModel.TextOf),
+                            ],
+                            term.Descriptor.ValueKind,
+                            term.Descriptor.ExampleValue)),
                 ]);
+
+        private static PortableQueryOperator SingleControlOperator(
+            PackageQueryRegisteredTerm term) =>
+            term.Operators.Length == 1
+                ? term.Operators[0]
+                : throw new InvalidOperationException(
+                    $"Package Query control '{term.Descriptor.Key}' requires "
+                    + "exactly one registered operator.");
 
         internal static PackageQueryPlanResult Plan(
             string text,
@@ -84,6 +99,7 @@ namespace DotnetInspect.Web.Interop.Package
             bool includePrerelease) =>
             PackageQuery.PlanInput(
                 text,
+                EcosystemPackCatalog.PackageQueryMemberships,
                 terms,
                 maximumCandidates,
                 maximumMatches,
