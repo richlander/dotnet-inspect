@@ -447,6 +447,10 @@ internal sealed class EcosystemPackRegistry
 /// <summary>Discovery and exact selection for shipped ecosystem content.</summary>
 public static partial class EcosystemPackCatalog
 {
+    public static EcosystemDependencyRecognitionProfile
+        DependencyRecognitionProfile =>
+        ProductEcosystemPacks.DependencyRecognitionProfile;
+
     public static ImmutableArray<EcosystemPackDescriptor> Discover() =>
         ProductEcosystemPacks.Registry.Packs;
 

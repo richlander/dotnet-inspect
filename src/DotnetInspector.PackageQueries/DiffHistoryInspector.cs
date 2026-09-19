@@ -21,36 +21,58 @@ public static class DiffHistoryInspector
         ArgumentNullException.ThrowIfNull(executor);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var evaluated =
+        var chronological =
             ImmutableArray.CreateBuilder<EvaluatedApiMembers>(
-                request.EvaluationSelection.Length);
-        foreach (PackageVersionAddress address
-            in request.EvaluationSelection)
+                request.EvaluationLimits.MaximumEvaluations);
+        var probes =
+            ImmutableArray.CreateBuilder<DiffHistoryApiMemberProbe>(
+                request.EvaluationLimits.MaximumEvaluations);
+        if (request.EvaluationPlan
+            is DiffHistoryEvaluationPlan.AdaptiveBisect adaptive)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            PackageHouseVersionPopulationCell cell =
-                request.Population.SelectCell(address);
-            var cellRequest =
-                new PackageVersionCellMetadataInspectionRequest(
-                    cell,
-                    request.Operation,
-                    request.TargetContext,
-                    request.WorkspaceLimits,
-                    request.WorkspaceDeadline,
-                    request.ApiInspection);
-            PackageVersionCellMetadataInspectionOutcome outcome =
-                await PackageVersionCellMetadataInspector
-                    .ExecuteForApiComparisonAsync(
-                        cellRequest,
-                        executor,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            evaluated.Add(Project(request, cell, outcome));
+            await EvaluateAdaptiveAsync(
+                    request,
+                    adaptive,
+                    executor,
+                    chronological,
+                    probes,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            DiffHistoryProbePurpose purpose =
+                request.EvaluationPlan
+                    is DiffHistoryEvaluationPlan.FullPopulation
+                    ? DiffHistoryProbePurpose.DenseCensus
+                    : DiffHistoryProbePurpose.ExplicitCheckpoint;
+            foreach (PackageVersionAddress address
+                in request.InitialEvaluationSelection)
+            {
+                EvaluatedApiMembers point =
+                    await EvaluateAsync(
+                            request,
+                            address,
+                            executor,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                chronological.Add(point);
+                probes.Add(
+                    new(
+                        probes.Count + 1,
+                        purpose,
+                        selectedInterval: null,
+                        point.Row,
+                        new(
+                            probes.Count == 0
+                                ? DiffHistoryProbeLearningKind.Baseline
+                                : DiffHistoryProbeLearningKind
+                                    .ObservationRecorded)));
+            }
         }
 
         ImmutableArray<EvaluatedApiMembers> points =
-            evaluated.ToImmutable();
+            InPopulationOrder(chronological);
         FindingCensusCorrelation<ApiMemberHandle> correlation =
             FindingCensusCorrelation<ApiMemberHandle>.Create(
                 points.Select(static point =>
@@ -66,23 +88,328 @@ public static class DiffHistoryInspector
                     request,
                     points,
                     transitions);
+        DiffHistoryTerminalOutcome terminalOutcome =
+            BuildTerminalOutcome(
+                request,
+                points,
+                transitions);
+        ImmutableArray<DiffHistoryNextAction> nextActions =
+            BuildNextActions(
+                request,
+                points,
+                transitions);
         var content = new DiffHistoryApiMemberDocument(
             request.Population.Vector,
             request.ApiInspection.TypeFullName,
             request.ApiInspection.Scope,
+            request.TargetContext,
             request.EvaluationLimits,
+            request.EvaluationPlan,
             request.WorkspaceLimits,
             request.ApiInspection.Limits,
-            request.EvaluationSelection,
+            [.. points.Select(static point => point.Row.Address)],
             [.. points.Select(static point => point.Row)],
+            probes.ToImmutable(),
             correlation,
             transitions,
             changedVersionAssessments,
+            terminalOutcome,
+            nextActions,
             request.ComparisonOptions,
-            request.MatchAcceptanceThreshold);
+            request.MatchAcceptanceThreshold,
+            request.ReplayContext);
         return new DiffHistoryOutcome.Available(
             new DiffHistoryDocument.ApiMembers(content));
     }
+
+    static async Task EvaluateAdaptiveAsync(
+        DiffHistoryApiMemberInspectionRequest request,
+        DiffHistoryEvaluationPlan.AdaptiveBisect plan,
+        IPackageHouseVersionPopulationCellExecutor executor,
+        ImmutableArray<EvaluatedApiMembers>.Builder chronological,
+        ImmutableArray<DiffHistoryApiMemberProbe>.Builder probes,
+        CancellationToken cancellationToken)
+    {
+        ImmutableArray<PackageVersionAddress> population =
+            request.Population.Vector.Addresses;
+        EvaluatedApiMembers first =
+            await EvaluateAsync(
+                    request,
+                    population[0],
+                    executor,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        chronological.Add(first);
+        probes.Add(
+            new(
+                1,
+                DiffHistoryProbePurpose.PopulationStart,
+                selectedInterval: null,
+                first.Row,
+                new(DiffHistoryProbeLearningKind.Baseline)));
+
+        EvaluatedApiMembers last =
+            await EvaluateAsync(
+                    request,
+                    population[^1],
+                    executor,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        chronological.Add(last);
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>>
+            transitions = BuildTransitions(
+                request,
+                InPopulationOrder(chronological));
+        probes.Add(
+            new(
+                2,
+                DiffHistoryProbePurpose.PopulationEnd,
+                selectedInterval: null,
+                last.Row,
+                Learning(transitions)));
+
+        while (chronological.Count < plan.MaximumProbes)
+        {
+            if (HasFailedTransition(transitions))
+                break;
+            DiffHistoryInterval? selected =
+                SelectNextInterval(transitions);
+            if (selected is null)
+                break;
+
+            int midpoint = selected.Source.Position
+                + ((selected.Destination.Position
+                    - selected.Source.Position) / 2);
+            EvaluatedApiMembers point =
+                await EvaluateAsync(
+                        request,
+                        population[midpoint],
+                        executor,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            chronological.Add(point);
+            transitions = BuildTransitions(
+                request,
+                InPopulationOrder(chronological));
+            probes.Add(
+                new(
+                    probes.Count + 1,
+                    DiffHistoryProbePurpose.AdaptiveMidpoint,
+                    selected,
+                    point.Row,
+                    Learning(transitions)));
+        }
+    }
+
+    static async Task<EvaluatedApiMembers> EvaluateAsync(
+        DiffHistoryApiMemberInspectionRequest request,
+        PackageVersionAddress address,
+        IPackageHouseVersionPopulationCellExecutor executor,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PackageHouseVersionPopulationCell cell =
+            request.Population.SelectCell(address);
+        var cellRequest =
+            new PackageVersionCellMetadataInspectionRequest(
+                cell,
+                request.Operation,
+                request.TargetContext,
+                request.WorkspaceLimits,
+                request.WorkspaceDeadline,
+                request.ApiInspection);
+        PackageVersionCellMetadataInspectionOutcome outcome =
+            await PackageVersionCellMetadataInspector
+                .ExecuteForApiComparisonAsync(
+                    cellRequest,
+                    executor,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Project(request, cell, outcome);
+    }
+
+    static ImmutableArray<EvaluatedApiMembers> InPopulationOrder(
+        ImmutableArray<EvaluatedApiMembers>.Builder chronological) =>
+        [
+            .. chronological.OrderBy(
+                static point => point.Row.Address.Position),
+        ];
+
+    static DiffHistoryProbeLearning Learning(
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions)
+    {
+        if (HasFailedTransition(transitions))
+        {
+            return new(
+                DiffHistoryProbeLearningKind.BlockedByFailure,
+                ChangedIntervals(transitions));
+        }
+
+        ImmutableArray<DiffHistoryInterval> changed =
+            ChangedIntervals(transitions);
+        return changed.IsEmpty
+            ? new(DiffHistoryProbeLearningKind.NoChangeObserved)
+            : new(
+                DiffHistoryProbeLearningKind.ChangedIntervals,
+                changed);
+    }
+
+    static DiffHistoryTerminalOutcome BuildTerminalOutcome(
+        DiffHistoryApiMemberInspectionRequest request,
+        ImmutableArray<EvaluatedApiMembers> points,
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions)
+    {
+        ImmutableArray<DiffHistoryInterval> changed =
+            ChangedIntervals(transitions);
+        ImmutableArray<DiffHistoryInterval> boundaries =
+            changed
+                .Where(static interval => interval.IsAdjacent)
+                .ToImmutableArray();
+        ImmutableArray<DiffHistoryInterval> unresolved =
+            changed
+                .Where(static interval => !interval.IsAdjacent)
+                .ToImmutableArray();
+        ImmutableArray<PackageVersionAddress> failedAddresses =
+        [
+            .. points
+                .Where(static point =>
+                    point.Row.Inspection.Value
+                        is FindingInspection<ApiMemberHandle>.Failed)
+                .Select(static point => point.Row.Address),
+        ];
+        ImmutableArray<DiffHistoryInterval> failed =
+            FailedIntervals(transitions);
+        if (!failedAddresses.IsEmpty || !failed.IsEmpty)
+        {
+            return new DiffHistoryTerminalOutcome.BlockedByFailure(
+                boundaries,
+                unresolved,
+                failedAddresses,
+                failed);
+        }
+
+        if (request.EvaluationPlan
+            is DiffHistoryEvaluationPlan.FullPopulation)
+        {
+            return new DiffHistoryTerminalOutcome
+                .FullPopulationCompleted();
+        }
+        if (request.EvaluationPlan
+            is DiffHistoryEvaluationPlan.ExplicitCheckpoints)
+        {
+            return new DiffHistoryTerminalOutcome
+                .ExplicitCheckpointsCompleted();
+        }
+
+        if (!unresolved.IsEmpty)
+        {
+            return new DiffHistoryTerminalOutcome.BudgetExhausted(
+                boundaries,
+                unresolved);
+        }
+        if (!boundaries.IsEmpty)
+        {
+            return new DiffHistoryTerminalOutcome.BoundariesResolved(
+                boundaries);
+        }
+
+        return new DiffHistoryTerminalOutcome.EqualEndpoints(
+            new(
+                request.Population.Vector.Addresses[0],
+                request.Population.Vector.Addresses[^1]));
+    }
+
+    static ImmutableArray<DiffHistoryNextAction> BuildNextActions(
+        DiffHistoryApiMemberInspectionRequest request,
+        ImmutableArray<EvaluatedApiMembers> points,
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions)
+    {
+        if (request.EvaluationPlan
+            is DiffHistoryEvaluationPlan.ExplicitCheckpoints)
+        {
+            DiffHistoryInterval? interval =
+                SelectNextInterval(transitions);
+            if (interval is null)
+                return [];
+            int midpoint = interval.Source.Position
+                + ((interval.Destination.Position
+                    - interval.Source.Position) / 2);
+            return
+            [
+                new DiffHistoryNextAction.Probe(
+                    interval,
+                    request.Population.Vector.Addresses[midpoint],
+                    points.Select(
+                            static point => point.Row.Address)
+                        .Append(
+                            request.Population.Vector.Addresses[midpoint])
+                    .OrderBy(static address => address.Position)
+                    .ToImmutableArray()),
+            ];
+        }
+        if (request.EvaluationPlan
+            is not DiffHistoryEvaluationPlan.AdaptiveBisect)
+        {
+            return [];
+        }
+
+        return
+        [
+            .. ChangedIntervals(transitions)
+                .Where(static interval => interval.IsAdjacent)
+                .Select(interval =>
+                    (DiffHistoryNextAction)new
+                        DiffHistoryNextAction.PairwiseDiff(
+                            interval,
+                            request.Population.Vector.PackageId,
+                            request.ApiInspection.TypeFullName,
+                            MetadataFindings.MemberDescriptor.Id,
+                            request.ApiInspection.Scope,
+                            request.TargetContext,
+                            request.ReplayContext)),
+        ];
+    }
+
+    static DiffHistoryInterval? SelectNextInterval(
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions) =>
+        ChangedIntervals(transitions)
+            .Where(static interval => !interval.IsAdjacent)
+            .OrderByDescending(static interval =>
+                interval.Destination.Position - interval.Source.Position)
+            .ThenBy(static interval => interval.Source.Position)
+            .FirstOrDefault();
+
+    static ImmutableArray<DiffHistoryInterval> ChangedIntervals(
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions) =>
+        [
+            .. transitions
+                .Where(static transition =>
+                    transition.Comparison.Value
+                        is FindingComparison<ApiMemberHandle>.Complete
+                    && !transition.Comparison.IsExact)
+                .Select(static transition => new DiffHistoryInterval(
+                    transition.Source,
+                    transition.Destination)),
+        ];
+
+    static ImmutableArray<DiffHistoryInterval> FailedIntervals(
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions) =>
+        [
+            .. transitions
+                .Where(static transition =>
+                    transition.Comparison.Value
+                        is FindingComparison<ApiMemberHandle>.Failed)
+                .Select(static transition => new DiffHistoryInterval(
+                    transition.Source,
+                    transition.Destination)),
+        ];
+
+    static bool HasFailedTransition(
+        ImmutableArray<DiffHistoryTransition<ApiMemberHandle>> transitions) =>
+        transitions.Any(static transition =>
+            transition.Comparison.Value
+                is FindingComparison<ApiMemberHandle>.Failed);
 
     static EvaluatedApiMembers Project(
         DiffHistoryApiMemberInspectionRequest request,

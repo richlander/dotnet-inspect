@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -27,6 +28,11 @@ public sealed record AssemblyIdentityNames(
 /// </summary>
 public static class AssemblyIdentityScanner
 {
+    private static readonly MetadataStringDecoder s_strictUtf8Decoder = new(
+        new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true));
+
     public static AssemblyIdentityNames Scan(string assemblyPath)
         => OwnedResourceCleanup.ReadPeImage(
             () => File.OpenRead(assemblyPath),
@@ -34,9 +40,20 @@ public static class AssemblyIdentityScanner
 
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
-        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+        var reader = MetadataFormatAdmission.GetMetadataReader(
+            peReader,
+            MetadataReaderOptions.None,
+            s_strictUtf8Decoder);
+        _ = ReadRequiredName(
+            reader,
+            reader.GetModuleDefinition().Name,
+            "Module definition");
+
         string name = reader.IsAssembly
-            ? reader.GetString(reader.GetAssemblyDefinition().Name)
+            ? ReadRequiredName(
+                reader,
+                reader.GetAssemblyDefinition().Name,
+                "Assembly definition")
             : string.Empty;
 
         // A malformed row must not discard the identity that was read successfully. Reporting the
@@ -48,7 +65,10 @@ public static class AssemblyIdentityScanner
         {
             try
             {
-                references.Add(reader.GetString(reader.GetAssemblyReference(handle).Name));
+                references.Add(ReadRequiredName(
+                    reader,
+                    reader.GetAssemblyReference(handle).Name,
+                    "AssemblyRef row"));
             }
             catch (BadImageFormatException)
             {
@@ -57,5 +77,29 @@ public static class AssemblyIdentityScanner
         }
 
         return new AssemblyIdentityNames(name, references.ToImmutable(), complete);
+    }
+
+    private static string ReadRequiredName(
+        MetadataReader reader,
+        StringHandle handle,
+        string owner)
+    {
+        try
+        {
+            string value = reader.GetString(handle);
+            if (value.Length == 0)
+            {
+                throw new BadImageFormatException(
+                    $"The {owner} has an empty required name.");
+            }
+
+            return value;
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new BadImageFormatException(
+                $"The {owner} has a required name with invalid UTF-8.",
+                exception);
+        }
     }
 }
