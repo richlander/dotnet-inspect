@@ -54,7 +54,7 @@ public partial class DependsCommand
         CancellationToken cancellationToken = default)
     {
         SectionCatalog<DependsAssetProjection> catalog =
-            DependsAssetSections.GraphCatalog;
+            DependsTypeSections.Catalog;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             catalog.SelectableSectionNames,
@@ -69,7 +69,7 @@ public partial class DependsCommand
             return new TypeDependsOutcome(
                 DiscoverOutput.Execute(
                     discover,
-                    DependsAssetSections.CreateGraphSchema(),
+                    DependsTypeSections.CreateSchema(),
                     DiscoveryOutputRequest.Create(
                         OutputFormatResolver.ResolveStored(
                             options.Format,
@@ -111,7 +111,7 @@ public partial class DependsCommand
             && options.Verbosity == Verbosity.Quiet;
         if (options.Depth is not null
             && !requestedSections.Contains(
-                DependsAssetSections.DependencyGraph))
+                DependsTypeSections.DependencyGraph))
         {
             CommandError.Write(
                 "--depth requires the Dependency Graph section.");
@@ -119,10 +119,10 @@ public partial class DependsCommand
         }
         if (!emptyQuietSelection
             && !requestedSections.Contains(
-                DependsAssetSections.DependencyGraph))
+                DependsTypeSections.DependencyGraph))
         {
             CommandError.Write(
-                $"Type relationship mode currently produces only the '{DependsAssetSections.DependencyGraph}' section.");
+                $"Type relationship mode currently produces only the '{DependsTypeSections.DependencyGraph}' section.");
             return new TypeDependsOutcome(1, false);
         }
 
@@ -273,7 +273,7 @@ public partial class DependsCommand
         }
 
         SectionCatalog<DependsAssetProjection> catalog =
-            DependsAssetSections.GraphCatalog;
+            DependsTypeSections.Catalog;
         SelectResult selection = SelectResolver.ResolveSelectAsSections(
             options.Select,
             catalog.SelectableSectionNames,
@@ -289,7 +289,7 @@ public partial class DependsCommand
                 selection.Sections,
                 fixedOverview: options.SelectDefault);
         if (requestedSections.Contains(
-                DependsAssetSections.DependencyGraph))
+                DependsTypeSections.DependencyGraph))
         {
             return true;
         }

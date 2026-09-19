@@ -33,7 +33,7 @@ internal sealed record DependsAssetRequestPlan(
                 || sections.Contains(DependsAssetSections.RestoredPackages)
                 || failures,
             Traversal:
-                sections.Contains(DependsAssetSections.DependencyGraph),
+                sections.Contains(DependsAssetSections.DependencyHierarchy),
             Pruning: pruning,
             SupplementalEvidence:
                 sections.Contains(DependsAssetSections.Roots)
@@ -77,8 +77,8 @@ internal sealed record DependsRootRow
 
     internal InertString? Identity { get; }
 
-    internal DependencyGraphNodeIdentity? GraphIdentity =>
-        Content.GraphIdentity;
+    internal DependencyGraphNodeIdentity? DependencyIdentity =>
+        Content.DependencyIdentity;
 
     internal DependencyInspectionTraversalCompletion Traversal =>
         Content.Traversal;
@@ -123,7 +123,8 @@ internal sealed record DependsAssetProjection(
     InspectionEnvelope<DependencyInspectionContent> Inspection,
     DependencyInspectionSummary Summary,
     DependencyGraphDocument Graph,
-    ImmutableArray<DependencyGraphEdgeRow> GraphRows,
+    DependencyHierarchyDocument Hierarchy,
+    ImmutableArray<DependencyHierarchyOccurrenceRow> HierarchyRows,
     ImmutableArray<DependsRootRow> Roots,
     ImmutableArray<DependencyInspectionDependency> Dependencies,
     ImmutableArray<DependencyInspectionPruning> Pruning,
