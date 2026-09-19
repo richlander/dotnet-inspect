@@ -71,15 +71,29 @@ public static class ImplementationComplexityService
                 + "or both implementation-diff endpoints.");
         }
 
+        if (oldByAssembly.Values.Any(profile => !profile.Receipt.HasFullMethodEvidenceScope)
+            || newByAssembly.Values.Any(profile => !profile.Receipt.HasFullMethodEvidenceScope))
+        {
+            return Unavailable(
+                "Normal-flow cyclomatic complexity requires unscoped "
+                + "method-evidence coverage for both implementation-diff "
+                + "endpoints.");
+        }
+
         var changes = new List<ImplementationComplexityChange>();
         foreach (string key in oldByAssembly.Keys
-            .Intersect(newByAssembly.Keys, StringComparer.Ordinal)
+            .Union(newByAssembly.Keys, StringComparer.Ordinal)
             .Order(StringComparer.Ordinal))
         {
-            changes.AddRange(CompareProfiles(
-                oldByAssembly[key].Profiles,
-                newByAssembly[key].Profiles,
-                request));
+            IReadOnlyList<MethodImplementationProfile> oldProfiles =
+                oldByAssembly.TryGetValue(key, out var oldAssembly)
+                    ? oldAssembly.Profiles
+                    : [];
+            IReadOnlyList<MethodImplementationProfile> newProfiles =
+                newByAssembly.TryGetValue(key, out var newAssembly)
+                    ? newAssembly.Profiles
+                    : [];
+            changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
         }
 
         return new ImplementationComplexityDiff(true, null, changes);
@@ -94,14 +108,41 @@ public static class ImplementationComplexityService
         IReadOnlyList<MethodImplementationProfile> newProfiles,
         ImplementationComplexityComparisonRequest request)
     {
-        var oldByKey = oldProfiles
+        var oldEntries = oldProfiles
             .Select(CreateProfileEntry)
             .Where(entry => MatchesFilters(entry.Subject, request))
-            .ToDictionary(entry => entry.Key, StringComparer.Ordinal);
-        var newByKey = newProfiles
+            .ToArray();
+        var newEntries = newProfiles
             .Select(CreateProfileEntry)
             .Where(entry => MatchesFilters(entry.Subject, request))
-            .ToDictionary(entry => entry.Key, StringComparer.Ordinal);
+            .ToArray();
+        var oldByKey = oldEntries.ToDictionary(
+            entry => entry.Key,
+            StringComparer.Ordinal);
+        var newByKey = newEntries.ToDictionary(
+            entry => entry.Key,
+            StringComparer.Ordinal);
+
+        // A logical member (subject) can own more than one physical
+        // evidence method - most commonly, multiple compiler-generated
+        // lambda/state-machine bodies. Those generated names are ordinal-
+        // based and can shift when lambdas are inserted, removed, or
+        // reordered, so a same-name match across versions is not a
+        // trustworthy correspondence. Rather than confidently claiming
+        // Added/Removed/Changed on a possibly wrong pairing, report those
+        // subjects as Incomplete.
+        var ambiguousSubjectIds = oldEntries
+            .Select(entry => entry.Subject.Id)
+            .GroupBy(id => id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .Concat(newEntries
+                .Select(entry => entry.Subject.Id)
+                .GroupBy(id => id, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key))
+            .ToHashSet(StringComparer.Ordinal);
+
         var changes = new List<ImplementationComplexityChange>();
 
         foreach (string key in oldByKey.Keys
@@ -118,7 +159,16 @@ public static class ImplementationComplexityService
             MethodImplementationProfile? newProfile = newEntry?.Profile;
             ImplementationComplexityChangeKind kind;
             int? delta = null;
-            if (oldProfile is null)
+            if (ambiguousSubjectIds.Contains(subject.Id))
+            {
+                kind = ImplementationComplexityChangeKind.Incomplete;
+                if (oldProfile is not null && newProfile is not null)
+                {
+                    delta = newProfile.NormalFlowCyclomaticComplexity
+                        - oldProfile.NormalFlowCyclomaticComplexity;
+                }
+            }
+            else if (oldProfile is null)
             {
                 kind = ImplementationComplexityChangeKind.Added;
             }

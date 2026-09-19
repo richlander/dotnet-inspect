@@ -70,7 +70,10 @@ public sealed record ImplementationDiffResult(
     public ImplementationComplexityDiff Complexity { get; init; } =
         ImplementationComplexityDiff.Unavailable;
 
-    public bool IsEmpty => Members.Count == 0;
+    public bool IsEmpty => Members.Count == 0
+        && (!Complexity.IsAvailable
+            || !Complexity.Changes.Any(
+                change => change.Kind != ImplementationComplexityChangeKind.Unchanged));
 }
 
 public sealed record ImplementationDiffMember(
@@ -255,6 +258,8 @@ public static class ImplementationDiff
                 try
                 {
                     ValidateBodyIndex(source, assembly.BodyIndex);
+                    if (assembly.ProfileAnalysis is not null)
+                        ValidateProfileAnalysis(source, assembly.ProfileAnalysis);
                     contents.Add(new ResearchAssemblyContent(
                         source,
                         assembly.BodyIndex));
@@ -304,6 +309,30 @@ public static class ImplementationDiff
             $"The body index for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' does not match "
             + $"assembly content '{source.AssemblyName}'.",
             nameof(bodyIndex));
+    }
+
+    static void ValidateProfileAnalysis(
+        MetadataSource source,
+        LibraryImplementationProfileAnalysisResult profileAnalysis)
+    {
+        LibraryBodyModuleIdentity indexedModule = profileAnalysis.Receipt.ModuleIdentity;
+        AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
+            : null;
+        Guid sourceMvid = source.Reader.GetGuid(
+            source.Reader.GetModuleDefinition().Mvid);
+        if (AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                sourceIdentity,
+                indexedModule.AssemblyIdentity)
+            && sourceMvid == indexedModule.ModuleVersionId)
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            $"The implementation profile analysis for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' "
+            + $"does not match assembly content '{source.AssemblyName}'.",
+            nameof(profileAnalysis));
     }
 
     static ImmutableHashSet<string> RetainedComparisonDescriptorIds(

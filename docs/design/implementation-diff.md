@@ -261,11 +261,18 @@ Implementation Diff endpoints and pairs those observations by the existing
 stable member identity plus physical evidence-method identity. The typed result retains
 unchanged, changed, added, removed, and incomplete observations, including
 old/new values and completeness flags. If either endpoint did not request
-profiles, the complexity lane is unavailable rather than silently treated as
-unchanged. The explicit CLI Implementation Diff section renders only
-non-unchanged complexity observations alongside its existing C#, IL, and PDB
-Source evidence lanes. Ranking, clustering, and quality shades remain later
-consumers.
+profiles, or requested them over a scoped (not whole-assembly) method-evidence
+population, the complexity lane is unavailable rather than silently treated as
+a complete comparison. Assemblies present on only one side of a multi-assembly
+comparison contribute Added/Removed rows for their own members rather than
+being dropped. When a logical member owns more than one physical evidence
+method - most commonly multiple lambda/state-machine bodies - the generated
+name's ordinal is not a stable cross-version correspondence key (it shifts
+when lambdas are inserted, removed, or reordered), so those observations report
+Incomplete instead of a possibly-wrong Changed/Added/Removed pairing. The
+explicit CLI Implementation Diff section renders only non-unchanged complexity
+observations alongside its existing C#, IL, and PDB Source evidence lanes.
+Ranking, clustering, and quality shades remain later consumers.
 
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id
