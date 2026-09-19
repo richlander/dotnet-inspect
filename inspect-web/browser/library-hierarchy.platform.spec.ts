@@ -3,7 +3,6 @@ import {
   subjectTab,
   chooseInspector,
   chooseSubject,
-  core,
   surface,
   platformVersion,
   alternatePlatformVersion,
