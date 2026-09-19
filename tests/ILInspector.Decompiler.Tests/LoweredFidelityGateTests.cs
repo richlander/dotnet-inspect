@@ -35,6 +35,12 @@ public class LoweredFidelityGateTests
         // product printer's short names assume, so it never compiled to be
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
+        // #4229: the local-function positive restores the <>O cache while csc
+        // drops the bare-method-group carrier; the explicit neighbor preserves
+        // its allocation opcodes. Both import below Full on the lowered rail and
+        // are pinned by the shared focused gates.
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -125,7 +131,11 @@ public class LoweredFidelityGateTests
     /// row to remain an actual diff, and so a row that newly drops to NotFull fails as
     /// the validity regression it is instead of landing here silently.
     /// </summary>
-    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
+    {
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
+    };
 
     /// <summary>
     /// Methods the lowered view keeps exact under the fidelity contract. This is the sugared pinned set minus

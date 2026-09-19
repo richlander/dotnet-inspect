@@ -71,6 +71,28 @@ public class LambdaCachePassTests
     }
 
     [Fact]
+    public void CachedStaticMethodGroupLocalFunction_RegeneratesCache()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.CachedStaticMethodGroupLocalFunction));
+
+        AssertCacheCollapsed(output);
+        Assert.Contains(
+            "Consume((Func<string, string>)CfgSampleClass.CacheMethodGroupIdentity)",
+            output);
+        Assert.DoesNotContain("new Func<string, string>", output);
+    }
+
+    [Fact]
+    public void ExplicitStaticMethodGroupLocalFunction_RemainsExplicitConstruction()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.ExplicitStaticMethodGroupLocalFunction));
+
+        Assert.Contains(
+            "Consume(new Func<string, string>(CfgSampleClass.CacheMethodGroupIdentity))",
+            output);
+    }
+
+    [Fact]
     public void FlatStaticMethodGroupCache_CollapsesBeforeStructuring()
     {
         var stringType = TypeRef.CoreLib("System", "String");

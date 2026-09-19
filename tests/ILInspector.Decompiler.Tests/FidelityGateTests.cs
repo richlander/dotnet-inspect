@@ -43,6 +43,12 @@ public class FidelityGateTests
         // product printer's short names assume, so it never compiled to be
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
+        // #4229: the cached local-function argument recompiles with the restored
+        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. The
+        // explicit neighbor retains identical opcodes and differs only in its
+        // reconstructed local-function ordinal. Focused gates below pin both shapes.
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -669,6 +675,25 @@ public class FidelityGateTests
         }
 
         Assert.True(failures.Count == 0, string.Join("\n\n", failures));
+    }
+
+    [Fact]
+    public void LocalFunctionMethodGroups_PreserveCacheAndConstructionShapes()
+    {
+        var cached = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "CachedStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, cached.Status);
+        Assert.Equal(
+            "ldsfld dup brtrue pop ldnull ldftn newobj dup stsfld call ret",
+            cached.RecompiledOpcodes);
+
+        var explicitConstruction = Assert.Single(
+            EvaluateFixtures(),
+            result => result.Method == "ExplicitStaticMethodGroupLocalFunction");
+        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, explicitConstruction.Status);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.OriginalOpcodes);
+        Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.RecompiledOpcodes);
     }
 
     /// <summary>

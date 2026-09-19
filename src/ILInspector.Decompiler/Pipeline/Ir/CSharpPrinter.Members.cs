@@ -1210,8 +1210,7 @@ public sealed partial class CSharpPrinter
             else if (chainFidelityCasts && parameter is not null && refKind == ArgumentRefKind.Value
                 && ChainFidelityCast(argument, parameter) is { } fidelityCast)
                 text = fidelityCast;
-            else if (coerceValues
-                && parameter is not null
+            else if (parameter is not null
                 && CachedStaticMethodGroupArgumentText(argument, parameter, refKind) is { } methodGroup)
                 text = WithNodeKind(argument, methodGroup, "ConversionExpression");
             else
