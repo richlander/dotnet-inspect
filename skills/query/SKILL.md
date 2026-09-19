@@ -364,6 +364,10 @@ On adopted semantic routes, `--rows` is a strict one-based inclusive window:
 shortening the result. `-n` and `--rows` are ordered stages, so argument order
 is observable. `--head` and `--tail` modify `-n`, not the range.
 
+Member `Call Graph` is the current exception: its legacy command-owned
+`--rows` window succeeds with an empty edge table when a requested position is
+missing.
+
 `find`, `implements`, `extensions`, `depends`, `ecosystem`, `vocabulary`,
 `timeline`, `package query`, package activity, package `--versions` /
 `--versions-with-feed`, `demo list`, Workspace inventory, Integration graph

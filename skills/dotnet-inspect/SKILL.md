@@ -36,14 +36,17 @@ declares semantic rows, the items are packages, types, dependencies, graph
 edges, or other complete domain rows. Otherwise the items are rendered lines.
 
 - `-n N` and bare `-N` keep the first N items; add `--tail` for the last N.
-- `--rows A..B`, `--rows A..`, and `--rows ..B` select a strict, one-based,
-  inclusive semantic range where the route supports windows.
+- On adopted semantic routes, `--rows A..B`, `--rows A..`, and `--rows ..B`
+  select a strict, one-based, inclusive range.
 - Selection stages compose in argument order. `-n 2 --rows 2..` keeps one item,
   while `--rows 2.. -n 2` keeps two when the input has at least three.
 - Where supported, `--count` observes the selected semantic rows. On sectioned
   output, select one concrete table when a scalar count is required.
 - `--lines` switches an adopted semantic route to rendered-line selection.
   Use it only when clipping presentation text is the actual goal.
+
+Member `Call Graph` retains a legacy command-owned `--rows` window. A missing
+position succeeds with an empty edge table rather than failing.
 
 Do not confuse selection with work or ranking. `--take` bounds candidate work;
 `--top` requests a ranked prefix; neither is another spelling of `-n`.
