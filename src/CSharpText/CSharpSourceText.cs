@@ -51,6 +51,22 @@ public static class CSharpSourceText
         return [.. selected];
     }
 
+    internal static int[] GetLineStarts(string sourceText)
+    {
+        var starts = new List<int> { 0 };
+        for (int i = 0; i < sourceText.Length; i++)
+        {
+            int terminatorLength = LineTerminatorLength(sourceText, i);
+            if (terminatorLength == 0)
+                continue;
+
+            i += terminatorLength - 1;
+            starts.Add(i + 1);
+        }
+
+        return [.. starts];
+    }
+
     private static int CountLines(string sourceText)
     {
         int count = 1;

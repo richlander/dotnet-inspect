@@ -63,6 +63,12 @@ public enum SourceHouseTargetKind
     Member,
 }
 
+public enum SourceHouseMemberSourceForm
+{
+    DeclarationText,
+    DocumentParts,
+}
+
 public abstract class SourceHouseTarget
 {
     private protected SourceHouseTarget(
@@ -101,7 +107,8 @@ public abstract class SourceHouseTarget
         public MemberTarget(
             MetadataTypeDefinitionName type,
             MemberAnchor member,
-            int metadataToken)
+            int metadataToken,
+            SourceHouseMemberSourceForm sourceForm = SourceHouseMemberSourceForm.DeclarationText)
             : base(SourceHouseTargetKind.Member, type)
         {
             ArgumentNullException.ThrowIfNull(member);
@@ -112,13 +119,17 @@ public abstract class SourceHouseTarget
                     nameof(metadataToken),
                     "Authored member source requires one exact MethodDef token.");
             }
+            if (!Enum.IsDefined(sourceForm))
+                throw new ArgumentOutOfRangeException(nameof(sourceForm));
 
             Member = member;
             MetadataToken = metadataToken;
+            SourceForm = sourceForm;
         }
 
         public MemberAnchor Member { get; }
         public int MetadataToken { get; }
+        public SourceHouseMemberSourceForm SourceForm { get; }
     }
 }
 
