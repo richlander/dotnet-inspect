@@ -517,7 +517,7 @@ internal static class DependencyGraphOutputAdapter
         return json;
     }
 
-    private static DependencyGraphJsonPackageProjection JsonPackageProjection(
+    internal static DependencyGraphJsonPackageProjection JsonPackageProjection(
         DependencyGraphPackageProjection projection,
         DependencyEvidenceSourceTokens tokens,
         bool includeSelectionEvidence,
@@ -667,7 +667,7 @@ internal static class DependencyGraphOutputAdapter
         }
     }
 
-    private static DependencyEvidenceSourceTokens CreatePackageTokens(
+    internal static DependencyEvidenceSourceTokens CreatePackageTokens(
         DependencyGraphDocument document)
     {
         DependencyEvidenceSourceTokens tokens =
@@ -1378,7 +1378,7 @@ internal static class DependencyGraphOutputAdapter
                 "Unknown restored-project parent identity."),
         };
 
-    private static string? EvidenceKind(
+    internal static string? EvidenceKind(
         DependencyGraphEvidenceIdentity? identity) =>
         identity switch
         {
@@ -1397,7 +1397,7 @@ internal static class DependencyGraphOutputAdapter
                 "Unknown dependency evidence identity."),
         };
 
-    private static InertString? EvidenceText(
+    internal static InertString? EvidenceText(
         DependencyGraphEvidenceIdentity? identity) =>
         identity switch
         {
@@ -1421,7 +1421,7 @@ internal static class DependencyGraphOutputAdapter
                 "Unknown dependency evidence identity."),
         };
 
-    private static DependencyGraphJsonEvidenceIdentity?
+    internal static DependencyGraphJsonEvidenceIdentity?
         JsonEvidenceIdentity(
             DependencyGraphEvidenceIdentity? identity) =>
         identity switch

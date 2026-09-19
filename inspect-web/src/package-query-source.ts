@@ -537,6 +537,10 @@ function booleanValue(value: unknown, description: string): boolean {
 
 function parseRow(value: unknown): BrowserPackageQueryRowPayload {
   const row = objectValue(value, "package-query row");
+  if (!Array.isArray(row.answers)) {
+    throw new TypeError(
+      "The Browser package-query row answers were not an array.");
+  }
   if (!Array.isArray(row.evidence)) {
     throw new TypeError(
       "The Browser package-query row evidence was not an array.");
@@ -552,14 +556,41 @@ function parseRow(value: unknown): BrowserPackageQueryRowPayload {
       row.description,
       "package-query description"),
     tier: rowTierValue(row.tier),
+    answers: row.answers.map(item => {
+      const answer = objectValue(item, "package-query answer");
+      return {
+        id: stringValue(answer.id, "package-query answer ID"),
+        value: stringValue(answer.value, "package-query answer value"),
+        term: parseEvidenceTerm(answer.term),
+      };
+    }),
     evidence: row.evidence.map(item => {
       const evidence = objectValue(item, "package-query evidence");
       const scope = evidenceScopeValue(evidence.scope);
+      if (!Array.isArray(evidence.properties)) {
+        throw new TypeError(
+          "The Browser package-query evidence properties were not an array.");
+      }
       return {
         id: stringValue(evidence.id, "package-query evidence ID"),
-        text: stringValue(evidence.text, "package-query evidence text"),
         scope,
         summary: parseEvidenceSummary(evidence.summary),
+        properties: evidence.properties.map(propertyItem => {
+          const property = objectValue(
+            propertyItem,
+            "package-query evidence property");
+          return {
+            name: stringValue(
+              property.name,
+              "package-query evidence property name"),
+            value: stringValue(
+              property.value,
+              "package-query evidence property value"),
+          };
+        }),
+        number: nullableNumberValue(
+          evidence.number,
+          "package-query evidence number"),
         term: parseEvidenceTerm(evidence.term),
       };
     }),
@@ -991,7 +1022,6 @@ function toQueryRow(
 ): QueryResultRow {
   const evidence = row.evidence.map(item => ({
     id: item.id,
-    text: item.text,
     scope: item.scope === "Package" ? "package" as const : "query" as const,
     summary: item.summary === null
       ? null
@@ -999,6 +1029,8 @@ function toQueryRow(
           count: item.summary.count,
           preview: [...item.summary.preview],
         },
+    properties: item.properties.map(property => ({ ...property })),
+    number: item.number,
     ...(item.term === null
       ? {}
       : { term: {
@@ -1007,9 +1039,17 @@ function toQueryRow(
           value: item.term.value,
         } }),
   }));
-  if (!evidence.length || evidence.some(item => item.text.trim().length === 0)) {
-    throw new TypeError("A package-query row contained no evidence.");
-  }
+  const answers = row.answers.map(answer => ({
+    id: answer.id,
+    value: answer.value,
+    ...(answer.term === null
+        ? {}
+        : { term: {
+            key: answer.term.key,
+            operator: answer.term.operator,
+            value: answer.term.value,
+          } }),
+  }));
   const assemblyRootRequest = row.tier === "Assembly"
     ? row.rootRequest
     : null;
@@ -1023,7 +1063,8 @@ function toQueryRow(
     packageId: row.packageId,
     version: row.version,
     tier: toQueryTier(row.tier),
-    evidence: [evidence[0]!, ...evidence.slice(1)],
+    answers,
+    evidence,
     totalDownloads: row.totalDownloads,
     description: row.description,
     producer: row.producer,

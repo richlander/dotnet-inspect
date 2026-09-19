@@ -19,6 +19,8 @@ import type {
   BrowserAnnotatedSourceFindingEvidence,
   BrowserAnnotatedSourceFindingEvidenceDocument,
   BrowserAnnotatedSourceInvocationDestination,
+  BrowserAnnotatedSourceSynchronousCompletion,
+  BrowserAnnotatedSourceSynchronousCompletionInspection,
   BrowserAnnotatedSourceViewerCatalog,
 } from "./facades/inspect-web-source.d.ts";
 
@@ -103,6 +105,10 @@ export interface AnnotatedSourceViewerModel {
   callCycles: BrowserAnnotatedSourceCallCycleInspection;
   callCyclesByFactId:
     ReadonlyMap<number, readonly BrowserAnnotatedSourceCallCycle[]>;
+  synchronousCompletions:
+    BrowserAnnotatedSourceSynchronousCompletionInspection;
+  synchronousCompletionsByFactId:
+    ReadonlyMap<number, BrowserAnnotatedSourceSynchronousCompletion>;
   findingEvidence: readonly AnnotatedSourceFindingEvidence[];
   findingEvidenceByFactId:
     ReadonlyMap<number, AnnotatedSourceFindingEvidence>;
@@ -171,6 +177,8 @@ export function createAnnotatedSourceViewerModel(
     validateCallRelationships(result.document, result);
   const callCycles =
     validateCallCycles(result.document, result, callRelationships);
+  const synchronousCompletions =
+    validateSynchronousCompletions(result, callRelationships);
   const findingEvidence =
     validateFindingEvidence(
       result.document,
@@ -192,6 +200,10 @@ export function createAnnotatedSourceViewerModel(
     callRelationships,
     callCycles,
     callCyclesByFactId: indexCallCycles(callCycles),
+    synchronousCompletions,
+    synchronousCompletionsByFactId:
+      new Map(synchronousCompletions.observations.map(
+        observation => [observation.factId, observation])),
     findingEvidence,
     findingEvidenceByFactId:
       new Map(findingEvidence.map(evidence => [evidence.factId, evidence])),
@@ -225,6 +237,13 @@ export function callCyclesForFact(
   factId: number,
 ): readonly BrowserAnnotatedSourceCallCycle[] {
   return model.callCyclesByFactId.get(factId) ?? [];
+}
+
+export function synchronousCompletionForFact(
+  model: AnnotatedSourceViewerModel,
+  factId: number,
+): BrowserAnnotatedSourceSynchronousCompletion | null {
+  return model.synchronousCompletionsByFactId.get(factId) ?? null;
 }
 
 export function createEmbeddedSession(
@@ -848,6 +867,48 @@ function indexCallCycles(
     }
   }
   return indexed;
+}
+
+function validateSynchronousCompletions(
+  result: AnnotatedSourceResult,
+  relationships: readonly BrowserAnnotatedSourceCallRelationship[],
+): BrowserAnnotatedSourceSynchronousCompletionInspection {
+  const inspection = result.viewerCatalog.synchronousCompletions;
+  if (!inspection.available) {
+    if (inspection.unavailableReason === null
+      || inspection.observations.length > 0) {
+      throw new TypeError(
+        "Unavailable Annotated Source synchronous completions cannot carry observations.");
+    }
+    return inspection;
+  }
+  if (inspection.unavailableReason !== null
+    || !result.viewerCatalog.callRelationships.available) {
+    throw new TypeError(
+      "Available Annotated Source synchronous completions require call relationships.");
+  }
+
+  const knownKinds = new Set([
+    "TaskWait",
+    "TaskResult",
+    "TaskAwaiterGetResult",
+  ]);
+  const relationshipFactIds = new Set(
+    relationships.map(relationship => relationship.factId),
+  );
+  const observedFactIds = new Set<number>();
+  for (const [index, observation] of inspection.observations.entries()) {
+    if (!Number.isSafeInteger(observation.factId)
+      || !relationshipFactIds.has(observation.factId)
+      || observedFactIds.has(observation.factId)
+      || typeof observation.kind !== "string"
+      || !knownKinds.has(observation.kind)) {
+      throw new TypeError(
+        `Annotated Source synchronous completion ${index} has invalid or duplicate relationship evidence.`);
+    }
+    observedFactIds.add(observation.factId);
+  }
+  return inspection;
 }
 
 function validateFindingEvidence(

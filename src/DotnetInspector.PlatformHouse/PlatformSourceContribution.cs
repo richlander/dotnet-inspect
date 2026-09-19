@@ -7,7 +7,6 @@ public enum PlatformSourceContributionKind
 {
     TargetDiscovery,
     Realization,
-    Documentation,
     Unavailable,
     Rejected,
     Failed,
@@ -192,34 +191,6 @@ public abstract class PlatformSourceContribution
             Population;
         internal override PlatformSourceContributionCompleteness? Completeness =>
             RealizationCompleteness;
-    }
-
-    public sealed class Documentation : PlatformSourceContribution
-    {
-        public Documentation(
-            PlatformSourceFacet facet,
-            PlatformSourceCapabilityIdentity capability,
-            PlatformHouseRequestSnapshot request,
-            PlatformSourceGeneration generation,
-            PlatformFamilyTarget target)
-            : base(
-                PlatformSourceContributionKind.Documentation,
-                facet,
-                capability,
-                request,
-                generation,
-                target)
-        {
-            if (facet is not PlatformSourceFacet.CompiledXml
-                and not PlatformSourceFacet.SourceDerivedDocumentation)
-            {
-                throw new ArgumentException(
-                    "A documentation contribution must use a documentation facet.",
-                    nameof(facet));
-            }
-        }
-
-        public PlatformFamilyTarget Target => ExactTarget!;
     }
 
     public sealed class Unavailable : PlatformSourceContribution

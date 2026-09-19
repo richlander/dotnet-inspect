@@ -77,6 +77,7 @@ public static class SelectResolver
         ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
         // Package file family: both the original names and the interim "Files:" spellings.
         ["Files: Nuspec"] = DotnetInspect.Cli.Views.PackageSections.FilesNuspec,
+        ["Files: License"] = DotnetInspect.Cli.Views.PackageSections.FilesLicenses,
         ["Files"] = DotnetInspect.Cli.Views.PackageSections.Files,
         // file". The agent-grounding intent the name carried is served by "Package skill
         // files", which is a different section, so this alias follows the behavior.
