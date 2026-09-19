@@ -228,6 +228,9 @@ the reference, compare version, culture, or public-key token, traverse a
 dependency graph, or inspect method bodies. Product evidence counts every
 matching asset/reference occurrence and previews at most three values naming
 target framework, archive path, and the observed reference spelling.
+Framework-group admission uses NuGet framework-folder identity, including
+legacy groups such as `portable-*`, rather than the compile selector's
+compatibility policy.
 Incomplete metadata in any admitted library makes that candidate a visible
 package-content evaluation failure because neither a complete count nor a
 truthful negative answer remains available.

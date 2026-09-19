@@ -2083,6 +2083,57 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AssemblyReferencesMatchLegacyFrameworkGroup()
+    {
+        const string framework = "portable-win8%2Bwpa81";
+        const string fixtureFramework = "portable-win8+wpa81";
+        const string assetPath =
+            "lib/portable-win8%2Bwpa81/PCLStorage.dll";
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "PackageQueryReferences",
+            fixtureFramework,
+            "PCLStorage.dll");
+        var archive = FakePackageContent.FromBytes(
+            (assetPath, File.ReadAllBytes(assemblyPath)));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["PCLStorage"] = archive,
+            });
+        var source = SourceFor(
+            Manifest("PCLStorage"),
+            "PCLStorage");
+        PackageQueryPlan plan = Accepted(PackageQuery.Plan(
+            new PackageQueryRequest(
+                "PCLStorage*",
+                [Term(PackageQuery.ReferencesTermKey, "Windows")],
+                MaximumCandidates: 1,
+                MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        PackageQueryEvidence evidence = Assert.Single(
+            match.Evidence,
+            item => item.Id == PackageQuery.ReferencesTermKey);
+        PackageQueryEvidenceSummary summary =
+            Assert.IsType<PackageQueryEvidenceSummary>(evidence.Summary);
+        Assert.Equal(1, summary.Count);
+        Assert.Equal(
+            $"{framework}: {assetPath} -> Windows",
+            Assert.Single(summary.Preview).ToString());
+        Assert.Equal([assetPath], archive.EntryRequests);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceNearMissDoesNotMatch()
     {
         string assemblyPath = Path.Combine(

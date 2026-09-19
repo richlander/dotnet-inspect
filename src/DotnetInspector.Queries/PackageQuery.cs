@@ -12,6 +12,7 @@ using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using InertText;
+using NuGet.Frameworks;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -445,6 +446,10 @@ internal sealed record PackageQueryAssemblyReferenceOccurrence(
     string TargetFramework,
     string Path,
     string ReferenceName);
+
+internal sealed record PackageQueryAssemblyAsset(
+    string TargetFramework,
+    string Path);
 
 internal sealed record PackageQueryEcosystemDependencyMatch(
     DeclaredPackageDependencyGroup Group,
@@ -1380,7 +1385,6 @@ public static partial class PackageQuery
                         {
                             facts = await ReadPackageContentFactsAsync(
                                 content,
-                                match.Value.PackageId,
                                 plan.BoundTerms,
                                 cancellationToken).ConfigureAwait(false);
                         }
@@ -1621,7 +1625,6 @@ public static partial class PackageQuery
 
     static async ValueTask<PackageContentFacts> ReadPackageContentFactsAsync(
         IPackageContent content,
-        string packageId,
         ImmutableArray<BoundPackageQueryTerm> terms,
         CancellationToken cancellationToken)
     {
@@ -1646,7 +1649,7 @@ public static partial class PackageQuery
             assemblyReferences = needsAssemblyReferences
                 ? await ReadAssemblyReferencesAsync(
                     content,
-                    packageId,
+                    entries,
                     terms,
                     cancellationToken).ConfigureAwait(false)
                 : [];
@@ -1660,14 +1663,19 @@ public static partial class PackageQuery
         ImmutableArray<PackageQueryAssemblyReferenceOccurrence>>
         ReadAssemblyReferencesAsync(
             IPackageContent content,
-            string packageId,
+            IReadOnlyCollection<string> entries,
             ImmutableArray<BoundPackageQueryTerm> terms,
             CancellationToken cancellationToken)
     {
-        PackageCompileAssetSelection selection =
-            PackageCompileAssetSelector.Select(content, packageId);
-        IReadOnlyList<PackageCompileAsset> assets = selection.CandidateAssets;
-        if (assets.Count > MaximumAssemblyReferenceAssets)
+        PackageQueryAssemblyAsset[] assets =
+        [
+            .. entries
+                .Select(ParseAssemblyReferenceAsset)
+                .OfType<PackageQueryAssemblyAsset>()
+                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
+        ];
+        if (assets.Length > MaximumAssemblyReferenceAssets)
         {
             throw new InvalidDataException(
                 "The package contains too many managed library candidates.");
@@ -1683,7 +1691,7 @@ public static partial class PackageQuery
             ImmutableArray.CreateBuilder<PackageQueryAssemblyReferenceOccurrence>();
         long totalBytes = 0;
         int referenceRows = 0;
-        foreach (PackageCompileAsset asset in assets)
+        foreach (PackageQueryAssemblyAsset asset in assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!content.TryOpenEntry(
@@ -1740,6 +1748,60 @@ public static partial class PackageQuery
         }
 
         return matches.ToImmutable();
+    }
+
+    static PackageQueryAssemblyAsset? ParseAssemblyReferenceAsset(
+        string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
+            return null;
+
+        string[] parts = entry.Split('/');
+        if (parts.Length < 3
+            || parts.Any(part =>
+                string.IsNullOrEmpty(part)
+                || part is "." or "..")
+            || (!parts[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+                && !parts[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            || !parts[^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty(
+                Path.GetFileNameWithoutExtension(parts[^1]))
+            || IsSatelliteAssemblyPath(parts)
+            || !IsNuGetFrameworkFolder(parts[1]))
+        {
+            return null;
+        }
+
+        return new PackageQueryAssemblyAsset(parts[1], entry);
+    }
+
+    static bool IsSatelliteAssemblyPath(IReadOnlyList<string> parts) =>
+        parts.Count >= 4
+        && parts[^1].EndsWith(
+            ".resources.dll",
+            StringComparison.OrdinalIgnoreCase)
+        && TfmResolver.IsCultureFolderName(parts[^2]);
+
+    static bool IsNuGetFrameworkFolder(string value)
+    {
+        try
+        {
+            NuGetFramework framework =
+                NuGetFramework.ParseFolder(Uri.UnescapeDataString(value));
+            return !framework.IsUnsupported;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (FrameworkException)
+        {
+            return false;
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
     }
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(

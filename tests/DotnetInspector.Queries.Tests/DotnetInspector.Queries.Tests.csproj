@@ -23,6 +23,8 @@
                      Version="[10.0.10]" />
     <PackageDownload Include="Microsoft.Extensions.Http"
                      Version="[10.0.0]" />
+    <PackageDownload Include="PCLStorage"
+                     Version="[1.0.2]" />
     <PackageDownload Include="Markout"
                      Version="[0.35.2]" />
     <PackageDownload Include="System.Memory.Data"
@@ -98,6 +100,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)microsoft.extensions.http/10.0.0/lib/net462/Microsoft.Extensions.Http.dll"
           Link="RealAssets/PackageQueryReferences/net462/Microsoft.Extensions.Http.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)pclstorage/1.0.2/lib/portable-win8+wpa81/PCLStorage.dll"
+          Link="RealAssets/PackageQueryReferences/portable-win8+wpa81/PCLStorage.dll"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/8.0.6/system.text.json.8.0.6.nupkg"
           Link="RealAssets/ApiMatching/system.text.json.8.0.6.nupkg"
