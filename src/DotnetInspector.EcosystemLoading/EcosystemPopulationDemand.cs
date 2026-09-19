@@ -84,6 +84,7 @@ public enum EcosystemPopulationLoadSettlementKind
 {
     Completed,
     Unavailable,
+    Ambiguous,
     Incomplete,
     Rejected,
     Failed,

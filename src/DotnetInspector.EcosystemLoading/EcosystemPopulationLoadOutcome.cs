@@ -1,4 +1,5 @@
 using DotnetInspector.Libraries;
+using Inspector.Artifacts.Workspaces;
 using Inspector.Resources;
 
 namespace DotnetInspector.EcosystemLoading;
@@ -85,19 +86,73 @@ public abstract class EcosystemPopulationOwnerTakeOutcome
 }
 
 /// <summary>
-/// One-shot transfer and retirement boundary for returned Library owners.
+/// The result of taking one exact adjacent Artifact session from a batch.
+/// </summary>
+public abstract class EcosystemPopulationArtifactSessionTakeOutcome
+{
+    private protected EcosystemPopulationArtifactSessionTakeOutcome()
+    {
+    }
+
+    [ResourceOwnership]
+    public sealed class Transferred :
+        EcosystemPopulationArtifactSessionTakeOutcome
+    {
+        internal Transferred(
+            ArtifactSetSession session,
+            EcosystemPopulationChildSettlement childSettlement)
+        {
+            Session = session;
+            ChildSettlement = childSettlement;
+        }
+
+        public ArtifactSetSession Session { get; }
+        public EcosystemPopulationChildSettlement ChildSettlement { get; }
+    }
+
+    public sealed class NotFound :
+        EcosystemPopulationArtifactSessionTakeOutcome
+    {
+        internal NotFound()
+        {
+        }
+    }
+
+    public sealed class AlreadyTransferred :
+        EcosystemPopulationArtifactSessionTakeOutcome
+    {
+        internal AlreadyTransferred()
+        {
+        }
+    }
+
+    public sealed class Retired :
+        EcosystemPopulationArtifactSessionTakeOutcome
+    {
+        internal Retired()
+        {
+        }
+    }
+}
+
+/// <summary>
+/// One-shot transfer and retirement boundary for returned Library owners and
+/// adjacent Artifact sessions.
 /// </summary>
 [ResourceOwnership]
 public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
 {
     readonly object _gate = new();
     readonly Entry[] _entries;
+    readonly ArtifactSessionEntry[] _artifactSessions;
     Task? _retirementTask;
     EcosystemPopulationOwnerBatchState _state =
         EcosystemPopulationOwnerBatchState.Active;
 
     internal EcosystemPopulationOwnerBatch(
-        IReadOnlyList<EcosystemPopulationOwnedLibraryContribution> ownerships)
+        IReadOnlyList<EcosystemPopulationOwnedLibraryContribution> ownerships,
+        IReadOnlyList<EcosystemPopulationOwnedArtifactSessionContribution>
+            artifactSessions)
     {
         _entries = ownerships
             .Select(
@@ -115,9 +170,25 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
             .ToArray();
         Libraries = Array.AsReadOnly(
             _entries.Select(entry => entry.Library).ToArray());
+        _artifactSessions = artifactSessions
+            .Select(
+                contribution =>
+                    new ArtifactSessionEntry(
+                        contribution.Session,
+                        contribution.ChildSettlement))
+            .ToArray();
+        ArtifactSessionChildren = Array.AsReadOnly(
+            _artifactSessions
+                .Select(entry => entry.ChildSettlement)
+                .ToArray());
     }
 
     public IReadOnlyList<EcosystemPopulationLoadedLibraryReference> Libraries
+    {
+        get;
+    }
+    public IReadOnlyList<EcosystemPopulationChildSettlement>
+        ArtifactSessionChildren
     {
         get;
     }
@@ -158,6 +229,42 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
         }
     }
 
+    public EcosystemPopulationArtifactSessionTakeOutcome TakeArtifactSession(
+        EcosystemPopulationChildSettlement childSettlement)
+    {
+        ArgumentNullException.ThrowIfNull(childSettlement);
+        lock (_gate)
+        {
+            ArtifactSessionEntry? entry =
+                _artifactSessions.SingleOrDefault(
+                    item => ReferenceEquals(
+                        item.ChildSettlement,
+                        childSettlement));
+            if (entry is null)
+            {
+                return new EcosystemPopulationArtifactSessionTakeOutcome
+                    .NotFound();
+            }
+            if (entry.Transferred)
+            {
+                return new EcosystemPopulationArtifactSessionTakeOutcome
+                    .AlreadyTransferred();
+            }
+            if (entry.Retired
+                || _state != EcosystemPopulationOwnerBatchState.Active)
+            {
+                return new EcosystemPopulationArtifactSessionTakeOutcome
+                    .Retired();
+            }
+
+            ArtifactSetSession session = entry.Session!;
+            entry.Session = null;
+            entry.Transferred = true;
+            return new EcosystemPopulationArtifactSessionTakeOutcome
+                .Transferred(session, entry.ChildSettlement);
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_gate)
@@ -179,12 +286,27 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
                             return owner;
                         }),
             ];
-            _retirementTask = RetireAsync(owners);
+            ArtifactSetSession[] artifactSessions =
+            [
+                .. _artifactSessions
+                    .Where(entry => entry.Session is not null)
+                    .Select(
+                        entry =>
+                        {
+                            ArtifactSetSession session = entry.Session!;
+                            entry.Session = null;
+                            entry.Retired = true;
+                            return session;
+                        }),
+            ];
+            _retirementTask = RetireAsync(owners, artifactSessions);
             return new ValueTask(_retirementTask);
         }
     }
 
-    async Task RetireAsync(IReadOnlyList<LibraryContentOwner> owners)
+    async Task RetireAsync(
+        IReadOnlyList<LibraryContentOwner> owners,
+        IReadOnlyList<ArtifactSetSession> artifactSessions)
     {
         List<Exception>? failures = null;
         foreach (LibraryContentOwner owner in owners)
@@ -198,6 +320,22 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
                 (failures ??= []).Add(failure);
             }
         }
+        foreach (ArtifactSetSession artifactSession in artifactSessions)
+        {
+            try
+            {
+                await artifactSession.DisposeAsync();
+            }
+            catch (Exception failure)
+            {
+                (failures ??= []).Add(failure);
+            }
+            if (artifactSession.CleanupFailures.Count != 0)
+            {
+                (failures ??= []).AddRange(
+                    artifactSession.CleanupFailures);
+            }
+        }
 
         lock (_gate)
         {
@@ -209,7 +347,7 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
         if (failures is not null)
         {
             throw new AggregateException(
-                "One or more Ecosystem population Library owners failed to retire.",
+                "One or more Ecosystem population authorities failed to retire.",
                 failures);
         }
     }
@@ -221,6 +359,17 @@ public sealed class EcosystemPopulationOwnerBatch : IAsyncDisposable
         public LibraryContentOwner? Owner { get; set; } = owner;
         public EcosystemPopulationLoadedLibraryReference Library { get; } =
             library;
+        public bool Transferred { get; set; }
+        public bool Retired { get; set; }
+    }
+
+    sealed class ArtifactSessionEntry(
+        ArtifactSetSession session,
+        EcosystemPopulationChildSettlement childSettlement)
+    {
+        public ArtifactSetSession? Session { get; set; } = session;
+        public EcosystemPopulationChildSettlement ChildSettlement { get; } =
+            childSettlement;
         public bool Transferred { get; set; }
         public bool Retired { get; set; }
     }
@@ -264,6 +413,14 @@ public abstract class EcosystemPopulationLoadOutcome
             : base(
                 receipt,
                 EcosystemPopulationLoadSettlementKind.Unavailable)
+        {
+        }
+    }
+
+    public sealed class Ambiguous : EcosystemPopulationLoadOutcome
+    {
+        internal Ambiguous(EcosystemPopulationLoadReceipt receipt)
+            : base(receipt, EcosystemPopulationLoadSettlementKind.Ambiguous)
         {
         }
     }
