@@ -69,7 +69,13 @@ public sealed class PdbLocalScopePass : IIrPass
             IrNode? statement = reference;
             while (statement is not null && !ReferenceEquals(statement.Parent, block))
                 statement = statement.Parent;
-            if (statement is null || statement.ChildIndex < first)
+            if (statement is null)
+            {
+                TryRetainBasicBlockRange(
+                    function, index, sameName, declaration, block, references, context);
+                return;
+            }
+            if (statement.ChildIndex < first)
                 return;
             last = Math.Max(last, statement.ChildIndex);
         }
@@ -80,26 +86,9 @@ public sealed class PdbLocalScopePass : IIrPass
         }
 
         var range = block.Children.Skip(first).Take(last - first + 1).ToArray();
-        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+        if (!CanRetainRange(function, index, sameName, range))
         {
             return;
-        }
-        bool Inside(IrNode node) => range.Any(statement => ExactLocalNameAllocation.Contains(statement, node));
-        if (sameName.Any(other => other != index
-            && IrFunction.LocalSlotReferencesInScope(function.Body, other).Any(Inside)))
-        {
-            return;
-        }
-        // Header/pattern binders have an intrinsic declaration scope. A wrapper
-        // must not strand one of their surviving uses outside that scope.
-        for (int other = 0; other < function.Locals.Length; other++)
-        {
-            var uses = IrFunction.LocalSlotReferencesInScope(function.Body, other).ToArray();
-            if (uses.Any(node => Inside(node) && node is not (StoreLocal or LoadLocal or LoadLocalAddress))
-                && uses.Any(node => !Inside(node)))
-            {
-                return;
-            }
         }
 
         var statements = block.DetachChildren();
@@ -114,6 +103,146 @@ public sealed class PdbLocalScopePass : IIrPass
                 block.Add(statements[position]);
         }
         context.Stepper.StepOver($"retain scope for local {index}", lexical);
+    }
+
+    static void TryRetainBasicBlockRange(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IrNode declaration,
+        Block declarationBlock,
+        IrNode[] references,
+        PassContext context)
+    {
+        if (declarationBlock.Parent is not BlockContainer container)
+            return;
+
+        Block[] blocks = [.. container.Blocks];
+        int firstBlock = declarationBlock.ChildIndex;
+        int lastBlock = firstBlock;
+        IrNode? lastStatement = null;
+        foreach (IrNode reference in references)
+        {
+            Block? owner = TopLevelBlock(reference, container);
+            if (owner is null || owner.ChildIndex < firstBlock)
+                return;
+            IrNode? statement = StatementInBlock(reference, owner);
+            if (statement is null
+                || owner.ChildIndex == firstBlock
+                    && statement.ChildIndex < declaration.ChildIndex)
+            {
+                return;
+            }
+            if (owner.ChildIndex > lastBlock
+                || owner.ChildIndex == lastBlock
+                    && (lastStatement is null
+                        || statement.ChildIndex > lastStatement.ChildIndex))
+            {
+                lastBlock = owner.ChildIndex;
+                lastStatement = statement;
+            }
+        }
+        if (lastBlock <= firstBlock || lastStatement is null)
+            return;
+
+        var consumedBlockOffsets = blocks
+            .Skip(firstBlock + 1)
+            .Take(lastBlock - firstBlock)
+            .Select(block => block.StartOffset)
+            .ToHashSet();
+        if (ReferenceOwnership.CollectBranchTargets(function).Overlaps(consumedBlockOffsets))
+            return;
+
+        var range = new List<IrNode>();
+        range.AddRange(declarationBlock.Children.Skip(declaration.ChildIndex));
+        for (int blockIndex = firstBlock + 1; blockIndex < lastBlock; blockIndex++)
+            range.AddRange(blocks[blockIndex].Children);
+        range.AddRange(blocks[lastBlock].Children.Take(lastStatement.ChildIndex + 1));
+        if (!CanRetainRange(function, index, sameName, range))
+            return;
+
+        int declarationPosition = declaration.ChildIndex;
+        int lastPosition = lastStatement.ChildIndex;
+        var statementsByBlock = blocks[firstBlock..(lastBlock + 1)]
+            .Select(block => block.DetachChildren())
+            .ToArray();
+        var allBlocks = container.DetachChildren();
+
+        var lexical = new Block(declaration.SourceOffset);
+        var firstStatements = statementsByBlock[0];
+        for (int position = declarationPosition; position < firstStatements.Count; position++)
+            lexical.Add(firstStatements[position]);
+        for (int blockIndex = firstBlock + 1; blockIndex < lastBlock; blockIndex++)
+        {
+            foreach (IrNode statement in statementsByBlock[blockIndex - firstBlock])
+                lexical.Add(statement);
+        }
+        var lastStatements = statementsByBlock[^1];
+        for (int position = 0; position <= lastPosition; position++)
+            lexical.Add(lastStatements[position]);
+
+        for (int position = 0; position < declarationPosition; position++)
+            declarationBlock.Add(firstStatements[position]);
+        declarationBlock.Add(lexical);
+        for (int position = lastPosition + 1; position < lastStatements.Count; position++)
+            declarationBlock.Add(lastStatements[position]);
+
+        for (int blockIndex = 0; blockIndex < blocks.Length; blockIndex++)
+        {
+            if (blockIndex == firstBlock)
+                container.Add(declarationBlock);
+            else if (blockIndex > firstBlock && blockIndex <= lastBlock)
+                continue;
+            else
+                container.Add((Block)allBlocks[blockIndex]);
+        }
+        context.Stepper.StepOver($"retain cross-block scope for local {index}", lexical);
+    }
+
+    static bool CanRetainRange(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IReadOnlyList<IrNode> range)
+    {
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+            return false;
+        bool Inside(IrNode node) => range.Any(
+            statement => ExactLocalNameAllocation.Contains(statement, node));
+        if (sameName.Any(other => other != index
+            && IrFunction.LocalSlotReferencesInScope(function.Body, other).Any(Inside)))
+        {
+            return false;
+        }
+        // Header/pattern binders have an intrinsic declaration scope. A wrapper
+        // must not strand one of their surviving uses outside that scope.
+        for (int other = 0; other < function.Locals.Length; other++)
+        {
+            var uses = IrFunction.LocalSlotReferencesInScope(function.Body, other).ToArray();
+            if (uses.Any(node => Inside(node)
+                    && node is not (StoreLocal or LoadLocal or LoadLocalAddress))
+                && uses.Any(node => !Inside(node)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static Block? TopLevelBlock(IrNode node, BlockContainer container)
+    {
+        while (node.Parent is not null && !ReferenceEquals(node.Parent, container))
+            node = node.Parent;
+        return node is Block block && ReferenceEquals(block.Parent, container)
+            ? block
+            : null;
+    }
+
+    static IrNode? StatementInBlock(IrNode node, Block block)
+    {
+        while (node.Parent is not null && !ReferenceEquals(node.Parent, block))
+            node = node.Parent;
+        return ReferenceEquals(node.Parent, block) ? node : null;
     }
 
     static IrNode? OutArgumentStatement(LoadLocalAddress address, int index)

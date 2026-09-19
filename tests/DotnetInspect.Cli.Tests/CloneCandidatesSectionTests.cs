@@ -1,12 +1,20 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
+using ILInspector.Analysis;
+using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspect.Cli.Tests;
@@ -96,7 +104,7 @@ public sealed class CloneCandidatesSectionTests
             FixturePath,
             "-S",
             SectionNames.CloneCandidates,
-            "--rows",
+            "-n",
             "1",
             "--json",
             "-T",
@@ -344,7 +352,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--where",
             "Breadth=Everything",
-            "--rows",
+            "-n",
             "1",
             "--table",
             "-T",
@@ -370,7 +378,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--columns",
             "Rank;Score",
-            "--rows",
+            "-n",
             "2",
             "--json",
             "-T",
@@ -510,31 +518,8 @@ public sealed class CloneCandidatesSectionTests
     [Fact]
     public async Task PackageLibraryRouteRejectsBareFields()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(),
-            $"clone-package-{Guid.NewGuid():N}");
-        string content = Path.Combine(directory, "content");
-        string libraryDirectory = Path.Combine(content, "lib", "net10.0");
-        Directory.CreateDirectory(libraryDirectory);
-        string libraryName = Path.GetFileName(FixturePath);
-        File.Copy(FixturePath, Path.Combine(libraryDirectory, libraryName));
-        File.WriteAllText(
-            Path.Combine(content, "Clone.Candidates.Tests.nuspec"),
-            """
-            <?xml version="1.0" encoding="utf-8"?>
-            <package>
-              <metadata>
-                <id>Clone.Candidates.Tests</id>
-                <version>1.0.0</version>
-                <authors>tests</authors>
-                <description>Clone Candidates routing fixture</description>
-              </metadata>
-            </package>
-            """);
-        string package = Path.Combine(
-            directory,
-            "Clone.Candidates.Tests.1.0.0.nupkg");
-        ZipFile.CreateFromDirectory(content, package);
+        var (package, directory, libraryName) =
+            CreateCloneCandidatePackage();
 
         try
         {
@@ -556,6 +541,110 @@ public sealed class CloneCandidatesSectionTests
                 "is row-oriented and does not support --fields",
                 result.Error,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryRouteObservesSemanticSelection()
+    {
+        var (package, directory, libraryName) =
+            CreateCloneCandidatePackage();
+
+        try
+        {
+            var direct = await Run(
+                "library",
+                FixturePath,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--json",
+                "-T",
+                "q");
+            var delegated = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--json",
+                "-T",
+                "q");
+            var tailCount = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                "--count",
+                "--json",
+                "-T",
+                "q");
+            var windowCount = await Run(
+                "package",
+                package,
+                "--library",
+                libraryName,
+                "-S",
+                SectionNames.CloneCandidates,
+                "--rows",
+                "1..1",
+                "--count",
+                "-T",
+                "q");
+
+            Assert.Equal(0, direct.ExitCode);
+            Assert.Equal(0, delegated.ExitCode);
+            Assert.Equal(0, tailCount.ExitCode);
+            Assert.Equal(0, windowCount.ExitCode);
+            Assert.Equal("1", tailCount.Output.Trim());
+            Assert.Equal("1", windowCount.Output.Trim());
+            Assert.Empty(direct.Error);
+            Assert.Empty(delegated.Error);
+            Assert.Empty(tailCount.Error);
+            Assert.Empty(windowCount.Error);
+
+            using var directJson = JsonDocument.Parse(direct.Output);
+            using var delegatedJson = JsonDocument.Parse(delegated.Output);
+            JsonElement directRoot = directJson.RootElement;
+            JsonElement delegatedRoot = delegatedJson.RootElement;
+            Assert.Equal(
+                directRoot.GetProperty("rows")[0]
+                    .GetProperty("rank")
+                    .GetInt32(),
+                delegatedRoot.GetProperty("rows")[0]
+                    .GetProperty("rank")
+                    .GetInt32());
+            Assert.Equal(
+                directRoot.GetProperty("rows")[0]
+                    .GetProperty("right")
+                    .GetProperty("address_display")
+                    .GetString(),
+                delegatedRoot.GetProperty("rows")[0]
+                    .GetProperty("right")
+                    .GetProperty("address_display")
+                    .GetString());
+            Assert.Equal(
+                directRoot.GetProperty("receipt")
+                    .GetProperty("returned_pairs")
+                    .GetInt32(),
+                delegatedRoot.GetProperty("receipt")
+                    .GetProperty("returned_pairs")
+                    .GetInt32());
         }
         finally
         {
@@ -704,7 +793,7 @@ public sealed class CloneCandidatesSectionTests
             SectionNames.CloneCandidates,
             "--columns",
             "Rank;Score",
-            "--rows",
+            "-n",
             "2",
             format,
             "-T",
@@ -720,5 +809,397 @@ public sealed class CloneCandidatesSectionTests
             "this CLI slice supplies the selected exact library only",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SemanticTailSelectsTheSameCandidateAcrossFormats()
+    {
+        var complete = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--json",
+            "-T",
+            "q");
+        using var completeJson = JsonDocument.Parse(complete.Output);
+        JsonElement expectedRow = completeJson.RootElement
+            .GetProperty("rows")
+            .EnumerateArray()
+            .Last();
+        string expectedAddress = expectedRow
+            .GetProperty("right")
+            .GetProperty("address_display")
+            .GetString()!;
+
+        foreach (string format in new[]
+        {
+            "--markdown",
+            "--table",
+            "--tsv",
+            "--jsonl",
+            "--json",
+        })
+        {
+            var selected = await Run(
+                "type",
+                "Cases.Widget",
+                "--library",
+                FixturePath,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--tail",
+                format,
+                "-T",
+                "q");
+
+            Assert.Equal(0, selected.ExitCode);
+            Assert.Contains(
+                expectedAddress,
+                selected.Output,
+                StringComparison.Ordinal);
+        }
+
+        var projected = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--columns",
+            "Right",
+            "-n",
+            "1",
+            "--tail",
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(0, projected.ExitCode);
+        using var projectedJson = JsonDocument.Parse(projected.Output);
+        Assert.Equal(
+            expectedAddress,
+            projectedJson.RootElement
+                .GetProperty("clone_candidates")[0]
+                .GetProperty("right")
+                .GetString());
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task CountObservesSemanticHeadAcrossSubjectHosts(
+        string command)
+    {
+        string[] subject = command switch
+        {
+            "library" => ["library", FixturePath],
+            "type" =>
+                ["type", "Cases.Widget", "--library", FixturePath],
+            "member" =>
+                [
+                    "member",
+                    "Cases.Widget",
+                    "--library",
+                    FixturePath,
+                    "-m",
+                    "Value",
+                ],
+            _ => throw new InvalidOperationException(),
+        };
+        var result = await Run(
+            [
+                .. subject,
+                "-S",
+                SectionNames.CloneCandidates,
+                "-n",
+                "1",
+                "--count",
+                "--json",
+                "-T",
+                "q",
+            ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task QueryPredicateImplicitSelectionAdoptsSemanticRows()
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "--where",
+            "Breadth=Self",
+            "-n",
+            "1",
+            "--count",
+            "-T",
+            "q");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task UnavailableSemanticWindowWithholdsOutput()
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            FixturePath,
+            "-S",
+            SectionNames.CloneCandidates,
+            "--rows",
+            "999..1000",
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires row 1000",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ranked candidates are available",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task JsonLineSelectionRejectsBeforeSourceResolution()
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            "missing-clone-candidates.dll",
+            "-S",
+            SectionNames.CloneCandidates,
+            "-n",
+            "1",
+            "--lines",
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missing-clone-candidates.dll",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NumericLegacyRowsAreRejectedBeforeSourceResolution()
+    {
+        var result = await Run(
+            "type",
+            "Cases.Widget",
+            "--library",
+            "missing-clone-candidates.dll",
+            "-S",
+            SectionNames.CloneCandidates,
+            "--rows",
+            "1",
+            "--json",
+            "-T",
+            "q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--rows",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "missing-clone-candidates.dll",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SemanticSelectionFailureKeepsIncompleteCoverageVisible()
+    {
+        CloneCandidateDocument document = IncompleteDocument();
+        var options = new CloneCandidateOutputOptions(
+            OutputFormat.Json,
+            CompactJson: false,
+            NoHeader: false,
+            Count: false,
+            Columns: null,
+            Fields: null,
+            FieldsExplicitlySet: false,
+            RowSelection: RowSelectionIntent<string>.Create(
+                [
+                    RowSelectionIntentOperation<string>.Window(2, 2),
+                ]),
+            Rows: null,
+            SelectedSectionCount: 1,
+            Tree: false,
+            Mermaid: false,
+            Print: false,
+            Value: false,
+            Urls: false,
+            Paths: false);
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            CloneCandidatesCommand.Write(
+                new CloneCandidatePresentationResult.Available(document),
+                options)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "requires row 2",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "The Clone Candidates result is incomplete.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    static (string Package, string Directory, string LibraryName)
+        CreateCloneCandidatePackage()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"clone-package-{Guid.NewGuid():N}");
+        string content = Path.Combine(directory, "content");
+        string libraryDirectory = Path.Combine(
+            content,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string libraryName = Path.GetFileName(FixturePath);
+        File.Copy(
+            FixturePath,
+            Path.Combine(libraryDirectory, libraryName));
+        File.WriteAllText(
+            Path.Combine(content, "Clone.Candidates.Tests.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Clone.Candidates.Tests</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>Clone Candidates routing fixture</description>
+              </metadata>
+            </package>
+            """);
+        string package = Path.Combine(
+            directory,
+            "Clone.Candidates.Tests.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, package);
+        return (package, directory, libraryName);
+    }
+
+    static CloneCandidateDocument IncompleteDocument()
+    {
+        var assembly = new AssemblyReferenceIdentity(
+            "Clone.Candidates.Tests",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        Guid moduleVersionId = Guid.NewGuid();
+        var participant = new CloneCandidateParticipantIdentity(
+            0,
+            assembly,
+            AssemblyResolutionProvenance.Designated("test fixture"),
+            moduleVersionId);
+        var method = new CloneCandidateMethodIdentity(
+            participant,
+            moduleVersionId,
+            0x06000001,
+            new InertString(
+                TextPolicy.Field,
+                "Clone.Candidates.Tests!Cases.Widget.Value"));
+        var row = new CloneCandidateRow(
+            1,
+            method,
+            method,
+            new CloneCandidateSimilarity(
+                Score: 10_000,
+                OperationScore: 10_000,
+                PositionScore: 10_000,
+                BlockScore: 10_000,
+                EdgeScore: 10_000,
+                LocalScore: 10_000,
+                SeedInstructions: 1,
+                CandidateInstructions: 1,
+                SeedBlocks: 1,
+                CandidateBlocks: 1,
+                SeedEdges: 0,
+                CandidateEdges: 0,
+                SeedLocals: 0,
+                CandidateLocals: 0),
+            NameQualification: null);
+        var seedCoverage = new CloneCandidateSeedCoverage(
+            method,
+            StructuralCloneRetrievalDisposition.LimitReached,
+            rankedPairs: 1,
+            suppressedPairs: 0,
+            blockers: [],
+            failures: []);
+        var libraryCoverage = new CloneCandidateLibraryCoverage(
+            participant,
+            StructuralCloneParticipantMembership.ContainingLibrary,
+            admitted: true,
+            candidateMethods: 1,
+            discoveredMethods: 1,
+            retrievalPairs: 1,
+            nameComparisonWork: 1,
+            failures: [],
+            analysisBlockers: []);
+
+        return new CloneCandidateDocument(
+            CloneCandidateDocument.CurrentSchemaVersion,
+            new CloneCandidateSeed(
+                CloneCandidateSeedKind.Library,
+                type: null,
+                member: null),
+            StructuralCloneCandidateBreadth.Everything,
+            StructuralCloneCandidateDiscovery.All,
+            nameSimilarityThreshold: 0.5,
+            new WorkspaceStructuralCloneSearchLimits(),
+            scopeChangedDuringSearch: false,
+            coverageIsComplete: false,
+            rows: [row],
+            seeds: [seedCoverage],
+            libraries: [libraryCoverage],
+            new CloneCandidateReceipt(
+                SeedMethods: 1,
+                CandidateMethods: 1,
+                DiscoveredMethods: 1,
+                AdmittedLibraries: 1,
+                ExcludedLibraries: 0,
+                NameComparisonWork: 1,
+                RetrievalPairs: 1,
+                RetrievalCalls: 1,
+                RankedPairs: 1,
+                SuppressedPairs: 0,
+                ReturnedPairs: 1,
+                ResultLimitReached: false));
     }
 }

@@ -350,9 +350,15 @@ public static class MemberOptionsParser
         SharedOptions opts,
         MemberCommandArgs args)
     {
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
                 parseResult,
-                "Member Facts",
+                selectsCloneCandidateRows
+                    ? "Clone Candidates"
+                    : "Member Facts",
                 out RowSelectionIntent<string>? rowSelection,
                 out string? rowSelectionError))
         {
@@ -662,7 +668,13 @@ public static class MemberOptionsParser
             Rows = rowSelection is null
                 ? opts.ParseRows(parseResult)
                 : null,
-            FactsRowSelection = rowSelection,
+            FactsRowSelection = selectsCloneCandidateRows
+                ? null
+                : rowSelection,
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? rowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

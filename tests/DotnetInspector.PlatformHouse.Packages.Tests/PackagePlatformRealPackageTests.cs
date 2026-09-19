@@ -702,6 +702,43 @@ public sealed class PackagePlatformRealPackageTests
             PlatformSourceFacet.Implementation,
             contribution.Facet);
         Assert.Equal(target, contribution.Target);
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: realized.Value.Frameworks.Length,
+            targetCandidates: 0,
+            assemblies: realized.Value.Libraries.Length,
+            xmlDocuments: 0,
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: realized.Value.Libraries.Sum(
+                static library => library.ContentLength),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: TimeSpan.Zero);
+        var completed = Assert.IsType<
+            PackagePlatformPopulationMaterializationResult.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        realized,
+                        consumed));
+        PlatformPopulationMember runtime = Assert.Single(
+            completed.Population.Value.Members,
+            member =>
+                member.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                    == "System.Text.Json");
+        Assert.Equal(
+            PlatformPopulationMemberRole.BindingSupport,
+            runtime.Role);
+        Assert.Equal(
+            PlatformFamily.DotNetRuntime,
+            runtime.Target.Family);
+        PlatformPopulationMember aspNet = Assert.Single(
+            completed.Population.Value.Members,
+            member =>
+                member.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                    == "Microsoft.AspNetCore.Hosting");
+        Assert.Equal(PlatformPopulationMemberRole.Focus, aspNet.Role);
+        Assert.Equal(PlatformFamily.AspNetCore, aspNet.Target.Family);
 
         ValueTask close = root.DisposeAsync();
         Assert.True(close.IsCompletedSuccessfully);
@@ -711,6 +748,17 @@ public sealed class PackagePlatformRealPackageTests
         Assert.True(bytes.Length > 0);
         Assert.Equal((byte)'M', bytes[0]);
         Assert.Equal((byte)'Z', bytes[1]);
+
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        Assert.False(artifactRetirement.IsCompleted);
+        foreach (LibraryContentOwner owner
+            in completed.Population.Owners)
+        {
+            await owner.DisposeAsync();
+        }
+        await artifactRetirement.WaitAsync(
+            TestContext.Current.CancellationToken);
     }
 
     private static PlatformHouseRequest SelectingRequest(

@@ -26,7 +26,8 @@ public sealed class InstalledReferencePackSourceTests
             outcome = source.Discover(
                 new InstalledReferenceDiscoveryRequest(
                     InstalledPlatformFamily.DotNetRuntime,
-                    PlatformTargetFramework.Parse("net11.0"),
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net11.0")),
                     maxCandidates: 8),
                 TestContext.Current.CancellationToken);
 
@@ -56,6 +57,181 @@ public sealed class InstalledReferencePackSourceTests
     }
 
     [Fact]
+    public void Discover_ReturnsCanonicalCandidatesAcrossFeatureBands()
+    {
+        using var hive = new TestHive();
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "9.0.11",
+            "net9.0");
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "10.0.0",
+            "net10.0");
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0-rc.1",
+            "net11.0");
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0",
+            "net10.0");
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0",
+            "net11.0-windows");
+        hive.CreateReferencePack(
+            "Microsoft.AspNetCore.App.Ref",
+            "12.0.0",
+            "net12.0");
+
+        InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
+            outcome = hive.CreateSource().Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 8),
+                TestContext.Current.CancellationToken);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceTargetInventory>.Succeeded>(outcome);
+        Assert.Collection(
+            succeeded.Value.Targets,
+            target => AssertTarget(target, "net9.0", "9.0.11"),
+            target => AssertTarget(target, "net10.0", "10.0.0"),
+            target => AssertTarget(target, "net11.0", "11.0.0-rc.1"));
+        Assert.All(
+            succeeded.Value.Targets,
+            target =>
+            {
+                Assert.Same(hive.Identity, target.Coordinate.Hive);
+                Assert.Equal(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    target.Coordinate.Family);
+            });
+    }
+
+    [Fact]
+    public void DiscoverAllFrameworks_RejectsNonCanonicalCandidateVersion()
+    {
+        using var hive = new TestHive();
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0",
+            "net11.0");
+
+        InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
+            outcome = hive.CreateSource().Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 8),
+                TestContext.Current.CancellationToken);
+
+        var rejected = Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceTargetInventory>.Rejected>(outcome);
+        Assert.Equal(
+            InstalledPlatformSourceDiagnosticKind.InvalidLayout,
+            rejected.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void DiscoverAllFrameworks_ReturnsIncompleteAtCandidateLimit()
+    {
+        using var hive = new TestHive();
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "10.0.1",
+            "net10.0");
+        hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0",
+            "net11.0");
+
+        InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
+            outcome = hive.CreateSource().Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 1),
+                TestContext.Current.CancellationToken);
+
+        var incomplete = Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceTargetInventory>.Incomplete>(outcome);
+        Assert.Equal(
+            InstalledPlatformSourceDiagnosticKind.WorkLimitExceeded,
+            incomplete.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void DiscoverAllFrameworks_ChargesExcludedFrameworkEntries()
+    {
+        using var hive = new TestHive();
+        string referenceDirectory = hive.CreateReferencePack(
+            "Microsoft.NETCore.App.Ref",
+            "11.0.0",
+            "net11.0");
+        string referenceRoot =
+            Directory.GetParent(referenceDirectory)!.FullName;
+        for (int index = 0; index < 8; index++)
+        {
+            File.WriteAllText(
+                Path.Combine(referenceRoot, $"ignored-{index}.txt"),
+                "ignored");
+        }
+
+        InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
+            outcome = hive.CreateSource(maxObservedEntries: 12).Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 8),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceTargetInventory>.Incomplete>(outcome);
+    }
+
+    [Fact]
+    public void DiscoverAllFrameworks_ReturnsAuthoritativeEmptyInventory()
+    {
+        using var hive = new TestHive();
+
+        InstalledPlatformSourceOutcome<InstalledReferenceTargetInventory>
+            outcome = hive.CreateSource().Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 8),
+                TestContext.Current.CancellationToken);
+
+        var succeeded = Assert.IsType<
+            InstalledPlatformSourceOutcome<
+                InstalledReferenceTargetInventory>.Succeeded>(outcome);
+        Assert.Empty(succeeded.Value.Targets);
+    }
+
+    [Fact]
+    public void DiscoverAllFrameworks_ObservesCancellationBeforeEmptyOutcome()
+    {
+        using var hive = new TestHive();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(
+            () => hive.CreateSource().Discover(
+                new InstalledReferenceDiscoveryRequest(
+                    InstalledPlatformFamily.DotNetRuntime,
+                    new InstalledReferenceDiscoveryScope.AllFrameworks(),
+                    maxCandidates: 8),
+                cancellation.Token));
+    }
+
+    [Fact]
     public void Discover_ReturnsIncompleteWhenCandidateBudgetIsExceeded()
     {
         using var hive = new TestHive();
@@ -66,7 +242,8 @@ public sealed class InstalledReferencePackSourceTests
             outcome = hive.CreateSource().Discover(
                 new InstalledReferenceDiscoveryRequest(
                     InstalledPlatformFamily.DotNetRuntime,
-                    PlatformTargetFramework.Parse("net11.0"),
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net11.0")),
                     maxCandidates: 1),
                 TestContext.Current.CancellationToken);
 
@@ -89,7 +266,8 @@ public sealed class InstalledReferencePackSourceTests
             outcome = hive.CreateSource(maxObservedEntries: 1).Discover(
                 new InstalledReferenceDiscoveryRequest(
                     InstalledPlatformFamily.DotNetRuntime,
-                    PlatformTargetFramework.Parse("net11.0"),
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net11.0")),
                     maxCandidates: 8),
                 TestContext.Current.CancellationToken);
 
@@ -123,7 +301,8 @@ public sealed class InstalledReferencePackSourceTests
             outcome = hive.CreateSource(maxObservedEntries: 6).Discover(
                 new InstalledReferenceDiscoveryRequest(
                     InstalledPlatformFamily.DotNetRuntime,
-                    PlatformTargetFramework.Parse("net11.0"),
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net11.0")),
                     maxCandidates: 8),
                 TestContext.Current.CancellationToken);
 
@@ -350,7 +529,8 @@ public sealed class InstalledReferencePackSourceTests
                 fileRootOutcome = source.Discover(
                     new InstalledReferenceDiscoveryRequest(
                         InstalledPlatformFamily.DotNetRuntime,
-                        PlatformTargetFramework.Parse("net11.0"),
+                        new InstalledReferenceDiscoveryScope.ExactFramework(
+                            PlatformTargetFramework.Parse("net11.0")),
                         maxCandidates: 8),
                     TestContext.Current.CancellationToken);
             Assert.IsType<
@@ -369,7 +549,8 @@ public sealed class InstalledReferencePackSourceTests
             intermediateOutcome = hive.CreateSource().Discover(
                 new InstalledReferenceDiscoveryRequest(
                     InstalledPlatformFamily.DotNetRuntime,
-                    PlatformTargetFramework.Parse("net11.0"),
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net11.0")),
                     maxCandidates: 8),
                 TestContext.Current.CancellationToken);
         Assert.IsType<
@@ -407,6 +588,17 @@ public sealed class InstalledReferencePackSourceTests
         Assert.IsType<
             InstalledPlatformSourceOutcome<
                 InstalledReferenceRealization>.Incomplete>(outcome);
+    }
+
+    private static void AssertTarget(
+        InstalledReferenceTarget target,
+        string targetFramework,
+        string version)
+    {
+        Assert.Equal(
+            PlatformTargetFramework.Parse(targetFramework),
+            target.Coordinate.TargetFramework);
+        Assert.Equal(version, target.Coordinate.Version.Value);
     }
 
     private static AssemblyReferenceIdentity ReadIdentity(string path)

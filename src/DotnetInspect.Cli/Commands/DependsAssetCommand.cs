@@ -629,6 +629,46 @@ public partial class DependsCommand
         selectedSections is { Count: 1 }
         && selectedSections.Contains(DependsAssetSections.Failures);
 
+    internal static Task<DependsAssetProjection>
+        AcquirePackageSubjectProjectionAsync(
+            string packageReference,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageReference);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Package,
+                    packageReference),
+            ],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken);
+    }
+
     private static async Task<DependsAssetProjection>
         AcquireAssetProjectionAsync(
             DependsOptions options,
@@ -1768,11 +1808,13 @@ public partial class DependsCommand
                 "Unknown dependency root kind."),
         };
 
-    private static bool WriteAssetProjection(
+    internal static bool WriteAssetProjection(
         DependsAssetProjection projection,
         DependsOptions options,
-        HashSet<string> includeSections)
+        HashSet<string> includeSections,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
         DocumentSchema schema = options.Tabular && !options.Count
             ? DependsAssetSections.CreateTableSchema()
             : DependsAssetSections.CreateSchema();
@@ -1796,7 +1838,8 @@ public partial class DependsCommand
                 tree: options.Tree,
                 embeddedMermaid: false,
                 options.NoHeader,
-                options.CompactJson);
+                options.CompactJson,
+                output);
             return true;
         }
 
@@ -1807,7 +1850,7 @@ public partial class DependsCommand
                 projection,
                 includeSections,
                 options.Rows);
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     document,
                     options.CompactJson
@@ -1837,7 +1880,8 @@ public partial class DependsCommand
             }
             WriteAssetHierarchyFailuresJsonLines(
                 projection,
-                options.Rows);
+                options.Rows,
+                output);
             return true;
         }
         if (hasTraversalFailures
@@ -1877,7 +1921,7 @@ public partial class DependsCommand
                     embeddedMermaid: false),
                 DependsAssetViewContext.Default);
             OutputFormatter.WriteProjectedJson(
-                Console.Out,
+                output,
                 options.Columns,
                 options.Fields,
                 (writer, formatter, writerOptions) =>
@@ -1902,7 +1946,7 @@ public partial class DependsCommand
         if (options.Tabular)
         {
             OutputFormatter.WriteProjectedTable(
-                Console.Out,
+                output,
                 !options.NoHeader,
                 options.Tsv,
                 options.Jsonl,
@@ -1928,14 +1972,16 @@ public partial class DependsCommand
                 WriteProjectedAssetMarkdown(
                     options,
                     includeSections,
-                    tableView);
+                    tableView,
+                    output);
             }
             else
             {
                 WriteAssetMarkdown(
                     projection,
                     options,
-                    includeSections);
+                    includeSections,
+                    output);
             }
             return true;
         }
@@ -1946,7 +1992,8 @@ public partial class DependsCommand
                 projection,
                 options,
                 includeSections,
-                tableView);
+                tableView,
+                output);
             return true;
         }
 
@@ -1956,7 +2003,7 @@ public partial class DependsCommand
             options.Fields);
         writerOptions.IncludeSections = includeSections;
         var writer = new MarkoutWriter(
-            Console.Out,
+            output,
             options.Format == OutputFormat.PlainText
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(
@@ -2005,7 +2052,8 @@ public partial class DependsCommand
 
     private static void WriteAssetHierarchyFailuresJsonLines(
         DependsAssetProjection projection,
-        RowWindow? rows)
+        RowWindow? rows,
+        TextWriter output)
     {
         DependsAssetDocument document = DependsAssetDocument.Create(
             projection,
@@ -2014,7 +2062,7 @@ public partial class DependsCommand
         foreach (DependencyHierarchyJsonOccurrence occurrence in
                  document.DependencyHierarchy?.Occurrences ?? [])
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependsAssetJsonLine
                     {
@@ -2026,7 +2074,7 @@ public partial class DependsCommand
         }
         foreach (DependsFailureJson failure in document.Failures ?? [])
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependsAssetJsonLine
                     {
@@ -2041,7 +2089,8 @@ public partial class DependsCommand
     private static void WriteAssetMarkdown(
         DependsAssetProjection projection,
         DependsOptions options,
-        HashSet<string> includeSections)
+        HashSet<string> includeSections,
+        TextWriter output)
     {
         var sections = new HashSet<string>(
             includeSections,
@@ -2073,14 +2122,15 @@ public partial class DependsCommand
             evidence = writer.ToString();
         }
 
-        Console.Out.WriteLine(
+        output.WriteLine(
             JoinMarkdown(hierarchy, evidence));
     }
 
     private static void WriteProjectedAssetMarkdown(
         DependsOptions options,
         HashSet<string> includeSections,
-        DependsAssetTableView tableView)
+        DependsAssetTableView tableView,
+        TextWriter output)
     {
         var writerOptions = OutputFormatter.CreateWindowedOptions(
             rows: null,
@@ -2091,14 +2141,15 @@ public partial class DependsCommand
             new MarkdownFormatter(MarkdownGraphMode.EdgeTable),
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, writer);
-        Console.Out.WriteLine(writer.ToString());
+        output.WriteLine(writer.ToString());
     }
 
     private static void WriteProjectedAssetPlainText(
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
-        DependsAssetTableView tableView)
+        DependsAssetTableView tableView,
+        TextWriter output)
     {
         var summaryWriter = new MarkoutWriter(
             new PlainTextFormatter(),
@@ -2121,13 +2172,13 @@ public partial class DependsCommand
             writerOptions);
         DependsAssetViewContext.Default.Serialize(tableView, tableWriter);
 
-        Console.Out.WriteLine(
+        output.WriteLine(
             JoinMarkdown(
                 summaryWriter.ToString(),
                 tableWriter.ToString()));
     }
 
-    private static string RenderHierarchySection(
+    internal static string RenderHierarchySection(
         DependsAssetProjection projection,
         RowWindow? rows,
         bool embeddedMermaid)
@@ -2211,7 +2262,7 @@ public partial class DependsCommand
         return true;
     }
 
-    private static bool IsExactAssetRowSet(
+    internal static bool IsExactAssetRowSet(
         DependsAssetProjection projection,
         string section)
     {
@@ -2485,7 +2536,7 @@ public partial class DependsCommand
         options.Fields is { Length: > 0 }
         || options.Columns is { Length: > 0 };
 
-    private static void WriteAssetDiagnostics(
+    internal static void WriteAssetDiagnostics(
         DependsAssetProjection projection)
     {
         if (!projection.Failures.IsEmpty)
@@ -2525,7 +2576,7 @@ public partial class DependsCommand
         }
     }
 
-    private static int AssetExitCode(DependsAssetProjection projection) =>
+    internal static int AssetExitCode(DependsAssetProjection projection) =>
         projection.Summary.TraversalCompletion
                 is DependencyInspectionTraversalCompletion.Partial
                     or DependencyInspectionTraversalCompletion.Failed
