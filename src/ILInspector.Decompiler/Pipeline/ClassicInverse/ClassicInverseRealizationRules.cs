@@ -171,6 +171,11 @@ internal static class ClassicInverseRealizationRules
             failure = "the await does not retain its exact proven pattern members";
             return false;
         }
+        if (!await.ProvesClassicCompletionPaths)
+        {
+            failure = "await result does not realize as a proven classic await expression";
+            return false;
+        }
 
         failure = "";
         return true;

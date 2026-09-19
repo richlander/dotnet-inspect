@@ -200,6 +200,7 @@ function documentationRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    platformPack: "",
     overload,
     isRuntimePack: false,
     isCurrent: () => true,
@@ -390,10 +391,9 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("runtime members settle documentation without querying a companion package", async () => {
+test("runtime members apply platform compiled documentation", async () => {
   const overload = memberSurface();
   let queries = 0;
-  let renders = 0;
   const state = inspectionState({
     memberDocumentationKey: "previous",
     memberDocumentationLoading: true,
@@ -401,20 +401,24 @@ test("runtime members settle documentation without querying a companion package"
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
-      queryDocumentation: async () => {
+      queryDocumentation: async request => {
         queries++;
-        throw new Error("unexpected query");
+        assert.equal(request.isRuntimePack, true);
+        assert.equal(request.platformPack, "netcore.app");
+        return availableDocumentation({
+          summary: "Runs the runtime API.",
+        });
       },
-      render: () => renders++,
     }));
 
   await coordinator.loadDocumentation(documentationRequest(overload, {
     isRuntimePack: true,
+    platformPack: "netcore.app",
   }));
 
-  assert.equal(queries, 0);
-  assert.equal(renders, 1);
+  assert.equal(queries, 1);
   assert.equal(overload.documentationLoaded, true);
+  assert.equal(overload.summary, "Runs the runtime API.");
   assert.equal(state.memberDocumentationKey, "documentation");
   assert.equal(state.memberDocumentationLoading, false);
   assert.equal(state.memberDocumentationError, "");
@@ -653,7 +657,7 @@ test("structured documentation failure remains visible and retryable", async () 
   assert.equal(overload.documentationLoaded, undefined);
   assert.equal(
     state.memberDocumentationError,
-    "The package documentation could not be read.");
+    "The compiled documentation could not be read.");
 });
 
 test("current documentation failure remains visible", async () => {

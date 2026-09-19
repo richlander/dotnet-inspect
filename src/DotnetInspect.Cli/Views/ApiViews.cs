@@ -1056,7 +1056,7 @@ public class ConstructorOverloadView
 public record ConstructorParameterRow(string Parameter, string Type, string Notes);
 
 /// <summary>
-/// View model for type shape output (--shape).
+/// View model for type tree output.
 /// </summary>
 [MarkoutSerializable(TitleProperty = nameof(FullName))]
 public class TypeShapeView

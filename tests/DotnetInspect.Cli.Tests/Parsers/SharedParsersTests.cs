@@ -8,49 +8,46 @@ public class SharedParsersTests
     // ── ParseMemberFilter ────────────────────────────────────────────────
 
     [Fact]
-    public void ParseMemberFilter_EmptyArray_ReturnsEmptyFilterAndNullLimit()
+    public void ParseMemberFilter_EmptyArray_ReturnsEmptyFilter()
     {
-        var (filter, limit) = SharedParsers.ParseMemberFilter([]);
+        var filter = SharedParsers.ParseMemberFilter([]);
 
         Assert.Empty(filter);
-        Assert.Null(limit);
     }
 
     [Fact]
-    public void ParseMemberFilter_SingleNumber_ReturnsLimit()
+    public void ParseMemberFilter_SingleNumber_ReturnsFilter()
     {
-        var (filter, limit) = SharedParsers.ParseMemberFilter(["5"]);
+        var filter = SharedParsers.ParseMemberFilter(["5"]);
 
-        Assert.Empty(filter);
-        Assert.Equal(5, limit);
+        Assert.Single(filter);
+        Assert.Contains("5", filter);
     }
 
     [Fact]
     public void ParseMemberFilter_SingleName_ReturnsFilter()
     {
-        var (filter, limit) = SharedParsers.ParseMemberFilter(["GetValue"]);
+        var filter = SharedParsers.ParseMemberFilter(["GetValue"]);
 
         Assert.Single(filter);
         Assert.Contains("GetValue", filter);
-        Assert.Null(limit);
     }
 
     [Fact]
     public void ParseMemberFilter_MultipleNames_ReturnsAllInFilter()
     {
-        var (filter, limit) = SharedParsers.ParseMemberFilter(["GetValue", "SetValue", "Clear"]);
+        var filter = SharedParsers.ParseMemberFilter(["GetValue", "SetValue", "Clear"]);
 
         Assert.Equal(3, filter.Count);
         Assert.Contains("GetValue", filter);
         Assert.Contains("SetValue", filter);
         Assert.Contains("Clear", filter);
-        Assert.Null(limit);
     }
 
     [Fact]
     public void ParseMemberFilter_CaseInsensitive()
     {
-        var (filter, _) = SharedParsers.ParseMemberFilter(["GetValue"]);
+        var filter = SharedParsers.ParseMemberFilter(["GetValue"]);
 
         Assert.Contains("getvalue", filter);
         Assert.Contains("GETVALUE", filter);

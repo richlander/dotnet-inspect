@@ -417,7 +417,7 @@ public static class ApiOutputFormatter
         && !SectionRequested(options.IncludeSections, SectionNames.Methods)
         && !DiscoveryRequests(options, SectionNames.Methods);
 
-    // ===== Shape Output (--shape) =====
+    // ===== Type tree output =====
 
     public static void WriteShapeOutput(
         ApiType type,
@@ -907,8 +907,8 @@ public static class ApiOutputFormatter
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
-        // Flatten sorted for --limit application. This ordering must match the per-kind
-        // display ordering below so that -m N selects the same members that are shown.
+        // Flatten sorted for limit application. This ordering must match the per-kind
+        // display ordering below so selected members are the members that are shown.
         var allMembers = grouped
             .SelectMany(g => g.Value)
             .OrderBy(m => GetMemberSortOrder(m.Kind))

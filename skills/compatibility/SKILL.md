@@ -87,6 +87,13 @@ History, `--at`, row projections, projection filters, sections,
 body/source/Analysis requests, or non-package sources. Root `match` is
 unrelated implementation-clone comparison.
 
+Like whole-Library API Diff, `type`/`member --match` currently reports
+`share.kind: "nonProjectable"` because the portable scenario does not represent
+ordered correspondence endpoints. The envelope is still useful for the
+complete typed match outcome and diagnostics. To hand the user one endpoint,
+run a separate exact Package-backed `member ... --share url`; that URL opens
+the public API Overview and does not preserve the correspondence operation.
+
 ## Did runtime behavior change? (allocations, exceptions)
 
 `-S "Analysis Diff"` compares body-level signal *deltas* between the two
