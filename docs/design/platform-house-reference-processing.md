@@ -127,6 +127,10 @@ materializer accepts explicit operation-consumed work, matching the shared
 executor, because the installed source contracts do not issue exact aggregate
 work observations. It neither guesses those observations nor turns selected
 payload size into a claim about all source work.
+The selected-target executor therefore charges an unmeasured failed installed
+source the residual assembly, compiled-XML, and byte allowance delegated to
+that invocation. Exact owner-issued observations remain exact; unobserved work
+cannot be reused by fallback as though the failed invocation consumed nothing.
 
 Package-backed successful-result materialization is implemented in
 `DotnetInspector.PlatformHouse.Execution.Packages` under #7304. It accepts only

@@ -44,6 +44,7 @@ public static class InstalledPlatformSelectedLibraryRealization
                     target,
                     result,
                     candidate,
+                    remainingWork,
                     Stopwatch.GetElapsedTime(started));
             });
     }
@@ -83,6 +84,7 @@ public static class InstalledPlatformSelectedLibraryRealization
                     target,
                     result,
                     candidate,
+                    remainingWork,
                     Stopwatch.GetElapsedTime(started));
             });
     }
@@ -92,6 +94,7 @@ public static class InstalledPlatformSelectedLibraryRealization
         PlatformFamilyTarget target,
         InstalledPlatformHouseResult<InstalledReferenceRealization> result,
         PlatformHouseCandidateIdentity candidate,
+        PlatformHouseWorkBudget remainingWork,
         TimeSpan elapsed) =>
         result switch
         {
@@ -140,7 +143,12 @@ public static class InstalledPlatformSelectedLibraryRealization
                 new PlatformLibraryRealizationSourceAttempt.NotSucceeded(
                     terminal.Contribution,
                     RejectionKind(terminal.Diagnostic, terminal.Contribution),
-                    WithElapsed(terminal.SourceWork, elapsed)),
+                    WithElapsed(
+                        terminal.SourceWork,
+                        terminal.Contribution,
+                        remainingWork,
+                        mayReadXmlDocuments: true,
+                        elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown installed reference result."),
         };
@@ -151,6 +159,7 @@ public static class InstalledPlatformSelectedLibraryRealization
         InstalledPlatformHouseResult<
             InstalledImplementationRealization> result,
         PlatformHouseCandidateIdentity candidate,
+        PlatformHouseWorkBudget remainingWork,
         TimeSpan elapsed) =>
         result switch
         {
@@ -193,7 +202,12 @@ public static class InstalledPlatformSelectedLibraryRealization
                 new PlatformLibraryRealizationSourceAttempt.NotSucceeded(
                     terminal.Contribution,
                     RejectionKind(terminal.Diagnostic, terminal.Contribution),
-                    WithElapsed(terminal.SourceWork, elapsed)),
+                    WithElapsed(
+                        terminal.SourceWork,
+                        terminal.Contribution,
+                        remainingWork,
+                        mayReadXmlDocuments: false,
+                        elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown installed implementation result."),
         };
@@ -234,12 +248,40 @@ public static class InstalledPlatformSelectedLibraryRealization
 
     static PlatformHouseConsumedWork WithElapsed(
         PlatformHouseConsumedWork? work,
+        PlatformSourceContribution contribution,
+        PlatformHouseWorkBudget remainingWork,
+        bool mayReadXmlDocuments,
         TimeSpan elapsed) =>
         Work(
-            work?.Assemblies ?? 0,
-            work?.XmlDocuments ?? 0,
-            work?.Bytes ?? 0,
+            work?.Assemblies
+                ?? UnmeasuredFailure(
+                    contribution,
+                    remainingWork.MaxAssemblies),
+            work?.XmlDocuments
+                ?? UnmeasuredFailure(
+                    contribution,
+                    mayReadXmlDocuments
+                        ? remainingWork.MaxXmlDocuments
+                        : 0),
+            work?.Bytes
+                ?? UnmeasuredFailure(
+                    contribution,
+                    remainingWork.MaxBytes),
             elapsed + (work?.Elapsed ?? TimeSpan.Zero));
+
+    static int UnmeasuredFailure(
+        PlatformSourceContribution contribution,
+        int delegatedMaximum) =>
+        contribution is PlatformSourceContribution.Failed
+            ? delegatedMaximum
+            : 0;
+
+    static long UnmeasuredFailure(
+        PlatformSourceContribution contribution,
+        long delegatedMaximum) =>
+        contribution is PlatformSourceContribution.Failed
+            ? delegatedMaximum
+            : 0;
 
     static PlatformHouseRejectionKind? RejectionKind(
         InstalledPlatformSourceDiagnostic diagnostic,
