@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using InertText;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -20,6 +21,7 @@ public class InspectionResultView
     private readonly InspectionResult _data;
     private PackageInspectionText? _text;
     private readonly bool _includeTitleVersion;
+    private readonly RowWindow? _hierarchyRows;
     private PackageInspectionText Text => _text ??= new PackageInspectionText(_data);
 
     private delegate string? PackageInfoValueResolver(InspectionResultView view);
@@ -166,10 +168,14 @@ public class InspectionResultView
         return null;
     }
 
-    public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
+    public InspectionResultView(
+        InspectionResult data,
+        bool includeTitleVersion = true,
+        RowWindow? hierarchyRows = null)
     {
         _data = data;
         _includeTitleVersion = includeTitleVersion;
+        _hierarchyRows = hierarchyRows;
     }
 
     /// <inheritdoc cref="PackageViewText"/>
@@ -215,6 +221,29 @@ public class InspectionResultView
             dependency.Id,
             dependency.Version))
         .ToList();
+
+    [MarkoutSection(
+        Name = PackageSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy
+    {
+        get
+        {
+            DependsAssetProjection? projection =
+                _data.DependencyHierarchyProjection;
+            if (projection is null)
+                return null;
+
+            IReadOnlyList<DependencyHierarchyOccurrenceRow> rows =
+                _hierarchyRows is { IsUnlimited: false } window
+                    ? window.Apply(projection.HierarchyRows)
+                    : projection.HierarchyRows;
+            return DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                rows,
+                markWindowedFragments: true);
+        }
+    }
 
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
@@ -1173,7 +1202,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
-[MarkoutContext(typeof(EmptyDepsView))]
 [MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {

@@ -511,6 +511,46 @@ public partial class DependsCommand
         selectedSections is { Count: 1 }
         && selectedSections.Contains(DependsAssetSections.Failures);
 
+    internal static Task<DependsAssetProjection>
+        AcquirePackageSubjectProjectionAsync(
+            string packageReference,
+            string? targetFramework,
+            bool includePrerelease,
+            NuGetSourceOptions? sourceOptions,
+            CommandContext context,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageReference);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1,
+                    DependencyInspectionRootKind.Package,
+                    packageReference),
+            ],
+            Tfm = targetFramework,
+            IncludePrerelease = includePrerelease,
+            SourceOptions = sourceOptions,
+        };
+        DependsAssetRequestPlan plan =
+            DependsAssetRequestPlan.FromSections(
+                new HashSet<string>(
+                    [DependsAssetSections.DependencyHierarchy],
+                    StringComparer.OrdinalIgnoreCase));
+        return AcquireAssetProjectionAsync(
+            options,
+            context,
+            plan,
+            traversalDepth: null,
+            static frameworkSpec =>
+                InstalledPlatformPruneSource.Read(frameworkSpec),
+            cancellationToken);
+    }
+
     private static async Task<DependsAssetProjection>
         AcquireAssetProjectionAsync(
             DependsOptions options,
@@ -1639,7 +1679,7 @@ public partial class DependsCommand
                 "Unknown dependency root kind."),
         };
 
-    private static bool WriteAssetProjection(
+    internal static bool WriteAssetProjection(
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections)
@@ -1998,7 +2038,7 @@ public partial class DependsCommand
                 tableWriter.ToString()));
     }
 
-    private static string RenderHierarchySection(
+    internal static string RenderHierarchySection(
         DependsAssetProjection projection,
         RowWindow? rows,
         bool embeddedMermaid)
@@ -2082,7 +2122,7 @@ public partial class DependsCommand
         return true;
     }
 
-    private static bool IsExactAssetRowSet(
+    internal static bool IsExactAssetRowSet(
         DependsAssetProjection projection,
         string section)
     {
@@ -2356,7 +2396,7 @@ public partial class DependsCommand
         options.Fields is { Length: > 0 }
         || options.Columns is { Length: > 0 };
 
-    private static void WriteAssetDiagnostics(
+    internal static void WriteAssetDiagnostics(
         DependsAssetProjection projection)
     {
         if (!projection.Failures.IsEmpty)
@@ -2396,7 +2436,7 @@ public partial class DependsCommand
         }
     }
 
-    private static int AssetExitCode(DependsAssetProjection projection) =>
+    internal static int AssetExitCode(DependsAssetProjection projection) =>
         projection.Summary.TraversalCompletion
                 is DependencyInspectionTraversalCompletion.Partial
                     or DependencyInspectionTraversalCompletion.Failed

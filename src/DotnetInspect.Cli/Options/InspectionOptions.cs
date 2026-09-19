@@ -22,7 +22,8 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
-    /// Legacy alias for selecting the package Dependencies section as a tree.
+    /// Legacy dependency-tree input. The Package route rejects it with focused
+    /// replacement guidance; Library routes retain their existing handling.
     /// </summary>
     public bool ShowDependencies { get; init; }
 

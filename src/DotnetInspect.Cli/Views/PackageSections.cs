@@ -47,6 +47,7 @@ public static class PackageSections
     public const string SourceLinkAvailability = "SourceLink: Availability";
     public const string SourceLinkMissingFiles = "SourceLink: Missing Files";
     public const string SourceLinkIntegrity = "SourceLink: Integrity";
+    public const string DependencyHierarchy = "Dependency Hierarchy";
     public const string Dependencies = "Dependencies";
     public const string Files = "Package files";
     public const string Vulnerabilities = "Vulnerabilities";
