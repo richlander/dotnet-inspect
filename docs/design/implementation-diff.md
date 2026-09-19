@@ -267,6 +267,14 @@ non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes. Ranking, clustering, and quality shades remain later
 consumers.
 
+Each Implementation Diff row carries a `Kind` facet alongside its human-readable
+`Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id
+(e.g. `analysis.complexity.normal-flow` for Complexity rows, or the C#/IL
+mechanism's own `ResearchChange.Descriptor.Id` such as `csharp.line`/`il.op`)
+for facet-style querying in JSON/JSONL/TSV output, independent of the display
+text. Rows without a wired descriptor (currently PDB Source) leave `Kind`
+empty rather than guessing one.
+
 ### PDB-source convergence
 
 `member -S "Source Diff"` is the PDB Source → After reviewer lens. It compares

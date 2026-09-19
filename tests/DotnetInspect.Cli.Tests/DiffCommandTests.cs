@@ -2100,7 +2100,12 @@ public class DiffCommandTests
             row.Member.Contains("RegressesAllocInLoop", StringComparison.Ordinal)
             && row.Mechanism == "Complexity"
             && row.Change == "1 -> 2"
-            && row.Evidence.Contains("delta=1", StringComparison.Ordinal));
+            && row.Evidence.Contains("delta=1", StringComparison.Ordinal)
+            && row.Kind == "analysis.complexity.normal-flow");
+        Assert.Contains(view.Rows!, row =>
+            row.Mechanism == "C#" && row.Kind.Length > 0);
+        Assert.Contains(view.Rows!, row =>
+            row.Mechanism == "IL" && row.Kind.Length > 0);
         Assert.DoesNotContain(view.Rows!, row =>
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
     }

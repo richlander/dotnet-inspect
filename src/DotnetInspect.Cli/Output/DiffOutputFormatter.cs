@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -226,11 +227,11 @@ public static class DiffOutputFormatter
                 "Implementation Diff",
                 view.ImplementationDiffSummary,
                 view.ImplementationDiffNote,
-                ["Member", "Mechanism", "Difference", "Change", "Evidence"],
-                ["member", "mechanism", "difference", "change", "evidence"],
+                ["Member", "Mechanism", "Difference", "Change", "Evidence", "Kind"],
+                ["member", "mechanism", "difference", "change", "evidence", "kind"],
                 view.ImplementationDiff?.Select(row => new[]
                 {
-                    row.Member, row.Mechanism, row.Difference, row.Change, row.Evidence
+                    row.Member, row.Mechanism, row.Difference, row.Change, row.Evidence, row.Kind
                 }));
         }
 
@@ -551,7 +552,8 @@ public static class DiffOutputFormatter
                     "Complexity",
                     "normal-flow cyclomatic",
                     $"{oldValue} -> {newValue}",
-                    evidence));
+                    evidence,
+                    AnalysisFindings.ComplexityDescriptor.Id));
             }
         }
 
@@ -1057,15 +1059,17 @@ public static class DiffOutputFormatter
             ? (change.IlBodyDiff?.Outcome ?? IlBodyDiffOutcome.Unavailable).ToString()
             : "";
         string changeKind = change.Kind.ToString().ToLowerInvariant();
+        string descriptorId = change.Descriptor.Id;
         if (evidenceLines.IsDefaultOrEmpty)
         {
             rows.Add(new ImplementationDiffRow(
                 member, mechanism, difference, changeKind,
-                change.Detail ?? change.Descriptor.Title));
+                change.Detail ?? change.Descriptor.Title, descriptorId));
             return;
         }
         foreach (string evidence in evidenceLines)
-            rows.Add(new ImplementationDiffRow(member, mechanism, difference, changeKind, evidence));
+            rows.Add(new ImplementationDiffRow(
+                member, mechanism, difference, changeKind, evidence, descriptorId));
     }
 
     static void AddSelectedSourceRows(
