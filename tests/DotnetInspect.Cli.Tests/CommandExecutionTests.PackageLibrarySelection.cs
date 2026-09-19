@@ -445,6 +445,12 @@ public partial class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
+            var discovery = await RunAppAsync(
+                "package", packagePath,
+                "--all-libraries",
+                "-D",
+                "--schema",
+                "--tips", "q");
             var result = await RunAppAsync(
                 "package", packagePath,
                 "--all-libraries",
@@ -452,6 +458,11 @@ public partial class CommandExecutionTests
                 "--count",
                 "--tips", "q");
 
+            Assert.Equal(0, discovery.Exit);
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                discovery.Output);
+            Assert.Empty(discovery.Error);
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
             Assert.Contains(

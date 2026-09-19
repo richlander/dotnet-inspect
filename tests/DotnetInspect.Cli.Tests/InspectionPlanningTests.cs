@@ -176,6 +176,30 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void PackageAllLibrariesStructuralSchema_OmitsExactOnlyReferenceHierarchy()
+    {
+        foreach (StructuralOutputShape outputShape in
+                 Enum.GetValues<StructuralOutputShape>())
+        {
+            StructuralSchemaProjection projection =
+                StructuralViewRegistry.Project(
+                    StructuralViewRegistry.Route(
+                        StructuralViewIdentity.PackageAllLibraries,
+                        InspectionCatalogIdentity.LibraryAggregate),
+                    outputShape);
+
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                projection.Schema.SectionNames,
+                StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                SectionNames.ReferenceHierarchy,
+                projection.SelectableSectionNames,
+                StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task PackageAllLibraries_StaticSchemaMatchesAggregateRows()
     {
         string target =
