@@ -527,6 +527,15 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
+            if (showReferences
+                && select?.Contains(
+                    SectionNames.References,
+                    StringComparer.OrdinalIgnoreCase) != true)
+            {
+                select = [.. select ?? [], SectionNames.References];
+            }
+            bool sectionSelectionControlsInference =
+                hasExplicitSelect || showReferences;
             if (!BodyKindQueryOptions.TryExtract(
                     nonCloneWhere,
                     out var bodyKindQuery,
@@ -565,13 +574,13 @@ public static class InspectionCommandDefinitions
                 select = [.. select ?? [], "Source Files"];
             if (bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.BodyShapes];
             }
             if (cloneCandidateQuery.HasPredicates
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 select = [.. select ?? [], SectionNames.CloneCandidates];
             }
@@ -589,22 +598,6 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(rowSelectionError!);
                 return 1;
             }
-            RowSelectionIntent<string>? referenceRowSelection = null;
-            if (LibraryReferenceRowSelectionAdoption.IsActive(
-                    parseResult,
-                    opts,
-                    referencesOption,
-                    asmTfmOption)
-                && !CliRowSelectionCommandRegistry
-                    .TryGetPreparedSemanticIntent(
-                        parseResult,
-                        "Library reference",
-                        out referenceRowSelection,
-                        out string? referenceRowSelectionError))
-            {
-                CommandError.Write(referenceRowSelectionError!);
-                return 1;
-            }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
@@ -615,7 +608,7 @@ public static class InspectionCommandDefinitions
             if (performanceTriage.HasFilters
                 && !bodyKindQuery.HasFilter
                 && !opts.IsDiscoveryMode(parseResult)
-                && !hasExplicitSelect)
+                && !sectionSelectionControlsInference)
             {
                 string[] targets = PerformanceKinds.Sections;
                 if (performanceTriage.Shapes is { Length: > 0 })
@@ -628,6 +621,24 @@ public static class InspectionCommandDefinitions
                         targets = kinds;
                 }
                 select = [.. select ?? [], .. targets];
+            }
+            RowSelectionIntent<string>? referenceRowSelection = null;
+            if (LibraryReferenceRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption,
+                    typeFilterOption,
+                    select)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library reference",
+                        out referenceRowSelection,
+                        out string? referenceRowSelectionError))
+            {
+                CommandError.Write(referenceRowSelectionError!);
+                return 1;
             }
 
             if (!TryParseMetadataRoot(
@@ -746,7 +757,8 @@ public static class InspectionCommandDefinitions
                 result,
                 opts,
                 referencesOption,
-                asmTfmOption),
+                asmTfmOption,
+                typeFilterOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

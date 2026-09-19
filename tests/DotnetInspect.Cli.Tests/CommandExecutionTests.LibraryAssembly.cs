@@ -686,6 +686,38 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCommand_ReferenceRows_SynthesizedMixedSelectionRetainsRenderedLineFallback(
+        bool legacyAlias)
+    {
+        string[] selector = legacyAlias
+            ? ["--references"]
+            : ["-S", SectionNames.References];
+        string[] args =
+        [
+            "library",
+            "System.Text.Json",
+            .. selector,
+            "-t",
+            "Json",
+            "-n",
+            "1",
+            "--tips",
+            "q",
+        ];
+        var inferredLines = await RunAppAsync(args);
+        var explicitLines = await RunAppAsync([.. args, "--lines"]);
+
+        Assert.Equal(explicitLines, inferredLines);
+        Assert.Equal(0, inferredLines.Exit);
+        Assert.Single(
+            inferredLines.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
     [Fact]
     public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
     {

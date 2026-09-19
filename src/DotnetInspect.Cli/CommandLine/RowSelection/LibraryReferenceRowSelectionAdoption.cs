@@ -10,7 +10,9 @@ internal static class LibraryReferenceRowSelectionAdoption
         ParseResult parseResult,
         SharedOptions options,
         Option<bool> referencesOption,
-        Option<string?> tfmOption)
+        Option<string?> tfmOption,
+        Option<string?> typeFilterOption,
+        IReadOnlyCollection<string>? effectiveSelection = null)
     {
         if (options.IsDiscoveryMode(parseResult)
             || parseResult.GetResult(options.QueryHelp)
@@ -27,15 +29,38 @@ internal static class LibraryReferenceRowSelectionAdoption
             return false;
         }
 
-        string[]? select = options.ParseSelect(parseResult);
-        if (select is [var section])
-        {
-            return section.Equals(
+        IReadOnlyCollection<string> select =
+            effectiveSelection ?? EffectiveSelection(
+                parseResult,
+                options,
+                referencesOption,
+                typeFilterOption);
+        return select.Count == 1
+            && select.Single().Equals(
                 SectionNames.References,
                 StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyCollection<string> EffectiveSelection(
+        ParseResult parseResult,
+        SharedOptions options,
+        Option<bool> referencesOption,
+        Option<string?> typeFilterOption)
+    {
+        var select = options.ParseSelect(parseResult)?.ToList() ?? [];
+        if (parseResult.GetValue(referencesOption)
+            && !select.Contains(
+                SectionNames.References,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            select.Add(SectionNames.References);
+        }
+        if (!string.IsNullOrWhiteSpace(
+                parseResult.GetValue(typeFilterOption)))
+        {
+            select.Add(SectionNames.SourceFiles);
         }
 
-        return select is not { Length: > 0 }
-            && parseResult.GetValue(referencesOption);
+        return select;
     }
 }
