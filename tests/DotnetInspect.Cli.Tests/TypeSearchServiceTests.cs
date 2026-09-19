@@ -20,6 +20,37 @@ public class TypeSearchServiceTests
         => PersistentCache.Initialize("dotnet-inspect-test");
 
     [Fact]
+    public void FindIfMissRoute_PreservesExplicitPlatformFrameworkTarget()
+    {
+        var match = new TypeFindResult
+        {
+            Pattern = "System.String",
+            Match = TypeFindMatchKind.Direct,
+            FullName = "System.String",
+            Library = "System.Runtime",
+            Source = "runtime",
+        };
+
+        TypeOptions type = TypeFindIfMissResult
+            .Found(match.Pattern, match)
+            .ApplyTo(
+                new TypeOptions
+                {
+                    PlatformFramework = "runtime@10.0.10",
+                });
+        MemberOptions member = TypeFindIfMissResult
+            .Found(match.Pattern, match)
+            .ApplyTo(
+                new MemberOptions
+                {
+                    PlatformFramework = "runtime@10.0.10",
+                });
+
+        Assert.Equal("runtime@10.0.10", type.PlatformFramework);
+        Assert.Equal("runtime@10.0.10", member.PlatformFramework);
+    }
+
+    [Fact]
     public async Task FindWorkspacePlan_PreservesExplicitEcosystemOrder()
     {
         Assert.True(

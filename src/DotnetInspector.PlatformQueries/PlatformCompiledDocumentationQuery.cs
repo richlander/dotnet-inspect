@@ -82,6 +82,41 @@ public static class PlatformCompiledDocumentationQuery
             IReadOnlyCollection<string> documentationIds,
             PlatformCompiledDocumentationQueryLimits? limits = null,
             CancellationToken cancellationToken = default)
+            => await ExecuteManyCoreAsync(
+                    materialized,
+                    documentationIds,
+                    requireAllSubjects: true,
+                    limits,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+    /// <summary>
+    /// Queries the requested IDs represented by the exact Platform reference
+    /// surface and omits IDs that belong only to another platform view.
+    /// </summary>
+    public static async ValueTask<
+            IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+            ExecuteAvailableManyAsync(
+                PlatformLibraryRealizationResult.Completed materialized,
+                IReadOnlyCollection<string> documentationIds,
+                PlatformCompiledDocumentationQueryLimits? limits = null,
+                CancellationToken cancellationToken = default)
+            => await ExecuteManyCoreAsync(
+                    materialized,
+                    documentationIds,
+                    requireAllSubjects: false,
+                    limits,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+    private static async ValueTask<
+            IReadOnlyDictionary<string, CompiledDocumentationOutcome>>
+            ExecuteManyCoreAsync(
+            PlatformLibraryRealizationResult.Completed materialized,
+            IReadOnlyCollection<string> documentationIds,
+            bool requireAllSubjects,
+            PlatformCompiledDocumentationQueryLimits? limits,
+            CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(materialized);
         ArgumentNullException.ThrowIfNull(documentationIds);
@@ -94,16 +129,34 @@ public static class PlatformCompiledDocumentationQuery
 
         string[] requestedIds = [.. documentationIds];
         IReadOnlyDictionary<string, DocumentationSubjectReference> subjects =
-            CompiledDocumentationSubjectResolver.Resolve(
-                materialized.Value.Reference,
-                materialized.Owner,
-                requestedIds,
-                limits.ApiSurfaceScope,
-                limits.ApiSurface,
-                cancellationToken);
+            requireAllSubjects
+                ? CompiledDocumentationSubjectResolver.Resolve(
+                    materialized.Value.Reference,
+                    materialized.Owner,
+                    requestedIds,
+                    limits.ApiSurfaceScope,
+                    limits.ApiSurface,
+                    cancellationToken)
+                : CompiledDocumentationSubjectResolver.ResolveAvailable(
+                    materialized.Value.Reference,
+                    materialized.Owner,
+                    requestedIds,
+                    limits.ApiSurfaceScope,
+                    limits.ApiSurface,
+                    cancellationToken);
+        string[] resolvedIds =
+        [
+            .. requestedIds.Where(subjects.ContainsKey),
+        ];
+        if (resolvedIds.Length == 0)
+        {
+            return new Dictionary<
+                string,
+                CompiledDocumentationOutcome>();
+        }
         var requests =
-            new List<DocumentationHouseRequest>(requestedIds.Length);
-        foreach (string documentationId in requestedIds)
+            new List<DocumentationHouseRequest>(resolvedIds.Length);
+        foreach (string documentationId in resolvedIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             DocumentationSubjectReference subject =
@@ -140,10 +193,10 @@ public static class PlatformCompiledDocumentationQuery
                 .ConfigureAwait(false);
         var outcomes =
             new Dictionary<string, CompiledDocumentationOutcome>(
-                requestedIds.Length,
+                resolvedIds.Length,
                 StringComparer.Ordinal);
-        for (int index = 0; index < requestedIds.Length; index++)
-            outcomes.Add(requestedIds[index], results[index].Content);
+        for (int index = 0; index < resolvedIds.Length; index++)
+            outcomes.Add(resolvedIds[index], results[index].Content);
         return outcomes;
     }
 
