@@ -43,7 +43,8 @@ internal readonly record struct ApiMethodModifiers(
         if (allowRuntimeSpecialName)
             permittedOrdinaryFlags |= MethodAttributes.RTSpecialName;
         bool ordinaryFlagsAreRepresentable =
-            (nonAccess & ~permittedOrdinaryFlags) == 0;
+            (nonAccess & ~permittedOrdinaryFlags) == 0
+            && (nonAccess & MethodAttributes.HideBySig) != 0;
         bool explicitShapeIsRepresentable =
             nonAccess == explicitShape
             || allowSpecialName

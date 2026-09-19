@@ -1055,7 +1055,7 @@ public static partial class ApiSurfaceExtractor
                             ifaceName);
                         if (implementedInterfaceNameOwners.TryGetValue(
                                 ifaceName,
-                                out ExactTypeIdentity existingIdentity)
+                                out ExactTypeIdentity? existingIdentity)
                             && existingIdentity
                                 != interfaceEvidence.Identity)
                         {

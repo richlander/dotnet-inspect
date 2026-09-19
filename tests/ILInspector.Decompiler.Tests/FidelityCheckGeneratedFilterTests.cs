@@ -246,6 +246,25 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsOrdinaryMethodsWithoutHideBySig()
+    {
+        string assemblyPath = CreateOrdinaryMethodFlagFixture();
+        try
+        {
+            var target = Assert.Single(
+                FidelityCheck.SelectReturnToSenderTargets(
+                    [assemblyPath],
+                    cap: int.MaxValue));
+
+            Assert.Equal("Good", target.Method);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsUnrepresentableReadOnlyMethodsBeforeSampling()
     {
         string assemblyPath = CreateMethodReadOnlyMarkerFixture();
@@ -310,6 +329,9 @@ public class FidelityCheckGeneratedFilterTests
 
             var target = Assert.Single(selected);
             Assert.Equal("Good", target.Method);
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method == "ModifierOnlyReadonlyReturn");
         }
         finally
         {
@@ -573,6 +595,42 @@ public class FidelityCheckGeneratedFilterTests
                 target =>
                     target.Type == "EquivalentMemberRefDuplicateFixture"
                     && target.Method == "IContract.Run");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void SelectReturnToSenderTargets_RejectsUnknownOperatorCategoryAndGenericArgumentIdentityCollisions()
+    {
+        string assemblyPath =
+            CreateExternalMethodImplementationIdentityFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.Equal(2, selected.Count);
+            Assert.Contains(
+                selected,
+                target =>
+                    target.Type == "ExternalOperatorCategoryFixture"
+                    && target.Method == "Good");
+            Assert.Contains(
+                selected,
+                target =>
+                    target.Type == "GenericArgumentIdentityCollisionFixture"
+                    && target.Method == "Good");
+            Assert.DoesNotContain(
+                selected,
+                target => target.Method == "N.IAdd.op_Addition");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Method == "N.IContract<N.Payload>.Run");
         }
         finally
         {
@@ -2717,7 +2775,9 @@ public class FidelityCheckGeneratedFilterTests
         DefineConstantMethod(goodType, "bad-name", typeof(int));
         MethodBuilder badSignature = goodType.DefineMethod(
             "BadSignature",
-            MethodAttributes.Public | MethodAttributes.Static,
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
             badSignatureType,
             Type.EmptyTypes);
         ILGenerator badSignatureBody = badSignature.GetILGenerator();
@@ -2726,7 +2786,9 @@ public class FidelityCheckGeneratedFilterTests
 
         MethodBuilder badConstraint = goodType.DefineMethod(
             "BadConstraint",
-            MethodAttributes.Public | MethodAttributes.Static,
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
             typeof(int),
             Type.EmptyTypes);
         badConstraint.DefineGenericParameters("T")[0]
@@ -2744,6 +2806,7 @@ public class FidelityCheckGeneratedFilterTests
             "op_Subtraction",
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             typeof(int),
             [operatorType, typeof(int)]);
@@ -2755,6 +2818,7 @@ public class FidelityCheckGeneratedFilterTests
             "op_Addition",
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             typeof(int),
             Type.EmptyTypes);
@@ -2777,6 +2841,7 @@ public class FidelityCheckGeneratedFilterTests
             "op_Division",
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             typeof(int),
             [openDeclaringType, typeof(int)]);
@@ -2789,6 +2854,7 @@ public class FidelityCheckGeneratedFilterTests
                 "op_Multiply",
                 MethodAttributes.Public
                     | MethodAttributes.Static
+                    | MethodAttributes.HideBySig
                     | MethodAttributes.SpecialName,
                 typeof(int),
                 [wrongConstructedType, typeof(int)]);
@@ -2799,7 +2865,9 @@ public class FidelityCheckGeneratedFilterTests
         MethodBuilder ordinaryOperatorName =
             operatorType.DefineMethod(
                 "op_UnaryNegation",
-                MethodAttributes.Public | MethodAttributes.Static,
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig,
                 typeof(int),
                 [operatorType]);
         ILGenerator ordinaryOperatorNameBody =
@@ -3146,12 +3214,16 @@ public class FidelityCheckGeneratedFilterTests
                 | TypeAttributes.Class
                 | TypeAttributes.Abstract
                 | TypeAttributes.Sealed);
+        const MethodAttributes publicStatic =
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig;
 
         DefineConstantMethod(fixtureType, "Good", typeof(int));
 
         MethodBuilder modifiedReturn = fixtureType.DefineMethod(
             "ModifiedReturn",
-            MethodAttributes.Public | MethodAttributes.Static);
+            publicStatic);
         modifiedReturn.SetSignature(
             typeof(int),
             [modifierType],
@@ -3165,7 +3237,7 @@ public class FidelityCheckGeneratedFilterTests
 
         MethodBuilder optionalModifiedReturn = fixtureType.DefineMethod(
             "OptionalModifiedReturn",
-            MethodAttributes.Public | MethodAttributes.Static);
+            publicStatic);
         optionalModifiedReturn.SetSignature(
             typeof(int),
             null,
@@ -3189,7 +3261,7 @@ public class FidelityCheckGeneratedFilterTests
                 .GetConstructor(Type.EmptyTypes)!;
         MethodBuilder alternateReadonlyReturn = fixtureType.DefineMethod(
             "AlternateReadonlyReturn",
-            MethodAttributes.Public | MethodAttributes.Static);
+            publicStatic);
         alternateReadonlyReturn.SetSignature(
             typeof(int).MakeByRefType(),
             [typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute)],
@@ -3202,9 +3274,24 @@ public class FidelityCheckGeneratedFilterTests
         alternateReadonlyReturnBody.Emit(OpCodes.Ldnull);
         alternateReadonlyReturnBody.Emit(OpCodes.Throw);
 
+        MethodBuilder modifierOnlyReadonlyReturn = fixtureType.DefineMethod(
+            "ModifierOnlyReadonlyReturn",
+            publicStatic);
+        modifierOnlyReadonlyReturn.SetSignature(
+            typeof(int).MakeByRefType(),
+            [typeof(System.Runtime.InteropServices.InAttribute)],
+            null,
+            Type.EmptyTypes,
+            null,
+            null);
+        ILGenerator modifierOnlyReadonlyReturnBody =
+            modifierOnlyReadonlyReturn.GetILGenerator();
+        modifierOnlyReadonlyReturnBody.Emit(OpCodes.Ldnull);
+        modifierOnlyReadonlyReturnBody.Emit(OpCodes.Throw);
+
         MethodBuilder attributeOnlyReadonlyReturn = fixtureType.DefineMethod(
             "AttributeOnlyReadonlyReturn",
-            MethodAttributes.Public | MethodAttributes.Static,
+            publicStatic,
             typeof(int).MakeByRefType(),
             Type.EmptyTypes);
         attributeOnlyReadonlyReturn.DefineParameter(
@@ -3224,7 +3311,7 @@ public class FidelityCheckGeneratedFilterTests
         MethodBuilder readonlyMarkerOnValueReturn =
             fixtureType.DefineMethod(
                 "ReadonlyMarkerOnValueReturn",
-                MethodAttributes.Public | MethodAttributes.Static,
+                publicStatic,
                 typeof(int),
                 Type.EmptyTypes);
         readonlyMarkerOnValueReturn.DefineParameter(
@@ -3240,7 +3327,7 @@ public class FidelityCheckGeneratedFilterTests
 
         MethodBuilder modifiedParameter = fixtureType.DefineMethod(
             "ModifiedParameter",
-            MethodAttributes.Public | MethodAttributes.Static);
+            publicStatic);
         modifiedParameter.SetSignature(
             typeof(int),
             null,
@@ -3255,7 +3342,7 @@ public class FidelityCheckGeneratedFilterTests
 
         MethodBuilder modifiedInParameter = fixtureType.DefineMethod(
             "ModifiedInParameter",
-            MethodAttributes.Public | MethodAttributes.Static);
+            publicStatic);
         modifiedInParameter.SetSignature(
             typeof(int),
             null,
@@ -3275,7 +3362,7 @@ public class FidelityCheckGeneratedFilterTests
         MethodBuilder additionalReadonlyModifier =
             fixtureType.DefineMethod(
                 "AdditionalReadonlyModifier",
-                MethodAttributes.Public | MethodAttributes.Static);
+                publicStatic);
         additionalReadonlyModifier.SetSignature(
             typeof(int),
             null,
@@ -3303,7 +3390,7 @@ public class FidelityCheckGeneratedFilterTests
         MethodBuilder duplicateReadonlyMarker =
             fixtureType.DefineMethod(
                 "DuplicateReadonlyMarker",
-                MethodAttributes.Public | MethodAttributes.Static);
+                publicStatic);
         duplicateReadonlyMarker.SetSignature(
             typeof(int),
             null,
@@ -3328,7 +3415,7 @@ public class FidelityCheckGeneratedFilterTests
         MethodBuilder malformedReadonlyMarker =
             fixtureType.DefineMethod(
                 "MalformedReadonlyMarker",
-                MethodAttributes.Public | MethodAttributes.Static);
+                publicStatic);
         malformedReadonlyMarker.SetSignature(
             typeof(int),
             null,
@@ -3387,7 +3474,9 @@ public class FidelityCheckGeneratedFilterTests
         {
             MethodBuilder method = type.DefineMethod(
                 name,
-                MethodAttributes.Public | MethodAttributes.Static);
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig);
             method.SetSignature(
                 typeof(int).MakeByRefType(),
                 [typeof(System.Runtime.InteropServices.InAttribute)],
@@ -3483,7 +3572,7 @@ public class FidelityCheckGeneratedFilterTests
         {
             MethodBuilder method = type.DefineMethod(
                 name,
-                attributes,
+                attributes | MethodAttributes.HideBySig,
                 typeof(int),
                 Type.EmptyTypes);
             foreach (CustomAttributeBuilder marker in markers)
@@ -3501,7 +3590,7 @@ public class FidelityCheckGeneratedFilterTests
         {
             MethodBuilder method = type.DefineMethod(
                 name,
-                MethodAttributes.Public,
+                MethodAttributes.Public | MethodAttributes.HideBySig,
                 typeof(int),
                 Type.EmptyTypes);
             method.SetCustomAttribute(markerConstructor, markerBlob);
@@ -3711,7 +3800,9 @@ public class FidelityCheckGeneratedFilterTests
             AddVoidBody(),
             MetadataTokens.ParameterHandle(1));
         metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Good"),
             metadata.GetOrAddBlob(
@@ -4054,13 +4145,15 @@ public class FidelityCheckGeneratedFilterTests
                 MetadataTokens.ParameterHandle(1));
 
         const MethodAttributes publicStatic =
-            MethodAttributes.Public | MethodAttributes.Static;
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig;
         AddMethod("Good", publicStatic, [0x00, 0x00, 0x08]);
         AddMethod("Vararg", publicStatic, [0x05, 0x00, 0x08]);
         AddMethod("InstanceHeaderOnStatic", publicStatic, [0x20, 0x00, 0x08]);
         AddMethod(
             "StaticHeaderOnInstance",
-            MethodAttributes.Public,
+            MethodAttributes.Public | MethodAttributes.HideBySig,
             [0x00, 0x00, 0x08]);
         AddMethod("ExplicitThis", publicStatic, [0x60, 0x00, 0x08]);
         AddMethod("ReservedHeader", publicStatic, [0x80, 0x00, 0x08]);
@@ -4077,6 +4170,85 @@ public class FidelityCheckGeneratedFilterTests
             GenericParameterAttributes.None,
             metadata.GetOrAddString("T"),
             index: 0);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string CreateOrdinaryMethodFlagFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "OrdinaryMethodFlags.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "OrdinaryMethodFlags.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("OrdinaryMethodFlags"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("OrdinaryMethodFlagFixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(instructions);
+        encoder.LoadConstantI4(1);
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(encoder, maxStack: 1);
+        BlobHandle signature = metadata.GetOrAddBlob(
+            (byte[])[0x00, 0x00, 0x08]);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("MissingHideBySig"),
+            signature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Good"),
+            signature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -4148,7 +4320,9 @@ public class FidelityCheckGeneratedFilterTests
             .AddMethodBody(encoder, maxStack: 1);
 
         metadata.AddMethodDefinition(
-            MethodAttributes.Public | MethodAttributes.Static,
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Good"),
             metadata.GetOrAddBlob(
@@ -4165,6 +4339,7 @@ public class FidelityCheckGeneratedFilterTests
         metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("op_UnaryPlus"),
@@ -4181,6 +4356,7 @@ public class FidelityCheckGeneratedFilterTests
         metadata.AddMethodDefinition(
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName
                 | MethodAttributes.Virtual
                 | MethodAttributes.Abstract
@@ -4226,6 +4402,7 @@ public class FidelityCheckGeneratedFilterTests
             "get_Classified",
             MethodAttributes.Public
                 | MethodAttributes.Static
+                | MethodAttributes.HideBySig
                 | MethodAttributes.SpecialName,
             typeof(int),
             Type.EmptyTypes);
@@ -4443,6 +4620,241 @@ public class FidelityCheckGeneratedFilterTests
             duplicateType,
             duplicateBodyReference,
             localDeclaration);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+        return path;
+    }
+
+    static string CreateExternalMethodImplementationIdentityFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "ExternalMethodImplementationIdentity.dll");
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "ExternalMethodImplementationIdentity.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "ExternalMethodImplementationIdentity"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle coreLib =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    (byte[])
+                    [
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    ]),
+                flags: default,
+                hashValue: default);
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        AssemblyReferenceHandle payloadA =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("PayloadA"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        AssemblyReferenceHandle payloadB =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("PayloadB"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeReferenceHandle externalOperator = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IAdd"));
+        TypeReferenceHandle genericContract = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IContract`1"));
+        TypeReferenceHandle payloadAType = metadata.AddTypeReference(
+            payloadA,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Payload"));
+        TypeReferenceHandle payloadBType = metadata.AddTypeReference(
+            payloadB,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Payload"));
+
+        TypeSpecificationHandle ContractOf(TypeReferenceHandle payload)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .TypeSpecificationSignature()
+                .GenericInstantiation(
+                    genericContract,
+                    genericArgumentCount: 1,
+                    isValueType: false)
+                .AddArgument()
+                .Type(payload, isValueType: false);
+            return metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        }
+
+        TypeSpecificationHandle contractOfPayloadA =
+            ContractOf(payloadAType);
+        TypeSpecificationHandle contractOfPayloadB =
+            ContractOf(payloadBType);
+        BlobHandle staticBinaryIntSignature = metadata.GetOrAddBlob(
+            (byte[])[0x00, 0x02, 0x08, 0x08, 0x08]);
+        BlobHandle staticIntSignature = metadata.GetOrAddBlob(
+            (byte[])[0x00, 0x00, 0x08]);
+        BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
+            (byte[])[0x20, 0x00, 0x01]);
+        MemberReferenceHandle externalOperatorDeclaration =
+            metadata.AddMemberReference(
+                externalOperator,
+                metadata.GetOrAddString("op_Addition"),
+                staticBinaryIntSignature);
+        MemberReferenceHandle constructedDeclaration =
+            metadata.AddMemberReference(
+                contractOfPayloadA,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle operatorType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "ExternalOperatorCategoryFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle collisionType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "GenericArgumentIdentityCollisionFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddInterfaceImplementation(
+            operatorType,
+            externalOperator);
+        metadata.AddInterfaceImplementation(
+            collisionType,
+            contractOfPayloadA);
+        metadata.AddInterfaceImplementation(
+            collisionType,
+            contractOfPayloadB);
+
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int AddIntBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(instructions);
+            encoder.LoadConstantI4(1);
+            encoder.OpCode(ILOpCode.Ret);
+            return bodyEncoder.AddMethodBody(encoder, maxStack: 1);
+        }
+
+        int AddVoidBody()
+        {
+            var instructions = new BlobBuilder();
+            var encoder = new InstructionEncoder(instructions);
+            encoder.OpCode(ILOpCode.Ret);
+            return bodyEncoder.AddMethodBody(encoder, maxStack: 0);
+        }
+
+        MethodDefinitionHandle operatorBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("N.IAdd.op_Addition"),
+                staticBinaryIntSignature,
+                AddIntBody(),
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Good"),
+            staticIntSignature,
+            AddIntBody(),
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle collisionBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    "N.IContract<N.Payload>.Run"),
+                instanceVoidSignature,
+                AddVoidBody(),
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Good"),
+            staticIntSignature,
+            AddIntBody(),
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodImplementation(
+            operatorType,
+            operatorBody,
+            externalOperatorDeclaration);
+        metadata.AddMethodImplementation(
+            collisionType,
+            collisionBody,
+            constructedDeclaration);
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -5082,7 +5494,9 @@ public class FidelityCheckGeneratedFilterTests
     {
         MethodBuilder method = type.DefineMethod(
             name,
-            MethodAttributes.Public | MethodAttributes.Static,
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
             returnType,
             Type.EmptyTypes);
         ILGenerator body = method.GetILGenerator();

@@ -847,7 +847,7 @@ public static partial class ApiSurfaceExtractor
                         (MemberReferenceHandle)declaration);
                 owner = member.Parent;
                 name = member.Name;
-                hasSpecialName = false;
+                hasSpecialName = null;
                 return owner.Kind is
                     HandleKind.TypeDefinition
                         or HandleKind.TypeReference
@@ -1168,7 +1168,8 @@ public static partial class ApiSurfaceExtractor
             evidence = new(
                 new(
                     assembly,
-                    type.StructuralIdentity()),
+                    type.StructuralIdentity(),
+                    [.. type.ReferencedTypes()]),
                 type);
             return true;
         }
@@ -1181,9 +1182,48 @@ public static partial class ApiSurfaceExtractor
         }
     }
 
-    internal readonly record struct ExactTypeIdentity(
-        ApiAssemblyIdentity Assembly,
-        string StructuralIdentity);
+    internal sealed class ExactTypeIdentity(
+        ApiAssemblyIdentity assembly,
+        string structuralIdentity,
+        ImmutableArray<ApiTypeReferenceIdentity> namedReferences)
+        : IEquatable<ExactTypeIdentity>
+    {
+        internal ApiAssemblyIdentity Assembly { get; } = assembly;
+        internal string StructuralIdentity { get; } = structuralIdentity;
+        internal ImmutableArray<ApiTypeReferenceIdentity> NamedReferences
+            { get; } = namedReferences;
+
+        public bool Equals(ExactTypeIdentity? other) =>
+            other is not null
+            && Assembly.Equals(other.Assembly)
+            && StringComparer.Ordinal.Equals(
+                StructuralIdentity,
+                other.StructuralIdentity)
+            && NamedReferences.SequenceEqual(other.NamedReferences);
+
+        public override bool Equals(object? obj) =>
+            obj is ExactTypeIdentity other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            hash.Add(Assembly);
+            hash.Add(StructuralIdentity, StringComparer.Ordinal);
+            foreach (ApiTypeReferenceIdentity reference in NamedReferences)
+                hash.Add(reference);
+            return hash.ToHashCode();
+        }
+
+        public static bool operator ==(
+            ExactTypeIdentity? left,
+            ExactTypeIdentity? right) =>
+            EqualityComparer<ExactTypeIdentity>.Default.Equals(left, right);
+
+        public static bool operator !=(
+            ExactTypeIdentity? left,
+            ExactTypeIdentity? right) =>
+            !(left == right);
+    }
 
     internal readonly record struct ExplicitImplementationEvidence(
         ExactTypeIdentity Interface,

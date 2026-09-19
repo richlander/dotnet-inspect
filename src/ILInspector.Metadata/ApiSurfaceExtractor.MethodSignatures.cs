@@ -321,10 +321,10 @@ public static partial class ApiSurfaceExtractor
                         ReadOnlyByRefReturnMarker.RequiresLocation
                             or ReadOnlyByRefReturnMarker.Invalid)
                 && (readOnlyByRefReturnMarker
-                        is not ReadOnlyByRefReturnMarker.IsReadOnly
-                    || returnType.StartsWith(
+                        is ReadOnlyByRefReturnMarker.IsReadOnly)
+                    == returnType.StartsWith(
                         "ref readonly ",
-                        StringComparison.Ordinal))
+                        StringComparison.Ordinal)
                 && CustomModifiersAreRepresentable(
                     treeSignature.ReturnType,
                     returnType.StartsWith(
