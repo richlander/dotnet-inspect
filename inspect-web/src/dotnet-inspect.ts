@@ -9890,13 +9890,16 @@ function capturePackageCoordinateView(): Pick<
   const preserveLibrarySelection =
     state.atLibraryRoot
     || (state.rootKind !== "platform" && state.libraryScope?.size === 1);
+  const library = preserveLibrarySelection
+    && !aggregateLibrarySubjectIsActive()
+    ? selectedLibrary()
+    : null;
   return {
     packageLens: state.atPackageRoot ? state.packageLens : "overview",
     ...(preserveLibrarySelection ? {
       librarySelection: {
-        selector: aggregateLibrarySubjectIsActive()
-          ? null
-          : selectedLibraryName(),
+        id: library?.id ?? null,
+        name: library?.name ?? null,
         lens: state.libraryLens,
         activate: state.atLibraryRoot,
       },
@@ -15588,7 +15591,8 @@ interface LoadPackageOptions {
   replacePackage?: AppPackage | null;
   packageLens?: PackageLens;
   librarySelection?: {
-    selector: string | null;
+    id: string | null;
+    name: string | null;
     lens: LibraryLens;
     activate: boolean;
   };
@@ -15687,11 +15691,13 @@ async function loadPackage(
       state.atLibraryRoot = false;
       state.packageLens = options.packageLens ?? "overview";
       if (options.librarySelection) {
-        const { selector, lens, activate } = options.librarySelection;
-        const library = selector
-          ? resolvePackageLibrary(packageModel.assemblies, selector)
-          : null;
-        if (!selector && !packageModel.isRuntimePack) {
+        const { id, name, lens, activate } = options.librarySelection;
+        const library =
+          (id ? resolvePackageLibrary(packageModel.assemblies, id) : null)
+          ?? (name
+            ? resolvePackageLibrary(packageModel.assemblies, name)
+            : null);
+        if (!id && !name && !packageModel.isRuntimePack) {
           state.libraryScope = null;
           if (activate) {
             state.atPackageRoot = false;
@@ -15707,7 +15713,7 @@ async function loadPackage(
           }
         } else {
           appendQueryNotice(
-            `The library '${selector}' is not uniquely available in `
+            `The library '${name ?? id}' is not uniquely available in `
             + `${packageModel.id}@${packageModel.version} (${packageModel.activeFramework}). `
             + "Showing Package Overview.");
         }

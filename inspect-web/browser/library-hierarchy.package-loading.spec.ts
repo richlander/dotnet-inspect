@@ -19,9 +19,10 @@ async function installPackageLoadingFacades(
   page: Page,
   options: PackageLoadingFixture = {},
   replacement?: BrowserPackageSurface,
+  model: BrowserPackageSurface = frameworkSurface,
 ) {
   await installFacades(
-    page, frameworkSurface, replacement ? [replacement] : [], "ready", "ready", undefined,
+    page, model, replacement ? [replacement] : [], "ready", "ready", undefined,
     "ready", "ready", undefined, {},
     { deferChanges: true, versions: ["10.0.1", "10.0.0"], ...options });
 }
@@ -160,6 +161,69 @@ for (const change of packageCoordinateChanges) {
     await expectPackageCoordinateSelection(page, change, change.selected);
     await chooseSubject(page, "library", "Library");
     await expect(page.locator(".library-overview-surface h1")).toHaveText(other.name);
+    await expect(page.locator(
+      `.library-subject-list [data-library-subject="${other.id}"]`))
+      .toHaveAttribute("aria-selected", "true");
+  });
+}
+
+function sameNamedLibrarySurface(
+  source: BrowserPackageSurface,
+  version: string,
+  framework: string,
+): BrowserPackageSurface {
+  const assemblies = source.assemblies.map((assembly, index) => ({
+    ...assembly,
+    name: "Example.Shared",
+    asset: `lib/${framework}/${index}/Example.Shared.dll`,
+  }));
+  const assemblyById = new Map(
+    assemblies.map(assembly => [assembly.id, assembly]));
+  return {
+    ...source,
+    version,
+    activeFramework: framework,
+    assemblies,
+    types: source.types.map(item => {
+      const assembly = assemblyById.get(item.assemblyId)!;
+      return {
+        ...item,
+        assembly: `${assembly.name}.dll`,
+        assemblyName: assembly.name,
+      };
+    }),
+  };
+}
+
+for (const change of packageCoordinateChanges) {
+  test(`package ${change.name} replacement preserves same-named exact Library identity`, async ({ page }) => {
+    const initial = sameNamedLibrarySurface(
+      frameworkSurface,
+      "10.0.0",
+      "net10.0");
+    const replacement = sameNamedLibrarySurface(
+      frameworkSurface,
+      change.version,
+      change.framework);
+    await installPackageLoadingFacades(page, {}, replacement, initial);
+    await page.goto(frameworkRoot);
+    await selectLibrary(page, other.id);
+    await chooseSubject(page, "package", "Package");
+
+    await selectPackageCoordinate(page, change, change.selected);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-package-query-pending",
+      JSON.stringify(["System.Text.Json", change.version, change.framework]));
+    await releaseFacade(page, "finish-package-query");
+
+    await expect(subjectTab(page, "package")).toHaveAttribute(
+      "aria-selected", "true");
+    await expectPackageCoordinateSelection(page, change, change.selected);
+    await expect(page.locator(
+      ".query-notice-text",
+      { hasText: "not uniquely available" }))
+      .toHaveCount(0);
+    await chooseSubject(page, "library", "Library");
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${other.id}"]`))
       .toHaveAttribute("aria-selected", "true");
