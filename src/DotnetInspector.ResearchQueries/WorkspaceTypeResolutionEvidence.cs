@@ -317,6 +317,13 @@ public static class WorkspaceMetadataEvidence
         {
             public NameFailure Rejection { get; } = rejection;
         }
+        public sealed class DeclarationBudgetExceeded(
+            int budget,
+            InertString detail) : Failure
+        {
+            public int Budget { get; } = budget;
+            public InertString Detail { get; } = detail;
+        }
         public sealed class ForwarderCycle : Failure;
         public sealed class HopBudgetExceeded(int budget) : Failure
         {

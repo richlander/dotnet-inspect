@@ -192,9 +192,24 @@ may throw.
 
 Table scans, name resolution, and relationship traversal take explicit work
 bounds. Exhaustion produces **Budget-limited**, not `Malformed`, absence, or an
-escaping budget exception. Type-definition lookup publishes
-`TypeDeclarationResult.BudgetExceeded`; the runtime `System.Enum` lookup and
-the repeated-long-name boundary are gated by
+escaping budget exception. Full type-declaration scans and lazy index
+construction preflight at most
+`MetadataSafetyPolicy.MaxTypeDeclarationRows` combined TypeDef and ExportedType
+rows; exact TypeDef lookup applies the same ceiling to its TypeDef rows. Each
+path charges cumulative stored or compared UTF-8 name work against
+`MetadataSafetyPolicy.MaxTypeDeclarationNameWorkChars`. Index construction is
+all-or-nothing: exhaustion publishes one global
+`TypeDeclarationResult.BudgetExceeded` rather than exposing a partial index.
+The direct row and name boundaries, index row and name boundaries, discarded
+partial state, and runtime `System.Enum` control are gated by
+`ProbeDefinition_RejectsRowsBeforeScanning`,
+`Probe_RejectsCombinedDeclarationRowsBeforeScanning`,
+`Probe_RejectsRepeatedLeafComparisonWork`,
+`DeclarationIndex_RejectsRowsBeforeConstruction`,
+`DeclarationIndex_DiscardsPartialStateAfterNameWorkExhaustion`, and
+`Session_DeclarationIndexResolvesRuntimeCoreLibraryType`. Exact TypeDef lookup
+also publishes `TypeDeclarationResult.BudgetExceeded`; its runtime
+`System.Enum` lookup and repeated-long-name boundary are gated by
 `ProbeDefinition_MaterializesCoreEnumAsSpecialClass` and
 `ProbeDefinition_ReportsRepeatedLongLeafWorkAsBudgetExceeded`.
 
@@ -240,7 +255,6 @@ registration row, registry service, naming convention, or maintained census.
 | Gap | Tracker | Relation to this contract |
 | --- | --- | --- |
 | Reachable outcome distinctions are collapsed across existing components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
-| Whole-table declaration construction lacks a work bound | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) | Deviation |
 | Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |
 | A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
 | Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
