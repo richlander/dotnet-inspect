@@ -707,6 +707,7 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth,
+            share: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
             cancellationToken);
