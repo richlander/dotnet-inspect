@@ -1014,6 +1014,12 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "Resolved from installed packs: runtime 3.1.0",
             error);
+        Assert.Contains(
+            "libraries in runtime@3.1.0",
+            error);
+        Assert.DoesNotContain(
+            "runtime@3.1.0@3.1.0",
+            error);
         Assert.DoesNotContain("runtime 11", error);
         using JsonDocument document = JsonDocument.Parse(output);
         Assert.Equal(
