@@ -21,13 +21,18 @@ public sealed class LibraryQueryView
 [MarkoutSerializable]
 public sealed class LibraryQueryRow
 {
-    public LibraryQueryRow(LibraryQueryMatch match)
+    public LibraryQueryRow(
+        int occurrence,
+        string library,
+        string version,
+        string source,
+        string answer)
     {
-        Occurrence = match.Occurrence;
-        LibraryText = Contain(match.Library.Name);
-        VersionText = Contain(match.Library.Version?.ToString() ?? "");
-        SourceText = Contain(match.Source ?? match.Provenance);
-        AnswerText = Contain(string.Join("; ", match.Answers));
+        Occurrence = occurrence;
+        LibraryText = Contain(library);
+        VersionText = Contain(version);
+        SourceText = Contain(source);
+        AnswerText = Contain(answer);
     }
 
     [MarkoutIgnore]

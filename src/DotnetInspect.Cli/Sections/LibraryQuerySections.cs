@@ -37,7 +37,12 @@ public static class LibraryQuerySections
         {
             Results =
             [
-                .. results.Select(match => new LibraryQueryRow(match)),
+                .. results.Select(match => new LibraryQueryRow(
+                    match.Occurrence,
+                    match.Library.Name,
+                    match.Library.Version?.ToString() ?? "",
+                    match.Source ?? match.Provenance,
+                    string.Join("; ", match.Answers))),
             ],
             QuerySummary =
             [
