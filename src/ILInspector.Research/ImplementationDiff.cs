@@ -34,6 +34,33 @@ public enum ImplementationComplexityChangeKind
 }
 
 /// <summary>
+/// Where one change's absolute normal-flow complexity delta falls within the
+/// local comparison population: every change in the same
+/// <see cref="ImplementationComplexityComparisonRequest"/> that has a
+/// non-null <see cref="ImplementationComplexityChange.Delta"/>, regardless of
+/// <see cref="ImplementationComplexityChangeKind"/> (including
+/// <see cref="ImplementationComplexityChangeKind.Incomplete"/> rows - callers
+/// wanting a stricter population can filter by <c>Kind</c> themselves before
+/// interpreting <see cref="PercentileRank"/>). This is deliberately the local,
+/// per-diff population described in issue #7696 ("diff analysis emphasizes
+/// ... local comparison populations"), not a corpus-wide distribution; the
+/// latter belongs to the separate library-report initiative.
+/// </summary>
+/// <param name="PopulationSize">
+/// Count of changes contributing to the population. A small population
+/// (for example 1-2) makes <see cref="PercentileRank"/> a weak signal.
+/// </param>
+/// <param name="PercentileRank">
+/// Percentage (0-100) of the population whose absolute delta is less than or
+/// equal to this change's absolute delta. A higher value means this change's
+/// complexity delta is larger in magnitude than more of its peers in this
+/// comparison - evidence for "unusual change," not a claim of defect.
+/// </param>
+public sealed record ImplementationComplexityPopulationContext(
+    int PopulationSize,
+    double PercentileRank);
+
+/// <summary>
 /// One paired complexity observation for a logical member. <see cref="OldProfile"/>
 /// and <see cref="NewProfile"/> retain the full Analysis-owned structural
 /// facts (instructions, branches, switches, loops, exception regions, calls,
@@ -52,7 +79,8 @@ public sealed record ImplementationComplexityChange(
     MethodIdentity? OldEvidenceMethod = null,
     MethodIdentity? NewEvidenceMethod = null,
     MethodImplementationProfile? OldProfile = null,
-    MethodImplementationProfile? NewProfile = null);
+    MethodImplementationProfile? NewProfile = null,
+    ImplementationComplexityPopulationContext? PopulationContext = null);
 
 public sealed record ImplementationComplexityDiff(
     bool IsAvailable,

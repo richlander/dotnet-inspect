@@ -113,7 +113,75 @@ public static class ImplementationComplexityService
             changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
         }
 
-        return new ImplementationComplexityDiff(true, null, changes);
+        return new ImplementationComplexityDiff(true, null, WithPopulationContext(changes));
+    }
+
+    /// <summary>
+    /// Ranks each change's absolute normal-flow complexity delta against the
+    /// full local population of changes from this comparison request (see
+    /// <see cref="ImplementationComplexityPopulationContext"/>). Changes
+    /// without a delta (Added/Removed, or Incomplete rows missing one side)
+    /// are left without a population context - there is nothing to rank.
+    /// </summary>
+    static IReadOnlyList<ImplementationComplexityChange> WithPopulationContext(
+        IReadOnlyList<ImplementationComplexityChange> changes)
+    {
+        int[] absoluteDeltas = changes
+            .Where(change => change.Delta is not null)
+            .Select(change => Math.Abs(change.Delta!.Value))
+            .Order()
+            .ToArray();
+        if (absoluteDeltas.Length == 0)
+        {
+            return changes;
+        }
+
+        return changes
+            .Select(change =>
+            {
+                if (change.Delta is null)
+                {
+                    return change;
+                }
+
+                int absoluteDelta = Math.Abs(change.Delta.Value);
+                int countAtOrBelow = UpperBound(absoluteDeltas, absoluteDelta);
+                double percentileRank =
+                    100.0 * countAtOrBelow / absoluteDeltas.Length;
+                return change with
+                {
+                    PopulationContext = new ImplementationComplexityPopulationContext(
+                        absoluteDeltas.Length,
+                        percentileRank),
+                };
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Count of elements in a sorted array that are less than or equal to
+    /// <paramref name="value"/>.
+    /// </summary>
+    static int UpperBound(int[] sortedValues, int value)
+    {
+        int index = Array.BinarySearch(sortedValues, value);
+        if (index < 0)
+        {
+            // BinarySearch returns the bitwise complement of the first
+            // element greater than the value when there is no exact match;
+            // that count already excludes anything equal to value (since
+            // none exists), so it is the count strictly below.
+            return ~index;
+        }
+
+        // One or more exact matches exist; advance past the last one so
+        // ties are all counted as "at or below".
+        while (index + 1 < sortedValues.Length && sortedValues[index + 1] == value)
+        {
+            index++;
+        }
+
+        return index + 1;
     }
 
     static string AssemblyKey(
