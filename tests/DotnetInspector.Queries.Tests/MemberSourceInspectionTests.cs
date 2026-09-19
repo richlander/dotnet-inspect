@@ -36,6 +36,8 @@ public sealed partial class AssemblyContextSourceQueryTests
         var house = Assert.IsType<SourceHouseOutcome.Available>(available.HouseOutcome);
         Assert.StartsWith("public static string? ExtractMemberText(", pdb.Text.TrimStart());
         Assert.Equal(pdb.Text, house.Source.Text);
+        Assert.Null(pdb.MemberDocument);
+        Assert.Null(house.Source.MemberDocument);
         Assert.Equal(SourceChecksumVerification.Exact, pdb.Inspection.ChecksumVerification);
         Assert.Equal(SourceHouseLibraryLeaseConsumer.SourceHouse, house.Receipt.LeaseSettlement.Consumer);
         Assert.Equal(assembly.Assembly.Registration, available.Subject.Registration);
