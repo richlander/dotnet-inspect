@@ -484,6 +484,32 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// One exact member's shared compiled-documentation outcome from a
+    /// PlatformHouse-selected reference Library and its associated XML
+    /// companion.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPlatformMemberDocumentation(
+        string framework,
+        string platformVersion,
+        string assemblyName,
+        string platformPack,
+        string documentationId)
+    {
+        CompiledDocumentationOutcome documentation =
+            await BrowserPlatformWorkspace.QueryMemberDocumentationAsync(
+                framework,
+                platformVersion,
+                assemblyName,
+                platformPack,
+                documentationId);
+        return JsonSerializer.Serialize(
+            documentation,
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
+    }
+
+    /// <summary>
     /// Ranks loaded type candidates against an incremental query through the product's
     /// <see cref="TypeMatcher"/>: exact and namespace-suffix matches, then prefix and substring
     /// globs, then a Levenshtein "did you mean" fallback. This inspects no artifact — the

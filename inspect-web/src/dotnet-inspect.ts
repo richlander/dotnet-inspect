@@ -612,6 +612,8 @@ let inspectPrefetchPlatformPacks:
 let inspectPackageCacheStats: EngineClient["package"]["packageCacheStats"];
 let inspectMemberDocumentation:
   EngineClient["package"]["queryMemberDocumentation"];
+let inspectPlatformMemberDocumentation:
+  EngineClient["package"]["queryPlatformMemberDocumentation"];
 let inspectPackage: EngineClient["package"]["queryPackage"];
 let inspectPackageRoot: EngineClient["package"]["queryPackageRoot"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
@@ -747,6 +749,8 @@ async function loadEngineModule() {
       packageCacheStats: inspectPackageCacheStats,
       queryLibraryApi: inspectLibraryApi,
       queryMemberDocumentation: inspectMemberDocumentation,
+      queryPlatformMemberDocumentation:
+        inspectPlatformMemberDocumentation,
       queryPackage: inspectPackage,
       queryPackageRoot: inspectPackageRoot,
       queryPackageDependencies: inspectPackageDependencies,
@@ -2150,12 +2154,19 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.metadataToken,
           request.implementationMember),
   queryDocumentation: (request, documentationId) =>
-    inspectMemberDocumentation(
-      request.packageId,
-      request.version,
-      request.framework,
-      request.assembly,
-      documentationId),
+    request.isRuntimePack
+      ? inspectPlatformMemberDocumentation(
+          request.framework,
+          request.version,
+          request.assembly,
+          request.platformPack,
+          documentationId)
+      : inspectMemberDocumentation(
+          request.packageId,
+          request.version,
+          request.framework,
+          request.assembly,
+          documentationId),
   queryFindingCensus: async request => {
     const result = await inspectMemberFindingCensus(
       request.packageId,
@@ -7407,12 +7418,12 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
     const documentationSummary = documentationLoading
-      ? '<p class="docs-loading">Loading package documentation…</p>'
+      ? '<p class="docs-loading">Loading compiled documentation…</p>'
       : documentationError
         ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
         : overload.summary
           ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
+          : '<p class="docs-unavailable">No summary was found in compiled XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
@@ -13020,6 +13031,9 @@ async function loadSelectedMemberDocumentation() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      platformPack: pkg.isRuntimePack
+        ? platformPackForAssembly(type.assembly, type.platformPack) ?? ""
+        : "",
       overload,
       isRuntimePack: Boolean(state.package?.isRuntimePack),
       isCurrent: () => memberRequestIsCurrent(signature),

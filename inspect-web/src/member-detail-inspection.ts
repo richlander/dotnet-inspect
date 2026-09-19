@@ -42,6 +42,7 @@ export interface MemberDocumentationRequest {
   version: string;
   framework: string;
   assembly: string;
+  platformPack: string;
   overload: DocumentableMemberSurface;
   isRuntimePack: boolean;
   isCurrent(): boolean;
@@ -232,16 +233,6 @@ export function createMemberDetailInspectionCoordinator(
         return;
       }
 
-      // Runtime pseudo-packages have no companion XML-documentation package to query.
-      if (request.isRuntimePack) {
-        overload.documentationLoaded = true;
-        state.memberDocumentationKey = request.signature;
-        state.memberDocumentationLoading = false;
-        state.memberDocumentationError = "";
-        dependencies.render();
-        return;
-      }
-
       if (state.memberDocumentationKey === request.signature
         && state.memberDocumentationLoading) {
         return;
@@ -280,31 +271,31 @@ export function createMemberDetailInspectionCoordinator(
             break;
           case "unavailable":
             state.memberDocumentationError =
-              "Package documentation is unavailable.";
+              "Compiled documentation is unavailable.";
             break;
           case "ambiguous":
             state.memberDocumentationError =
-              "The package documentation source is ambiguous.";
+              "The compiled documentation source is ambiguous.";
             break;
           case "contributionsRejected":
             state.memberDocumentationError =
-              "Package documentation sources were rejected.";
+              "Compiled documentation sources were rejected.";
             break;
           case "malformedOrUnreadableDocument":
             state.memberDocumentationError =
-              "The package documentation could not be read.";
+              "The compiled documentation could not be read.";
             break;
           case "incomplete":
             state.memberDocumentationError =
-              "The package documentation query did not complete.";
+              "The compiled documentation query did not complete.";
             break;
           case "requestRejected":
             state.memberDocumentationError =
-              "The package documentation request was rejected.";
+              "The compiled documentation request was rejected.";
             break;
           case "contentAccessFailed":
             state.memberDocumentationError =
-              "The package documentation content could not be read.";
+              "The compiled documentation content could not be read.";
             break;
           default:
             assertNever(outcome, "compiled documentation outcome");
