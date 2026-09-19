@@ -5,6 +5,7 @@ using DotnetInspect.Cli;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using InertText;
@@ -287,11 +288,52 @@ public class InspectionResultTests
 
         Assert.DoesNotContain("| Highest TFM |", output);
         Assert.DoesNotContain("| Selected TFM |", output);
-        Assert.DoesNotContain("| TFM Count |", output);
+        Assert.DoesNotContain("| TFMs |", output);
         Assert.Contains("## Target Frameworks", output);
         Assert.Contains("| TFM |", output);
         Assert.DoesNotContain("| TFM | net10.0 |", output);
         Assert.DoesNotContain("| Target Frameworks | 3 |", output);
+    }
+
+    [Fact]
+    public void PackageInfo_ContainsAvailableFrameworkIdentities()
+    {
+        const string UnsafeFramework = "net8.0\u202EHOSTILE";
+        var envelope = new InspectionEnvelope<PackageInfoMeasurements>(
+            new PackageInfoMeasurements(
+                PackageInfoMeasurementStatus.NoApplicableSlice,
+                "Test",
+                "1.0.0",
+                compressedPackageBytes: 100,
+                selectedTargetFramework: null,
+                availableTargetFrameworks:
+                [
+                    new InertString(TextPolicy.Field, UnsafeFramework),
+                ],
+                selectedTargetFrameworkFolders: null,
+                selectedLibraryPayloadBytes: null,
+                selectedLibraryCount: null,
+                new InertString(
+                    TextPolicy.Field,
+                    "No compile slice applies to net10.0."),
+                unavailableReason: null),
+            new InspectionShare.NonProjectable(
+                "package-info-measurements/share",
+                "No canonical Workspace share projection."),
+            []);
+        var result = new InspectionResult
+        {
+            PackageName = "Test",
+            Version = "1.0.0",
+            PackageInfoMeasurementInspection = envelope,
+        };
+
+        string output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Contains(@"| TFMs | net8.0\u202EHOSTILE |", output);
+        Assert.DoesNotContain('\u202E', output);
     }
 
     [Fact]

@@ -494,7 +494,9 @@ public static partial class WorkspaceCommand
         {
             WorkspaceSharePacket packet =
                 WorkspaceSharePacketCodec.Decode(
-                    GetPacketInput(options.Packet),
+                    WorkspacePacketRestoration.GetPacketInput(
+                        options.Packet,
+                        "--packet"),
                     cancellationToken);
             definitions =
                 WorkspaceSharePacketTransposer.ToCommittedDefinitions(
@@ -618,94 +620,27 @@ public static partial class WorkspaceCommand
                     "Schema-version-3 authoring requires version-3 preparation.");
     }
 
-    static string GetPacketInput(string value)
-    {
-        if (value.StartsWith(
-                WorkspaceShareOutput.UrlPrefix,
-                StringComparison.Ordinal))
-        {
-            string packet =
-                value[WorkspaceShareOutput.UrlPrefix.Length..];
-            if (packet.Length == 0)
-            {
-                throw new InvalidDataException(
-                    "The Workspace URL does not contain a packet.");
-            }
-            return packet;
-        }
-
-        if (Uri.TryCreate(value, UriKind.Absolute, out _))
-        {
-            throw new InvalidDataException(
-                "--packet accepts a canonical packet or an exact "
-                    + $"{WorkspaceShareOutput.UrlPrefix}<packet> URL.");
-        }
-
-        return value;
-    }
-
     static async Task<int> ExecutePacketAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
         CancellationToken cancellationToken)
     {
-        string packet;
-        try
-        {
-            packet = GetPacketInput(options.Packet!);
-        }
-        catch (InvalidDataException ex)
+        WorkspacePacketRestorationResult result =
+            await WorkspacePacketRestoration.RestoreAsync(
+                options.Packet!,
+                loadOptions,
+                cancellationToken,
+                "--packet").ConfigureAwait(false);
+        if (result is WorkspacePacketRestorationResult.Failed failed)
         {
             CommandError.Write(
-                "The Workspace packet input is invalid.",
-                [ex.Message]);
+                failed.Summary,
+                failed.Details);
             return 1;
         }
 
-        var intent = new WorkspaceCommandRestorationIntent(cancellationToken);
-        CompleteRestorationPreparationResult preparation =
-            CompleteRestorationPreparation.FromPacket(
-                packet,
-                intent,
-                cancellationToken);
-        await using var host = new WorkspaceCommandRestorationHost();
-        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
-        ViewFacetAvailabilitySnapshot executableEntries =
-            CurrentCatalogEntriesExecutable(registry);
-        CompleteRestorationResult<WorkspaceRealizationOperationLease> result =
-            await CompleteRestorationCoordinator.RestoreAsync(
-                preparation,
-                intent,
-                host,
-                new CompleteRestorationExecutionOptions
-                {
-                    ContextLoad = loadOptions,
-                    ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
-                    Facets = registry,
-                    FacetAvailability = (_, _) => executableEntries,
-                },
-                cancellationToken).ConfigureAwait(false);
-        if (result
-            is not CompleteRestorationResult<
-                WorkspaceRealizationOperationLease>.Activated activated)
-        {
-            CommandError.Write(
-                "The Workspace packet could not be restored.",
-                result switch
-                {
-                    CompleteRestorationResult<
-                        WorkspaceRealizationOperationLease>.Failed failed =>
-                        RestorationFailureDetails(failed.Failure),
-                    CompleteRestorationResult<
-                        WorkspaceRealizationOperationLease>.Superseded =>
-                        ["The restoration request was superseded."],
-                    _ => ["The restoration returned an unsupported result."],
-                });
-            return 1;
-        }
-
-        using WorkspaceRealizationOperationLease authority =
-            activated.Activation;
+        await using WorkspacePacketRestoration restoration =
+            ((WorkspacePacketRestorationResult.Restored)result).Value;
         WorkspaceTopLevelInventoryRequest request =
             options.InventoryKinds.Length == 0
                 ? WorkspaceTopLevelInventoryRequest.All
@@ -714,30 +649,12 @@ public static partial class WorkspaceCommand
                         options.InventoryKinds));
         WorkspaceTopLevelInventoryExecution inventory =
             WorkspaceTopLevelInventoryOperation.Execute(
-                authority,
+                restoration.Authority,
                 request,
                 WorkspaceTopLevelInventoryShareBasis
-                    .CreateCompleteRestoration(activated.Workspace));
+                    .CreateCompleteRestoration(restoration.Workspace));
         return WriteInventory(inventory, options);
     }
-
-    static string[] RestorationFailureDetails(
-        CompleteRestorationFailure failure) =>
-        failure switch
-        {
-            CompleteRestorationFailure.ContextLoadFailed
-            {
-                Outcome: WorkspaceContextLoadOutcome.Failed failed,
-            } =>
-            [
-                failure.Message,
-                .. failed.Failures.Select(static item =>
-                    $"{item.Kind}: {item.Message}"),
-            ],
-            CompleteRestorationFailure.ScopeMutationFailed scope =>
-                [failure.Message, scope.Outcome.ToString() ?? "Unknown Scope outcome."],
-            _ => [failure.Message],
-        };
 
     static Task AbandonCandidateAsync(
         WorkspaceRealizationCoordinator coordinator,
