@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,6 +8,7 @@ using CSharpText;
 using DotnetInspector.Libraries;
 using DotnetInspector.SourceHouse.BuildAttestation;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using ILInspector.SourceLink;
 
 namespace DotnetInspector.SourceHouse.Tests;
@@ -327,9 +329,179 @@ public sealed partial class AuthoredSourceHouseTests
             rejected.Observation?.Code);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(PhysicalAssociationMutation.Request)]
+    [InlineData(PhysicalAssociationMutation.Library)]
+    [InlineData(PhysicalAssociationMutation.SelectedAssembly)]
+    [InlineData(PhysicalAssociationMutation.OperationPlan)]
+    [InlineData(PhysicalAssociationMutation.PolicyGeneration)]
+    [InlineData(PhysicalAssociationMutation.Issuer)]
+    [InlineData(PhysicalAssociationMutation.Profile)]
+    [InlineData(PhysicalAssociationMutation.ModuleDigest)]
+    [InlineData(PhysicalAssociationMutation.ModuleVersionId)]
+    [InlineData(PhysicalAssociationMutation.MetadataTarget)]
+    [InlineData(PhysicalAssociationMutation.XmlDocumentationIdentity)]
+    [InlineData(PhysicalAssociationMutation.SourceResult)]
+    [InlineData(PhysicalAssociationMutation.SourceInput)]
+    [InlineData(PhysicalAssociationMutation.SourceDigest)]
+    [InlineData(PhysicalAssociationMutation.SourceEncoding)]
     public async Task
-        PhysicalDeclaration_OutOfBoundsSpanIsRejected()
+        PhysicalDeclaration_AnyMismatchedAssociationRejectsAllContributions(
+            PhysicalAssociationMutation mutation)
+    {
+        SourceHouseBuildAttestation inner =
+            s_realBuildAttestation.Value;
+        byte[] assembly = inner.PeImage.ToArray();
+        await using LibraryFixture otherLibrary =
+            await LibraryFixture.CreateAsync(
+                assembly,
+                inner.PortablePdbImage.ToArray(),
+                ReadAssemblyIdentity(assembly));
+        SourceHouseResultIdentity? otherResult =
+            mutation == PhysicalAssociationMutation.SourceResult
+                ? (await ExecutePhysicalAsync(inner))
+                    .Source.ResultIdentity
+                : null;
+        var capability = new DelegatingAttestationCapability(
+            inner,
+            async (request, maximum, token) =>
+            {
+                var available = Assert.IsType<
+                    SourceHouseAttestationCapabilityOutcome.Available>(
+                        await inner.ReadAttestationsAsync(
+                            request,
+                            maximum,
+                            token));
+                SourceHousePhysicalDeclarationAttestation exact =
+                    Assert.Single(available.Attestations);
+                SourceHousePhysicalDeclarationAttestation mismatched =
+                    mutation switch
+                    {
+                        PhysicalAssociationMutation.Request =>
+                            Copy(
+                                exact,
+                                request:
+                                    SourceHouseRequestIdentity.Create(
+                                        "mismatched-request")),
+                        PhysicalAssociationMutation.Library =>
+                            Copy(
+                                exact,
+                                library: otherLibrary.Reference),
+                        PhysicalAssociationMutation.SelectedAssembly =>
+                            Copy(
+                                exact,
+                                selectedAssembly:
+                                    otherLibrary.Reference.ApiAssembly),
+                        PhysicalAssociationMutation.OperationPlan =>
+                            Copy(
+                                exact,
+                                operationPlan:
+                                    SourceHouseOperationPlanIdentity
+                                        .Create(
+                                            "mismatched-plan")),
+                        PhysicalAssociationMutation.PolicyGeneration =>
+                            Copy(
+                                exact,
+                                policyGeneration:
+                                    SourceHousePolicyGeneration.Create(
+                                        "mismatched-policy")),
+                        PhysicalAssociationMutation.Issuer =>
+                            Copy(
+                                exact,
+                                issuer:
+                                    SourceHouseAttestationIssuerIdentity
+                                        .Create(
+                                            "mismatched-issuer")),
+                        PhysicalAssociationMutation.Profile =>
+                            Copy(
+                                exact,
+                                profile:
+                                    SourceHouseAttestationProfileIdentity
+                                        .Create(
+                                            "mismatched-profile")),
+                        PhysicalAssociationMutation.ModuleDigest =>
+                            Copy(
+                                exact,
+                                moduleDigest:
+                                    SourceHouseSha256Digest.Compute(
+                                        [0x01])),
+                        PhysicalAssociationMutation.ModuleVersionId =>
+                            Copy(
+                                exact,
+                                target:
+                                    DifferentMethodTarget(
+                                        exact.Target,
+                                        changeModuleVersionId: true)),
+                        PhysicalAssociationMutation.MetadataTarget =>
+                            Copy(
+                                exact,
+                                target:
+                                    DifferentMethodTarget(
+                                        exact.Target,
+                                        changeModuleVersionId: false)),
+                        PhysicalAssociationMutation
+                            .XmlDocumentationIdentity =>
+                            Copy(
+                                exact,
+                                xmlDocumentationIdentity:
+                                    new("M:Mismatch.Subject")),
+                        PhysicalAssociationMutation.SourceResult =>
+                            Copy(
+                                exact,
+                                sourceResult: otherResult!),
+                        PhysicalAssociationMutation.SourceInput =>
+                            Copy(
+                                exact,
+                                sourceInput:
+                                    SourceHousePhysicalSourceInputIdentity
+                                        .Create()),
+                        PhysicalAssociationMutation.SourceDigest =>
+                            Copy(
+                                exact,
+                                sourceDigest:
+                                    SourceHouseSha256Digest.Compute(
+                                        [0x02])),
+                        PhysicalAssociationMutation.SourceEncoding =>
+                            Copy(
+                                exact,
+                                sourceEncoding:
+                                    exact.SourceEncoding
+                                        == SourceHousePhysicalSourceEncoding
+                                            .Utf8
+                                            ? SourceHousePhysicalSourceEncoding
+                                                .Utf16LittleEndian
+                                            : SourceHousePhysicalSourceEncoding
+                                                .Utf8),
+                        _ => throw new ArgumentOutOfRangeException(
+                            nameof(mutation)),
+                    };
+                return new SourceHouseAttestationCapabilityOutcome
+                    .Available(
+                    [
+                        exact,
+                        mismatched,
+                    ]);
+            });
+
+        SourceHouseOutcome.Available available =
+            await ExecutePhysicalAsync(capability);
+
+        SourceHousePhysicalDeclarationOutcome.Rejected rejected =
+            Assert.IsType<
+                SourceHousePhysicalDeclarationOutcome.Rejected>(
+                    available.PhysicalDeclaration);
+        Assert.Equal(
+            "AttestationAssociationMismatch",
+            rejected.Observation?.Code);
+        Assert.Equal(2, rejected.Receipt.ContributionsObserved);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        PhysicalDeclaration_OutOfBoundsSpanIsRejected(
+            bool includeValidContribution)
     {
         SourceHouseBuildAttestation inner =
             s_realBuildAttestation.Value;
@@ -345,15 +517,17 @@ public sealed partial class AuthoredSourceHouseTests
                             token));
                 SourceHousePhysicalDeclarationAttestation exact =
                     Assert.Single(available.Attestations);
+                SourceHousePhysicalDeclarationAttestation invalid =
+                    Copy(
+                        exact,
+                        span: new(
+                            request.Source.RawUtf16Length,
+                            1));
                 return new SourceHouseAttestationCapabilityOutcome
                     .Available(
-                    [
-                        Copy(
-                            exact,
-                            span: new(
-                                request.Source.RawUtf16Length,
-                                1)),
-                    ]);
+                        includeValidContribution
+                            ? [exact, invalid]
+                            : [invalid]);
             });
 
         SourceHouseOutcome.Available available =
@@ -414,7 +588,7 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
-        PhysicalDeclaration_TargetIncompatibleSyntaxKindIsRejected()
+        PhysicalDeclaration_DisagreeingSyntaxKindsConflict()
     {
         SourceHouseBuildAttestation inner =
             s_realBuildAttestation.Value;
@@ -433,13 +607,62 @@ public sealed partial class AuthoredSourceHouseTests
                 return new SourceHouseAttestationCapabilityOutcome
                     .Available(
                     [
+                        exact,
                         Copy(
                             exact,
                             syntaxKind:
                                 SourceHouseDeclarationSyntaxKind
                                     .Create(
-                                        "ClassDeclaration")),
+                                        "ConstructorDeclaration")),
                     ]);
+            });
+
+        SourceHouseOutcome.Available available =
+            await ExecutePhysicalAsync(capability);
+
+        SourceHousePhysicalDeclarationOutcome.Conflict conflict =
+            Assert.IsType<
+                SourceHousePhysicalDeclarationOutcome.Conflict>(
+                    available.PhysicalDeclaration);
+        Assert.Equal(
+            "PhysicalDeclarationClaimsDisagree",
+            conflict.Observation?.Code);
+        Assert.Equal(2, conflict.Claims.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        PhysicalDeclaration_TargetIncompatibleSyntaxKindIsRejected(
+            bool includeValidContribution)
+    {
+        SourceHouseBuildAttestation inner =
+            s_realBuildAttestation.Value;
+        var capability = new DelegatingAttestationCapability(
+            inner,
+            async (request, maximum, token) =>
+            {
+                var available = Assert.IsType<
+                    SourceHouseAttestationCapabilityOutcome.Available>(
+                        await inner.ReadAttestationsAsync(
+                            request,
+                            maximum,
+                            token));
+                SourceHousePhysicalDeclarationAttestation exact =
+                    Assert.Single(available.Attestations);
+                SourceHousePhysicalDeclarationAttestation invalid =
+                    Copy(
+                        exact,
+                        syntaxKind:
+                            SourceHouseDeclarationSyntaxKind
+                                .Create(
+                                    "ClassDeclaration"));
+                return new SourceHouseAttestationCapabilityOutcome
+                    .Available(
+                        includeValidContribution
+                            ? [exact, invalid]
+                            : [invalid]);
             });
 
         SourceHouseOutcome.Available available =
@@ -471,6 +694,58 @@ public sealed partial class AuthoredSourceHouseTests
         Assert.Equal(
             "PhysicalDeclarationCharacterLimitExceeded",
             incomplete.Observation?.Code);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task
+        PhysicalDeclaration_OutcomePrecedenceIsIndependentOfContributionOrder(
+            bool incompleteFirst)
+    {
+        SourceHouseBuildAttestation inner =
+            s_realBuildAttestation.Value;
+        var capability = new DelegatingAttestationCapability(
+            inner,
+            async (request, maximum, token) =>
+            {
+                var available = Assert.IsType<
+                    SourceHouseAttestationCapabilityOutcome.Available>(
+                        await inner.ReadAttestationsAsync(
+                            request,
+                            maximum,
+                            token));
+                SourceHousePhysicalDeclarationAttestation exact =
+                    Assert.Single(available.Attestations);
+                SourceHousePhysicalDeclarationAttestation rejected =
+                    Copy(
+                        exact,
+                        sourceInput:
+                            SourceHousePhysicalSourceInputIdentity
+                                .Create());
+                SourceHousePhysicalDeclarationAttestation incomplete =
+                    Copy(exact);
+                return new SourceHouseAttestationCapabilityOutcome
+                    .Available(
+                        incompleteFirst
+                            ? [incomplete, rejected]
+                            : [rejected, incomplete]);
+            });
+
+        SourceHouseOutcome.Available available =
+            await ExecutePhysicalAsync(
+                capability,
+                limits: Limits(
+                    maximumPhysicalDeclarationCharacters: 1));
+
+        SourceHousePhysicalDeclarationOutcome.Incomplete incomplete =
+            Assert.IsType<
+                SourceHousePhysicalDeclarationOutcome.Incomplete>(
+                    available.PhysicalDeclaration);
+        Assert.Equal(
+            "PhysicalDeclarationCharacterLimitExceeded",
+            incomplete.Observation?.Code);
+        Assert.Equal(2, incomplete.Receipt.ContributionsObserved);
     }
 
     [Fact]
@@ -738,19 +1013,30 @@ public sealed partial class AuthoredSourceHouseTests
     }
 
     [Fact]
-    public void
+    public async Task
         BuildAttestor_ByteIdenticalInputsRetainDistinctOpaqueIdentities()
     {
         byte[] identicalBytes = Encoding.UTF8.GetBytes(
             "// distinct physical compiler inputs");
+        byte[] declarationBytes = Encoding.UTF8.GetBytes(
+            """
+            namespace Identity;
+            public class Eligible
+            {
+                public void Method() { }
+            }
+            """);
         SourceHouseBuildAttestation attestation =
             Assert.IsType<CSharpBuildAttestationOutcome.Available>(
                 CSharpBuildAttestor.EmitAndAttest(
                     new(
                         "IdenticalPhysicalInputsFixture",
                         [
-                            new("/fixture/First.cs", identicalBytes),
-                            new("/fixture/Second.cs", identicalBytes),
+                            new("/fixture/Same.cs", identicalBytes),
+                            new("/fixture/Same.cs", identicalBytes),
+                            new(
+                                "/fixture/Eligible.cs",
+                                declarationBytes),
                         ],
                         TrustedPlatformAssemblyPaths(),
                         SourceHouseCapabilityIdentity.Create(
@@ -769,16 +1055,42 @@ public sealed partial class AuthoredSourceHouseTests
                 source.Kind == CSharpBuildSourceKind.Authored),
         ];
 
-        Assert.Equal(2, physicalInputs.Length);
+        Assert.Equal(3, physicalInputs.Length);
         Assert.True(
             physicalInputs[0].ContentDigest.Matches(
                 physicalInputs[1].ContentDigest));
         Assert.NotSame(
             physicalInputs[0].Identity,
             physicalInputs[1].Identity);
-        Assert.NotEqual(
+        Assert.Equal(
             physicalInputs[0].Path,
             physicalInputs[1].Path);
+        Assert.Contains(
+            attestation.AttestedXmlDocumentationIdentities,
+            identity =>
+                identity.Value
+                    == "M:Identity.Eligible.Method");
+
+        byte[] assembly = attestation.PeImage.ToArray();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assembly,
+                attestation.PortablePdbImage.ToArray(),
+                ReadAssemblyIdentity(assembly));
+        SourceHouseOutcome.Available available =
+            Assert.IsType<SourceHouseOutcome.Available>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        MethodTarget(
+                            assembly,
+                            "Identity.Eligible",
+                            "Method"),
+                        [attestation])));
+        Assert.IsType<
+            SourceHousePhysicalDeclarationOutcome.Exact>(
+                available.PhysicalDeclaration);
     }
 
     [Fact]
@@ -1053,27 +1365,63 @@ public sealed partial class AuthoredSourceHouseTests
 
     private static SourceHousePhysicalDeclarationAttestation Copy(
         SourceHousePhysicalDeclarationAttestation source,
+        SourceHouseRequestIdentity? request = null,
+        LibraryReference? library = null,
+        LibraryContentReference? selectedAssembly = null,
+        SourceHouseOperationPlanIdentity? operationPlan = null,
+        SourceHousePolicyGeneration? policyGeneration = null,
+        SourceHouseAttestationIssuerIdentity? issuer = null,
+        SourceHouseAttestationProfileIdentity? profile = null,
+        SourceHouseSha256Digest? moduleDigest = null,
+        SourceHousePhysicalTargetAddress? target = null,
+        XmlDocMemberIdentity? xmlDocumentationIdentity = null,
+        SourceHouseResultIdentity? sourceResult = null,
+        SourceHousePhysicalSourceInputIdentity? sourceInput = null,
+        SourceHouseSha256Digest? sourceDigest = null,
+        SourceHousePhysicalSourceEncoding? sourceEncoding = null,
         SourceHousePhysicalDeclarationSpan? span = null,
         SourceHouseAttestationGeneration? generation = null,
         SourceHouseDeclarationSyntaxKind? syntaxKind = null) =>
         new(
-            source.Request,
-            source.Library,
-            source.SelectedAssembly,
-            source.OperationPlan,
-            source.PolicyGeneration,
-            source.Issuer,
-            source.Profile,
+            request ?? source.Request,
+            library ?? source.Library,
+            selectedAssembly ?? source.SelectedAssembly,
+            operationPlan ?? source.OperationPlan,
+            policyGeneration ?? source.PolicyGeneration,
+            issuer ?? source.Issuer,
+            profile ?? source.Profile,
             generation ?? source.Generation,
-            source.ModuleDigest,
-            source.Target,
-            source.XmlDocumentationIdentity,
-            source.SourceResult,
-            source.SourceInput,
-            source.SourceDigest,
-            source.SourceEncoding,
+            moduleDigest ?? source.ModuleDigest,
+            target ?? source.Target,
+            xmlDocumentationIdentity
+                ?? source.XmlDocumentationIdentity,
+            sourceResult ?? source.SourceResult,
+            sourceInput ?? source.SourceInput,
+            sourceDigest ?? source.SourceDigest,
+            sourceEncoding ?? source.SourceEncoding,
             span ?? source.Span,
             syntaxKind ?? source.SyntaxKind);
+
+    private static SourceHousePhysicalTargetAddress
+        DifferentMethodTarget(
+            SourceHousePhysicalTargetAddress target,
+            bool changeModuleVersionId)
+    {
+        MetadataMethodAddress address =
+            Assert.IsType<
+                SourceHousePhysicalTargetAddress.Method>(target)
+            .Address;
+        return new SourceHousePhysicalTargetAddress.Method(
+            new MetadataMethodAddress(
+                changeModuleVersionId
+                    ? Guid.NewGuid()
+                    : address.ModuleVersionId,
+                changeModuleVersionId
+                    ? address.Handle
+                    : MetadataTokens.MethodDefinitionHandle(
+                        MetadataTokens.GetRowNumber(
+                            address.Handle) + 1)));
+    }
 
     private static SourceHouseBuildAttestation BuildRealAttestation()
     {
@@ -1191,6 +1539,32 @@ public sealed partial class AuthoredSourceHouseTests
         return new(type.DefinitionName!);
     }
 
+    private static SourceHouseTarget.MemberTarget MethodTarget(
+        byte[] assembly,
+        string typeName,
+        string methodName)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(assembly, writable: false));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                    peReader,
+                    includeAll: true)
+                .Types,
+            candidate =>
+                candidate.DefinitionName?.ToMetadataFullName()
+                    == typeName);
+        ApiMember method = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Name == methodName
+                && candidate.MetadataToken is not null);
+        return new(
+            type.DefinitionName!,
+            ApiMemberIdentity.GetMemberAnchor(type, method),
+            method.MetadataToken!.Value);
+    }
+
     private static SourceHouseTarget.MemberTarget AccessorTarget(
         byte[] assembly,
         string typeName,
@@ -1216,6 +1590,25 @@ public sealed partial class AuthoredSourceHouseTests
             type.DefinitionName!,
             ApiMemberIdentity.GetMemberAnchor(type, accessor),
             accessor.MetadataToken!.Value);
+    }
+
+    public enum PhysicalAssociationMutation
+    {
+        Request,
+        Library,
+        SelectedAssembly,
+        OperationPlan,
+        PolicyGeneration,
+        Issuer,
+        Profile,
+        ModuleDigest,
+        ModuleVersionId,
+        MetadataTarget,
+        XmlDocumentationIdentity,
+        SourceResult,
+        SourceInput,
+        SourceDigest,
+        SourceEncoding,
     }
 
     private sealed class IdentitylessAttestationCapability(

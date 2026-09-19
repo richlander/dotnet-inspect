@@ -212,14 +212,6 @@ public static class CSharpBuildAttestor
                 sourceBytes);
         }
 
-        if (effectiveSources
-            .GroupBy(static source => source.Path, StringComparer.Ordinal)
-            .Any(static group => group.Count() != 1))
-        {
-            return new CSharpBuildAttestationOutcome.Failed(
-                ["Every physical compiler input must have a unique path."]);
-        }
-
         var parseOptions = new CSharpParseOptions(
             LanguageVersion.Preview,
             DocumentationMode.Diagnose,
@@ -649,7 +641,9 @@ public sealed record SourceHouseBuildSourceEvidence(
 public sealed class SourceHouseBuildAttestation
     : ISourceHousePhysicalDeclarationCapability
 {
-    private readonly IReadOnlyDictionary<string, SourceEntry> _sources;
+    private readonly IReadOnlyDictionary<
+        string,
+        ImmutableArray<SourceEntry>> _sources;
     private readonly ImmutableArray<SourceHouseBuildDeclarationEvidence>
         _declarations;
 
@@ -678,12 +672,19 @@ public sealed class SourceHouseBuildAttestation
                     input.Source.Kind,
                     input.Source.Bytes.Length)),
         ];
-        _sources = inputs.ToDictionary(
-            static input => input.Source.Path,
-            static input => new SourceEntry(
-                input.Source.Bytes,
-                input.Identity),
-            StringComparer.Ordinal);
+        _sources = inputs
+            .GroupBy(
+                static input => input.Source.Path,
+                StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(static input =>
+                        new SourceEntry(
+                            input.Source.Bytes,
+                            input.Identity))
+                    .ToImmutableArray(),
+                StringComparer.Ordinal);
         _declarations = declarations;
         Declarations = declarations;
         CompilerIdentityCollisionCount =
@@ -718,12 +719,20 @@ public sealed class SourceHouseBuildAttestation
         cancellationToken.ThrowIfCancellationRequested();
         if (!_sources.TryGetValue(
                 candidate.Document.OriginalPath,
-                out SourceEntry? source))
+                out ImmutableArray<SourceEntry> sources))
         {
             return ValueTask.FromResult<SourceHouseCapabilityOutcome>(
                 new SourceHouseCapabilityOutcome.Unavailable(
                     new("PhysicalCompilerInputUnavailable")));
         }
+        if (sources.Length != 1)
+        {
+            return ValueTask.FromResult<SourceHouseCapabilityOutcome>(
+                new SourceHouseCapabilityOutcome.Unavailable(
+                    new("PhysicalCompilerInputAmbiguous")));
+        }
+
+        SourceEntry source = sources[0];
         if (source.Bytes.Length > maximumBytes)
         {
             return ValueTask.FromResult<SourceHouseCapabilityOutcome>(

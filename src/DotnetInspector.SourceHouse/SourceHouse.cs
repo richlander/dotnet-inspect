@@ -1728,6 +1728,8 @@ public static class SourceHouse
 
             var claims =
                 new HashSet<(int Start, int Length, string SyntaxKind)>();
+            bool rejected = false;
+            bool incomplete = false;
             foreach (
                 SourceHousePhysicalDeclarationAttestation attestation
                 in attestations)
@@ -1781,22 +1783,16 @@ public static class SourceHouse
                         attestation.Target,
                         attestation.SyntaxKind))
                 {
-                    return Physical(
-                        new SourceHousePhysicalDeclarationOutcome.Rejected(
-                            receipt,
-                            new("AttestationAssociationMismatch")),
-                        observed);
+                    rejected = true;
+                    continue;
                 }
 
                 if (attestation.Span.Length
                     > request.Plan.Limits
                         .MaximumPhysicalDeclarationCharacters)
                 {
-                    return Physical(
-                        new SourceHousePhysicalDeclarationOutcome.Incomplete(
-                            receipt,
-                            new("PhysicalDeclarationCharacterLimitExceeded")),
-                        observed);
+                    incomplete = true;
+                    continue;
                 }
 
                 claims.Add(
@@ -1806,6 +1802,22 @@ public static class SourceHouse
                         attestation.SyntaxKind.Name));
             }
 
+            if (incomplete)
+            {
+                return Physical(
+                    new SourceHousePhysicalDeclarationOutcome.Incomplete(
+                        receipt,
+                        new("PhysicalDeclarationCharacterLimitExceeded")),
+                    observed);
+            }
+            if (rejected)
+            {
+                return Physical(
+                    new SourceHousePhysicalDeclarationOutcome.Rejected(
+                        receipt,
+                        new("AttestationAssociationMismatch")),
+                    observed);
+            }
             if (claims.Count != 1)
             {
                 return Physical(
