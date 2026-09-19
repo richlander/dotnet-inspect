@@ -308,6 +308,14 @@ own compiler backing-storage reads with C#'s accessor-scoped `field` keyword.
 This is a binding decision, not a substitution over rendered source. The
 physical getter remains the selection and body-evidence identity.
 
+The motivating published witness is **docopt.net 0.8.3**,
+`DocoptNet.Internals.ReadOnlyList<T>.List`, a private property on a readonly
+struct. Its [release source][docopt-field-getter] reads
+`IList<T> List { get => field ?? Array.Empty<T>(); } = list;`.
+The `netstandard2.1` getter reads its own field, tests null and calls
+`Array.Empty<T>()` only on the null path; its constructor performs initialization
+separately. The property projection does not reconstruct that initializer.
+
 The supported lowering is an ordinary C# 14 getter-only field-backed property
 compiled in Release. Its complete body reads the exact private compiler field
 at the declaring type's own instantiation, through the current receiver or as
@@ -347,6 +355,10 @@ implementation and accessor attributes exercise the supported boundary.
 `FieldGetterRequiresOnlyOrdinaryReadsOfItsOwnStorage` gates other receivers,
 addresses, volatile reads, additional fields and incompatible readonly storage.
 `FieldNamedPdbLocalRetainsMethodForm` covers the contextual-keyword collision.
+`PublishedDocoptGetterKeepsItsFieldAndNullFallback` exercises the pinned published
+`netstandard2.1` image, acquired at restore time rather than over the network
+during the test. It gates selected declaration/body spelling, not whole-type
+compile-back or constructor recovery.
 The existing exact-field/generic-instantiation and custom-modifier gates also
 exercise non-trivial getters. Unsupported writes, lazy initialization, sibling
 accessors, nested functions and exception regions retain method form.
@@ -367,6 +379,7 @@ recursion, or printing `field` outside its property envelope falsifies the claim
 Native compile-back remains a separate evidence lens.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
+[docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32
 
 ## Address: identity, not an ordinal
 

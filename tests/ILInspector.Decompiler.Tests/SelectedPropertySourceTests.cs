@@ -265,6 +265,18 @@ public sealed class SelectedPropertySourceTests
         }
     }
 
+    [Fact]
+    public void PublishedDocoptGetterKeepsItsFieldAndNullFallback()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "FieldGetter", "DocoptNet.dll");
+        var (type, accessor) = Select(path, "DocoptNet.Internals.ReadOnlyList`1", "List", "get");
+        var result = MemberBodyProducer.ProduceMember(type, accessor, path, pdbPath: null);
+        Assert.Equal(MemberBodyProductionStatus.Complete, result.Status);
+        Assert.Contains("List => field ?? Array.Empty<T>();", result.Text);
+        Assert.DoesNotContain("get_List(", result.Text);
+        Assert.DoesNotContain("this.List", result.Text);
+    }
+
     static void AssertGetterInstructionsMatch(CSharpCompilation compilation, string path, ApiMember accessor)
     {
         using var original = new PEReader(File.OpenRead(path));
