@@ -269,7 +269,7 @@ internal sealed class ApiMemberAnalysisInspection
         int? token = _methods
             .FirstOrDefault(method => method.MetadataToken.HasValue)
             ?.MetadataToken;
-        token ??= Session.BodyIndex.Methods
+        token ??= Session.CallGraphAnalysis.Methods
             .FirstOrDefault()?.MetadataToken;
         return token.HasValue
             ? CallerScopes(
@@ -499,7 +499,8 @@ internal sealed class ApiMemberAnalysisInspection
         [NotNullWhen(true)]
         out Analysis.TypeRef? target)
     {
-        Analysis.MethodIdentity? method = Session.BodyIndex.DeclaredMethods
+        Analysis.MethodIdentity? method =
+            Session.CallGraphAnalysis.DeclaredMethods
             .FirstOrDefault(candidate =>
                 candidate.MetadataToken == methodToken);
         if (method is null)

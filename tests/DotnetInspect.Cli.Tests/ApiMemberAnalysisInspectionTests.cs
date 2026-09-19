@@ -295,6 +295,33 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    public void CallGraphScopeAndProjection_DoNotCreateCompatibilityIndex()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        var inspection = Create(target, [caller]);
+        int root = TokenOf(target, "Api", "Ping");
+
+        _ = inspection.CallerScopes(includeAllocations: false);
+        _ = inspection.BuildCallGraph(root);
+
+        var session = Assert.IsType<MethodBodyInspectionSession>(
+            typeof(ApiMemberAnalysisInspection)
+                .GetField(
+                    "_session",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(inspection));
+        Assert.Null(
+            typeof(ILInspector.Analysis.LibraryBodyAnalysisExecution)
+                .GetField(
+                    "_compatibilityIndex",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(session.AnalysisExecution));
+    }
+
+    [Fact]
     public void CallerScopes_ExactReferencedVersionExcludesDifferentTarget()
     {
         string targetV2 =
