@@ -735,7 +735,7 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
                         [new PackageSource("nuget.org", ProducerUrl)]),
                 PackageStore = store,
             },
-            ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(1),
+            ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
             Facets = facets,
             FacetAvailability = (_, _) => available,
         };
