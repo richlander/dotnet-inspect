@@ -7118,7 +7118,12 @@ public sealed partial class CSharpPrinter
     {
         string rendered = TypeTextCore(type);
 
-        if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
+        // A type parameter has no global qualification; escape the contextual keyword.
+        if (_function.HasAccessorStorageBinding
+            && type is { Kind: TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter,
+                GenericParameterName: "field" })
+            rendered = "@field";
+        else if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
 
         RecordFrameworkTypeImportDecision(type, rendered);

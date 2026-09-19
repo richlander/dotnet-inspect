@@ -1516,6 +1516,8 @@ public class MemberCallGraphSectionTests
         "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)", "// IL_0006: call")]
     [InlineData("FieldKeyword.FieldKeywordGetterSamples", "Value",
         "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)", "// IL_0006: call")]
+    [InlineData("FieldKeyword.TypeParameterFieldKeywordGetterSamples`1", "Count",
+        "@field.Keep(field)", "// IL_0001: ldfld")]
     public async Task SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews(
         string typeName, string propertyName, string expression, string instruction)
     {
