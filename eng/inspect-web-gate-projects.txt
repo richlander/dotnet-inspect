@@ -19,6 +19,7 @@ src/DotnetInspector.Packages
 src/DotnetInspector.Platforms
 src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
+src/DotnetInspector.PlatformQueries
 src/DotnetInspector.Presentation
 src/DotnetInspector.Queries
 src/DotnetInspector.QueryEngine

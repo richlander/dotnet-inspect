@@ -1016,6 +1016,7 @@ export declare function queryPackageDependencies(packageId: string, version: str
 export declare function queryPackagePruning(packageId: string, version: string, targetFramework: string, requestJson: string): Promise<BrowserPackagePruningResult>;
 export declare function queryPackageRoot(rootRequest: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageVersions(packageId: string, currentVersion: string): Promise<BrowserPackageVersions>;
+export declare function queryPlatformMemberDocumentation(framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string): Promise<CompiledDocumentationOutcome>;
 export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function requestPackageQueryMatches(operationId: string, additionalMatchCredit: number): BrowserPackageQueryMatchCreditResponse;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;

@@ -302,6 +302,18 @@ function $validateManagedExports(exports) {
         value = $ownDataProperty(value, "Interop");
         value = $ownDataProperty(value, "Package");
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "QueryPlatformMemberDocumentation.1330709314");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPlatformMemberDocumentation.1330709314\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "DotnetInspect");
+        value = $ownDataProperty(value, "Web");
+        value = $ownDataProperty(value, "Interop");
+        value = $ownDataProperty(value, "Package");
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
@@ -510,6 +522,11 @@ export async function queryPackageRoot(rootRequest) {
 }
 export async function queryPackageVersions(packageId, currentVersion) {
     const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export async function queryPlatformMemberDocumentation(framework, platformVersion, assemblyName, platformPack, documentationId) {
+    const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPlatformMemberDocumentation.1330709314"](framework, platformVersion, assemblyName, platformPack, documentationId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }
