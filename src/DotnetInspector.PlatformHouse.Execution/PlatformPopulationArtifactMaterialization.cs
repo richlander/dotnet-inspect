@@ -21,6 +21,15 @@ public abstract class PlatformPopulationArtifactMaterializationOutcome
     public sealed class Completed :
         PlatformPopulationArtifactMaterializationOutcome
     {
+        /// <summary>
+        /// Creates a source-neutral completed handoff from one owner-issued
+        /// population and its adjacent Artifact session.
+        /// </summary>
+        public static Completed Create(
+            PlatformPopulationRealizationResult.Completed population,
+            ArtifactSetSession artifacts) =>
+            new(population, artifacts);
+
         internal Completed(
             PlatformPopulationRealizationResult.Completed population,
             ArtifactSetSession artifacts)

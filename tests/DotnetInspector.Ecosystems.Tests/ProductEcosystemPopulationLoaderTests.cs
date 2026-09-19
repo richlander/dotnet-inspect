@@ -9,6 +9,7 @@ using DotnetInspector.SourceSelection;
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Ecosystems.Tests;
 
@@ -286,6 +287,73 @@ public sealed class ProductEcosystemPopulationLoaderTests
         await capability.Completed.Artifacts.DisposeAsync();
     }
 
+    [Fact]
+    public async Task
+        RuntimeLoaderReportsWrongFamilyArtifactRetirementFailure()
+    {
+        await using ProductLoaderFixture fixture =
+            ProductLoaderFixture.Create(EcosystemPackIds.Runtime);
+        var known = Assert.IsType<
+            EcosystemPopulationLoaderSelection.Known<
+                RuntimeEcosystemPopulationLoadInputs>>(
+                fixture.Selection);
+        EcosystemPopulationCapabilityPlanIdentity capabilityPlan =
+            EcosystemPopulationCapabilityPlanIdentity.Create(
+                "runtime-wrong-family-cleanup-capabilities");
+        var cleanupFailure =
+            new IOException("synthetic wrong-family cleanup failure");
+        var cleanupLease = new FailingArtifactLease(cleanupFailure);
+        var capability = new TestPlatformPopulationCapability(
+            capabilityPlan,
+            returnedFamily: PlatformFamily.AspNetCore,
+            cleanupLease: cleanupLease);
+        var inputs = new RuntimeEcosystemPopulationLoadInputs(
+            EcosystemPopulationOperationPolicyIdentity.Create(
+                "runtime-wrong-family-cleanup-policy"),
+            capabilityPlan,
+            EcosystemPopulationWorkIdentity.Create(
+                "runtime-wrong-family-cleanup-work"),
+            capability);
+
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Failed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    known.CreateRequest(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+
+        Assert.Equal(
+            EcosystemPopulationChildSettlementKind.Failed,
+            Assert.Single(outcome.Receipt.Children).Kind);
+        Assert.Equal(
+            "ecosystem-loader.platform-failed",
+            Assert.Single(outcome.Receipt.Diagnostics).Code);
+        AssertPlatformEvidence(
+            outcome.Receipt,
+            PlatformFamily.AspNetCore);
+        var failure = Assert.IsType<
+            PlatformHouseTermination.Failed>(
+                Assert.Single(outcome.Receipt.Children)
+                    .PlatformEvidence!
+                    .Receipt
+                    .HouseReceipt
+                    .Termination);
+        Assert.Equal(
+            [PlatformHouseFailureKind.ArtifactRetirement],
+            failure.Failures);
+        Assert.All(
+            capability.Completed!.Population.Owners,
+            static owner => Assert.Equal(
+                LibraryContentOwnerState.Released,
+                owner.State));
+        Assert.Same(
+            cleanupFailure,
+            Assert.Single(
+                capability.Completed.Artifacts.CleanupFailures));
+        Assert.Equal(1, cleanupLease.Disposals);
+        await capability.Completed.Artifacts.DisposeAsync();
+    }
+
     static void AssertPlatformEvidence(
         EcosystemPopulationLoadReceipt receipt,
         PlatformFamily family)
@@ -358,16 +426,19 @@ public sealed class ProductEcosystemPopulationLoaderTests
     {
         readonly bool _exceedBudget;
         readonly PlatformFamily? _returnedFamily;
+        readonly IArtifactAcquisitionLease? _cleanupLease;
 
         internal TestPlatformPopulationCapability(
             EcosystemPopulationCapabilityPlanIdentity planIdentity,
             bool exceedBudget = false,
-            PlatformFamily? returnedFamily = null)
+            PlatformFamily? returnedFamily = null,
+            IArtifactAcquisitionLease? cleanupLease = null)
         {
             ArgumentNullException.ThrowIfNull(planIdentity);
             PlanIdentity = planIdentity;
             _exceedBudget = exceedBudget;
             _returnedFamily = returnedFamily;
+            _cleanupLease = cleanupLease;
         }
 
         public EcosystemPopulationCapabilityPlanIdentity PlanIdentity
@@ -496,15 +567,117 @@ public sealed class ProductEcosystemPopulationLoaderTests
                 targetComparisons: 0,
                 elapsed: TimeSpan.Zero);
             PlatformPopulationArtifactMaterializationOutcome outcome =
-                await PlatformHousePopulationArtifactMaterializer
-                .MaterializeImplementationsAsync(
-                    request,
-                    items,
-                    consumed,
-                    "ecosystem-product-test");
+                _cleanupLease is null
+                    ? await PlatformHousePopulationArtifactMaterializer
+                        .MaterializeImplementationsAsync(
+                            request,
+                            items,
+                            consumed,
+                            "ecosystem-product-test")
+                    : await MaterializeWithCleanupFailureAsync(
+                        request,
+                        contribution,
+                        target,
+                        focusContent,
+                        consumed,
+                        _cleanupLease,
+                        cancellationToken);
             Completed = outcome
                 as PlatformPopulationArtifactMaterializationOutcome.Completed;
             return outcome;
+        }
+
+        static async ValueTask<
+            PlatformPopulationArtifactMaterializationOutcome>
+            MaterializeWithCleanupFailureAsync(
+                PlatformHouseRequest request,
+                PlatformSourceContribution.Realization contribution,
+                PlatformFamilyTarget target,
+                byte[] content,
+                PlatformHouseConsumedWork consumed,
+                IArtifactAcquisitionLease cleanupLease,
+                CancellationToken cancellationToken)
+        {
+            var session = new ArtifactSetSession();
+            ArtifactQueryLease? queryLease = null;
+            ArtifactContentLease? contentLease = null;
+            try
+            {
+                await session.AddRequiredAcquisitionAsync(
+                    (scope, _) =>
+                    {
+                        ArtifactContribution artifact = scope.Register(
+                            new PlatformLibraryArtifactProvenance(
+                                contribution,
+                                new Provenance(
+                                    "ecosystem-product-cleanup")),
+                            _ => new MemoryStream(
+                                content,
+                                writable: false));
+                        return ValueTask.FromResult<
+                            ArtifactAcquisitionOutcome>(
+                                new ArtifactAcquisitionOutcome.Acquired(
+                                    [artifact],
+                                    cleanupLease));
+                    },
+                    cancellationToken: cancellationToken);
+                ArtifactAssemblyProjection? projection = null;
+                Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+                    await session.SealWithProjectionAsync(
+                        (view, token) =>
+                        {
+                            projection =
+                                Assert.IsType<
+                                    ArtifactAssemblyProjectionOutcome.Projected>(
+                                        ArtifactAssemblyInspection.Project(
+                                            view,
+                                            token))
+                                    .Value;
+                            return null;
+                        },
+                        cancellationToken));
+                queryLease = session.IssueLease(
+                    session.CreateQueryAuthorization());
+                ArtifactContentReference reference =
+                    session.GetCatalog(queryLease)
+                        .Select(
+                            descriptor => session.GetContentReference(
+                                descriptor.Identity,
+                                queryLease))
+                        .Single();
+                contentLease =
+                    session.IssueContentLease(reference, queryLease);
+                var selection =
+                    new PlatformPopulationLibraryContentSelection(
+                        reference,
+                        Assert.IsType<ArtifactAssemblyProjection>(
+                            projection),
+                        new PlatformPopulationMemberAttribution(
+                            target,
+                            PlatformPopulationMemberRole.Focus));
+                var population =
+                    Assert.IsType<
+                        PlatformPopulationRealizationResult.Completed>(
+                            await PlatformHousePopulationRealizer
+                                .RealizeImplementationsAsync(
+                                    request,
+                                    [selection],
+                                    [contentLease],
+                                    consumed));
+                contentLease = null;
+                queryLease.Dispose();
+                queryLease = null;
+                return PlatformPopulationArtifactMaterializationOutcome
+                    .Completed
+                    .Create(population, session);
+            }
+            catch
+            {
+                contentLease?.Dispose();
+                queryLease?.Dispose();
+                await session.DisposeAsync();
+                throw;
+            }
         }
 
         static PlatformPopulationLibraryArtifactMaterializationItem Item(
@@ -521,6 +694,18 @@ public sealed class ProductEcosystemPopulationLoaderTests
                     content.LongLength,
                     _ => new MemoryStream(content, writable: false)),
                 new PlatformPopulationMemberAttribution(target, role));
+    }
+
+    sealed class FailingArtifactLease(Exception failure) :
+        IArtifactAcquisitionLease
+    {
+        internal int Disposals { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposals++;
+            return ValueTask.FromException(failure);
+        }
     }
 
     sealed record Provenance(string Name) : IArtifactProvenance;

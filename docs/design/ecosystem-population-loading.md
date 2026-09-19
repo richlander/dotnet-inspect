@@ -498,7 +498,9 @@ not accept a service locator, source callback bag, target text, or family text.
 Package-backed and installed population materializers return the same
 source-neutral `PlatformPopulationArtifactMaterializationOutcome` consumed by
 the capability, so hosts do not reconstruct or reflect over source-specific
-results.
+results. A validated public completed-outcome factory composes an already
+owner-issued Platform population with its adjacent Artifact session for
+host-authorized materializers that do not use those two adapters.
 
 The loader validates that the returned PlatformHouse request retains the
 declaration's exact family before transferring any authority. A mismatch
