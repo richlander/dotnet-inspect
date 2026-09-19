@@ -78,8 +78,8 @@ public sealed class PackageRootBinding
             compileTargetFramework
             ?? root.AssetSelection.TargetFramework;
         ImplementationSelectionTargetFramework =
-            root.RequestedTargetFramework
-            ?? root.AssetSelection.ImplementationTargetFramework
+            root.AssetSelection.ImplementationTargetFramework
+            ?? root.RequestedTargetFramework
             ?? root.AssetSelection.TargetFramework;
         HasSelectedImplementationUniverse =
             root.AssetSelection.ImplementationTargetFramework is not null;

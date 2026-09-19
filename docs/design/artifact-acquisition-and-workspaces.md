@@ -3213,10 +3213,12 @@ implementation targets while authorizing and observing no compatible
 selection. Its implementation-selection input may equal its compile target
 while no implementation universe exists. Collapsing either pair, inferring
 presence or compatibility merely from target text, omitting authorization when
-an exact compile slice wins, or omitting the observed compatible outcome when
-no unique universe exists would fail with `MissingAcquisitionTarget`, misstate
-the selection policy, prevent a later consumer from applying the authorized
-policy, or silently select a different compile or implementation outcome.
+an exact compile slice wins, preferring a requested target over an
+owner-selected implementation target, or omitting the observed compatible
+outcome when no unique universe exists would fail with
+`MissingAcquisitionTarget`, misstate the selection policy, prevent a later
+consumer from applying the authorized policy, or silently select a different
+compile or implementation outcome.
 
 Framework-neutral acquisition remains separate from selection fidelity. When a
 caller supplies no target, the realized coordinate and the Root's requested
@@ -3366,12 +3368,18 @@ In `PackageRootAcquisitionTests`:
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
 `ExactRequest_SeparatesAcquisitionAndSelectionTargets`,
+`ExactRequest_RejectsReplacementImplementationTarget`,
 `ExactRequest_ReopensAfterCandidateWorkspaceDisposal`,
 `ExplicitCoordinate_UnauthorizedSourcesFailVisibly`,
 `ExactRequest_UnauthorizedProducerFailsVisibly`,
 `Token_RoundTripsExactRequest`, `Token_RejectsMalformedOrNonCanonicalInput`,
 `Token_RejectsSelectionRuntimeNotIssuedByBinding`, and
 `ExplicitRequest_StatesItsTargetContract`.
+
+`ExactRequest_RejectsReplacementImplementationTarget` gates exact resolved
+acquisition whose `ref/net10.0` compile slice selects a `lib/net8.0`
+implementation universe, then rejects replacement content that changes the
+implementation universe to `lib/net7.0`.
 
 `Token_RoundTripsExactRequest` additionally gates independent `pkgroot5`
 implementation-presence, compatible-selection authorization, and observed-use

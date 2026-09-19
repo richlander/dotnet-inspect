@@ -327,6 +327,50 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task ExactRequest_RejectsReplacementImplementationTarget()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        string producer = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(SplitPackage("net8.0")),
+            TestContext.Current.CancellationToken);
+        WorkspaceContextLoadOptions options = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    "net10.0"),
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal("net10.0", acquired.Request.CompileTargetFramework);
+        Assert.Equal("net8.0", acquired.Request.SelectionTargetFramework);
+        Assert.True(acquired.Request.HasSelectedImplementationUniverse);
+
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(SplitPackage("net7.0")),
+            TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                acquired.Request,
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failed.Kind);
+    }
+
+    [Fact]
     public async Task ExactRequest_ReopensAfterCandidateWorkspaceDisposal()
     {
         using var http = new HttpClient(new FailingHandler());
@@ -1047,6 +1091,33 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] SplitPackage(string implementationFramework)
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream reference = archive
+                .CreateEntry($"ref/net10.0/{AssemblyName}.dll")
+                .Open())
+            {
+                reference.Write(image);
+            }
+            using (Stream implementation = archive
+                .CreateEntry(
+                    $"lib/{implementationFramework}/{AssemblyName}.dll")
+                .Open())
+            {
+                implementation.Write(image);
+            }
         }
 
         return buffer.ToArray();
