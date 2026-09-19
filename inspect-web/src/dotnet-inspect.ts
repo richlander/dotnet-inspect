@@ -8513,6 +8513,25 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
       binding.onSelect();
       return;
     }
+    case "relationship-destination-open": {
+      const relationship =
+        model.callRelationships[action.relationshipIndex];
+      if (!relationship) return;
+      invalidateMemberDestinationWork(state);
+      state.annotatedDestinationError = "";
+      const binding =
+        callGraphTargetBinding(
+          relationship.target,
+          action.destination,
+          "annotated")
+        ?? blockedCallGraphNodeBinding(
+          relationship.target,
+          "the exact target is unavailable in the current workspace",
+          "annotated");
+      dismissAnnotatedSourceModal(false);
+      binding.onSelect();
+      return;
+    }
     case "finding-evidence-open": {
       const evidence =
         model.findingEvidenceByFactId.get(action.factId);

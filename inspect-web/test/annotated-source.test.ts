@@ -118,6 +118,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       destination: "source",
     }),
     new FakeElement({
+      annotatedAction: "relationship-destination-open",
+      relationshipIndex: "3",
+      destination: "member",
+    }),
+    new FakeElement({
       annotatedAction: "finding-evidence-open",
       factId: "4",
       destination: "member",
@@ -157,6 +162,11 @@ test("annotated source bindings dispatch the documented fixed and chip actions",
       destination: "source",
     },
     {
+      kind: "relationship-destination-open",
+      relationshipIndex: 3,
+      destination: "member",
+    },
+    {
       kind: "finding-evidence-open",
       factId: 4,
       destination: "member",
@@ -175,6 +185,11 @@ test("malformed action identities are inert rather than dispatched as NaN", () =
     new FakeElement({
       annotatedAction: "destination-open",
       destinationIndex: "x",
+      destination: "other",
+    }),
+    new FakeElement({
+      annotatedAction: "relationship-destination-open",
+      relationshipIndex: "x",
       destination: "other",
     }),
     new FakeElement({
@@ -380,6 +395,74 @@ function callCycleRelationshipResult(
       provenance: inertStringFixture("test"),
       contextLimitation: null,
     },
+  };
+}
+
+function repeatedRelationshipResult(): AnnotatedSourceResult {
+  const firstFactId = sampleDocument.facts.length;
+  const secondFactId = firstFactId + 1;
+  return {
+    ...result,
+    document: {
+      ...sampleDocument,
+      facts: [
+        ...sampleDocument.facts,
+        {
+          id: firstFactId,
+          descriptor: "call.edge",
+          category: "Relationship",
+          conditionality: "Always",
+          detail: "Example.Targets.Target(System.Int32)",
+          origin: "Body",
+          source_offset: 0,
+        },
+        {
+          id: secondFactId,
+          descriptor: "call.edge",
+          category: "Relationship",
+          conditionality: "Always",
+          detail: "Example.Targets.Target(System.Int32)",
+          origin: "Body",
+          source_offset: 1,
+        },
+      ],
+      targets: [
+        ...sampleDocument.targets,
+        { fact_id: firstFactId, node_id: 2 },
+        { fact_id: secondFactId, node_id: 3 },
+      ],
+    },
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+    callRelationships: [
+      {
+        edgeRow: 7,
+        factId: firstFactId,
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        callerToken: 0x06000001,
+        ilOffset: 0,
+        operandToken: 0x0A000001,
+        kind: "Call",
+        inLoop: false,
+        target: sampleInvocationTarget,
+      },
+      {
+        edgeRow: 7,
+        factId: secondFactId,
+        moduleVersionId: "11111111-1111-1111-1111-111111111111",
+        callerToken: 0x06000001,
+        ilOffset: 1,
+        operandToken: 0x0A000001,
+        kind: "CallVirtual",
+        inLoop: true,
+        target: sampleInvocationTarget,
+      },
+    ],
   };
 }
 
@@ -729,6 +812,86 @@ test("a selected invocation exposes separate Member and Source destinations", ()
   assert.doesNotMatch(selected, />Navigate</);
 });
 
+test("the Relationships table preserves repeated physical calls and typed actions", () => {
+  const source = repeatedRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const session = openModalSession(model, createEmbeddedSession(model)).modal;
+  const hiddenCoordinates = renderAnnotatedSourceModal({
+    result: source,
+    session,
+    escapeHtml,
+  });
+  const visibleCoordinates = renderAnnotatedSourceModal({
+    result: source,
+    session: toggleCoordinates(session).state,
+    escapeHtml,
+  });
+
+  assert.match(hiddenCoordinates, /<p class="section-eyebrow">Relationships<\/p>/);
+  assert.equal(
+    [...hiddenCoordinates.matchAll(/data-relationship-fact-id="([34])"/g)]
+      .map(match => match[1]).join(","),
+    "3,4",
+  );
+  assert.equal(
+    (hiddenCoordinates.match(
+      /<small>edge 7(?: · in loop)?<\/small>/g,
+    ) ?? []).length,
+    2,
+  );
+  assert.match(hiddenCoordinates, />Call<\/strong>/);
+  assert.match(hiddenCoordinates, />Virtual call<\/strong>/);
+  assert.match(hiddenCoordinates, /edge 7 · in loop/);
+  assert.doesNotMatch(hiddenCoordinates, /IL_000[01]<\/small>/);
+  assert.match(
+    hiddenCoordinates,
+    /Example\.Targets\.Target\(System\.Int32\)/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /data-annotated-action="relationship-destination-open"[\s\S]*data-relationship-index="0"[\s\S]*data-destination="member"/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /data-annotated-action="relationship-destination-open"[\s\S]*data-relationship-index="1"[\s\S]*data-destination="source"/,
+  );
+  assert.match(
+    hiddenCoordinates,
+    /data-annotated-action="inspector-open"\s+data-fact-id="3"/,
+  );
+  assert.doesNotMatch(
+    hiddenCoordinates,
+    /aria-label="Inspect [^"]*IL_000[01]/,
+  );
+  assert.match(visibleCoordinates, /edge 7 · IL_0000/);
+  assert.match(visibleCoordinates, /edge 7 · in loop · IL_0001/);
+});
+
+test("the Relationships table distinguishes available-empty from unavailable", () => {
+  const available = modalHtml({
+    ...result,
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      callRelationships: {
+        available: true,
+        unavailableReason: null,
+      },
+    },
+  });
+  const unavailable = modalHtml();
+
+  assert.match(
+    available,
+    /No direct call relationships were projected for this exact body\./,
+  );
+  assert.doesNotMatch(available, /annotated-relationship-table"/);
+  assert.match(
+    unavailable,
+    /Not projected by the current product query/,
+  );
+  assert.doesNotMatch(unavailable, /annotated-relationship-table"/);
+});
+
 test("C# highlighting crosses product segments without changing source text", () => {
   const source = 'return Widget.Create("x");';
   const highlighter = createCSharpRangeHighlighter(
@@ -923,13 +1086,15 @@ test("modal controls are exactly catalog-supported media and annotatable Finding
   assert.match(html, /id="annotated-source-modal-segment-\d+"/);
 });
 
-test("Selection and Findings are peer inspector sections with a tiled empty state", () => {
+test("Selection, Relationships, and Findings are peer inspector sections", () => {
   const html = modalHtml();
   const selection = html.indexOf('class="section-eyebrow">Selection');
+  const relationships = html.indexOf('class="section-eyebrow">Relationships');
   const findings = html.indexOf('class="section-eyebrow">Findings');
 
   assert.ok(selection >= 0);
-  assert.ok(findings > selection);
+  assert.ok(relationships > selection);
+  assert.ok(findings > relationships);
   assert.match(
     html,
     /class="annotated-selection-empty">\s*<strong>Nothing selected<\/strong>\s*<span>Select addressable source or inspect a Finding\.<\/span>/,
@@ -1502,6 +1667,10 @@ test("Annotated Source destination actions use typed graph routes and exact sect
   assert.match(
     appSource,
     /case "destination-open":[\s\S]*model\.invocationDestinations\[action\.destinationIndex\][\s\S]*callGraphTargetBinding\([\s\S]*destination\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
+  );
+  assert.match(
+    appSource,
+    /case "relationship-destination-open":[\s\S]*model\.callRelationships\[action\.relationshipIndex\][\s\S]*callGraphTargetBinding\([\s\S]*relationship\.target,[\s\S]*action\.destination,[\s\S]*"annotated"\)[\s\S]*dismissAnnotatedSourceModal\(false\)[\s\S]*binding\.onSelect\(\)/,
   );
   assert.match(
     appSource,
