@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -93,7 +94,9 @@ public partial class PackageCommand
             || options.ShowContent
             || options.PackageLibrary is not null
             || options.AllLibraries
-            || !RequestsPackageInfoMeasurements(producerOptions, pipeline))
+            || !RequestsPackageHouseCompileRealization(
+                producerOptions,
+                pipeline))
         {
             return true;
         }
@@ -138,6 +141,24 @@ public partial class PackageCommand
                 .Contains(PackageSections.PackageInfo);
     }
 
+    private static bool RequestsPackageHouseCompileRealization(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
+    private static bool RequestsPackageEcosystemDependencies(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline) =>
+        RequestsPackageInfoMeasurements(options, pipeline)
+        || RequestsSelectedOrDiscoveredSection(
+            options,
+            PackageSections.EcosystemDependencies,
+            pipeline);
+
     private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
@@ -179,6 +200,26 @@ public partial class PackageCommand
         }
 
         result.PackageSize = fallbackPackageSize;
+    }
+
+    private static async Task ApplyPackageEcosystemDependenciesAsync(
+        InspectionResult result,
+        PackageExtractionResult resolution,
+        Action<string>? log)
+    {
+        if (resolution.HouseSettlement
+            is not PackageHouseSettlement.Acquired settlement)
+        {
+            return;
+        }
+
+        InspectionEnvelope<EcosystemDependencyRecognitionOutcome> inspection =
+            await PackageEcosystemDependencyRecognitionInspection.ExecuteAsync(
+                    settlement)
+                .ConfigureAwait(false);
+        result.EcosystemDependencyRecognitionInspection = inspection;
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+            log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
     }
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)

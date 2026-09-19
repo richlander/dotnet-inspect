@@ -146,6 +146,11 @@ public static class PackageCommandDefinitions
                     result,
                     opts,
                     commandArgs)
+                && !PackageOptionsParser
+                    .IsEcosystemDependencyRowSelection(
+                        result,
+                        opts,
+                        commandArgs)
                 && !PackageOptionsParser.IsCloneCandidateRowSelection(
                     result,
                     opts,
@@ -281,7 +286,12 @@ public static class PackageCommandDefinitions
                 || PackageOptionsParser.IsPackageTfmRowSelection(
                     result,
                     opts,
-                    commandArgs),
+                    commandArgs)
+                || PackageOptionsParser
+                    .IsEcosystemDependencyRowSelection(
+                        result,
+                        opts,
+                        commandArgs),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

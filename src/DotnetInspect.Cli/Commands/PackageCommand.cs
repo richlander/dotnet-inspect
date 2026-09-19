@@ -7,6 +7,7 @@ using SemanticRowSelection =
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
@@ -1208,6 +1209,15 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
+            if (RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline))
+            {
+                await ApplyPackageEcosystemDependenciesAsync(
+                    result,
+                    resolution,
+                    logger.Log);
+            }
 
             await PopulatePackageSignatureAsync(
                 result,
@@ -1272,6 +1282,13 @@ public partial class PackageCommand
             if (!TrySelectPackageSourceLinkFiles(
                     result,
                     options.SourceLinkFileRowSelection))
+            {
+                return 1;
+            }
+
+            if (!TrySelectPackageEcosystemDependencies(
+                    result,
+                    options.EcosystemDependencyRowSelection))
             {
                 return 1;
             }
@@ -1644,6 +1661,41 @@ public partial class PackageCommand
         }
 
         result.Files = [.. selected];
+        return true;
+    }
+
+    private static bool TrySelectPackageEcosystemDependencies(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+            result.EcosystemDependencyRecognitionInspection?.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Complete complete =>
+                    complete.Document.Classification.Recognized,
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized,
+                _ => [],
+            };
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                rows,
+                "Package ecosystem dependencies",
+                failure =>
+                    $"Package ecosystem dependency row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<
+                    EcosystemDependencyRecognitionEntry> selected))
+        {
+            return false;
+        }
+
+        result.EcosystemDependencyRows = selected;
         return true;
     }
 }

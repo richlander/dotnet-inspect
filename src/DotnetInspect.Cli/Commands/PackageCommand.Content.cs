@@ -389,6 +389,15 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
+            if (RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline))
+            {
+                await ApplyPackageEcosystemDependenciesAsync(
+                    result,
+                    resolution,
+                    logger.Log);
+            }
 
             await PopulatePackageSignatureAsync(
                 result,

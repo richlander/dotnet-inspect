@@ -191,6 +191,11 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsEcosystemDependencies =
+            IsEcosystemDependencyRowSelection(
+                parseResult,
+                opts,
+                args);
         bool selectsCloneCandidateRows =
             IsCloneCandidateRowSelection(
                 parseResult,
@@ -254,6 +259,18 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageTfmRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
+        if (selectsEcosystemDependencies
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package ecosystem dependency",
+                out ecosystemDependencyRowSelection,
+                out string? ecosystemDependencyRowSelectionError))
+        {
+            return new InvalidArguments(
+                ecosystemDependencyRowSelectionError!);
         }
 
         RowSelectionIntent<string>? cloneCandidateRowSelection = null;
@@ -344,6 +361,8 @@ public static class PackageOptionsParser
             PackageFileRowSelection = packageFileRowSelection,
             PackageLayoutRowSelection = packageLayoutRowSelection,
             PackageTfmRowSelection = packageTfmRowSelection,
+            EcosystemDependencyRowSelection =
+                ecosystemDependencyRowSelection,
             CloneCandidateRowSelection = cloneCandidateRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
@@ -552,6 +571,63 @@ public static class PackageOptionsParser
 
         return selected.Contains(
             Views.PackageSections.Files);
+    }
+
+    internal static bool IsEcosystemDependencyRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args) =>
+        IsEcosystemDependencyRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsEcosystemDependencyRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || result.GetResult(opts.Discover)
+                is { Implicit: false }
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.LayoutOption)
+            || result.GetResult(args.PathOption)
+                is { Implicit: false }
+            || result.GetValue(args.TfmsOption)
+            || result.GetResult(args.LibraryOption)
+                is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.ContentOption)
+            || (result.GetResult(args.VersionOption)
+                is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null))
+        {
+            return false;
+        }
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var catalog = PackageSectionDescriptors.CreateCatalog();
+        var sections = catalog.Sections;
+        var resolved =
+            SelectResolver.ResolveSelectAsSections(
+                selectors,
+                sections.SelectableSectionNames,
+                sections.InfoSectionNames,
+                sections.SelectionCategoryMap,
+                selectDefault: false);
+        return !resolved.HasError
+            && resolved.Sections is { Count: 1 } selected
+            && selected.Contains(
+                Views.PackageSections.EcosystemDependencies);
     }
 
     internal static bool IsPackageLayoutRowSelection(
