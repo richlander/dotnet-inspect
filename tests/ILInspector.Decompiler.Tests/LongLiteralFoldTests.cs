@@ -10,26 +10,25 @@ using ILInspector.Metadata;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// The opt-in byte-divergent style lens
-/// <see cref="PrinterOptions.PreferLongLiteralSuffix"/> (#3347): a <c>long</c>
-/// constant csc emits as <c>ldc.i4(.s) N; conv.i8</c> renders as the idiomatic
-/// <c>NL</c> literal instead of the <c>(long)N</c> cast the default view spells.
-/// This is a raise-completeness gap, not a fidelity gap — the cast is already
-/// opcode-faithful and round-trips; it is simply not fully raised.
+/// The long-literal spelling choice
+/// <see cref="PrinterOptions.PreferLongLiteralSuffix"/> (#3347, #7763): the
+/// user-facing product default renders compiler-shaped <c>long</c> constants as
+/// idiomatic <c>NL</c> literals, while the low-level fidelity default and the
+/// explicit alternate retain <c>(long)N</c> casts.
 ///
 /// <para>Three claims are pinned here, in the order they matter:</para>
 /// <list type="number">
 /// <item><description>
-/// <b>Default unchanged.</b> Every fixture method and the reference witness
-/// <c>CfgSampleClass.InlineArraySpanTernaryConditionValue</c> render exactly
-/// today's text with the knob off — the lens is opt-in and the shipped view stays
-/// byte-faithful.
+/// <b>Strict fidelity unchanged.</b> Every fixture method and the reference
+/// witness <c>CfgSampleClass.InlineArraySpanTernaryConditionValue</c> retain the
+/// explicit conversion spelling under <see cref="PrinterOptions.Default"/>.
 /// </description></item>
 /// <item><description>
-/// <b>The fold fires on exactly the <c>conv.i8</c> shape.</b> With the knob on, a
-/// <c>Convert(→Int64, Int32 Constant)</c> becomes <c>NL</c> at a ternary arm, a
-/// return, an argument, and a binary operand (including a negative literal, whose
-/// unary precedence the fold has to carry itself).
+/// <b>The product default folds the compiler shapes.</b> A
+/// <c>Convert(→Int64, Int32 Constant)</c> becomes <c>NL</c> at a ternary arm,
+/// return, argument, and binary operand. The zero-extended
+/// <c>Convert(→UInt64, Int32 Constant)</c> becomes <c>2147483648L</c> only at an
+/// <c>Int64</c> sink, preserving value and overload binding.
 /// </description></item>
 /// <item><description>
 /// <b>The close negative: a genuine <c>ldc.i8</c> is untouched.</b> That shape
@@ -42,12 +41,10 @@ namespace ILInspector.Decompiler.Tests;
 /// </description></item>
 /// </list>
 ///
-/// <para>The lens is <see cref="StyleOptionDescriptor.ByteDivergent"/>, so it is
-/// excluded from <see cref="ByteNeutralityGateTests"/> by construction. Its
-/// fidelity claim is narrower and is proven directly: because the fold is
-/// opcode-neutral <em>for csc output</em>, the knob-on render of every folded
-/// specimen must still compile back <c>Exact</c> — the same anchor the knob-off
-/// render earns. That is measured with the product's own compile-back harness
+/// <para>The spelling choice is byte-neutral for every accepted compiler shape,
+/// and the structural decline for genuine <c>ldc.i8</c> keeps distinct opcodes
+/// distinct. Both spellings must compile back <c>Exact</c>, measured with the
+/// product's own compile-back harness
 /// (<see cref="FidelityCheck.EvaluateTargets(IReadOnlyList{string}, IReadOnlyList{FidelityCheck.CompileBackTarget}, bool, PrinterOptions?)"/>),
 /// not a harness-side reimplementation.</para>
 /// </summary>
@@ -63,7 +60,11 @@ public sealed class LongLiteralFoldTests
 
     // Built through the catalog descriptor rather than a raw property set, so these
     // tests exercise the same value-domain plumbing the CLI config resolver uses.
-    static PrinterOptions LensOptions => Knob.WithValue(PrinterOptions.Default, "true");
+    static PrinterOptions ProductOptions => StyleOptionCatalog.DefaultOptions;
+
+    static PrinterOptions SuffixOptions => Knob.WithValue(PrinterOptions.Default, "true");
+
+    static PrinterOptions CastOptions => Knob.WithValue(ProductOptions, "false");
 
     static string Render(System.Type declaringType, string memberName, PrinterOptions? options = null)
     {
@@ -80,7 +81,7 @@ public sealed class LongLiteralFoldTests
     static string Fixture(string memberName, PrinterOptions? options = null)
         => Render(typeof(LongLiteralFoldFixture), memberName, options);
 
-    // ---- 1. the default view ----
+    // ---- 1. the strict fidelity view ----
 
     public static TheoryData<string, string> DefaultRenders() => new()
     {
@@ -108,17 +109,16 @@ public sealed class LongLiteralFoldTests
 
     [Theory]
     [MemberData(nameof(DefaultRenders))]
-    public void Default_RendersExpectedText(string member, string expected)
+    public void StrictFidelity_RendersExpectedText(string member, string expected)
     {
-        // The knob defaults to false, so PrinterOptions.Default and "no options at all"
-        // must both produce the same text — the opt-in contract, pinned as exact text
-        // rather than a containment check so a stray space or paren fails here.
+        // A null options object and PrinterOptions.Default are the low-level
+        // fidelity/harness contract. Product hosts pass StyleOptionCatalog.DefaultOptions.
         Assert.Equal(expected, Fixture(member));
         Assert.Equal(expected, Fixture(member, PrinterOptions.Default));
     }
 
     [Fact]
-    public void ReferenceWitness_Default_IsUnchanged()
+    public void ReferenceWitness_StrictFidelity_IsUnchanged()
     {
         Assert.Equal(
             "public static long InlineArraySpanTernaryConditionValue(object a, object b) "
@@ -126,9 +126,9 @@ public sealed class LongLiteralFoldTests
             Render(typeof(CfgSampleClass), nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue)));
     }
 
-    // ---- 2. the lens folds exactly the conv.i8-sourced constants ----
+    // ---- 2. the product default uses terse suffixes for compiler-shaped constants ----
 
-    public static TheoryData<string, string> LensRenders() => new()
+    public static TheoryData<string, string> SuffixRenders() => new()
     {
         // The reference witness's shape: both arms fold, and the folded literal drops
         // the arm parentheses the cast needed without disturbing the enclosing `+`.
@@ -143,21 +143,31 @@ public sealed class LongLiteralFoldTests
         { nameof(LongLiteralFoldFixture.MinusOne), "public static long MinusOne() => -1L;" },
         { nameof(LongLiteralFoldFixture.IntMinValue), "public static long IntMinValue() => -2147483648L;" },
         { nameof(LongLiteralFoldFixture.IntMaxValue), "public static long IntMaxValue() => 2147483647L;" },
+        { nameof(LongLiteralFoldFixture.JustPastIntMaxValue), "public static long JustPastIntMaxValue() => 2147483648L;" },
+        {
+            nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument),
+            "public static long JustPastIntMaxValueArgument() => Consume(2147483648L);"
+        },
     };
 
     [Theory]
-    [MemberData(nameof(LensRenders))]
-    public void Lens_FoldsConvI8Constants(string member, string expected)
-        => Assert.Equal(expected, Fixture(member, LensOptions));
+    [MemberData(nameof(SuffixRenders))]
+    public void ProductDefault_RendersCompilerShapedLongConstantsWithSuffix(
+        string member,
+        string expected)
+    {
+        Assert.Equal(expected, Fixture(member, ProductOptions));
+        Assert.Equal(expected, Fixture(member, SuffixOptions));
+    }
 
     [Fact]
-    public void ReferenceWitness_Lens_FoldsBothArms()
+    public void ReferenceWitness_ProductDefault_FoldsBothArms()
     {
         // The endpoint the issue names.
         Assert.Equal(
             "public static long InlineArraySpanTernaryConditionValue(object a, object b) "
             + "=> (AnyObjectSpan([a, b]) ? 10L : 20L) + Environment.TickCount64;",
-            Render(typeof(CfgSampleClass), nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue), LensOptions));
+            Render(typeof(CfgSampleClass), nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue), ProductOptions));
     }
 
     // ---- 3. the close negative: a genuine ldc.i8 source is untouched ----
@@ -165,18 +175,21 @@ public sealed class LongLiteralFoldTests
     [Theory]
     [InlineData(nameof(LongLiteralFoldFixture.LargeReturn))]
     [InlineData(nameof(LongLiteralFoldFixture.LargeTernaryArms))]
-    public void LdcI8Sources_RenderIdenticallyWithTheLensOnOrOff(string member)
+    public void LdcI8Sources_RenderIdenticallyWithSuffixesOnOrOff(string member)
     {
-        // These are real `ldc.i8` bodies and are outside the conv.i8 style lens.
-        Assert.Equal(Fixture(member), Fixture(member, LensOptions));
+        // These are real `ldc.i8` bodies and are outside the compiler-shaped fold.
+        Assert.Equal(Fixture(member), Fixture(member, ProductOptions));
     }
 
     [Fact]
-    public void ConvU8Boundary_RendersCorrectlyWithTheLensOnOrOff()
+    public void ConvU8Boundary_UsesSuffixByDefault_AndRetainsCastAlternate()
     {
-        const string expected = "public static long JustPastIntMaxValue() => (long)2147483648;";
-        Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue)));
-        Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue), LensOptions));
+        Assert.Equal(
+            "public static long JustPastIntMaxValue() => 2147483648L;",
+            Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue), ProductOptions));
+        Assert.Equal(
+            "public static long JustPastIntMaxValue() => (long)2147483648;",
+            Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValue), CastOptions));
     }
 
     [Fact]
@@ -188,22 +201,22 @@ public sealed class LongLiteralFoldTests
         Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.CheckedJustPastIntMaxValue)));
         Assert.Equal(
             expected,
-            Fixture(nameof(LongLiteralFoldFixture.CheckedJustPastIntMaxValue), LensOptions));
+            Fixture(nameof(LongLiteralFoldFixture.CheckedJustPastIntMaxValue), ProductOptions));
     }
 
     [Fact]
-    public void ConvU8ArgumentBoundary_PreservesLongOverloadBinding()
+    public void ConvU8ArgumentBoundary_UsesLongSuffixWithoutRebindingOverload()
     {
-        const string expected =
-            "public static long JustPastIntMaxValueArgument() => Consume((long)2147483648);";
-        Assert.Equal(expected, Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument)));
         Assert.Equal(
-            expected,
-            Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument), LensOptions));
+            "public static long JustPastIntMaxValueArgument() => Consume(2147483648L);",
+            Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument), ProductOptions));
+        Assert.Equal(
+            "public static long JustPastIntMaxValueArgument() => Consume((long)2147483648);",
+            Fixture(nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument), CastOptions));
     }
 
     [Fact]
-    public void SmallLdcI8_RendersIdenticallyWithTheLensOnOrOff()
+    public void SmallLdcI8_RendersIdenticallyWithSuffixesOnOrOff()
     {
         // The case the corpus cannot supply: csc never encodes a SMALL long constant as
         // `ldc.i8`, but a hand-authored or non-csc assembly can, and that is a distinct
@@ -211,7 +224,7 @@ public sealed class LongLiteralFoldTests
         // Int64 Constant with no Convert over it, so the fold cannot see it — this is the
         // opcode-fidelity guard the issue asks for, and it is structural, not heuristic.
         var off = Print(SmallInt64ConstantReturn(), options: null);
-        var on = Print(SmallInt64ConstantReturn(), LensOptions);
+        var on = Print(SmallInt64ConstantReturn(), ProductOptions);
 
         Assert.Equal(off, on);
         Assert.Contains("return 10;", off);
@@ -226,7 +239,7 @@ public sealed class LongLiteralFoldTests
         // is a real discrimination between the two opcode sources rather than a lens that
         // silently does nothing on synthetic input.
         Assert.Contains("return (long)10;", Print(SmallConvertedInt32ConstantReturn(), options: null));
-        Assert.Contains("return 10L;", Print(SmallConvertedInt32ConstantReturn(), LensOptions));
+        Assert.Contains("return 10L;", Print(SmallConvertedInt32ConstantReturn(), ProductOptions));
     }
 
     static string Print(IrFunction function, PrinterOptions? options)
@@ -273,24 +286,27 @@ public sealed class LongLiteralFoldTests
     // ---- catalog wiring ----
 
     [Fact]
-    public void Knob_IsRegisteredAsANonEndorsedLensWithAToolOwnedConfigKey()
+    public void Knob_IsAProductDefaultSpellingWithAnExplicitCastAlternate()
     {
         var knob = Knob;
 
-        Assert.Equal(StyleOptionTier.Lens, knob.Tier);
-        Assert.True(knob.ByteDivergent);
+        Assert.Equal(StyleOptionTier.Spelling, knob.Tier);
+        Assert.False(knob.ByteDivergent);
         Assert.False(knob.OracleEndorsed);
         Assert.False(knob.CorpusEndorsed);
-        Assert.Equal("false", knob.DefaultValue);
+        Assert.Equal("true", knob.DefaultValue);
+        Assert.True(ProductOptions.PreferLongLiteralSuffix);
         Assert.False(PrinterOptions.Default.PreferLongLiteralSuffix);
+        Assert.False(CastOptions.PreferLongLiteralSuffix);
 
-        // Tool-owned vocabulary: `dotnet_style_*` is reserved for oracle-endorsed values
-        // (StyleOptionCatalogTests.EndorsedValuesWithAConfigKey_UseTheEditorconfigVocabulary).
-        Assert.Equal("dotnet_inspect_style_prefer_long_literal_suffix", knob.ConfigKey);
-        Assert.True(LensOptions.PreferLongLiteralSuffix);
+        var suffix = knob.Values.Single(value => value.Token == "true");
+        var cast = knob.Values.Single(value => value.Token == "false");
+        Assert.Equal("dotnet_inspect_style_prefer_long_literal_suffix", suffix.ConfigKey);
+        Assert.Equal("explicit-long-literal-cast", cast.ChoiceId);
 
-        // Not part of the "full taste" aggregate, since no value on the axis is endorsed.
-        Assert.False(StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default).PreferLongLiteralSuffix);
+        // No oracle facet is overstated; full taste preserves the explicit
+        // product default rather than selecting this axis independently.
+        Assert.True(StyleOptionCatalog.ApplyFullTaste(ProductOptions).PreferLongLiteralSuffix);
     }
 
     // ---- compile-back: the folded NL output round-trips ----
@@ -307,15 +323,16 @@ public sealed class LongLiteralFoldTests
         (nameof(LongLiteralFoldFixture.MinusOne), "() -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.IntMinValue), "() -> corelib:System.Int64"),
         (nameof(LongLiteralFoldFixture.IntMaxValue), "() -> corelib:System.Int64"),
+        (nameof(LongLiteralFoldFixture.JustPastIntMaxValue), "() -> corelib:System.Int64"),
+        (nameof(LongLiteralFoldFixture.JustPastIntMaxValueArgument), "() -> corelib:System.Int64"),
     ];
 
     [Fact]
     public void FoldedOutput_CompilesBackExactly()
     {
-        // The lens is byte-divergent as a CLASSIFICATION — a non-csc `ldc.i8 <small>`
-        // source would make `NL` and the source opcode disagree — but on csc output the
-        // fold is opcode-neutral, and that is the property this proves: the knob-on render
-        // recompiles to the original IL exactly, the same anchor the knob-off render earns.
+        // The structural guard declines a non-csc `ldc.i8 <small>` source, so every
+        // accepted suffix spelling is opcode-neutral. The product-default render
+        // recompiles to the original IL exactly, the same anchor the cast render earns.
         // Measured with the product's own compile-back harness (the seam the byte-neutrality
         // gate uses), never a harness-side reimplementation.
         var targets = FoldedSpecimens
@@ -324,7 +341,7 @@ public sealed class LongLiteralFoldTests
             .ToArray();
 
         var off = Evaluate(targets, options: null);
-        var on = Evaluate(targets, LensOptions);
+        var on = Evaluate(targets, ProductOptions);
 
         foreach (var (method, _) in FoldedSpecimens)
         {
@@ -340,7 +357,7 @@ public sealed class LongLiteralFoldTests
 
         // Non-vacuity: the knob-on renders must actually differ from knob-off, otherwise
         // this would be comparing a render with itself.
-        Assert.All(FoldedSpecimens, s => Assert.NotEqual(Fixture(s.Method), Fixture(s.Method, LensOptions)));
+        Assert.All(FoldedSpecimens, s => Assert.NotEqual(Fixture(s.Method), Fixture(s.Method, ProductOptions)));
     }
 
     [Fact]
@@ -368,12 +385,28 @@ public sealed class LongLiteralFoldTests
                 Signature: "() -> corelib:System.Int64"),
         ];
 
-        var results = FidelityCheck.EvaluateTargets([AssemblyPath], targets, lowered: false);
+        var strict = FidelityCheck.EvaluateTargets(
+            [AssemblyPath],
+            targets,
+            lowered: false,
+            options: PrinterOptions.Default);
+        var product = FidelityCheck.EvaluateTargets(
+            [AssemblyPath],
+            targets,
+            lowered: false,
+            options: ProductOptions);
 
-        Assert.Equal(targets.Length, results.Count);
-        Assert.All(results, result => Assert.True(
+        Assert.Equal(targets.Length, strict.Count);
+        Assert.Equal(targets.Length, product.Count);
+        Assert.All(strict.Concat(product), result => Assert.True(
             result.Status == FidelityCheck.CompileBackStatus.Exact,
             $"{result.Method}: compile-back is {result.Status} ({result.Detail}); the zero-extension boundary did not round-trip."));
+        foreach (var method in targets.Select(target => target.Method))
+        {
+            Assert.Equal(
+                strict.Single(result => result.Method == method).RecompiledOpcodes,
+                product.Single(result => result.Method == method).RecompiledOpcodes);
+        }
     }
 
     static IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> Evaluate(

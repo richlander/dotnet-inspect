@@ -65,9 +65,12 @@ whitespace prefix. Applying the same typed boundary to both endpoints handles
 an attribute or comment that shares the PDB signature line without
 manufacturing a difference.
 
-The whole-member render preserves the selected physical MethodDef's declaration
-kind. An explicit-interface method is rendered as property syntax only when its
-metadata MethodSemantics relationship proves that it is a property accessor.
+The whole-member render consumes the
+[selected-accessor composition contract](member-body-substrate.md#selected-property-accessor-source).
+Ordinary and explicit-interface accessors use property syntax only when their
+metadata MethodSemantics relationship proves that they belong to a supported
+non-indexed property; backing-storage cases and narrowed-access overrides
+retain method form under the composition owner's admission boundary.
 The associated PropertyDef supplies the complete qualified property identity;
 the renderer does not parse accessor markers from the MethodDef name. An
 ordinary explicit method whose source name begins with `get_` or `set_` remains
@@ -81,7 +84,7 @@ The `ApiMethodImplementationFactsTests` modifier cases and
 `Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` enforce this
 in Release; older models without MethodDef facts retain the aggregate fallback.
 Indexer status comes from the associated property's index parameters, not its
-name. Ordinary explicit properties named `Item` or `Chars` retain property
+name. Supported explicit properties named `Item` or `Chars` retain property
 syntax; actual indexer accessors retain their existing method form.
 Property return types come from structured signature evidence, not a prefix of
 the rendered method signature. A selected setter preserves the physical

@@ -1248,11 +1248,23 @@ internal static class CSharpDeclarationWriter
                 modifiers.Add("readonly");
             if (!omitInterfaceModifiers)
             {
-                if (member.IsSealed)
+                bool isNonVirtualInterfaceMember = type.Kind == "interface"
+                    && member.Kind is "method" or "property" or "event"
+                    && member.Accessibility != "private"
+                    && !member.IsStatic && !member.IsVirtual
+                    && !member.IsAbstract && !member.IsOverride;
+                // Non-private interface instance members are virtual unless sealed.
+                if (member.IsSealed || isNonVirtualInterfaceMember)
                     modifiers.Add("sealed");
                 if (member.IsAbstract)
                     modifiers.Add("abstract");
-                if (member.IsOverride)
+                // Static interface dispatch is virtual, not a class-slot override.
+                if (type.Kind == "interface" && member.IsStatic && (member.IsVirtual || member.IsOverride))
+                {
+                    if (!member.IsAbstract)
+                        modifiers.Add("virtual");
+                }
+                else if (member.IsOverride)
                     modifiers.Add("override");
                 else if (!member.IsAbstract && member.IsVirtual && !member.IsStatic)
                     modifiers.Add("virtual");
@@ -1265,6 +1277,8 @@ internal static class CSharpDeclarationWriter
             // and their safety modifier.
             if (member.IsStatic)
                 modifiers.Add("static");
+            if (member.IsReadOnly)
+                modifiers.Add("readonly");
         }
 
         if (safety.Modifier is { } safetyModifier)
