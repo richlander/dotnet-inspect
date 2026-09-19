@@ -226,11 +226,10 @@ public sealed record SourceHousePhysicalTargetEvidence
     public SourceHousePhysicalTargetEvidence(
         SourceHouseSha256Digest moduleDigest,
         SourceHousePhysicalTargetAddress address,
-        XmlDocMemberIdentity xmlDocumentationIdentity)
+        XmlDocMemberIdentity? xmlDocumentationIdentity)
     {
         ArgumentNullException.ThrowIfNull(moduleDigest);
         ArgumentNullException.ThrowIfNull(address);
-        ArgumentNullException.ThrowIfNull(xmlDocumentationIdentity);
 
         ModuleDigest = moduleDigest;
         Address = address;
@@ -239,7 +238,7 @@ public sealed record SourceHousePhysicalTargetEvidence
 
     public SourceHouseSha256Digest ModuleDigest { get; }
     public SourceHousePhysicalTargetAddress Address { get; }
-    public XmlDocMemberIdentity XmlDocumentationIdentity { get; }
+    public XmlDocMemberIdentity? XmlDocumentationIdentity { get; }
     public Guid ModuleVersionId => Address.ModuleVersionId;
 }
 
@@ -364,6 +363,12 @@ public sealed record SourceHousePhysicalDeclarationRequest
         ArgumentNullException.ThrowIfNull(policyGeneration);
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(source);
+        if (target.XmlDocumentationIdentity is null)
+        {
+            throw new ArgumentException(
+                "The physical target must have a compiler XML identity.",
+                nameof(target));
+        }
 
         Request = request;
         Library = library;

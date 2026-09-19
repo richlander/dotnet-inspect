@@ -138,6 +138,79 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
+        PhysicalDeclaration_AccessorRetainsAuthoredSourceAsUnavailable()
+    {
+        const string source =
+            """
+            namespace Eligibility;
+
+            public sealed class AccessorFixture
+            {
+                public int Value { get; set; }
+            }
+            """;
+        CSharpBuildAttestationOutcome buildOutcome =
+            CSharpBuildAttestor.EmitAndAttest(
+                new(
+                    "AccessorFixture",
+                    [
+                        new(
+                            "/fixture/AccessorFixture.cs",
+                            Encoding.UTF8.GetBytes(source)),
+                    ],
+                    TrustedPlatformAssemblyPaths(),
+                    SourceHouseCapabilityIdentity.Create(
+                        "accessor-attestor"),
+                    SourceHouseAttestationIssuerIdentity.Create(
+                        "accessor-issuer"),
+                    SourceHouseAttestationProfileIdentity.Create(
+                        "direct-csharp-emit-v1"),
+                    SourceHouseAttestationGeneration.Create(
+                        "accessor-generation")),
+                TestContext.Current.CancellationToken);
+        SourceHouseBuildAttestation attestation =
+            Assert.IsType<
+                CSharpBuildAttestationOutcome.Available>(buildOutcome)
+            .Attestation;
+        byte[] assembly = attestation.PeImage.ToArray();
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(
+                assembly,
+                attestation.PortablePdbImage.ToArray(),
+                ReadAssemblyIdentity(assembly));
+
+        SourceHouseOutcome.Available available =
+            Assert.IsType<SourceHouseOutcome.Available>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        AccessorTarget(
+                            assembly,
+                            "Eligibility.AccessorFixture",
+                            "get_Value"),
+                        [attestation])));
+
+        Assert.NotNull(available.Source.PhysicalSource);
+        Assert.NotNull(available.PhysicalTarget);
+        Assert.Null(
+            available.PhysicalTarget.XmlDocumentationIdentity);
+        SourceHousePhysicalDeclarationOutcome.Unavailable unavailable =
+            Assert.IsType<
+                SourceHousePhysicalDeclarationOutcome.Unavailable>(
+                    available.PhysicalDeclaration);
+        Assert.Equal(
+            "TargetOutsideSupportedProfile",
+            unavailable.Observation?.Code);
+        Assert.Same(
+            available.PhysicalTarget,
+            unavailable.Receipt.Target);
+        Assert.Null(unavailable.Receipt.Capability);
+        Assert.Equal(0, unavailable.Receipt.ContributionsObserved);
+    }
+
+    [Fact]
+    public async Task
         PhysicalDeclaration_ChangedDirectOutputIsRejected()
     {
         SourceHouseBuildAttestation attestation =
@@ -1116,6 +1189,33 @@ public sealed partial class AuthoredSourceHouseTests
                 candidate.DefinitionName?.ToMetadataFullName()
                     == typeName);
         return new(type.DefinitionName!);
+    }
+
+    private static SourceHouseTarget.MemberTarget AccessorTarget(
+        byte[] assembly,
+        string typeName,
+        string accessorName)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(assembly, writable: false));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                    peReader,
+                    includeAll: true)
+                .Types,
+            candidate =>
+                candidate.DefinitionName?.ToMetadataFullName()
+                    == typeName);
+        ApiMember accessor = Assert.Single(
+            type.Members.SelectMany(
+                owner => ApiMemberAccessors.Create(owner, type)),
+            candidate =>
+                candidate.Name == accessorName
+                && candidate.MetadataToken is not null);
+        return new(
+            type.DefinitionName!,
+            ApiMemberIdentity.GetMemberAnchor(type, accessor),
+            accessor.MetadataToken!.Value);
     }
 
     private sealed class IdentitylessAttestationCapability(

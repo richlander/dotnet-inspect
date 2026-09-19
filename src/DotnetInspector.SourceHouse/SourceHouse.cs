@@ -1534,6 +1534,22 @@ public static class SourceHouse
                     new("PartialDeclarationUnsupported")),
                 0);
         }
+        SourceHousePhysicalTargetEvidence physicalTarget =
+            prepared.PhysicalTarget;
+        if (physicalTarget.XmlDocumentationIdentity
+            is not { } xmlDocumentationIdentity)
+        {
+            return Physical(
+                new SourceHousePhysicalDeclarationOutcome.Unavailable(
+                    Receipt(
+                        capability: null,
+                        issuer: null,
+                        profile: null,
+                        generation: null,
+                        contributionsObserved: 0),
+                    new("TargetOutsideSupportedProfile")),
+                0);
+        }
         if (selectedCapability
             is not ISourceHousePhysicalDeclarationCapability capability)
         {
@@ -1560,7 +1576,7 @@ public static class SourceHouse
                             request.SelectedAssembly,
                             request.Plan.Identity,
                             request.Plan.PolicyGeneration,
-                            prepared.PhysicalTarget,
+                            physicalTarget,
                             physicalSource),
                         request.Plan.Limits
                             .MaximumAttestationContributions,
@@ -1741,13 +1757,12 @@ public static class SourceHouse
                         attestation.Generation,
                         capability.Generation)
                     || !attestation.ModuleDigest.Matches(
-                        prepared.PhysicalTarget.ModuleDigest)
+                        physicalTarget.ModuleDigest)
                     || attestation.Target
-                        != prepared.PhysicalTarget.Address
+                        != physicalTarget.Address
                     || !Equals(
                         attestation.XmlDocumentationIdentity,
-                        prepared.PhysicalTarget
-                            .XmlDocumentationIdentity)
+                        xmlDocumentationIdentity)
                     || !ReferenceEquals(
                         attestation.SourceResult,
                         physicalSource.Result)
@@ -1918,17 +1933,20 @@ public static class SourceHouse
         using var peReader = new PEReader(stream);
         MetadataReader reader = peReader.GetMetadataReader();
         SourceHousePhysicalTargetAddress address;
-        XmlDocMemberIdentity xmlIdentity;
+        XmlDocMemberIdentity? xmlIdentity;
         if (target is SourceHouseTarget.TypeTarget)
         {
-            if (type.MetadataToken is not { } typeToken
-                || !ApiMemberIdentity.TryGetXmlDocTypeIdentity(
-                    type,
-                    out xmlIdentity))
+            if (type.MetadataToken is not { } typeToken)
             {
                 throw new InvalidOperationException(
-                    "The exact TypeDef target has no compiler XML identity.");
+                    "The exact type target has no metadata token.");
             }
+            xmlIdentity =
+                ApiMemberIdentity.TryGetXmlDocTypeIdentity(
+                    type,
+                    out XmlDocMemberIdentity typeIdentity)
+                    ? typeIdentity
+                    : null;
 
             EntityHandle handle = MetadataTokens.EntityHandle(typeToken);
             if (handle.Kind != HandleKind.TypeDefinition)
@@ -1974,12 +1992,6 @@ public static class SourceHouse
                     .OfType<XmlDocMemberIdentity>()
                     .Distinct(),
             ];
-            if (identities.Length != 1)
-            {
-                throw new InvalidOperationException(
-                    "The exact MethodDef target has no unique compiler XML identity.");
-            }
-
             EntityHandle handle = MetadataTokens.EntityHandle(
                 memberTarget.MetadataToken);
             if (handle.Kind != HandleKind.MethodDefinition)
@@ -1988,7 +2000,9 @@ public static class SourceHouse
                     "The exact member target does not identify a MethodDef row.");
             }
 
-            xmlIdentity = identities[0];
+            xmlIdentity = identities.Length == 1
+                ? identities[0]
+                : null;
             address = new SourceHousePhysicalTargetAddress.Method(
                 new MetadataMethodAddress(
                     reader.GetGuid(

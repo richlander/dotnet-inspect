@@ -257,6 +257,12 @@ contributions are not decoded, authenticated, or compared with an ineligible
 result. Their presence cannot turn missing applicable source evidence into
 `Rejected`.
 
+SourceHouse always retains the exact module and Metadata target evidence for an
+available authored-source result. When that target has no unique compiler XML
+identity, the identity is absent, the correspondence is `Unavailable`, and no
+attestation capability is invoked; this cannot fail or weaken ordinary source
+acquisition.
+
 Contribution admission and aggregation are ordered:
 
 1. SourceHouse enumerates the complete bounded contribution set, decodes it,
