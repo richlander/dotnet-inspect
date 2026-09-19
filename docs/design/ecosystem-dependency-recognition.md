@@ -22,7 +22,8 @@ The **Ecosystem Dependency Recognition** owner in
 - many-to-many recognition evidence, including every matching association;
 - explicit complete, incomplete, and unavailable outcomes;
 - deterministic product, observation, and recognition ordering;
-- recognized, unrecognized, candidate, and association counts; and
+- recognized, unrecognized, candidate, and association counts;
+- one authoritative multi-part recognition Document; and
 - the completed `InspectionEnvelope<EcosystemDependencyRecognitionOutcome>`
   handoff to production hosts.
 
@@ -32,7 +33,7 @@ Its exact claim is:
 > owner-issued direct-dependency observation batch, recognize every shipped
 > ecosystem whose authored association matches each observation, preserve the
 > observation, declaration source, matching basis, overlap, non-match, and
-> input completion, and return one detached product-relative result without
+> input completion in one detached product-relative Document without
 > traversing dependencies or inferring Package-to-assembly provenance.
 
 The answer is deliberately product-relative. An unrecognized dependency means
@@ -77,6 +78,9 @@ This owner consumes, but does not redefine:
   reference identities and metadata failure semantics;
 - [Inspection envelope](inspection-envelope.md) for completed cross-host
   content, Share, and diagnostic handoff;
+- [Multi-part inspection documents](multi-part-inspection-documents.md) for one
+  authoritative content value with independently useful summary, recognition,
+  non-match, coverage, and failure parts;
 - [Progressive disclosure](progressive-disclosure.md), [Output
   Shapes](output-shapes.md), and [Style Guide](style-guide.md) for later CLI
   section adoption; and
@@ -190,7 +194,7 @@ The same association may appear under multiple packs. Cross-pack overlap is a
 supported product statement, not a validation error.
 
 Profile construction snapshots its inputs. Later mutation of a source
-collection cannot change an existing profile or recognition result.
+collection cannot change an existing profile or recognition Document.
 
 ### Initial product profile
 
@@ -250,7 +254,7 @@ walk Package dependencies, resolve assembly references, acquire candidate
 Packages, or decide whether an observation is direct.
 
 The inspected Package or Library is not classified from its own name. It may
-appear in a result only if an owner-issued dependency observation names it.
+appear in a Document only if an owner-issued dependency observation names it.
 
 ## Observation batch and completion
 
@@ -293,31 +297,44 @@ Library adoption, failed direct-reference projection prevents an `Available`
 batch. Those rules are adoption obligations; the recognition operation
 preserves the batch state it receives.
 
-## Recognition result
+## Recognition Document and outcome
 
 The outcome mirrors the observation batch state:
 
 ```text
 EcosystemDependencyRecognitionOutcome
-  = Complete(Result)
-  | Incomplete(PartialResult, InputIssues)
+  = Complete(Document)
+  | Incomplete(Document)
   | Unavailable(InputIssues)
 ```
 
 `Incomplete` is not a successful complete answer. It may retain classifications
 for trustworthy observations so diagnostics can explain what was learned
-before the gap. `Unavailable` contains no recognition rollup.
+before the gap. Its Document carries the input issues required to interpret
+that partial evidence. `Unavailable` contains no recognition Document.
 
-One `Result` contains:
+One `EcosystemDependencyRecognitionDocument` contains:
 
-- the ordered product ecosystem candidate count;
-- Package and assembly association counts;
-- total, recognized, and unrecognized observation counts;
-- the count of distinct recognized ecosystems;
-- the count of observation-to-ecosystem recognitions;
+- a summary with the ordered product ecosystem candidate count, Package and
+  assembly association counts, total, recognized, and unrecognized observation
+  counts, distinct recognized ecosystem count, and
+  observation-to-ecosystem recognition count;
 - distinct recognized ecosystem descriptors in product order;
-- recognized observation entries; and
-- unrecognized observations in source order.
+- recognized observation entries;
+- unrecognized observations in source order;
+- complete or incomplete coverage; and
+- input issues when coverage is incomplete.
+
+These are correlated semantic parts of one Document. A compact rollup, detailed
+recognition rows, non-match disclosure, and coverage/failure disclosure are
+section projections over that Document, not independently constructed host
+models.
+
+The Document validates that every recognition refers to one contained
+observation and one contained ecosystem descriptor, no observation appears in
+both the recognized and unrecognized populations, and every summary count
+equals its source populations. Observation identities are document-local joins,
+not portable subject identities.
 
 One recognized observation entry retains:
 
@@ -326,14 +343,14 @@ One recognized observation entry retains:
 - every matching association basis from that ecosystem's profile entry in
   authored association order.
 
-The pair of observation identity and ecosystem identity is unique in a result.
-If two associations from the same ecosystem match one observation, the result
-contains one recognition entry with both bases. If two ecosystems match one
-observation, the result contains two entries.
+The pair of observation identity and ecosystem identity is unique in a
+Document. If two associations from the same ecosystem match one observation,
+the Document contains one recognition entry with both bases. If two ecosystems
+match one observation, the Document contains two entries.
 
 ### Ordering
 
-Results use:
+Document populations use:
 
 1. ecosystem product order;
 2. observation source order; and
@@ -343,12 +360,12 @@ Unrecognized observations retain source order. Hosts must not recover
 ecosystem order from titles or sort dependency identities to manufacture a
 different semantic order.
 
-### Empty and unrecognized results
+### Empty and unrecognized Documents
 
-An available empty batch produces a complete result with zero observations and
-zero recognized ecosystems.
+An available empty batch produces a complete Document with zero observations
+and zero recognized ecosystems.
 
-A nonempty batch in which no association matches produces a complete result
+A nonempty batch in which no association matches produces a complete Document
 whose unrecognized count equals its observation count. It does not produce an
 unavailable or failed outcome.
 
@@ -373,7 +390,7 @@ cross-host diagnostics may also appear in the envelope, but diagnostics alone
 must not turn an incomplete or unavailable content outcome into a complete
 one.
 
-The result is detached and resource-free before it crosses to either host.
+The Document is detached and resource-free before it crosses to either host.
 
 ## Real-package evidence
 
@@ -418,7 +435,7 @@ classification remains inspectable rather than replacing dependency evidence.
 
 ## Rendering strategy
 
-The recognition result is structured data, not formatted text.
+The recognition Document is structured data, not formatted text.
 
 - CLI adoption uses the normal Markout path for an ecosystem rollup and detail
   rows.
@@ -428,7 +445,7 @@ The recognition result is structured data, not formatted text.
   Package or assembly association matching.
 
 Any host-specific Browser presentation is an explicit UI lowering over the
-same typed recognition result, not a second classifier.
+same typed recognition Document, not a second classifier.
 
 ## Production adoption plan
 
@@ -462,6 +479,8 @@ The implementation must name Release gates for:
   while retaining every basis;
 - repeated dependency names from different declaring sources remaining
   distinct observations;
+- Document-local joins, disjoint recognized/unrecognized populations, and
+  summary-count validation;
 - product, source, and association ordering;
 - recognized, unrecognized, candidate, and association counts;
 - complete-empty, complete-unrecognized, incomplete, and unavailable outcomes;
