@@ -6,6 +6,8 @@ export type InertString = string & {
   readonly [inertStringBrand]: "InertString";
 };
 
+export type BrowserAllocationExceptionPathKind = "ThrownValue" | "ExceptionHandler" | number;
+
 export type BrowserAnnotatedSourceCallCycleLimit = "TraversalBoundary" | "IncompleteCorrespondence" | "WitnessBudget" | "PathBudget" | "AnalysisFailure" | number;
 
 export type BrowserAnnotatedSourceCallKind = "Call" | "CallVirtual" | "NewObject" | "LoadFunction" | "LoadVirtualFunction" | "CallIndirect" | number;
@@ -42,6 +44,17 @@ export interface BrowserAnnotatedSource {
   readonly findingEvidenceDocuments: ReadonlyArray<BrowserAnnotatedSourceFindingEvidenceDocument>;
   readonly findingEvidence: ReadonlyArray<BrowserAnnotatedSourceFindingEvidence>;
   readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPath {
+  readonly factId: number;
+  readonly kind: BrowserAllocationExceptionPathKind;
+}
+
+export interface BrowserAnnotatedSourceAllocationExceptionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAllocationExceptionPath>;
 }
 
 export interface BrowserAnnotatedSourceAwaitCompletionPath {
@@ -137,6 +150,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
   readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
   readonly awaitCompletionPaths: BrowserAnnotatedSourceAwaitCompletionPathInspection;
+  readonly allocationExceptionPaths: BrowserAnnotatedSourceAllocationExceptionPathInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {
