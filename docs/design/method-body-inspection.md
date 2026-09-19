@@ -79,9 +79,24 @@ explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
 Metadata friend set. The source rejects resolver operations after its owning
 session is disposed, while copied body data remains safe to retain.
 
-This establishes the migration pattern for the existing member projection:
-top-level contracts, a focused `MemberProjectionProducer`, and a thin
-`ResearchViews.ProjectMember` forwarder. That migration is tracked by
+`MemberProjectionProducer` applies that pattern to member inspection:
+
+- top-level `MemberProjectionRequest` and `MemberProjectionResult` contracts
+  carry already-open Metadata, optional Analysis context, and selected
+  projection capabilities;
+- the producer owns method import, one Finding census, overlays, portable
+  source, tracing, and projection-specific failure shaping;
+- `ResearchViews.ProjectMember` is a compatibility forwarder with no production
+  logic;
+- CLI member inspection and L1 Research queries invoke the producer directly;
+  the CLI unions `ResearchFactRegistry` requirements into its existing Analysis
+  execution, while the pathless Workspace query supplies its immutable-image
+  context; and
+- `ResearchAssemblyContext` remains a transitional input until every member
+  fact family has an exact focused Analysis result. The producer does not
+  replace that boundary with a universal Research result bag.
+
+This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).
 
 ## Selector shapes

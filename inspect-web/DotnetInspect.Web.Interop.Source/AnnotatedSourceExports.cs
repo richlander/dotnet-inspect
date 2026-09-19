@@ -358,7 +358,7 @@ public static partial class SourceExports
                 .. projectedAllocationExceptionPaths.Select(observation =>
                     new BrowserAnnotatedSourceAllocationExceptionPath(
                         observation.FactId,
-                        AllocationExceptionPathKind(
+                        ProjectAllocationExceptionPathKind(
                             observation.Kind))),
             ];
         }
@@ -496,13 +496,13 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
-    static BrowserAllocationExceptionPathKind AllocationExceptionPathKind(
-        ResearchViews.AllocationExceptionPathKind kind) =>
+    static BrowserAllocationExceptionPathKind ProjectAllocationExceptionPathKind(
+        AllocationExceptionPathKind kind) =>
         kind switch
         {
-            ResearchViews.AllocationExceptionPathKind.ThrownValue =>
+            AllocationExceptionPathKind.ThrownValue =>
                 BrowserAllocationExceptionPathKind.ThrownValue,
-            ResearchViews.AllocationExceptionPathKind.ExceptionHandler =>
+            AllocationExceptionPathKind.ExceptionHandler =>
                 BrowserAllocationExceptionPathKind.ExceptionHandler,
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
@@ -543,7 +543,7 @@ public static partial class SourceExports
     }
 
     private sealed record MemberSourceProjection(
-        ResearchViews.MemberProjectionResult Projection,
+        MemberProjectionResult Projection,
         AnnotatedSourceDocument Document,
         InertString Provenance,
         string? ContextLimitation,
