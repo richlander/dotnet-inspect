@@ -1100,6 +1100,30 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
+        StateMachineRelationshipIndex_RetainsMalformedTruncatedOversizedName()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                truncatedOversizedClaimValue: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            result.Failure.Kind);
+        Assert.Equal(
+            "The state-machine attribute value is malformed.",
+            result.Failure.Detail);
+    }
+
+    [Fact]
+    public void
         StateMachineRelationshipIndex_ReportsTypeNameCharacterBudget()
     {
         using var image = new LoadedImage(
@@ -2754,7 +2778,8 @@ public sealed class StateMachineRelationshipIndexTests
         byte[]? assemblyPublicKey = null,
         string? assemblyCulture = null,
         GuidHandle? moduleVersionId = null,
-        bool largeGuidHeap = false)
+        bool largeGuidHeap = false,
+        bool truncatedOversizedClaimValue = false)
     {
         var metadata = new MetadataBuilder();
         if (largeGuidHeap)
@@ -3008,7 +3033,15 @@ public sealed class StateMachineRelationshipIndexTests
             }
             var value = new BlobBuilder();
             value.WriteUInt16(1);
-            value.WriteSerializedString(serializedTypeName);
+            if (truncatedOversizedClaimValue)
+            {
+                value.WriteCompressedInteger(
+                    MetadataTypeNameBudget.MaxEncodedBytes + 1);
+            }
+            else
+            {
+                value.WriteSerializedString(serializedTypeName);
+            }
             value.WriteUInt16(0);
             metadata.AddCustomAttribute(
                 owner,

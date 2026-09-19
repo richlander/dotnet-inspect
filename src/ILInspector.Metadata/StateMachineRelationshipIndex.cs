@@ -621,22 +621,19 @@ public sealed class StateMachineRelationshipIndex
                 byteCount = value.ReadCompressedInteger();
                 if (byteCount < 0)
                     return ClaimValueShape.Malformed;
-                if (byteCount
-                    > MetadataTypeNameBudget.MaxEncodedBytes)
-                {
-                    return ClaimValueShape.Oversized;
-                }
-                if (byteCount > value.RemainingBytes)
+                if (value.RemainingBytes != byteCount + sizeof(ushort))
                     return ClaimValueShape.Malformed;
 
                 value.Offset += byteCount;
-                if (value.RemainingBytes != 2
-                    || value.ReadUInt16() != 0)
+                if (value.ReadUInt16() != 0)
                 {
                     return ClaimValueShape.Malformed;
                 }
 
-                return ClaimValueShape.Valid;
+                return byteCount
+                        > MetadataTypeNameBudget.MaxEncodedBytes
+                    ? ClaimValueShape.Oversized
+                    : ClaimValueShape.Valid;
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
