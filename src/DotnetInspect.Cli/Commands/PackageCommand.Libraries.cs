@@ -67,6 +67,8 @@ public partial class PackageCommand
             conflicts.Add("--versions/--version/--latest-version");
         if (options.Print)
             conflicts.Add("--print");
+        if (options.Roots)
+            conflicts.Add("--roots");
         if (options.ShowDependencies)
             conflicts.Add("--dependencies");
 
@@ -110,6 +112,8 @@ public partial class PackageCommand
             conflicts.Add("--versions/--version");
         if (options.Print)
             conflicts.Add("--print");
+        if (options.Roots)
+            conflicts.Add("--roots");
         if (options.ShowDependencies)
             conflicts.Add("--dependencies");
         if (string.Equals(

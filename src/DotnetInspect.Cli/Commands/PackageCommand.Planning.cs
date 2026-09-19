@@ -530,6 +530,7 @@ public partial class PackageCommand
         if (options.Value) conflicts.Add("--value");
         if (options.Urls) conflicts.Add("--urls");
         if (options.Paths) conflicts.Add("--paths");
+        if (options.Roots) conflicts.Add("--roots");
         if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.IncludeSections?.Contains(
                 PackageSections.DependencyHierarchy) == true)
@@ -562,9 +563,11 @@ public partial class PackageCommand
             && !options.Print
             && !options.Value
             && !options.Urls
-            && !options.Paths)
+            && !options.Paths
+            && !options.Roots)
         {
-            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
+            CommandError.Write(
+                "--row requires --print, --value, --urls, --paths, or --roots.");
             return false;
         }
 
@@ -604,6 +607,7 @@ public partial class PackageCommand
             if (options.ListLayout) conflicts.Add("--layout");
             if (options.ListTfms) conflicts.Add("--tfms");
             if (options.ListVersions) conflicts.Add("--versions/--version");
+            if (options.Roots) conflicts.Add("--roots");
             if (options.PackageLibrary != null) conflicts.Add("--library");
             if (options.AllLibraries) conflicts.Add("--all-libraries");
             if (options.Discover != null) conflicts.Add("-D/--discover");
