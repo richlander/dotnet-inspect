@@ -140,7 +140,6 @@ public static class TypeOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
         Option<string[]> RepoOption,
         Option<string[]> MemberOption,
@@ -158,7 +157,6 @@ public static class TypeOptionsParser
             || parseResult.GetResult(opts.QueryHelp) is { Implicit: false }
             || opts.ParseSelect(parseResult) is { Length: > 0 }
             || opts.ParseSelectDefault(parseResult)
-            || parseResult.GetValue(args.ShapeOption)
             || string.Equals(
                 parseResult.GetValue(args.TfmOption),
                 "all",
@@ -446,6 +444,14 @@ public static class TypeOptionsParser
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
 
+        bool tree = parseResult.GetValue(opts.Tree);
+        bool treeOwnsFormat =
+            tree && !opts.IsFormatFlagExplicitlySet(parseResult);
+        OutputFormat outputFormat =
+            treeOwnsFormat
+                ? OutputFormat.Markdown
+                : opts.ResolveFormat(parseResult);
+
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
@@ -468,14 +474,23 @@ public static class TypeOptionsParser
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = outputFormat == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-            Format = opts.ResolveFormat(parseResult),
+            Tabular =
+                outputFormat is
+                    OutputFormat.Table or
+                    OutputFormat.Tsv or
+                    OutputFormat.Jsonl,
+            Tsv = outputFormat == OutputFormat.Tsv,
+            Jsonl = outputFormat == OutputFormat.Jsonl,
+            TabularExplicitlySet =
+                !treeOwnsFormat
+                && opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet =
+                tree || opts.IsFormatExplicitlySet(parseResult),
+            FormatFlagExplicitlySet =
+                tree || opts.IsFormatFlagExplicitlySet(parseResult),
+            Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
@@ -488,12 +503,10 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
+            Tree = tree,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
