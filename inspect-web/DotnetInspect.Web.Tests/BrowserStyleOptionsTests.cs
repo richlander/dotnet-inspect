@@ -96,6 +96,19 @@ public sealed class BrowserStyleOptionsTests
         Assert.Equal(
             Pipeline.StyleOptionCatalog.DefaultOptions,
             BrowserStyleOptions.Resolve(null));
+        Assert.True(BrowserStyleOptions.Resolve(null).PreferLongLiteralSuffix);
+        Assert.False(
+            BrowserStyleOptions.Resolve(
+                JsonSerializer.Serialize(
+                    new[] { "explicit-long-literal-cast" },
+                    BrowserCatalogJsonContext.Default.StringArray))
+                .PreferLongLiteralSuffix);
+        Assert.True(
+            BrowserStyleOptions.Resolve(
+                JsonSerializer.Serialize(
+                    new[] { "prefer-long-literal-suffix" },
+                    BrowserCatalogJsonContext.Default.StringArray))
+                .PreferLongLiteralSuffix);
 
         string conflict = JsonSerializer.Serialize(
             new[]
