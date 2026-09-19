@@ -3,6 +3,7 @@ using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceHouse;
+using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using Inspector.Findings;
 
@@ -10,6 +11,29 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextSourceQueryTests
 {
+    [Fact]
+    public async Task MemberSourceInspection_SelectedAutoGetterUsesSharedStorageComposition()
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.DecompilerUnsafeLegacy);
+        var (type, property) = assembly.MemberTarget("Count", "SelectedAutoPropertySamples");
+        var getter = Assert.Single(ApiMemberAccessors.Create(property, type));
+        var request = AssemblyMemberSourceRequest.From(type, getter);
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant, request,
+            host.Context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.Contains("public int Count { get; }", source.Text);
+        Assert.DoesNotContain("get_Count()", source.Text);
+        Assert.DoesNotContain("this.Count", source.Text);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
     // These member-level production outcomes are PR-fast.
     [Fact]
     public async Task MemberSourceInspection_RealRepositoryAuthoredResultIsDetached()
