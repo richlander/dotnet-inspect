@@ -19,7 +19,8 @@ The **Ecosystem Dependency Recognition** owner in
 - distinct Package ID and assembly simple-name association domains;
 - exact and family association semantics in each domain;
 - classification of one bounded direct-dependency observation batch;
-- one owner-issued Package or Library subject context for every batch;
+- one owner-issued Package or Library semantic subject for every batch;
+- typed availability for every required Package or Library input component;
 - many-to-many recognition evidence, including every matching association;
 - explicit complete, incomplete, and unavailable outcomes;
 - deterministic product, observation, and recognition ordering;
@@ -99,7 +100,7 @@ The operation starts after dependency facts have been selected and decoded:
 
 ```text
 Package or Library owner
-  -> owner-issued subject and selection context
+  -> owner-issued semantic subject and typed input context
   -> ordered direct-dependency observation batch
   -> completion and owner-issued diagnostics
 
@@ -222,29 +223,63 @@ cross-domain rule. Overlap across rows is intentional. For example,
 `Microsoft.AspNetCore.Components.WebView.Maui` recognizes ASP.NET Core, Blazor,
 and .NET MAUI.
 
-## Subject and selection context
+## Subject and input context
 
-Every observation batch carries one resource-free subject context. The context
-is part of Content and remains present when the observation population is
-empty, incomplete, or unavailable.
-
-The closed context kinds are:
+Every observation batch carries one resource-free semantic subject. The
+subject is part of Content and remains present when the observation population
+is empty, incomplete, or unavailable. It contains only identity available
+before dependency projection:
 
 ```text
-Package context
+Package subject
   - exact realized Package coordinate
-  - manifest identity
-  - dependency-group selection evidence
-  - compile-asset selection receipt
 
-Library context
+Library subject
   - exact realized source coordinate
   - portable Library identity
 ```
 
-The Package context consumes existing owner-issued values:
+The Package subject's `RealizedMemberCoordinate.Package` identifies the exact
+acquisition even when no root manifest exists or manifest validation fails.
+The Library subject consumes the source owner's exact
+`RealizedMemberCoordinate` and the selected assembly's
+`PortableLibraryIdentity`. It does not infer Package provenance from the
+assembly name.
 
-- `RealizedMemberCoordinate.Package` identifies the exact Package acquisition;
+Each batch separately carries a typed input context. Required input components
+retain owner-issued values only when those values exist:
+
+```text
+Package input context
+  - manifest projection:
+      Available(PackageManifestFacts)
+      | Unavailable(input-issue reference)
+  - dependency-group selection:
+      Available(requested target, selection status,
+                selected target, selected group index)
+      | Unavailable(input-issue reference)
+      | NotAttempted(input-issue reference)
+  - compile-asset selection:
+      Available(PackageCompileAssetSelectionReceipt)
+      | Unavailable(input-issue reference)
+      | NotAttempted(input-issue reference)
+
+Library input context
+  - direct-reference projection:
+      Available
+      | Unavailable(input-issue reference)
+```
+
+An input-issue reference is an outcome-local join to a contained input issue.
+`NotAttempted` references the prior issue that prevented the component from
+being produced. A context never fabricates an unavailable owner-issued value.
+For example, `PackageDependencyGroupsResult.NoManifest` and
+`PackageDependencyGroupsResult.Failed` retain the exact Package subject and
+adapt their failure into an input issue; they do not manufacture
+`PackageManifestFacts` or dependency-group selection evidence.
+
+The available Package component values consume existing owner-issued values:
+
 - `PackageManifestFacts` identifies the manifest whose declarations were
   projected;
 - the dependency-group query's requested target, selection status, selected
@@ -253,21 +288,28 @@ The Package context consumes existing owner-issued values:
 - `PackageCompileAssetSelectionReceipt` retains the requested and selected
   compile slice from which selected-Library observations were produced.
 
-The context does not rerun either selection. An available Package batch
-requires correspondence among the Package coordinate, manifest identity,
-dependency-group selection, and compile receipt, including one effective
-target-framework slice for the combined observation population. A mismatch is
-an input issue and cannot produce a complete Document.
+The context does not rerun either selection. A complete Package batch requires
+all three components to be available and corresponding, including one
+effective target-framework slice for the combined observation population. An
+unavailable or not-attempted component, or a mismatch among available
+components, is an input issue and cannot produce a complete Document.
 
-The Library context consumes the source owner's exact
-`RealizedMemberCoordinate` and the selected assembly's
-`PortableLibraryIdentity`. It does not infer Package provenance from the
-assembly name.
+The semantic subject is not a display header. Two complete empty Documents for
+different subjects remain distinct and attributable. Hosts must not use
+`InspectionShare`, a rendered command, or a display label to repair missing
+Content identity.
 
-The subject context is semantic Content, not a display header. Two complete
-empty Documents for different subjects remain distinct and attributable.
-Hosts must not use `InspectionShare`, a rendered command, or a display label to
-repair missing Content identity.
+The Package and Library shapes are intentionally distinct:
+
+```text
+Package context
+  - Package subject
+  - Package input context
+
+Library context
+  - Library subject
+  - Library input context
+```
 
 ## Direct-dependency observations
 
@@ -303,7 +345,7 @@ The caller supplies direct observations only. The recognition owner does not
 walk Package dependencies, resolve assembly references, acquire candidate
 Packages, or decide whether an observation is direct.
 
-The inspected Package or Library is retained as subject context but is not
+The inspected Package or Library is retained as the semantic subject but is not
 classified from its own name. It may appear in a recognition or unrecognized
 observation population only if an owner-issued dependency observation names
 it.
@@ -314,16 +356,19 @@ One input batch has one of three states:
 
 ```text
 Available
-  - subject and selection context
+  - semantic subject
+  - complete typed input context
   - all required direct observations
 
 Incomplete
-  - subject and selection context
+  - semantic subject
+  - typed input context
   - every trustworthy observation obtained so far
   - one or more owner-issued input issues
 
 Unavailable
-  - subject and available selection context
+  - semantic subject
+  - typed input context
   - no trustworthy observation set
   - one or more owner-issued input issues
 ```
@@ -334,7 +379,7 @@ completed, its known declaring source when available, and an
 are limited to the recognition boundary:
 
 - effective target-framework selection;
-- Package declaration projection;
+- Package manifest and declaration projection;
 - selected compile-Library enumeration; and
 - assembly-reference projection.
 
@@ -360,17 +405,19 @@ The outcome mirrors the observation batch state:
 EcosystemDependencyRecognitionOutcome
   = Complete(Document)
   | Incomplete(Document)
-  | Unavailable(SubjectContext, InputIssues)
+  | Unavailable(SemanticSubject, InputContext, InputIssues)
 ```
 
 `Incomplete` is not a successful complete answer. It may retain classifications
 for trustworthy observations so diagnostics can explain what was learned
 before the gap. Its Document carries the input issues required to interpret
 that partial evidence. `Unavailable` contains no recognition Document.
+It still validates that every unavailable or not-attempted input component
+refers to one of its contained input issues.
 
 One `EcosystemDependencyRecognitionDocument` contains:
 
-- the exact Package or Library subject context;
+- the exact Package or Library semantic subject and typed input context;
 - a summary with the ordered product ecosystem candidate count, Package and
   assembly association counts, total, recognized, and unrecognized observation
   counts, distinct recognized ecosystem count, and
@@ -386,12 +433,14 @@ recognition rows, non-match disclosure, and coverage/failure disclosure are
 section projections over that Document, not independently constructed host
 models.
 
-The Document validates that its observations belong to its subject and
-selection context, every recognition refers to one contained observation and
-one contained ecosystem descriptor, no observation appears in both the
-recognized and unrecognized populations, and every summary count equals its
-source populations. Observation identities are document-local joins, not
-portable subject identities.
+The Document validates that its observations belong to its semantic subject
+and available input components, every unavailable or not-attempted component
+refers to a contained input issue, every recognition refers to one contained
+observation and one contained ecosystem descriptor, no observation appears in
+both the recognized and unrecognized populations, and every summary count
+equals its source populations. A complete Document has no unavailable or
+not-attempted required component. Observation and input-issue identities are
+document-local joins, not portable subject identities.
 
 One recognized observation entry retains:
 
@@ -440,8 +489,8 @@ InspectionEnvelope<EcosystemDependencyRecognitionOutcome>
 
 The Package or Library composition supplies the `InspectionShare` outcome for
 the exact semantic subject plan. Recognition validates that this plan
-corresponds to the Document's subject context. It does not derive Share from a
-Package ID, assembly name, rendered command, or dependency evidence.
+corresponds to the Document's semantic subject. It does not derive Share from
+a Package ID, assembly name, rendered command, or dependency evidence.
 
 Input issues remain in the owner-issued content outcome. Supplemental
 cross-host diagnostics may also appear in the envelope, but diagnostics alone
@@ -539,6 +588,10 @@ The implementation must name Release gates for:
   distinct observations;
 - complete-empty Package and Library Documents remaining distinct and
   attributable through Content alone;
+- no-manifest and malformed-manifest outcomes retaining exact Package
+  attribution without fabricated manifest or selection facts;
+- unavailable and not-attempted input components referring to contained input
+  issues through valid document-local joins;
 - Package requested/selected target and selected-group identity surviving
   Document and envelope transport;
 - mismatched dependency-group and compile-slice context refusing a complete
