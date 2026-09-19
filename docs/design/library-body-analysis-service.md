@@ -164,7 +164,7 @@ shared semantic input.
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
-| 2 | Library Optimization Opportunities section | Optimization result including its explicitly required allocation and leverage inputs or completed owner-issued projections |
+| 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, whose Analysis-owned projection completes leverage, allocation, provenance, and caller-loop joins while preserving opt-in allocation-fanout evaluation |
 | 3 | Library Top Leverage and call-graph sections | Focused leverage and local call-graph results after their current index-local derivations receive an owner |
 | 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
@@ -186,11 +186,13 @@ Implementation Profiles because they already project cohesive internal result
 families and exercise the library section system directly. It must not first
 publish unused public result types.
 
-`OptimizationOpportunities`, `TopLeverage`, call trees, and other methods that
-currently compute derived answers on `LibraryBodyIndex` move only after their
-focused owner identifies the exact inputs and result. Resource Triage follows
-issues #6730 and #6731 so the new ownership path reaches a section without
-returning through the old index shape.
+The Optimization Opportunities slice moves its completed projection out of
+`LibraryBodyIndex`; the compatibility adapter delegates to the same detached
+projection while remaining consumers migrate. `TopLeverage`, call trees, and
+other derived answers move only after their focused owner identifies the exact
+inputs and result. Resource Triage follows issues #6730 and #6731 so the new
+ownership path reaches a section without returning through the old index
+shape.
 
 Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
 Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
@@ -231,6 +233,10 @@ to its typed query:
 LibrarySafetyAnalysisResult safety = context.BodyAnalysis().Safety;
 UnsafeEvidenceResult result = UnsafeEvidenceQuery.Execute(safety);
 ```
+
+The Optimization Opportunities section follows the same path with
+`context.BodyAnalysis().Optimization`; its query chooses whether to evaluate
+the result's lazy allocation-fanout projection.
 
 Inspect Web continues to receive owner-typed query exports. The browser host
 remains compiler-banned from calling the Analysis service directly; Workspace
@@ -293,6 +299,10 @@ The first migration is gated by
 `UnsafeEvidenceQuery_RecordsFocusedAnalysisWithoutBodyIndex`,
 `ImplementationProfilesQuery_RunsOnlyItsFocusedProducers`, and
 `MigratedAnalysisQueries_ShareExecutionWithoutBodyIndex`.
+The Optimization Opportunities migration adds
+`OptimizationOpportunitiesQueryTests`,
+`OptimizationOpportunitiesQuery_RecordsFocusedAnalysisWithoutBodyIndex`, and
+focused-result/compatibility parity in `LibraryBodyAnalysisExecutionTests`.
 
 ## Non-claims
 

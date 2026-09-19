@@ -44,6 +44,67 @@ public sealed record LibraryImplementationProfileAnalysisResult(
 }
 
 /// <summary>
+/// Completed optimization opportunities and the supporting classifications
+/// produced by one library-body Analysis execution.
+/// </summary>
+public sealed class LibraryOptimizationAnalysisResult
+{
+    private readonly LibraryOptimizationAnalysisProjection? _projection;
+    private readonly Lazy<ImmutableHashSet<TypeRef>>
+        _generatedFrameworkTypes;
+
+    internal LibraryOptimizationAnalysisResult(
+        LibraryBodyAnalysisReceipt receipt,
+        LibraryOptimizationAnalysisProjection? projection,
+        Lazy<ImmutableHashSet<TypeRef>> generatedFrameworkTypes)
+    {
+        Receipt = receipt;
+        _projection = projection;
+        _generatedFrameworkTypes = generatedFrameworkTypes;
+    }
+
+    /// <summary>
+    /// Identity, coverage, and diagnostics for the shared execution.
+    /// </summary>
+    public LibraryBodyAnalysisReceipt Receipt { get; }
+
+    /// <summary>
+    /// Source and IL opportunities completed with leverage, provenance, and
+    /// caller-loop evidence.
+    /// </summary>
+    public ImmutableArray<OptimizationOpportunity> Opportunities =>
+        WasRequested
+            ? _projection!.Opportunities
+            : [];
+
+    /// <summary>
+    /// Opt-in whole-library allocation fanout opportunities.
+    /// </summary>
+    public ImmutableArray<OptimizationOpportunity>
+        AllocationFanoutOpportunities =>
+        WasRequested
+            ? _projection!.AllocationFanoutOpportunities
+            : [];
+
+    /// <summary>
+    /// Exact identities classified as generated framework implementation
+    /// detail.
+    /// </summary>
+    public ImmutableHashSet<TypeRef> GeneratedFrameworkTypes =>
+        WasRequested
+            ? _generatedFrameworkTypes.Value
+            : [];
+
+    /// <summary>
+    /// Whether full optimization-opportunity production participated in this
+    /// execution.
+    /// </summary>
+    public bool WasRequested =>
+        Receipt.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+}
+
+/// <summary>
 /// Explicit focused results produced by one shared library-body Analysis
 /// execution.
 /// </summary>
@@ -51,6 +112,11 @@ public sealed class LibraryBodyAnalysisExecution
 {
     private readonly string? _moduleName;
     private readonly LibraryBodyAnalysisResult _analysis;
+    private readonly ImmutableArray<DirectCall> _physicalDirectCalls;
+    private readonly LibraryOptimizationAnalysisProjection?
+        _optimizationProjection;
+    private readonly Lazy<ImmutableHashSet<TypeRef>>
+        _generatedFrameworkTypes;
     private LibraryBodyIndex? _compatibilityIndex;
 
     internal LibraryBodyAnalysisExecution(
@@ -68,6 +134,38 @@ public sealed class LibraryBodyAnalysisExecution
             plan.Features,
             HasFullMethodEvidenceScope(plan),
             analysis.Diagnostics);
+        _physicalDirectCalls =
+        [
+            .. analysis.Methods.DirectCalls.Select(static call =>
+                call.Caller == call.EvidenceMethod
+                    ? call
+                    : call with
+                    {
+                        Caller = call.EvidenceMethod,
+                    }),
+        ];
+        ImmutableArray<DirectCall> physicalDirectCalls =
+            _physicalDirectCalls;
+        ImmutableArray<MethodIdentity> methods =
+            analysis.Methods.Methods;
+        _generatedFrameworkTypes = new(() =>
+            GeneratedFrameworkTypeAnalysis.Collect(
+                    physicalDirectCalls,
+                    methods)
+                .ToImmutableHashSet());
+        if ((Receipt.Features
+                & (LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities
+                    | LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities)) != 0)
+        {
+            _optimizationProjection =
+                new(
+                    analysis,
+                    Receipt.Features,
+                    _moduleName,
+                    _physicalDirectCalls);
+        }
         Safety = new(
             Receipt,
             analysis.Safety.Evidence);
@@ -75,7 +173,17 @@ public sealed class LibraryBodyAnalysisExecution
             CreateImplementationProfileResult(
                 Receipt,
                 analysis,
-                _moduleName);
+                _moduleName,
+                _physicalDirectCalls,
+                _generatedFrameworkTypes);
+        Optimization = new(
+            Receipt,
+            Receipt.Features.HasFlag(
+                LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities)
+                ? _optimizationProjection
+                : null,
+            _generatedFrameworkTypes);
     }
 
     /// <summary>
@@ -91,6 +199,9 @@ public sealed class LibraryBodyAnalysisExecution
     public LibraryImplementationProfileAnalysisResult
         ImplementationProfiles { get; }
 
+    /// <summary>Focused optimization-opportunity result.</summary>
+    public LibraryOptimizationAnalysisResult Optimization { get; }
+
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
     /// consumers that have not yet migrated to focused results.
@@ -102,7 +213,10 @@ public sealed class LibraryBodyAnalysisExecution
             _moduleName,
             _analysis,
             Receipt.Features,
-            Receipt.HasFullMethodEvidenceScope);
+            Receipt.HasFullMethodEvidenceScope,
+            _physicalDirectCalls,
+            _optimizationProjection,
+            _generatedFrameworkTypes);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
@@ -113,7 +227,10 @@ public sealed class LibraryBodyAnalysisExecution
         CreateImplementationProfileResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
-            string? moduleName)
+            string? moduleName,
+            ImmutableArray<DirectCall> physicalDirectCalls,
+            Lazy<ImmutableHashSet<TypeRef>>
+                generatedFrameworkTypes)
     {
         if (!receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.ImplementationProfiles))
@@ -125,16 +242,6 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
-        ImmutableArray<DirectCall> physicalDirectCalls =
-        [
-            .. analysis.Methods.DirectCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
         MethodDefinitionMap methodMap =
             MethodDefinitionMap.Create(
                 analysis.Methods.DeclaredMethods,
@@ -166,9 +273,6 @@ public sealed class LibraryBodyAnalysisExecution
                 relationships,
                 methodMap),
             relationships,
-            GeneratedFrameworkTypeAnalysis.Collect(
-                    physicalDirectCalls,
-                    analysis.Methods.Methods)
-                .ToImmutableHashSet());
+            generatedFrameworkTypes.Value);
     }
 }

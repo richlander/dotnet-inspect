@@ -341,11 +341,6 @@ public partial class LibraryBodyIndexTests
         // Evidence-domain caches the release methods deliberately retain.
         string[] retainedCaches =
         [
-            "_allocationFanoutOpportunities",
-            "_directCallerLoops",
-            "_generatedFrameworkTypes",
-            "_opportunities",
-            "_rootReachByToken",
             "_signals",
             "_unsafeEvidenceByMember",
         ];
@@ -358,6 +353,12 @@ public partial class LibraryBodyIndexTests
 
         var index = Exercised(analysisPath);
         var before = PopulatedCaches(index);
+        ImmutableArray<OptimizationOpportunity> opportunities =
+            index.OptimizationOpportunities;
+        ImmutableArray<OptimizationOpportunity> fanout =
+            index.AllocationFanoutOpportunities;
+        IReadOnlySet<TypeRef> generatedTypes =
+            index.GeneratedFrameworkTypes;
 
         // The gate is only meaningful if the caches under test were populated to begin with.
         // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
@@ -367,6 +368,15 @@ public partial class LibraryBodyIndexTests
 
         index.ReleaseCallGraphCaches();
         Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
+        Assert.Equal(
+            opportunities,
+            index.OptimizationOpportunities);
+        Assert.Equal(
+            fanout,
+            index.AllocationFanoutOpportunities);
+        Assert.Same(
+            generatedTypes,
+            index.GeneratedFrameworkTypes);
 
         static LibraryBodyIndex Exercised(string path)
         {
@@ -395,10 +405,8 @@ public partial class LibraryBodyIndexTests
                 new(0, 1, 1, 1));
             _ = index.GetDirectCallsByEvidenceMethod();
             _ = index.ImplementationProfiles();
-            // The retained half of the contract is only gated on caches this workload actually
-            // populates, and the call-tree builders alone reach just one of the seven. Touch the
-            // evidence-domain producers too; OptimizationOpportunities is what pulls in
-            // _directCallerLoops and _rootReachByToken, which have no direct test access.
+            // Touch the detached optimization projection too so the test can
+            // verify that releasing call-graph caches does not discard it.
             _ = index.OptimizationOpportunities;
             _ = index.AllocationFanoutOpportunities;
             _ = index.GetUnsafeEvidenceByMember();

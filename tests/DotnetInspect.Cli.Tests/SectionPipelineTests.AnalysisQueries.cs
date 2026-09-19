@@ -337,7 +337,9 @@ public partial class SectionPipelineTests
             BodyAnalysisFeatures =
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
                 | Analysis.LibraryBodyAnalysisFeatures
-                    .ImplementationProfiles,
+                    .ImplementationProfiles
+                | Analysis.LibraryBodyAnalysisFeatures
+                    .OptimizationOpportunities,
             Trace = trace,
         };
 
@@ -345,6 +347,7 @@ public partial class SectionPipelineTests
             [
                 UnsafeEvidenceQuery.Definition,
                 ImplementationProfilesQuery.Definition,
+                OptimizationOpportunitiesQuery.Definition,
             ],
             context,
             trace.RecordQueryExecution);
@@ -353,6 +356,8 @@ public partial class SectionPipelineTests
             results.Get(UnsafeEvidenceQuery.Definition));
         Assert.IsType<ImplementationProfilesResult.Available>(
             results.Get(ImplementationProfilesQuery.Definition));
+        Assert.IsType<OptimizationOpportunitiesResult.Available>(
+            results.Get(OptimizationOpportunitiesQuery.Definition));
         var analysis = Assert.Single(
             trace.Resources,
             resource => resource.Resource == "body analysis");
@@ -471,7 +476,7 @@ public partial class SectionPipelineTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    public void OptimizationOpportunitiesQuery_RecordsFocusedAnalysisWithoutBodyIndex()
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var trace = new InspectionTrace();
@@ -499,13 +504,20 @@ public partial class SectionPipelineTests
                 results.Get(OptimizationOpportunitiesQuery.Definition));
         Assert.NotEmpty(available.Opportunities);
         Assert.Empty(available.AllocationFanoutOpportunities);
-        var bodyIndex = Assert.Single(
+        var analysis = Assert.Single(
             trace.Resources,
-            resource => resource.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+            resource => resource.Resource == "body analysis");
+        Assert.StartsWith("built in", analysis.Detail.ToString());
         Assert.Contains(
             "OptimizationOpportunities",
-            bodyIndex.Detail.ToString());
+            analysis.Detail.ToString());
+        Assert.DoesNotContain(
+            "ImplementationProfiles",
+            analysis.Detail.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "body index");
         Assert.DoesNotContain(
             trace.Resources,
             resource => resource.Resource == "drill map");
@@ -515,19 +527,22 @@ public partial class SectionPipelineTests
     [Trait("Speed", "Slow")]
     public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
     {
-        var index = Analysis.LibraryBodyIndex.Open(
-            typeof(SectionPipelineTests).Assembly.Location,
-            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        Analysis.LibraryBodyAnalysisExecution analysis =
+            Analysis.LibraryBodyAnalysisService.ExecutePath(
+                typeof(SectionPipelineTests).Assembly.Location,
+                Analysis.LibraryBodyAnalysisRequest.Create(
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
 
         var ordinary =
             Assert.IsType<OptimizationOpportunitiesResult.Available>(
                 OptimizationOpportunitiesQuery.Execute(
-                    index,
+                    analysis.Optimization,
                     includeAllocationFanout: false));
         var fanout =
             Assert.IsType<OptimizationOpportunitiesResult.Available>(
                 OptimizationOpportunitiesQuery.Execute(
-                    index,
+                    analysis.Optimization,
                     includeAllocationFanout: true));
 
         Assert.Empty(ordinary.AllocationFanoutOpportunities);
@@ -535,7 +550,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void OptimizationOpportunitiesQuery_BodyIndexFailureRemainsTyped()
+    public void OptimizationOpportunitiesQuery_AnalysisFailureRemainsTyped()
     {
         InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
             [OptimizationOpportunitiesQuery.Definition],
@@ -548,7 +563,7 @@ public partial class SectionPipelineTests
     }
 
     [Fact]
-    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireAnalysis()
     {
         bool acquired = false;
 

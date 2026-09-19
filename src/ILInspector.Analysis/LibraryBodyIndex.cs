@@ -4,7 +4,6 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.ControlFlow;
-using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -88,7 +87,12 @@ public sealed class LibraryBodyIndex
         string? moduleName,
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features,
-        bool hasFullMethodEvidenceScope)
+        bool hasFullMethodEvidenceScope,
+        ImmutableArray<DirectCall> physicalDirectCalls,
+        LibraryOptimizationAnalysisProjection?
+            optimizationProjection,
+        Lazy<ImmutableHashSet<TypeRef>>
+            generatedFrameworkTypes)
     {
         Path = path;
         ModuleIdentity = moduleIdentity;
@@ -101,27 +105,11 @@ public sealed class LibraryBodyIndex
         FieldLoads = analysis.Methods.FieldLoads;
         ReturnFlows = analysis.Methods.ReturnFlows;
         _localThrows = analysis.Methods.LocalThrows;
-        _physicalDirectCalls =
-        [
-            .. DirectCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
+        _physicalDirectCalls = physicalDirectCalls;
         UnsafeEvidence = analysis.Safety.Evidence;
         Diagnostics = analysis.Diagnostics;
-        _rawOpportunities = analysis.Optimizations.Opportunities;
-        _opportunitiesComputed =
-            (features
-                & (LibraryBodyAnalysisFeatures.OptimizationOpportunities
-                    | LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities)) != 0;
-        _allocationOpportunitiesComputed =
-            (features
-                & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
+        _optimizationProjection = optimizationProjection;
+        _generatedFrameworkTypes = generatedFrameworkTypes;
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
         MemorySafetyRules = analysis.Safety.Rules;
         UnsafeModes = analysis.Safety.Modes;
@@ -132,11 +120,6 @@ public sealed class LibraryBodyIndex
         _unsafetyOccurrences = analysis.Safety.Occurrences;
         _inAssemblyTypeIsException =
             analysis.Methods.InAssemblyTypeIsException;
-        _suppressedOpportunityTokens =
-            analysis.Optimizations.SuppressedMethodTokens;
-        _scopeExcludedOpportunityTokens =
-            analysis.Optimizations.ScopeExcludedMethodTokens;
-        _exceptionTypeNames = analysis.Optimizations.ExceptionTypeNames;
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         Features = features;
@@ -257,14 +240,11 @@ public sealed class LibraryBodyIndex
             ?? throw new InvalidOperationException(
                 "Leak Triage was not requested for this body index.");
 
-    readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
-    readonly bool _opportunitiesComputed;
-    readonly bool _allocationOpportunitiesComputed;
+    readonly LibraryOptimizationAnalysisProjection?
+        _optimizationProjection;
+    readonly Lazy<ImmutableHashSet<TypeRef>>
+        _generatedFrameworkTypes;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
-    ImmutableArray<OptimizationOpportunity> _opportunities;
-    ImmutableArray<OptimizationOpportunity> _allocationFanoutOpportunities;
-    IReadOnlyDictionary<int, CallerLoopEvidence>? _directCallerLoops;
-    Dictionary<int, int>? _rootReachByToken;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _directCallsByCaller;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
         _directCallsByEvidenceMethod;
@@ -281,10 +261,10 @@ public sealed class LibraryBodyIndex
     /// from those call relationships.
     /// <para>
     /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
-    /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
-    /// evidence, root-reach roll-ups, unsafe-evidence grouping, generated-framework type sets, and
-    /// the optimization-opportunity arrays — which serve other producers and together retain well
-    /// under a megabyte. Cross-assembly storage is released through
+    /// deliberately does <em>not</em> discard the detached optimization projection,
+    /// generated-framework type set, method signals, or unsafe-evidence grouping.
+    /// Those values serve other consumers and together retain well under a
+    /// megabyte. Cross-assembly storage is released through
     /// <see cref="CatalogCallGraphScope.ReleaseGraph"/>. Everything rebuilds
     /// on next use, so this only trades time for memory.
     /// </para>
@@ -313,92 +293,7 @@ public sealed class LibraryBodyIndex
     /// access (the leverage join walks the whole-assembly call graph).
     /// </summary>
     public ImmutableArray<OptimizationOpportunity> OptimizationOpportunities
-    {
-        get
-        {
-            if (!_opportunitiesComputed)
-                return ImmutableArray<OptimizationOpportunity>.Empty;
-            if (_opportunities.IsDefault)
-            {
-                var reachByToken = RootReachByToken;
-                ImmutableArray<OptimizationOpportunity> raw =
-                [
-                    .. _rawOpportunities.Select(opportunity =>
-                    {
-                        int reach = reachByToken.TryGetValue(
-                            opportunity.Method.MetadataToken,
-                            out int r)
-                                ? r
-                                : opportunity.RootReach;
-                        var adjusted =
-                            reach != opportunity.RootReach
-                                ? opportunity with { RootReach = reach }
-                                : opportunity;
-                        adjusted = MarkAmortizedSetup(adjusted);
-                        var confidence = IsLowFrequencyOpportunity(adjusted)
-                            ? "low"
-                            : OptimizationOpportunityAnalysis
-                                .AdjustDelegateConfidenceForReach(
-                                    adjusted.Shape,
-                                    adjusted.InLoop,
-                                    adjusted.Confidence,
-                                    reach);
-                        adjusted =
-                            confidence != adjusted.Confidence
-                                ? adjusted with
-                                {
-                                    Confidence = confidence,
-                                }
-                                : adjusted;
-                        return OptimizationOpportunityAnalysis
-                            .AddFallbackMetadata(adjusted);
-                    }),
-                ];
-                ImmutableArray<OptimizationOpportunity> opportunities =
-                    _allocationOpportunitiesComputed
-                        ?
-                        [
-                            .. raw,
-                            .. AllocationHotspots(
-                                    reachByToken,
-                                    new HashSet<int>(
-                                        _rawOpportunities
-                                            .Where(o =>
-                                                o.Shape
-                                                    != "sync-call-in-async"
-                                                && !(o.Shape
-                                                        == "async-state-machine"
-                                                    && o.Amortized))
-                                            .Select(o =>
-                                                o.Method.MetadataToken)))
-                                .Select(OptimizationOpportunityAnalysis
-                                    .AddFallbackMetadata),
-                            .. RepeatedScanAnalysis.Collect(
-                                    Methods,
-                                    _physicalDirectCalls,
-                                    _rawOpportunities,
-                                    _suppressedOpportunityTokens,
-                                    reachByToken,
-                                    DeclaredMethodMap)
-                                .Select(OptimizationOpportunityAnalysis
-                                    .AddFallbackMetadata),
-                        ]
-                        : raw;
-                _opportunities = AttachCallerLoopEvidence(
-                    AttachFindingProvenance(opportunities),
-                    DirectCallerLoops);
-            }
-            return _opportunities;
-        }
-    }
-
-    static ImmutableArray<OptimizationOpportunity> AttachCallerLoopEvidence(
-        ImmutableArray<OptimizationOpportunity> opportunities,
-        IReadOnlyDictionary<int, CallerLoopEvidence> evidenceByMethod)
-        => [.. opportunities.Select(opportunity =>
-            evidenceByMethod.TryGetValue(opportunity.Method.MetadataToken, out var evidence)
-                ? opportunity with { CallerLoop = evidence }
-                : opportunity)];
+        => _optimizationProjection?.Opportunities ?? [];
 
     /// <summary>
     /// Opt-in allocation fanout rows. Each row carries a sound IL-visible lower bound through
@@ -406,325 +301,9 @@ public sealed class LibraryBodyIndex
     /// counted as opaque rather than assigned invented targets.
     /// </summary>
     public ImmutableArray<OptimizationOpportunity> AllocationFanoutOpportunities
-    {
-        get
-        {
-            if (!_opportunitiesComputed)
-                return ImmutableArray<OptimizationOpportunity>.Empty;
-            if (_allocationFanoutOpportunities.IsDefault)
-            {
-                var reachByToken = RootReachByToken;
-
-                _allocationFanoutOpportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
-                [
-                    .. AllocationFanout.Analyze(
-                            Methods,
-                            ClassifyExactCallTargets(
-                                _physicalDirectCalls,
-                                DeclaredMethodMap,
-                                Methods),
-                            _allocationOccurrences,
-                            _scopeExcludedOpportunityTokens,
-                            DeclaredMethodMap)
-                        .Where(summary =>
-                            !_scopeExcludedOpportunityTokens
-                                .Contains(
-                                    summary.Method.MetadataToken))
-                        .Select(summary => new OptimizationOpportunity(
-                            summary.Method,
-                            "allocation-fanout",
-                            $"Known IL-visible impact: direct-sites={summary.DirectSites}, once-paths={summary.OncePaths}, conditional-paths={summary.ConditionalPaths}, repeated-paths={summary.RepeatedPaths}, unknown-paths={summary.UnknownPaths}, cached-sites={summary.CachedSites}, opaque-paths={summary.OpaquePaths}.",
-                            "Inspect the exact allocation findings and call paths; consolidate repeated setup or dispatch object construction when lifecycle measurements show it is unnecessary.",
-                            summary.UnknownPaths == 0 && summary.OpaquePaths == 0 && !summary.Saturated ? "high" : "medium",
-                            summary.RepeatedPaths > 0,
-                            ILOffset: null,
-                            "This is a static lower bound over IL-visible allocations. External, virtual, delegate, recursive, and runtime-library allocation effects remain opaque.",
-                            reachByToken.GetValueOrDefault(summary.Method.MetadataToken))
-                        {
-                            CandidateId = null,
-                            Provenance = PerformanceTriageProvenance.Aggregate,
-                            DirectAllocationSites = summary.DirectSites,
-                            OnceAllocationPaths = summary.OncePaths,
-                            ConditionalAllocationPaths = summary.ConditionalPaths,
-                            RepeatedAllocationPaths = summary.RepeatedPaths,
-                            UnknownAllocationPaths = summary.UnknownPaths,
-                            CachedAllocationSites = summary.CachedSites,
-                            OpaqueCallPaths = summary.OpaquePaths,
-                            AllocationCountSaturated = summary.Saturated,
-                        }),
-                ]), DirectCallerLoops);
-            }
-            return _allocationFanoutOpportunities;
-        }
-    }
-
-    IReadOnlyDictionary<int, CallerLoopEvidence> DirectCallerLoops
-        => _directCallerLoops ??= CallerLoopEvidenceAnalysis.FindNearest(
-            Methods,
-            _physicalDirectCalls,
-            maxDepth: 1,
-            DeclaredMethodMap);
-
-    Dictionary<int, int> RootReachByToken
-    {
-        get
-        {
-            if (_rootReachByToken is null)
-            {
-                var reachByToken = new Dictionary<int, int>();
-                foreach (var entry in TopLeverage(int.MaxValue))
-                    reachByToken[entry.Method.MetadataToken] = entry.RootReach;
-                _rootReachByToken = reachByToken;
-            }
-            return _rootReachByToken;
-        }
-    }
-
-    static ImmutableArray<DirectCall> ClassifyExactCallTargets(
-        ImmutableArray<DirectCall> calls,
-        MethodDefinitionMap declarationMap,
-        ImmutableArray<MethodIdentity> methods)
-    {
-        Dictionary<int, MethodIdentity> methodsByToken =
-            methods.ToDictionary(
-                static method => method.MetadataToken);
-        return
-        [
-            .. calls.Select(call =>
-            {
-                int targetToken =
-                    declarationMap.Resolve(call);
-                bool exact =
-                    methodsByToken.TryGetValue(
-                        targetToken,
-                        out MethodIdentity? target)
-                    && CatalogCallGraphScope.IsResolvedExactTarget(
-                        call.Kind,
-                        target);
-                return call with { ExactTarget = exact };
-            }),
-        ];
-    }
-
-    ImmutableArray<OptimizationOpportunity> AttachFindingProvenance(
-        ImmutableArray<OptimizationOpportunity> opportunities)
-    {
-        var allocationFindings = new Dictionary<int, ImmutableArray<Finding<AllocationOccurrence>>>();
-        var callSiteFindings = new Dictionary<int, ImmutableArray<Finding<DirectCall>>>();
-        var physicalCallsByCaller = _physicalDirectCalls
-            .GroupBy(call => call.Caller.MetadataToken)
-            .ToDictionary(
-                group => group.Key,
-                group => group.ToImmutableArray());
-        var candidateIds = new HashSet<string>(StringComparer.Ordinal);
-        var builder = ImmutableArray.CreateBuilder<OptimizationOpportunity>(opportunities.Length);
-
-        foreach (var opportunity in opportunities)
-        {
-            Finding<AllocationOccurrence>? allocation = null;
-            Finding<DirectCall>? callSite = null;
-            Finding<DirectCall>? supportingCallSite = null;
-            bool attachFinding =
-                opportunity.Shape != "generic-parameter-object-box";
-            if (attachFinding && opportunity.ILOffset is { } offset)
-            {
-                int methodToken = opportunity.Method.MetadataToken;
-                int evidenceMethodToken =
-                    opportunity.EvidenceMethodToken ?? methodToken;
-                if (opportunity.Shape != "sync-call-in-async"
-                    && _allocationOccurrences.TryGetValue(
-                        evidenceMethodToken,
-                        out var occurrences))
-                {
-                    if (!allocationFindings.TryGetValue(
-                            evidenceMethodToken,
-                            out var findings))
-                    {
-                        findings = AnalysisFindings.InspectAllocations(
-                            occurrences,
-                            FindingSubjectFor(
-                                DeclaredMethod(evidenceMethodToken)
-                                    ?? opportunity.Method));
-                        allocationFindings[evidenceMethodToken] =
-                            findings;
-                    }
-                    allocation = SingleFindingAtOffset(
-                        findings,
-                        offset,
-                        static occurrence => occurrence.ILOffset);
-                }
-
-                // newobj and GetEnumerator calls can appear in both censuses. Their triage
-                // shapes describe the allocation, so the allocation Finding owns provenance.
-                if (allocation is null
-                    && physicalCallsByCaller.TryGetValue(
-                        evidenceMethodToken,
-                        out var calls))
-                {
-                    if (!callSiteFindings.TryGetValue(
-                            evidenceMethodToken,
-                            out var findings))
-                    {
-                        findings = AnalysisFindings.InspectCallSites(
-                            calls,
-                            FindingSubjectFor(calls[0].Caller));
-                        callSiteFindings[evidenceMethodToken] = findings;
-                    }
-                    callSite = SingleFindingAtOffset(
-                        findings,
-                        offset,
-                        static call => call.ILOffset);
-                }
-            }
-
-            if (opportunity.SupportingCallSite is { } supportSite
-                && physicalCallsByCaller.TryGetValue(
-                    supportSite.EvidenceMethodToken,
-                    out var supportingCalls))
-            {
-                if (!callSiteFindings.TryGetValue(
-                        supportSite.EvidenceMethodToken,
-                        out var findings))
-                {
-                    findings = AnalysisFindings.InspectCallSites(
-                        supportingCalls,
-                        FindingSubjectFor(
-                            supportingCalls[0].Caller));
-                    callSiteFindings[
-                        supportSite.EvidenceMethodToken] =
-                        findings;
-                }
-                supportingCallSite = SingleFindingAtOffset(
-                    findings,
-                    supportSite.ILOffset,
-                    static call => call.ILOffset);
-            }
-
-            string? sourceFinding = allocation?.Descriptor.Id ?? callSite?.Descriptor.Id ?? opportunity.SourceFinding;
-            FindingKey? findingKey = allocation?.Key ?? callSite?.Key;
-            int? ordinal = allocation?.Ordinal ?? callSite?.Ordinal;
-            int fingerprintLength = PerformanceTriageCandidateId.InitialFingerprintLength;
-            string candidateId;
-            while (true)
-            {
-                candidateId = PerformanceTriageCandidateId.Create(
-                    opportunity,
-                    sourceFinding,
-                    findingKey,
-                    ordinal,
-                    fingerprintLength);
-                if (candidateIds.Add(candidateId))
-                    break;
-                if (fingerprintLength == PerformanceTriageCandidateId.MaximumFingerprintLength)
-                {
-                    throw new InvalidOperationException(
-                        $"Duplicate Performance Triage candidate identity '{candidateId}'.");
-                }
-                fingerprintLength = Math.Min(
-                    fingerprintLength + 8,
-                    PerformanceTriageCandidateId.MaximumFingerprintLength);
-            }
-
-            builder.Add(opportunity with
-            {
-                CandidateId = candidateId,
-                SourceFinding = sourceFinding,
-                Operation = allocation is null
-                    ? CallOperation(callSite?.Payload)
-                    : AllocationOperation(allocation.Payload),
-                OperandToken = allocation?.Payload.OperandToken ?? callSite?.Payload.OperandToken,
-                SupportingCallSite =
-                    opportunity.SupportingCallSite is not
-                        { } supportCoordinate
-                        ? null
-                        : supportCoordinate with
-                        {
-                            SourceFinding =
-                                supportingCallSite
-                                    ?.Descriptor.Id,
-                            Operation = CallOperation(
-                                supportingCallSite
-                                    ?.Payload),
-                            OperandToken =
-                                supportingCallSite
-                                    ?.Payload.OperandToken,
-                        },
-                Provenance = opportunity.Provenance != PerformanceTriageProvenance.Unknown
-                    ? opportunity.Provenance
-                    : sourceFinding is not null
-                        ? PerformanceTriageProvenance.Exact
-                        : opportunity.ILOffset is null
-                            ? PerformanceTriageProvenance.Aggregate
-                            : PerformanceTriageProvenance.Unmatched,
-            });
-        }
-
-        return builder.MoveToImmutable();
-    }
-
-    static FindingSubject FindingSubjectFor(MethodIdentity method)
-        => new(
-            $"method:0x{method.MetadataToken:X8}",
-            $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}");
-
-    static Finding<T>? SingleFindingAtOffset<T>(
-        ImmutableArray<Finding<T>> findings,
-        int offset,
-        Func<T, int> getOffset)
-        where T : notnull
-    {
-        Finding<T>? result = null;
-        foreach (var finding in findings)
-        {
-            if (getOffset(finding.Payload) != offset)
-                continue;
-            if (result is not null)
-            {
-                throw new InvalidOperationException(
-                    $"Finding census '{finding.Descriptor.Id}' contains multiple occurrences at IL_{offset:X4}.");
-            }
-            result = finding;
-        }
-        return result;
-    }
-
-    static string AllocationOperation(AllocationOccurrence occurrence)
-        => occurrence.Source switch
-        {
-            AllocationFactSource.Newobj => "newobj",
-            AllocationFactSource.Newarr => "newarr",
-            AllocationFactSource.Box => "box",
-            AllocationFactSource.GetEnumeratorCall => "call.get-enumerator",
-            _ => occurrence.Source.ToString().ToLowerInvariant(),
-        };
-
-    static string? CallOperation(DirectCall? call)
-        => call is null
-            ? null
-            : string.IsNullOrWhiteSpace(call.Opcode)
-                ? call.Kind.ToString().ToLowerInvariant()
-                : call.Opcode;
-
-    bool IsExceptionConstruction(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (_exceptionTypeNames.Contains(definition.ToQualifiedDisplayString()))
-            return true;
-        if (Methods.Length > 0
-            && definition.Assembly == Methods[0].AssemblyName)
-            return false;
-        return definition.Name.EndsWith("Exception", StringComparison.Ordinal);
-    }
-
-    // A method that allocates densely is a real perf signal only when the allocations are
-    // both REPEATED (in a loop) and not already pinpointed by a specific shape — otherwise
-    // the count is dominated by intrinsic, non-reducible construction (e.g. a serializer
-    // building its output model), which floods the section on allocation-heavy assemblies.
-    // So allocation-hotspot fires only for a method that (1) is not already covered by a
-    // specific-shape row, (2) allocates inside a loop, and (3) clears a high density bar.
-    // Exception-construction allocations are excluded (throw-path only), and source-/
-    // compiler-generated methods are suppressed just as for shaped opportunities.
-    const int AllocationHotspotThreshold = 16;
+        => _optimizationProjection
+            ?.AllocationFanoutOpportunities
+            ?? [];
 
     // A non-loop delegate is allocated once per call, so it is low-value in a cold method —
     // but on a high-reach (widely-reached, hot) method it is a real per-call heap allocation
@@ -744,98 +323,6 @@ public sealed class LibraryBodyIndex
                 inLoop,
                 confidence,
                 rootReach);
-
-    static bool IsLowFrequencyOpportunity(OptimizationOpportunity opportunity)
-        => opportunity.ColdPath || opportunity.Amortized;
-
-    OptimizationOpportunity MarkAmortizedSetup(OptimizationOpportunity opportunity)
-    {
-        if (opportunity.Amortized)
-            return opportunity;
-        if (opportunity.Method.Name is not (".ctor" or ".cctor"))
-            return opportunity;
-        // Type initializers are exact amortized setup: one execution per type.
-        // Instance constructors are less certain, so demote only when this assembly
-        // does not itself instantiate the constructor from a loop. That preserves a
-        // known-hot transient-constructor signal while still lowering setup-only rows
-        // such as DI/SignalR constructors that are not loop-invoked in their assembly.
-        if (opportunity.Method.Name == ".ctor" && ConstructorIsInvokedInLoop(opportunity.Method))
-            return opportunity;
-
-        return opportunity with
-        {
-            Amortized = true,
-            SafeFixDirection = "This allocation is in constructor/type-initializer setup, not a steady-state per-call path. Optimize only if profiles show this setup is hot or repeated unexpectedly.",
-            Caveat = "Amortized setup path: constructor/type-initializer allocations are usually once per instance/type, not per steady-state operation.",
-        };
-    }
-
-    bool ConstructorIsInvokedInLoop(MethodIdentity constructor)
-        => DirectCalls.Any(call =>
-            call.Kind == CallKind.NewObject
-            && call.InLoop
-            && DeclaredMethodMap.Resolve(call)
-                == constructor.MetadataToken);
-
-    IEnumerable<OptimizationOpportunity> AllocationHotspots(Dictionary<int, int> reachByToken, IReadOnlySet<int> methodsWithSpecificShape)
-    {
-        var methodByToken = new Dictionary<int, MethodIdentity>(Methods.Length);
-        foreach (var method in Methods)
-            methodByToken[method.MetadataToken] = method;
-
-        // Per-method steady-state allocation occurrences and whether any such
-        // allocation is on a loop back-edge.
-        var steadyAllocations = new Dictionary<int, int>();
-        var steadyAllocationLoop = new HashSet<int>();
-        foreach (var (token, occurrences) in _allocationOccurrences)
-        {
-            foreach (var occurrence in occurrences)
-            {
-                if (!occurrence.CountsAsHeapAllocation)
-                    continue;
-                if (occurrence.Escape == AllocationEscape.ThrowPath)
-                    continue;
-                if (occurrence.Kind == AllocationKind.Object
-                    && occurrence.AllocatedType is { } type
-                    && IsExceptionConstruction(type))
-                    continue;
-                steadyAllocations[token] = steadyAllocations.GetValueOrDefault(token) + 1;
-                // Only allocations that genuinely iterate (semantic multiplicity) make a
-                // method a loop hotspot — a return/throw early-exit inside a loop runs once.
-                if (occurrence.Multiplicity == AllocationMultiplicity.Loop)
-                    steadyAllocationLoop.Add(token);
-            }
-        }
-
-        foreach (var (token, method) in methodByToken)
-        {
-            if (_suppressedOpportunityTokens.Contains(token))
-                continue;
-            // Dedup: a method already pinpointed by a specific shape (delegate/box/array/…)
-            // doesn't also need a vague aggregate-density row; that only double-counts and
-            // drowns the actionable specific rows.
-            if (methodsWithSpecificShape.Contains(token))
-                continue;
-            // Only loop allocations are repeated; a once-per-call dense method is usually
-            // intrinsic construction (e.g. building an output object), not reducible waste.
-            bool inLoop = steadyAllocationLoop.Contains(token);
-            if (!inLoop)
-                continue;
-            int allocations = steadyAllocations.GetValueOrDefault(token);
-            if (allocations < AllocationHotspotThreshold)
-                continue;
-            yield return new OptimizationOpportunity(
-                method,
-                "allocation-hotspot",
-                $"{allocations} heap allocations in a loop (newobj/newarr/box)",
-                "Many allocations in one loop are often reducible: pool or cache reused objects, use spans/stackalloc for transient buffers, and avoid intermediate collections on hot paths.",
-                "medium",
-                true,
-                null,
-                "Aggregate loop-allocation density (excludes exception construction); some may be intrinsic object construction. Review the loop body for reducible temporaries.",
-                reachByToken.GetValueOrDefault(token));
-        }
-    }
 
     // A membership/search LINQ terminal on System.Linq.Enumerable: one that walks the
     // sequence to answer a lookup/membership question and whose canonical fix is an
@@ -920,10 +407,6 @@ public sealed class LibraryBodyIndex
     readonly IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> _allocationOccurrences;
     readonly IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> _unsafetyOccurrences;
     readonly IReadOnlyDictionary<(string Namespace, string Name), bool> _inAssemblyTypeIsException;
-    readonly IReadOnlySet<int> _suppressedOpportunityTokens;
-    readonly IReadOnlySet<int>
-        _scopeExcludedOpportunityTokens;
-    readonly IReadOnlySet<string> _exceptionTypeNames;
     readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
 
     /// <summary>
@@ -1149,8 +632,6 @@ public sealed class LibraryBodyIndex
             .GroupBy(evidence => evidence.Member.MetadataToken)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray());
 
-    IReadOnlySet<TypeRef>? _generatedFrameworkTypes;
-
     /// <summary>
     /// Exact <see cref="TypeRef"/> identities of types recognized as protobuf/gRPC
     /// generated implementation detail, detected structurally (no attributes are
@@ -1176,10 +657,7 @@ public sealed class LibraryBodyIndex
     /// suppress them from Performance Triage like other generated detail.
     /// </summary>
     public IReadOnlySet<TypeRef> GeneratedFrameworkTypes
-        => _generatedFrameworkTypes ??=
-            GeneratedFrameworkTypeAnalysis.Collect(
-                _physicalDirectCalls,
-                Methods);
+        => _generatedFrameworkTypes.Value;
 
     /// <summary>
     /// True when <paramref name="type"/> is in
@@ -1219,6 +697,19 @@ public sealed class LibraryBodyIndex
     {
         moduleIdentity ??= SyntheticEvidenceIdentity(methods);
         ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
+        ImmutableArray<DirectCall> physicalDirectCalls =
+            directCalls.IsDefault
+                ? []
+                :
+                [
+                    .. directCalls.Select(static call =>
+                        call.Caller == call.EvidenceMethod
+                            ? call
+                            : call with
+                            {
+                                Caller = call.EvidenceMethod,
+                            }),
+                ];
         return new(
             path: "",
             moduleIdentity,
@@ -1280,7 +771,14 @@ public sealed class LibraryBodyIndex
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
                     : LibraryBodyAnalysisFeatures.Allocations),
-            hasFullMethodEvidenceScope: true);
+            hasFullMethodEvidenceScope: true,
+            physicalDirectCalls,
+            optimizationProjection: null,
+            generatedFrameworkTypes: new(() =>
+                GeneratedFrameworkTypeAnalysis.Collect(
+                        physicalDirectCalls,
+                        methods)
+                    .ToImmutableHashSet()));
     }
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,

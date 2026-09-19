@@ -1,4 +1,5 @@
 using DotnetInspector.Fixtures;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -44,6 +45,28 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void ExecutePath_PublishesFocusedOptimizationResult()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+
+        Assert.Same(
+            execution.Receipt,
+            execution.Optimization.Receipt);
+        Assert.True(
+            execution.Optimization.WasRequested);
+        Assert.NotEmpty(
+            execution.Optimization.Opportunities);
+        Assert.NotEmpty(
+            execution.Optimization
+                .AllocationFanoutOpportunities);
+    }
+
+    [Fact]
     public void ExecutePath_DoesNotProduceUnrequestedSafetyEvidence()
     {
         LibraryBodyAnalysisExecution execution =
@@ -80,6 +103,27 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void ExecutePath_DoesNotProduceUnrequestedOptimizationEvidence()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.MethodEvidence));
+
+        Assert.False(
+            execution.Optimization.WasRequested);
+        Assert.Empty(
+            execution.Optimization.Opportunities);
+        Assert.Empty(
+            execution.Optimization
+                .AllocationFanoutOpportunities);
+        Assert.Empty(
+            execution.Optimization
+                .GeneratedFrameworkTypes);
+    }
+
+    [Fact]
     public void CompatibilityIndex_PreservesFocusedProfileResults()
     {
         LibraryBodyAnalysisExecution execution =
@@ -103,5 +147,71 @@ public sealed class LibraryBodyAnalysisExecutionTests
             execution.ImplementationProfiles
                 .GeneratedFrameworkTypes.SetEquals(
                     index.GeneratedFrameworkTypes));
+    }
+
+    [Fact]
+    public void CompatibilityIndex_PreservesFocusedOptimizationResults()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+
+        LibraryBodyIndex index =
+            execution.CompatibilityIndex();
+
+        Assert.Equal(
+            execution.Optimization.Opportunities,
+            index.OptimizationOpportunities);
+        Assert.Equal(
+            execution.Optimization
+                .AllocationFanoutOpportunities,
+            index.AllocationFanoutOpportunities);
+        Assert.True(
+            execution.Optimization
+                .GeneratedFrameworkTypes.SetEquals(
+                    index.GeneratedFrameworkTypes));
+        Assert.Equal(
+            execution.Receipt.Diagnostics,
+            index.Diagnostics);
+    }
+
+    [Fact]
+    public void FocusedOptimizationResult_DoesNotRetainExecution()
+    {
+        (
+            LibraryOptimizationAnalysisResult result,
+            WeakReference<LibraryBodyAnalysisExecution> execution
+        ) = CreateDetachedOptimizationResult();
+
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.False(execution.TryGetTarget(out _));
+        Assert.NotEmpty(result.Opportunities);
+        Assert.NotNull(result.GeneratedFrameworkTypes);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (
+        LibraryOptimizationAnalysisResult Result,
+        WeakReference<LibraryBodyAnalysisExecution> Execution
+    ) CreateDetachedOptimizationResult()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities));
+        return (
+            execution.Optimization,
+            new(execution));
     }
 }

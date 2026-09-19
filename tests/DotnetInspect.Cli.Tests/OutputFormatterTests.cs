@@ -1861,7 +1861,12 @@ public class OutputFormatterTests
     {
         string path = typeof(OutputFormatterTests).Assembly.Location;
         var result = OptimizationOpportunitiesQuery.Execute(
-            LibraryBodyIndex.Open(path),
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities))
+                .Optimization,
             includeAllocationFanout:
                 options?.IncludesAllocationFanout == true);
         var inspection = new LibraryInspection
