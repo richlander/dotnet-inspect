@@ -118,6 +118,11 @@ docs/design/models/inspect-web-retained-workspace-realization/ReachabilityDelete
 docs/design/models/inspect-web-retained-workspace-realization/ReachabilityFailureWithIncumbent.cfg=12
 docs/design/models/inspect-web-retained-workspace-realization/ReachabilityFreshReactivation.cfg=12
 docs/design/models/inspect-web-retained-workspace-realization/Safety.cfg=0
+docs/design/models/inspect-web-retained-navigation-handoff/BrokenEarlyAcknowledge.cfg=12
+docs/design/models/inspect-web-retained-navigation-handoff/BrokenMissingPredecessorRetirement.cfg=12
+docs/design/models/inspect-web-retained-navigation-handoff/BrokenStaleInstallation.cfg=12
+docs/design/models/inspect-web-retained-navigation-handoff/ReachabilityOutOfOrderDelivery.cfg=12
+docs/design/models/inspect-web-retained-navigation-handoff/Safety.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
 docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
 docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12

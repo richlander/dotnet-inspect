@@ -401,18 +401,18 @@ public static class LibraryBodyRootPathAnalysis
     }
 
     internal static LibraryBodyLocalCallGraph BuildLocalGraph(
-        LibraryBodyIndex index)
+        LibraryCallGraphAnalysisResult analysis)
     {
-        Dictionary<int, MethodIdentity> methods = index.DeclaredMethods
+        Dictionary<int, MethodIdentity> methods = analysis.DeclaredMethods
             .ToDictionary(static method => method.MetadataToken);
         MethodDefinitionMap methodMap =
-            index.DeclaredMethodMap;
+            analysis.DeclaredMethodMap;
         var callSites = new Dictionary<
             (int Caller, int Callee),
             List<DirectCall>>();
         int unresolvedLocalCalls = 0;
         HashSet<int> unattributedGeneratedBodyTokens = [];
-        foreach (DirectCall call in index.DirectCalls)
+        foreach (DirectCall call in analysis.DirectCalls)
         {
             if (call.Kind is not (
                 CallKind.Call
@@ -424,7 +424,7 @@ public static class LibraryBodyRootPathAnalysis
             if (call.Caller == call.EvidenceMethod
                 && CompilerGeneratedNames
                     .RequiresDeclaredOwner(call.Caller)
-                && index.ResolveDeclaredMethod(call.Caller) is null)
+                && analysis.ResolveDeclaredMethod(call.Caller) is null)
             {
                 unattributedGeneratedBodyTokens.Add(
                     call.Caller.MetadataToken);

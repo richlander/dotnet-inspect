@@ -510,7 +510,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 IsExactExplicitParameterModifier(modifier, refKind));
     }
 
-    bool ContainsCustomModifiers
+    internal bool ContainsCustomModifiers
         => !CustomModifiers.IsDefaultOrEmpty
             || (ElementType?.ContainsCustomModifiers ?? false)
             || TypeArguments.Any(argument => argument.ContainsCustomModifiers);
