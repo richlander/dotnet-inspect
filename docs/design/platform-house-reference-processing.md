@@ -209,6 +209,17 @@ owns detached immutable bytes. Completion transfers every implementation-only
 Library owner beside the separate Artifact session; terminal and cancellation
 paths transfer neither authority.
 
+Complete-population materialization also preserves source-issued logical
+membership. Each returned `PlatformPopulationMember` retains the exact
+`PlatformFamilyTarget` and `Focus` or `BindingSupport` role supplied by the
+source integration, and the value, receipt, Library reference, and owner remain
+aligned by exact index. ASP.NET Core implementation closure therefore retains
+ASP.NET Core focus members and .NET Runtime binding-support members as distinct
+family populations. The Library source coordinate uses the member family, not
+the root request family. Paired views may join equal managed identities only
+when their member attribution also agrees; unclassified or mismatched
+attribution is a typed rejection before ownership escapes.
+
 The `Failed` House terminal arm and resource-free typed failure-stage evidence
 are implemented, including installed and package-backed Artifact publication
 and retirement stages. Internal Library operation leases, cleanup-failure
@@ -588,7 +599,9 @@ Settlement obeys these rules:
 ASP.NET Core source realizations may retain a .NET runtime support closure.
 The source owner establishes that closure and its version behavior. The House
 preserves the focus target, support targets, members, and evidence rather than
-inventing one merged family target.
+inventing one merged family target. A support target may occupy a different
+release band when the source owner selected it through its explicit
+roll-forward policy.
 
 ## Workspace ecosystem realization
 
