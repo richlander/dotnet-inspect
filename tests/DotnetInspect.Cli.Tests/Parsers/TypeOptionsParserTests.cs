@@ -150,15 +150,16 @@ public class TypeOptionsParserTests
     }
 
     [Fact]
-    public async Task NumericMemberLimit_IsDistinctFromTypeFilter()
+    public async Task NumericMemberAndTypeFilters_AreOrdinaryFilterInput()
     {
         var memberOptions = await ParseSuccessAsync(
             "type", "MemoryStream", "--platform", "System.Private.CoreLib", "-m", "1");
         var typeOptions = await ParseSuccessAsync(
             "type", "MemoryStream", "--platform", "System.Private.CoreLib", "-t", "1");
 
-        Assert.Equal(1, memberOptions.Limit);
-        Assert.Equal(1, memberOptions.MemberLimit);
+        Assert.Contains("1", memberOptions.MemberFilter);
+        Assert.Null(memberOptions.Limit);
+        Assert.Null(memberOptions.MemberLimit);
         Assert.Equal("1", typeOptions.TypeFilter);
         Assert.Null(typeOptions.Limit);
         Assert.Null(typeOptions.MemberLimit);
