@@ -67,7 +67,10 @@ public readonly record struct SparsePackageProjectionCleanupEvidence(
     int FailureCount);
 
 sealed class SparsePackageProjectionCleanupEvidenceJsonConverter
-    : TwoInt32PropertyJsonConverter<SparsePackageProjectionCleanupEvidence>
+    : TwoPropertyJsonConverter<
+        SparsePackageProjectionCleanupEvidence,
+        SparsePackageProjectionCleanupStage,
+        int>
 {
     protected override string FirstPropertyName =>
         nameof(SparsePackageProjectionCleanupEvidence.Stage);
@@ -76,13 +79,13 @@ sealed class SparsePackageProjectionCleanupEvidenceJsonConverter
         nameof(SparsePackageProjectionCleanupEvidence.FailureCount);
 
     protected override SparsePackageProjectionCleanupEvidence Create(
-        int first,
+        SparsePackageProjectionCleanupStage first,
         int second) =>
-        new((SparsePackageProjectionCleanupStage)first, second);
+        new(first, second);
 
-    protected override int FirstValue(
+    protected override SparsePackageProjectionCleanupStage FirstValue(
         SparsePackageProjectionCleanupEvidence value) =>
-        (int)value.Stage;
+        value.Stage;
 
     protected override int SecondValue(
         SparsePackageProjectionCleanupEvidence value) =>

@@ -227,7 +227,25 @@ public sealed record RestoredProjectSelectedTarget(
     RestoredProjectTargetSelectionProvenance Provenance);
 
 /// <summary>Identifies the single project whose restore produced the admitted assets document.</summary>
+[JsonConverter(typeof(RestoredProjectRootIdentityJsonConverter))]
 public readonly record struct RestoredProjectRootIdentity(RestoredProjectSelectionIdentity Selection);
+
+sealed class RestoredProjectRootIdentityJsonConverter
+    : OnePropertyJsonConverter<
+        RestoredProjectRootIdentity,
+        RestoredProjectSelectionIdentity>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectRootIdentity.Selection);
+
+    protected override RestoredProjectRootIdentity Create(
+        RestoredProjectSelectionIdentity first) =>
+        new(first);
+
+    protected override RestoredProjectSelectionIdentity FirstValue(
+        RestoredProjectRootIdentity value) =>
+        value.Selection;
+}
 
 /// <summary>
 /// Identifies one authored <c>project.frameworks</c> declaration group within a selection by its
@@ -252,9 +270,36 @@ public readonly record struct RestoredProjectPackageNodeIdentity(
 /// selected-target entry key. A project entry name is authored text with no canonical grammar,
 /// so it is never spelled into a public identity.
 /// </summary>
+[JsonConverter(typeof(RestoredProjectProjectNodeIdentityJsonConverter))]
 public readonly record struct RestoredProjectProjectNodeIdentity(
     RestoredProjectSelectionIdentity Selection,
     string SourceIdentity);
+
+sealed class RestoredProjectProjectNodeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RestoredProjectProjectNodeIdentity,
+        RestoredProjectSelectionIdentity,
+        string>
+{
+    protected override string FirstPropertyName =>
+        nameof(RestoredProjectProjectNodeIdentity.Selection);
+
+    protected override string SecondPropertyName =>
+        nameof(RestoredProjectProjectNodeIdentity.SourceIdentity);
+
+    protected override RestoredProjectProjectNodeIdentity Create(
+        RestoredProjectSelectionIdentity first,
+        string second) =>
+        new(first, second);
+
+    protected override RestoredProjectSelectionIdentity FirstValue(
+        RestoredProjectProjectNodeIdentity value) =>
+        value.Selection;
+
+    protected override string SecondValue(
+        RestoredProjectProjectNodeIdentity value) =>
+        value.SourceIdentity;
+}
 
 /// <summary>The closed set of graph-edge parents: the root, a package node, or a project node.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]

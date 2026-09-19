@@ -79,18 +79,90 @@ public sealed record RuntimeDependencyTarget(
 }
 
 /// <summary>Identifies the admitted runtime dependency manifest.</summary>
+[JsonConverter(typeof(RuntimeDependencyRootIdentityJsonConverter))]
 public readonly record struct RuntimeDependencyRootIdentity(
     RuntimeDependencyManifestIdentity Manifest);
 
+sealed class RuntimeDependencyRootIdentityJsonConverter
+    : OnePropertyJsonConverter<
+        RuntimeDependencyRootIdentity,
+        RuntimeDependencyManifestIdentity>
+{
+    protected override string FirstPropertyName =>
+        nameof(RuntimeDependencyRootIdentity.Manifest);
+
+    protected override RuntimeDependencyRootIdentity Create(
+        RuntimeDependencyManifestIdentity first) =>
+        new(first);
+
+    protected override RuntimeDependencyManifestIdentity FirstValue(
+        RuntimeDependencyRootIdentity value) =>
+        value.Manifest;
+}
+
 /// <summary>Identifies one selected-target package node.</summary>
+[JsonConverter(typeof(RuntimeDependencyPackageNodeIdentityJsonConverter))]
 public readonly record struct RuntimeDependencyPackageNodeIdentity(
     RuntimeDependencyManifestIdentity Manifest,
     PackageSourceCoordinate Coordinate);
 
+sealed class RuntimeDependencyPackageNodeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RuntimeDependencyPackageNodeIdentity,
+        RuntimeDependencyManifestIdentity,
+        PackageSourceCoordinate>
+{
+    protected override string FirstPropertyName =>
+        nameof(RuntimeDependencyPackageNodeIdentity.Manifest);
+
+    protected override string SecondPropertyName =>
+        nameof(RuntimeDependencyPackageNodeIdentity.Coordinate);
+
+    protected override RuntimeDependencyPackageNodeIdentity Create(
+        RuntimeDependencyManifestIdentity first,
+        PackageSourceCoordinate second) =>
+        new(first, second);
+
+    protected override RuntimeDependencyManifestIdentity FirstValue(
+        RuntimeDependencyPackageNodeIdentity value) =>
+        value.Manifest;
+
+    protected override PackageSourceCoordinate SecondValue(
+        RuntimeDependencyPackageNodeIdentity value) =>
+        value.Coordinate;
+}
+
 /// <summary>Identifies one selected-target non-package parent without exposing artifact text.</summary>
+[JsonConverter(typeof(RuntimeDependencyLibraryNodeIdentityJsonConverter))]
 public readonly record struct RuntimeDependencyLibraryNodeIdentity(
     RuntimeDependencyManifestIdentity Manifest,
     string SourceIdentity);
+
+sealed class RuntimeDependencyLibraryNodeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RuntimeDependencyLibraryNodeIdentity,
+        RuntimeDependencyManifestIdentity,
+        string>
+{
+    protected override string FirstPropertyName =>
+        nameof(RuntimeDependencyLibraryNodeIdentity.Manifest);
+
+    protected override string SecondPropertyName =>
+        nameof(RuntimeDependencyLibraryNodeIdentity.SourceIdentity);
+
+    protected override RuntimeDependencyLibraryNodeIdentity Create(
+        RuntimeDependencyManifestIdentity first,
+        string second) =>
+        new(first, second);
+
+    protected override RuntimeDependencyManifestIdentity FirstValue(
+        RuntimeDependencyLibraryNodeIdentity value) =>
+        value.Manifest;
+
+    protected override string SecondValue(
+        RuntimeDependencyLibraryNodeIdentity value) =>
+        value.SourceIdentity;
+}
 
 /// <summary>The closed parent identity for one runtime package relationship.</summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -110,9 +182,36 @@ public abstract record RuntimeDependencyGraphParentIdentity
 }
 
 /// <summary>Identifies one runtime package relationship.</summary>
+[JsonConverter(typeof(RuntimeDependencyEdgeIdentityJsonConverter))]
 public readonly record struct RuntimeDependencyEdgeIdentity(
     RuntimeDependencyGraphParentIdentity Parent,
     RuntimeDependencyPackageNodeIdentity Dependency);
+
+sealed class RuntimeDependencyEdgeIdentityJsonConverter
+    : TwoPropertyJsonConverter<
+        RuntimeDependencyEdgeIdentity,
+        RuntimeDependencyGraphParentIdentity,
+        RuntimeDependencyPackageNodeIdentity>
+{
+    protected override string FirstPropertyName =>
+        nameof(RuntimeDependencyEdgeIdentity.Parent);
+
+    protected override string SecondPropertyName =>
+        nameof(RuntimeDependencyEdgeIdentity.Dependency);
+
+    protected override RuntimeDependencyEdgeIdentity Create(
+        RuntimeDependencyGraphParentIdentity first,
+        RuntimeDependencyPackageNodeIdentity second) =>
+        new(first, second);
+
+    protected override RuntimeDependencyGraphParentIdentity FirstValue(
+        RuntimeDependencyEdgeIdentity value) =>
+        value.Parent;
+
+    protected override RuntimeDependencyPackageNodeIdentity SecondValue(
+        RuntimeDependencyEdgeIdentity value) =>
+        value.Dependency;
+}
 
 /// <summary>One selected-target package node with retained source spelling.</summary>
 public sealed record RuntimeDependencyPackageNode(
