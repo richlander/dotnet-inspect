@@ -277,6 +277,7 @@ public sealed class ProductionFacadeContextTests
         {
             Collect(derived, sharedContractTypes);
         }
+
         foreach (Type root in RootTypes())
         {
             Assembly assembly = root.Assembly;
@@ -330,6 +331,35 @@ public sealed class ProductionFacadeContextTests
         Assert.True(
             assemblyLocalWireTypes > 0,
             "No assembly-local wire type was discovered.");
+    }
+
+    [Fact]
+    public void ProductionSourceFacade_SeparatesMemberPartsFromFlatSource()
+    {
+        string declarations = File.ReadAllText(Path.Combine(
+            InspectWebRoot(),
+            "src",
+            "facades",
+            "inspect-web-source.d.ts"));
+
+        Assert.Contains(
+            "export interface BrowserMemberSource {",
+            declarations,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "queryMemberSource(packageId: string, version: string, targetFramework: string, "
+            + "assemblyName: string, typeIdentity: string, memberName: string, "
+            + "selectorKey: string, metadataToken: number, styleOptionsJson: string): "
+            + "Promise<BrowserMemberSource>;",
+            declarations,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "queryTypeMemberSource(packageId: string, version: string, "
+            + "targetFramework: string, assemblyName: string, typeIdentity: string, "
+            + "memberName: string, selectorKey: string, metadataToken: number, "
+            + "styleOptionsJson: string): Promise<BrowserSource>;",
+            declarations,
+            StringComparison.Ordinal);
     }
 
     static IEnumerable<Type> SerializableRoots(Type context)

@@ -565,6 +565,299 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_FileRows_TargetFrameworkMatchesDirectorySegmentsAcrossRoots()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRows.TargetFramework",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("lib/net8.0/Foo.dll", "lib"),
+                ("ref/NET8.0/Foo.dll", "ref"),
+                ("runtimes/win/lib/net8.0/Foo.dll", "runtime"),
+                ("custom/net8.0/data.bin", "custom"),
+                ("build/net8.0/_._", ""),
+                ("lib/net8.0-windows/Foo.dll", "windows"),
+                ("docs/net8.0.txt", "filename"),
+                ("lib/net6.0/Foo.dll", "older"),
+            ]);
+        try
+        {
+            string[] selectedFiles =
+            [
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--tips", "q",
+            ];
+            var markdown = await RunAppAsync(selectedFiles);
+            var table = await RunAppAsync([.. selectedFiles, "--table"]);
+            var tsv = await RunAppAsync(
+                [.. selectedFiles, "--tsv", "--no-headers"]);
+            var json = await RunAppAsync([.. selectedFiles, "--json"]);
+            var count = await RunAppAsync([.. selectedFiles, "--count"]);
+            var paths = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--paths",
+                "--tips", "q");
+            var roots = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--roots",
+                "--tips", "q");
+            var intersection = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--paths",
+                "--tips", "q");
+            var rootIntersection = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--roots",
+                "--tips", "q");
+            var reversedSelectorPaths = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--paths",
+                "--tips", "q");
+            var reversedSelectorRoots = await RunAppAsync(
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "--path", "runtimes/*",
+                "--path", "build/*",
+                "--roots",
+                "--tips", "q");
+
+            foreach (var result in new[]
+            {
+                markdown,
+                table,
+                tsv,
+                json,
+                count,
+            })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+            }
+
+            foreach (string output in new[]
+            {
+                markdown.Output,
+                table.Output,
+                tsv.Output,
+            })
+            {
+                Assert.Contains(
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "lib/net8.0-windows/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "docs/net8.0.txt",
+                    output,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "lib/net6.0/Foo.dll",
+                    output,
+                    StringComparison.Ordinal);
+            }
+            using var jsonDocument = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "custom/net8.0/data.bin",
+                    "lib/net8.0/Foo.dll",
+                    "ref/NET8.0/Foo.dll",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                jsonDocument.RootElement
+                    .GetProperty("files")
+                    .EnumerateArray()
+                    .Select(file => file.GetProperty("path").GetString()));
+            Assert.Equal("5", count.Output.Trim());
+
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Error);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "custom/net8.0/data.bin",
+                    "lib/net8.0/Foo.dll",
+                    "ref/NET8.0/Foo.dll",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                paths.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, roots.Exit);
+            Assert.Empty(roots.Error);
+            Assert.Equal(
+                ["build", "custom", "lib", "ref", "runtimes"],
+                roots.Output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, intersection.Exit);
+            Assert.Empty(intersection.Error);
+            Assert.Equal(
+                "runtimes/win/lib/net8.0/Foo.dll",
+                intersection.Output.Trim());
+
+            Assert.Equal(0, rootIntersection.Exit);
+            Assert.Empty(rootIntersection.Error);
+            Assert.Equal("runtimes", rootIntersection.Output.Trim());
+
+            Assert.Equal(0, reversedSelectorPaths.Exit);
+            Assert.Empty(reversedSelectorPaths.Error);
+            Assert.Equal(
+                [
+                    "build/net8.0/_._",
+                    "runtimes/win/lib/net8.0/Foo.dll",
+                ],
+                reversedSelectorPaths.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(0, reversedSelectorRoots.Exit);
+            Assert.Empty(reversedSelectorRoots.Error);
+            Assert.Equal(
+                ["build", "runtimes"],
+                reversedSelectorRoots.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileRoots_SupportStructuredOutputAndSemanticRows()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageFileRoots.Output",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("lib/net8.0/Foo.dll", "lib"),
+                ("ref/net8.0/Foo.dll", "ref"),
+                ("runtimes/win/lib/net8.0/Foo.dll", "runtime"),
+            ]);
+        try
+        {
+            string[] arguments =
+            [
+                "package", packagePath,
+                "--tfm", "net8.0",
+                "-S", "Package files",
+                "--roots",
+                "--tips", "q",
+            ];
+            var json = await RunAppAsync([.. arguments, "--json"]);
+            var jsonl = await RunAppAsync([.. arguments, "--jsonl"]);
+            var jsonArray = await RunAppAsync([.. arguments, "--json-array"]);
+            var row = await RunAppAsync([.. arguments, "--row", "last"]);
+
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            using var document = JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                ["lib", "ref", "runtimes"],
+                document.RootElement
+                    .EnumerateArray()
+                    .Select(item => item.GetProperty("path").GetString()));
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Empty(jsonl.Error);
+            Assert.Equal(
+                3,
+                jsonl.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+
+            Assert.Equal(0, jsonArray.Exit);
+            Assert.Empty(jsonArray.Error);
+            using var arrayDocument = JsonDocument.Parse(jsonArray.Output);
+            Assert.Equal(3, arrayDocument.RootElement.GetArrayLength());
+
+            Assert.Equal(0, row.Exit);
+            Assert.Empty(row.Error);
+            Assert.Equal("runtimes", row.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FileTargetAndRootValidationPrecedesPackageResolution()
+    {
+        var invalidTarget = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--tfm", "net8.0/hostile",
+            "-S", "Package files",
+            "--paths");
+        var whitespaceTarget = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "--tfm", " ",
+            "-S", "Package files",
+            "--paths");
+        var wrongSection = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package Info",
+            "--roots");
+        var conflictingShapes = await RunAppAsync(
+            "--offline",
+            "package", "Package.That.Must.Not.Resolve",
+            "-S", "Package files",
+            "--roots",
+            "--paths");
+
+        Assert.Equal(1, invalidTarget.Exit);
+        Assert.Empty(invalidTarget.Output);
+        Assert.Contains("Invalid --tfm value", invalidTarget.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", invalidTarget.Error);
+
+        Assert.Equal(1, whitespaceTarget.Exit);
+        Assert.Empty(whitespaceTarget.Output);
+        Assert.Contains("Invalid --tfm value", whitespaceTarget.Error);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            whitespaceTarget.Error);
+
+        Assert.Equal(1, wrongSection.Exit);
+        Assert.Empty(wrongSection.Output);
+        Assert.Contains(
+            "--roots requires the Package files section.",
+            wrongSection.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", wrongSection.Error);
+
+        Assert.Equal(1, conflictingShapes.Exit);
+        Assert.Empty(conflictingShapes.Output);
+        Assert.Contains(
+            "--roots cannot be combined with --paths",
+            conflictingShapes.Error);
+        Assert.DoesNotContain("Package.That.Must.Not.Resolve", conflictingShapes.Error);
+    }
+
+    [Fact]
     public async Task Package_FileRows_AliasAndPathAcceptSemanticWindows()
     {
         const string firstSkill = "skills/a-first/SKILL.md";
