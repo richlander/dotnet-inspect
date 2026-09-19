@@ -120,7 +120,7 @@ docs/design/models/inspect-web-retained-workspace-realization/ReachabilityFreshR
 docs/design/models/inspect-web-retained-workspace-realization/Safety.cfg=0
 docs/design/models/inspect-web-retained-navigation-handoff/BrokenEarlyAcknowledge.cfg=12
 docs/design/models/inspect-web-retained-navigation-handoff/BrokenMissingPredecessorRetirement.cfg=12
-docs/design/models/inspect-web-retained-navigation-handoff/BrokenStaleInstallation.cfg=12
+docs/design/models/inspect-web-retained-navigation-handoff/BrokenStalePosting.cfg=12
 docs/design/models/inspect-web-retained-navigation-handoff/ReachabilityOutOfOrderDelivery.cfg=12
 docs/design/models/inspect-web-retained-navigation-handoff/Safety.cfg=0
 docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
@@ -207,7 +207,7 @@ docs/design/models/navigation-scope-operation-consumption/BrokenOldInventory.cfg
 docs/design/models/navigation-scope-operation-consumption/BrokenRefusalSupersedes.cfg=12
 docs/design/models/navigation-scope-operation-consumption/BrokenReleaseOnControlNoEffect.cfg=12
 docs/design/models/navigation-scope-operation-consumption/BrokenStaleEffect.cfg=12
-docs/design/models/navigation-scope-operation-consumption/BrokenStaleWorkInstall.cfg=12
+docs/design/models/navigation-scope-operation-consumption/BrokenStaleWorkReplacement.cfg=12
 docs/design/models/navigation-scope-operation-consumption/BrokenSubmitBeforeAcceptance.cfg=12
 docs/design/models/navigation-scope-operation-consumption/BrokenWrongRequestedOccurrence.cfg=12
 docs/design/models/navigation-scope-operation-consumption/Liveness.cfg=0

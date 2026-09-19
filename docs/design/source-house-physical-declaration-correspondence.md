@@ -475,8 +475,9 @@ The attestation names the originating syntax tree's physical source-input
 identity, exact bytes, and raw span. The PDB-selected destination has no such
 identity and therefore cannot satisfy the source association, regardless of
 content equality. SourceHouse retains ordinary mapped-source evidence but
-physical correspondence is `Unavailable`. A contribution falsely claiming the
-origin identity for destination provenance is `Rejected`.
+physical correspondence is `Unavailable`. Separately, an otherwise eligible
+attestation-backed result whose physical source-input identity disagrees with
+an admitted authorized contribution is `Rejected`.
 
 ### Prescribed checksum is not provenance
 

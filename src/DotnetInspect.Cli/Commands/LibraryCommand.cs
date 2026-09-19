@@ -18,6 +18,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.SourceSelection;
 using Markout;
 using System.Diagnostics;
 using System.Globalization;
@@ -124,8 +125,18 @@ public partial class LibraryCommand
 
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
+        if (!LibrarySourceAdapter.TryBind(
+                options,
+                out LibrarySourceBinding? source,
+                out string? sourceError))
+        {
+            CommandError.Write(sourceError!);
+            return 1;
+        }
+
+        options = source!.ApplyTo(options);
         if (!options.Trace)
-            return await ExecuteCoreAsync(options, trace: null);
+            return await ExecuteCoreAsync(options, source, trace: null);
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
         // which is exactly when "what did this actually scan?" is worth knowing.
@@ -138,16 +149,12 @@ public partial class LibraryCommand
                     : "library"),
             Target = new InertString(
                 TextPolicy.Field,
-                Path.GetFileName(
-                    options.AssemblyName
-                        ?? options.PackagePath
-                        ?? options.PlatformAssembly
-                        ?? string.Empty)),
+                source.Target),
         };
 
         try
         {
-            return await ExecuteCoreAsync(options, trace);
+            return await ExecuteCoreAsync(options, source, trace);
         }
         finally
         {
@@ -182,7 +189,10 @@ public partial class LibraryCommand
                 : options;
     }
 
-    private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
+    private static async Task<int> ExecuteCoreAsync(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        InspectionTrace? trace)
     {
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
@@ -202,7 +212,7 @@ public partial class LibraryCommand
                 "Integration ecosystem queries support section rows, columns, and counts, not coordinate or extraction operations.");
             return 1;
         }
-        var assemblyPath = options.AssemblyName;
+        var assemblyPath = source.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -210,9 +220,7 @@ public partial class LibraryCommand
         var groupQueryCatalog = catalog.GroupQueryCatalog;
 
         var schemaMap = CreateStructuralSchema();
-        bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
-            || !string.IsNullOrEmpty(options.PackagePath)
-            || !string.IsNullOrEmpty(options.PlatformAssembly);
+        bool hasInputSource = source.Selector is not null;
 
         // Hex table aliases are resolved before anything reads a selector — including the static
         // discovery return below — so every consumer of Select/Discover sees canonical names. That
@@ -824,9 +832,7 @@ public partial class LibraryCommand
         }
 
         // Check for valid input source
-        if (string.IsNullOrEmpty(assemblyPath) &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
+        if (source.Selector is null)
         {
             CommandError.Write("Library path, package name, or --platform required.");
             CommandError.WriteLine("Run 'dotnet-inspect library --help' for usage.");
@@ -839,18 +845,14 @@ public partial class LibraryCommand
 
         try
         {
-            // Parse package name and version for symbol package download
             string? packageName = null;
             string? packageVersion = null;
-            if (!string.IsNullOrEmpty(options.PackagePath))
-            {
-                (packageName, packageVersion) = PackageExtractor.ParsePackageReference(options.PackagePath);
-            }
 
-            if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            if (source.Selector
+                is SourceSelector.PlatformLibrary platform)
             {
                 var (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    options.PlatformAssembly,
+                    platform.Name,
                     context.HttpClient,
                     logger.Log,
                     options.PlatformFramework,
@@ -1021,11 +1023,14 @@ public partial class LibraryCommand
                         pipeline,
                         inspection));
             }
-            else if (!string.IsNullOrEmpty(options.PackagePath))
+            else if (source.Selector
+                is SourceSelector.PackageSource)
             {
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
-                    assemblyPath, options.PackagePath, options.Tfm,
+                    assemblyPath,
+                    source.PackageTarget!,
+                    options.Tfm,
                     options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
                 if (extractResult == null)
                 {
@@ -4055,7 +4060,7 @@ public partial class LibraryCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(
         string? assemblyName,
-        string packageSource,
+        PackageReferenceTarget packageTarget,
         string? tfm,
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
@@ -4063,7 +4068,11 @@ public partial class LibraryCommand
         HttpClient httpClient)
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
+            httpClient,
+            packageTarget,
+            logger.Log,
+            sourceOptions: sourceOptions,
+            includePrerelease: includePrerelease);
         if (!outcome.IsSuccess)
         {
             CommandError.Write($"{outcome.ErrorMessage}");
@@ -4082,7 +4091,11 @@ public partial class LibraryCommand
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
-                resolution, packageSource, sourceOptions, logger, httpClient).ConfigureAwait(false);
+                resolution,
+                packageTarget,
+                sourceOptions,
+                logger,
+                httpClient).ConfigureAwait(false);
 
             if (payload.Error != null)
             {
@@ -4179,7 +4192,7 @@ public partial class LibraryCommand
 
     private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
-        string originalPackageSource,
+        PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,
         VerboseLogger logger,
         HttpClient httpClient)
@@ -4192,7 +4205,12 @@ public partial class LibraryCommand
         if (version == null)
             return new(null, $"Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
 
-        var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
+        var localPayload = originalPackageTarget.IsLocalFile
+            ? TryFindLocalSiblingPackage(
+                originalPackageTarget.OriginalArgument,
+                payloadId,
+                version)
+            : null;
         var payloadOutcome = localPayload != null
             ? await PackageExtractor.ExtractPackageAsync(httpClient, localPayload, logger.Log).ConfigureAwait(false)
             : await PackageExtractor.ExtractPackageAsync(

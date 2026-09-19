@@ -82,6 +82,14 @@ cross-platform suite on Windows, macOS, and Ubuntu. When reproducing a
 platform-only break locally, mirror the exact project list and tool activation
 from `.github/workflows/deep-inspect.yml` for the affected platform.
 
+The workflow is also the owner of its oracle-acquisition outcome. The `test`
+and `platform-test` jobs may continue after an `ilasm`/`ildasm`/`mdv` restore
+failure so independent suites still report, but their terminal checks must keep
+the lane from succeeding without those oracle comparisons. Daily and
+manually-dispatched job outcomes are the evidence for that GitHub Actions
+behavior; local tests cover the activation scripts themselves, not workflow
+step spelling, ordering, or an exhaustive source model of GitHub Actions.
+
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the
 generated snapshots/cards under `/tmp` or `artifacts/` for review.
