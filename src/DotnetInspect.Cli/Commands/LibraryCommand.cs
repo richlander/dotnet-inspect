@@ -1030,21 +1030,89 @@ public class LibraryCommand
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
-                AssemblyContextIntegrationsBatch? integrations =
-                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
-                        queries,
-                        groupQueryCatalog,
-                        inspectionPaths.Select(path =>
-                            new AssemblyContextIntegrationsInput(
+                List<LibraryInspectionSubjectSelection>?
+                    aggregateSubjectSelections = null;
+                IEnumerable<AssemblyContextIntegrationsInput>
+                    integrationInputs;
+                if (aggregatePackageSelection)
+                {
+                    aggregateSubjectSelections = inspectionPaths.Select(path =>
+                        LibraryInspectionSubject.Select(
+                            path,
+                            PackageIntegrationProvenance(
+                                path,
+                                extractPath,
+                                packageName,
+                                packageVersion),
+                            classifyPackageParticipant: true))
+                        .ToList();
+                    List<LibraryInspectionSubjectSelection>
+                        classifiedSelections = aggregateSubjectSelections;
+                    integrationInputs = Enumerable
+                        .Range(0, inspectionPaths.Count)
+                        .Where(index =>
+                            classifiedSelections[index]
+                                is LibraryInspectionSubjectSelection.Ready)
+                        .Select(index =>
+                        {
+                            string path = inspectionPaths[index];
+                            LibraryInspectionSubject subject =
+                                ((LibraryInspectionSubjectSelection.Ready)
+                                    classifiedSelections[index]).Subject;
+                            return new AssemblyContextIntegrationsInput(
                                 path,
                                 PackageIntegrationProvenance(
                                     path,
                                     extractPath,
                                     packageName,
-                                    packageVersion))),
+                                    packageVersion),
+                                subject.AssemblyReference);
+                        });
+                }
+                else
+                {
+                    integrationInputs = inspectionPaths.Select(path =>
+                        new AssemblyContextIntegrationsInput(
+                            path,
+                            PackageIntegrationProvenance(
+                                path,
+                                extractPath,
+                                packageName,
+                                packageVersion)));
+                }
+                AssemblyContextIntegrationsBatch? integrations =
+                    await AssemblyContextIntegrationsRunner.RunIfRequestedAsync(
+                        queries,
+                        groupQueryCatalog,
+                        integrationInputs,
                         trace);
-                List<LibraryInspectionSubjectSelection> subjectSelections =
-                    inspectionPaths.Select(path =>
+                List<LibraryInspectionSubjectSelection> subjectSelections;
+                if (aggregateSubjectSelections is not null)
+                {
+                    subjectSelections = Enumerable
+                        .Range(0, inspectionPaths.Count)
+                        .Select(index =>
+                        {
+                            LibraryInspectionSubjectSelection selection =
+                                aggregateSubjectSelections[index];
+                            string path = inspectionPaths[index];
+                            return selection
+                                is LibraryInspectionSubjectSelection.Ready ready
+                                && integrations?.AssemblyForInspection(path)
+                                    is { } retainedAssembly
+                                    ? new LibraryInspectionSubjectSelection.Ready(
+                                        ready.Subject with
+                                        {
+                                            AssemblyReference =
+                                                retainedAssembly,
+                                        })
+                                    : selection;
+                        })
+                        .ToList();
+                }
+                else
+                {
+                    subjectSelections = inspectionPaths.Select(path =>
                         LibraryInspectionSubject.Select(
                             path,
                             PackageIntegrationProvenance(
@@ -1053,10 +1121,9 @@ public class LibraryCommand
                                 packageName,
                                 packageVersion),
                             integrations?.AssemblyForInspection(
-                                path),
-                            classifyPackageParticipant:
-                                aggregatePackageSelection))
-                    .ToList();
+                                path)))
+                        .ToList();
+                }
                 LibraryInspectionSubjectSelection.Ready? primaryReady =
                     subjectSelections
                         .OfType<LibraryInspectionSubjectSelection.Ready>()

@@ -840,6 +840,8 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData("invalid-nuspec-version", 1)]
     [InlineData("native-image", 1)]
     [InlineData("invalid-image", 1)]
+    [InlineData("unsupported-metadata", 1)]
+    [InlineData("unsupported-metadata-only", 0)]
     public async Task PackageCommand_LocalInspectionSelectionPreservesSupportedShapes(
         string shape,
         int expectedLibraries)
@@ -849,7 +851,9 @@ public sealed class PackageIntegrationsWorkspaceTests
         {
             byte[] image = File.ReadAllBytes(typeof(Npgsql.NpgsqlConnection).Assembly.Location);
             List<(string Path, byte[] Content)> entries =
-                [("lib/net11.0/Npgsql.dll", image)];
+                shape == "unsupported-metadata-only"
+                    ? []
+                    : [("lib/net11.0/Npgsql.dll", image)];
             switch (shape)
             {
                 case "empty-compile":
@@ -877,6 +881,12 @@ public sealed class PackageIntegrationsWorkspaceTests
                     break;
                 case "invalid-image":
                     entries.Add(("lib/net11.0/Invalid.dll", [1, 2, 3]));
+                    break;
+                case "unsupported-metadata":
+                case "unsupported-metadata-only":
+                    entries.Add((
+                        "lib/net11.0/Unsupported.dll",
+                        TimelineCommandTests.BuildWindowsMetadataImage()));
                     break;
             }
             if (shape != "no-nuspec")
@@ -931,6 +941,23 @@ public sealed class PackageIntegrationsWorkspaceTests
             string output = await stdout;
             string error = await stderr;
 
+            if (shape == "unsupported-metadata-only")
+            {
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains(
+                    "Could not select library descriptor for "
+                    + "'lib/net11.0/Unsupported.dll'",
+                    error);
+                Assert.Contains(
+                    "The selected image uses an unsupported metadata format.",
+                    error);
+                Assert.DoesNotContain(
+                    "Assembly context integrations requires at least one assembly.",
+                    error);
+                return;
+            }
+
             if (shape == "empty-compile")
             {
                 Assert.Equal(1, exit);
@@ -942,7 +969,10 @@ public sealed class PackageIntegrationsWorkspaceTests
             }
 
             Assert.Equal(
-                shape is "native-image" or "invalid-image"
+                shape is
+                    "native-image"
+                    or "invalid-image"
+                    or "unsupported-metadata"
                     ? 1
                     : 0,
                 exit);
@@ -961,18 +991,31 @@ public sealed class PackageIntegrationsWorkspaceTests
                                           "ref/",
                                           StringComparison.Ordinal))))
                 Assert.Contains(path, output);
-            if (shape is "native-image" or "invalid-image")
+            if (shape is
+                "native-image"
+                or "invalid-image"
+                or "unsupported-metadata")
             {
                 Assert.DoesNotContain("Native.dll", output);
                 Assert.DoesNotContain("Invalid.dll", output);
-                string fileName =
-                    shape == "native-image"
-                        ? "Native.dll"
-                        : "Invalid.dll";
+                Assert.DoesNotContain("Unsupported.dll", output);
+                string fileName = shape switch
+                {
+                    "native-image" => "Native.dll",
+                    "invalid-image" => "Invalid.dll",
+                    "unsupported-metadata" => "Unsupported.dll",
+                    _ => throw new UnreachableException(),
+                };
                 Assert.Contains(
                     "Could not select library descriptor for "
                     + $"'lib/net11.0/{fileName}'",
                     error);
+                if (shape == "unsupported-metadata")
+                {
+                    Assert.Contains(
+                        "The selected image uses an unsupported metadata format.",
+                        error);
+                }
                 Assert.DoesNotContain("Could not read library:", error);
             }
             TestContext.Current.TestOutputHelper?.WriteLine($"{shape}: exit {exit}\n{output}");
