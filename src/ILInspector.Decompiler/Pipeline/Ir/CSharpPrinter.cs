@@ -297,6 +297,25 @@ public sealed partial class CSharpPrinter
         return null;
     }
 
+    static IrNode EmittedDeclarationScope(IrNode owner)
+        => owner switch
+        {
+            // C# switch sections do not introduce independent scopes.
+            Block
+            {
+                Parent: BlockContainer
+                {
+                    Parent: SwitchSection { Parent: Switch switchStatement },
+                },
+            } => switchStatement,
+            BlockContainer
+            {
+                Parent: SwitchSection { Parent: Switch switchStatement },
+            } => switchStatement,
+            Block { Parent: BlockContainer container } => container,
+            _ => owner,
+        };
+
     static IEnumerable<(int Local, IrNode Owner, LoadLocalAddress Address)>
         VerifiedOutLocalDeclarations(
         IrFunction function)
@@ -1814,7 +1833,7 @@ public sealed partial class CSharpPrinter
                 _ => null,
             };
             if (index is { } local && declaration.Parent is { } parent)
-                scopes[local] = parent is Block { Parent: BlockContainer container } ? container : parent;
+                scopes[local] = EmittedDeclarationScope(parent);
         }
         foreach (var node in function.DescendantsOutsideNestedFunctions)
         {
@@ -1850,7 +1869,7 @@ public sealed partial class CSharpPrinter
             }
         }
         foreach (var (local, owner, _) in VerifiedOutLocalDeclarations(function))
-            scopes[local] = owner;
+            scopes[local] = EmittedDeclarationScope(owner);
         return scopes;
 
         void AddOwned(int? index, IrNode owner)
@@ -1859,7 +1878,7 @@ public sealed partial class CSharpPrinter
                 && IrFunction.LocalSlotReferencesInScope(function.Body, local)
                     .All(reference => ExactLocalNameAllocation.Contains(owner, reference)))
             {
-                scopes[local] = owner;
+                scopes[local] = EmittedDeclarationScope(owner);
             }
         }
     }
@@ -1955,14 +1974,19 @@ public sealed partial class CSharpPrinter
             return false;
         if (declaration is StoreLocal store && StoreValueReferencesLocal(store))
             return false;
-        if (HasBranchTargetAfterStatement(declaration))
-            return false;
 
         if (declaration.ChildIndex >= block.Children.Count
             || !ReferenceEquals(block.Children[declaration.ChildIndex], declaration))
             return false;
 
         var allowed = block.Children.Skip(declaration.ChildIndex).ToList();
+        if (HasBranchTargetAfterStatement(declaration)
+            && (!allowed.Any(statement =>
+                    statement is LabelAnchor { RetainsPdbLocalScope: true })
+                || ReferenceOwnership.RewriteWouldInvalidateLabels(function, allowed, [])))
+        {
+            return false;
+        }
 
         foreach (var reference in IrFunction.LocalSlotReferencesInScope(function.Body, index))
         {

@@ -68,6 +68,16 @@ public sealed class LibraryBodyAnalysisExecution
             plan.Features,
             HasFullMethodEvidenceScope(plan),
             analysis.Diagnostics);
+        CallGraph = new(
+            Receipt,
+            _moduleName,
+            analysis);
+        var generatedFrameworkTypes =
+            new GeneratedFrameworkTypeSet(CallGraph);
+        Leverage = new(
+            Receipt,
+            CallGraph,
+            generatedFrameworkTypes);
         Safety = new(
             Receipt,
             analysis.Safety.Evidence);
@@ -75,11 +85,13 @@ public sealed class LibraryBodyAnalysisExecution
             CreateImplementationProfileResult(
                 Receipt,
                 analysis,
-                _moduleName);
+                CallGraph,
+                generatedFrameworkTypes);
         Optimization = new(
             Receipt,
-            _moduleName,
-            analysis);
+            analysis,
+            CallGraph,
+            generatedFrameworkTypes);
     }
 
     /// <summary>
@@ -98,6 +110,12 @@ public sealed class LibraryBodyAnalysisExecution
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
 
+    /// <summary>Focused local call-graph result.</summary>
+    public LibraryCallGraphAnalysisResult CallGraph { get; }
+
+    /// <summary>Focused whole-library leverage result.</summary>
+    public LibraryLeverageAnalysisResult Leverage { get; }
+
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by
     /// consumers that have not yet migrated to focused results.
@@ -110,7 +128,9 @@ public sealed class LibraryBodyAnalysisExecution
             _analysis,
             Receipt.Features,
             Receipt.HasFullMethodEvidenceScope,
-            Optimization);
+            Optimization,
+            CallGraph,
+            Leverage);
 
     private static bool HasFullMethodEvidenceScope(
         LibraryBodyAnalysisPlan plan) =>
@@ -121,7 +141,8 @@ public sealed class LibraryBodyAnalysisExecution
         CreateImplementationProfileResult(
             LibraryBodyAnalysisReceipt receipt,
             LibraryBodyAnalysisResult analysis,
-            string? moduleName)
+            LibraryCallGraphAnalysisResult callGraph,
+            GeneratedFrameworkTypeSet generatedFrameworkTypes)
     {
         if (!receipt.Features.HasFlag(
                 LibraryBodyAnalysisFeatures.ImplementationProfiles))
@@ -133,50 +154,22 @@ public sealed class LibraryBodyAnalysisExecution
                 []);
         }
 
-        ImmutableArray<DirectCall> physicalDirectCalls =
-        [
-            .. analysis.Methods.DirectCalls.Select(static call =>
-                call.Caller == call.EvidenceMethod
-                    ? call
-                    : call with
-                    {
-                        Caller = call.EvidenceMethod,
-                    }),
-        ];
-        MethodDefinitionMap methodMap =
-            MethodDefinitionMap.Create(
-                analysis.Methods.DeclaredMethods,
-                moduleName);
-        Dictionary<int, MethodSignals> signals =
-            MethodSignalAnalysis.Collect(
-                physicalDirectCalls,
-                analysis.Safety.Evidence,
-                analysis.Methods.BodySignals,
-                receipt.Features.HasFlag(
-                    LibraryBodyAnalysisFeatures.Allocations)
-                    ? analysis.Allocations.Occurrences
-                    : null,
-                analysis.Methods.InAssemblyTypeIsException,
-                analysis.Methods.NonHeapNewObjOperandTokens);
         ImmutableArray<OverloadCallRelationship> relationships =
             MethodImplementationProfileAnalysis
                 .CollectOverloadRelationships(
-                    analysis.Methods.DeclaredMethods,
-                    analysis.Methods.DirectCalls,
-                    methodMap);
+                    callGraph.DeclaredMethods,
+                    callGraph.DirectCalls,
+                    callGraph.DeclaredMethodMap);
 
         return new(
             receipt,
             MethodImplementationProfileAnalysis.Collect(
                 analysis.Methods.ImplementationProfiles,
-                analysis.Methods.DirectCalls,
-                signals,
+                callGraph.DirectCalls,
+                callGraph.MethodSignals,
                 relationships,
-                methodMap),
+                callGraph.DeclaredMethodMap),
             relationships,
-            GeneratedFrameworkTypeAnalysis.Collect(
-                    physicalDirectCalls,
-                    analysis.Methods.Methods)
-                .ToImmutableHashSet());
+            generatedFrameworkTypes.Types);
     }
 }

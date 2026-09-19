@@ -25,7 +25,7 @@ internal static class CatalogCallGraphTestExtensions
         using CatalogCallGraphScope scope =
             CreateScope(root, callerScopes);
         return scope.BuildCallerTree(
-            root,
+            root.CallGraphAnalysis,
             rootMethodToken,
             maxDepth,
             maxNodes);
@@ -41,7 +41,7 @@ internal static class CatalogCallGraphTestExtensions
         using CatalogCallGraphScope scope =
             CreateScope(root, calleeScopes);
         return scope.BuildCallTree(
-            root,
+            root.CallGraphAnalysis,
             rootMethodToken,
             maxDepth,
             maxNodes);
@@ -95,7 +95,7 @@ internal static class CatalogCallGraphTestExtensions
             policy,
             entries.Select(entry =>
                 new CatalogCallGraphParticipant(
-                    entry.Index,
+                    entry.Index.CallGraphAnalysis,
                     entry.Assembly)));
     }
 }

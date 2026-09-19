@@ -49,58 +49,58 @@ internal static class WorkspaceProjectionFixture
     static void ExerciseOutcomes(WorkspaceProjectionContractAudit audit, int variant, AssemblyResolutionScope scope)
     {
         foreach (bool forwarded in new[] { false, true })
-        foreach (string ending in new[] { "resolved", "missing", "unbound", "unavailable", "binding", "declaration", "module" })
-        {
-            string suffix = $"{ending}-{variant}-{scope}-{forwarded}";
-            byte[] endImage = Image($"End-{suffix}", metadata =>
+            foreach (string ending in new[] { "resolved", "missing", "unbound", "unavailable", "binding", "declaration", "module" })
             {
-                if (ending is "resolved" or "binding" or "declaration")
-                    Define(metadata);
-                if (ending == "declaration")
-                    Define(metadata, kind: MetadataTypeDefinitionKind.Interface);
-                if (ending == "module")
-                    Module(metadata, $"part-{variant}.netmodule", variant != 0, [1, 2, (byte)(3 + variant)]);
-            });
-            var end = Descriptor(endImage, variant: variant);
-            var other = Descriptor(endImage, variant: 1 - variant);
-            var bridge = Descriptor(Image($"Bridge-{suffix}", metadata =>
-                Forward(metadata, end.Identity, count: 2)), variant: 1 - variant);
-            var root = Descriptor(Image($"Root-{suffix}", metadata =>
-                Forward(metadata, bridge.Identity, count: 1)), variant: variant);
-            var policy = new Policy(request =>
-            {
-                if (request.Target is AssemblyBindingTarget.AssemblyReference { Identity: var identity }
-                    && identity == bridge.Identity)
-                    return AssemblyBindingSelection.Found(bridge);
-                return ending switch
+                string suffix = $"{ending}-{variant}-{scope}-{forwarded}";
+                byte[] endImage = Image($"End-{suffix}", metadata =>
                 {
-                    "unbound" => AssemblyBindingSelection.NotFound(),
-                    "unavailable" => AssemblyBindingSelection.CannotSelect(
-                        new AssemblyBindingFailure(variant == 0
-                            ? AssemblyBindingFailureKind.UnsupportedScope : AssemblyBindingFailureKind.CandidateUnavailable)),
-                    "binding" => AssemblyBindingSelection.Multiple(variant == 0 ? [end, other] : [other, end]),
-                    _ => AssemblyBindingSelection.Found(end),
-                };
-            });
-            TypeResolutionRequest request = forwarded
-                ? TypeResolutionRequest.FromAssembly(root, scope, Name())
-                : ending is "unbound" or "unavailable" or "binding"
-                    ? TypeResolutionRequest.FromReference(end.Identity,
-                        variant == 0 ? AssemblyBindingOrigin.Global() : AssemblyBindingOrigin.FromAssembly(root), scope, Name())
-                    : TypeResolutionRequest.FromAssembly(end, scope, Name());
-            E.Outcome result = Run(audit, policy, [root, bridge, end, other],
-                forwarded || ending is "unbound" or "unavailable" or "binding" ? [root] : [end], request);
-            Assert.Equal(forwarded ? 2 : 0, result.Hops.Length);
-            Assert.Equal(ending switch
-            {
-                "resolved" => typeof(E.Outcome.Resolved),
-                "missing" => typeof(E.Outcome.NotFound),
-                "unbound" => typeof(E.Outcome.UnboundBinding),
-                "unavailable" => typeof(E.Outcome.Unavailable),
-                "binding" or "declaration" => typeof(E.Outcome.Ambiguous),
-                _ => typeof(E.Outcome.Rejected),
-            }, result.GetType());
-        }
+                    if (ending is "resolved" or "binding" or "declaration")
+                        Define(metadata);
+                    if (ending == "declaration")
+                        Define(metadata, kind: MetadataTypeDefinitionKind.Interface);
+                    if (ending == "module")
+                        Module(metadata, $"part-{variant}.netmodule", variant != 0, [1, 2, (byte)(3 + variant)]);
+                });
+                var end = Descriptor(endImage, variant: variant);
+                var other = Descriptor(endImage, variant: 1 - variant);
+                var bridge = Descriptor(Image($"Bridge-{suffix}", metadata =>
+                    Forward(metadata, end.Identity, count: 2)), variant: 1 - variant);
+                var root = Descriptor(Image($"Root-{suffix}", metadata =>
+                    Forward(metadata, bridge.Identity, count: 1)), variant: variant);
+                var policy = new Policy(request =>
+                {
+                    if (request.Target is AssemblyBindingTarget.AssemblyReference { Identity: var identity }
+                        && identity == bridge.Identity)
+                        return AssemblyBindingSelection.Found(bridge);
+                    return ending switch
+                    {
+                        "unbound" => AssemblyBindingSelection.NotFound(),
+                        "unavailable" => AssemblyBindingSelection.CannotSelect(
+                            new AssemblyBindingFailure(variant == 0
+                                ? AssemblyBindingFailureKind.UnsupportedScope : AssemblyBindingFailureKind.CandidateUnavailable)),
+                        "binding" => AssemblyBindingSelection.Multiple(variant == 0 ? [end, other] : [other, end]),
+                        _ => AssemblyBindingSelection.Found(end),
+                    };
+                });
+                TypeResolutionRequest request = forwarded
+                    ? TypeResolutionRequest.FromAssembly(root, scope, Name())
+                    : ending is "unbound" or "unavailable" or "binding"
+                        ? TypeResolutionRequest.FromReference(end.Identity,
+                            variant == 0 ? AssemblyBindingOrigin.Global() : AssemblyBindingOrigin.FromAssembly(root), scope, Name())
+                        : TypeResolutionRequest.FromAssembly(end, scope, Name());
+                E.Outcome result = Run(audit, policy, [root, bridge, end, other],
+                    forwarded || ending is "unbound" or "unavailable" or "binding" ? [root] : [end], request);
+                Assert.Equal(forwarded ? 2 : 0, result.Hops.Length);
+                Assert.Equal(ending switch
+                {
+                    "resolved" => typeof(E.Outcome.Resolved),
+                    "missing" => typeof(E.Outcome.NotFound),
+                    "unbound" => typeof(E.Outcome.UnboundBinding),
+                    "unavailable" => typeof(E.Outcome.Unavailable),
+                    "binding" or "declaration" => typeof(E.Outcome.Ambiguous),
+                    _ => typeof(E.Outcome.Rejected),
+                }, result.GetType());
+            }
     }
 
     static void ExerciseDefinitionsAndDeclarations(WorkspaceProjectionContractAudit audit, int variant)
@@ -110,7 +110,13 @@ internal static class WorkspaceProjectionFixture
         foreach (MetadataTypeDefinitionKind kind in Enum.GetValues<MetadataTypeDefinitionKind>())
         {
             var assembly = Descriptor(Image($"Kind-{kind}-{variant}", metadata =>
-                Define(metadata, ns, segments, kind, coreRoot: variant != 0)), variant: variant);
+            {
+                EntityHandle baseType = kind == MetadataTypeDefinitionKind.Unknown
+                    && variant != 0
+                        ? UnsupportedKindBase(metadata, variant)
+                        : default;
+                Define(metadata, ns, segments, kind, coreRoot: variant != 0, baseType);
+            }), variant: variant);
             var resolved = Assert.IsType<E.Outcome.Resolved>(Run(audit, new Policy(), [assembly], [assembly],
                 TypeResolutionRequest.FromAssembly(assembly, AssemblyResolutionScope.Any, Name(ns, segments))));
             Assert.Equal(kind, resolved.Definition.Kind);
@@ -188,6 +194,62 @@ internal static class WorkspaceProjectionFixture
     static void ExerciseFailures(WorkspaceProjectionContractAudit audit, int variant)
     {
         var moduleOwner = Descriptor(Image($"ModuleOwner-{variant}", metadata => Define(metadata)), variant: variant);
+        var malformedKind = Descriptor(
+            Image($"MalformedKind-{variant}", metadata =>
+            {
+                TypeDefinitionHandle definition;
+                int index;
+                if (variant == 0)
+                {
+                    definition = Define(metadata, segments: ["Generic`1"]);
+                    index = 1;
+                }
+                else
+                {
+                    TypeReferenceHandle cycle = metadata.AddTypeReference(
+                        MetadataTokens.TypeReferenceHandle(1),
+                        metadata.GetOrAddString("N"),
+                        metadata.GetOrAddString("Cycle"));
+                    definition = Define(
+                        metadata,
+                        segments: ["Generic`1"],
+                        baseType: cycle);
+                    index = 0;
+                }
+                metadata.AddGenericParameter(
+                    definition,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString("T"),
+                    index);
+            }),
+            variant: variant);
+        Run(
+            audit,
+            new Policy(),
+            [malformedKind],
+            [malformedKind],
+            TypeResolutionRequest.FromAssembly(
+                malformedKind,
+                AssemblyResolutionScope.Any,
+                Name("N", ["Generic`1"])));
+
+        var kindBudget = Descriptor(
+            Image(
+                $"KindBudget-{variant}",
+                variant == 0
+                    ? DefineKindBudget
+                    : DefineKindNameBudget),
+            variant: variant);
+        Run(
+            audit,
+            new Policy(),
+            [kindBudget],
+            [kindBudget],
+            TypeResolutionRequest.FromAssembly(
+                kindBudget,
+                AssemblyResolutionScope.Any,
+                Name("N", ["Derived`1"])));
+
         foreach (bool continued in new[] { false, true })
         {
             var module = continued
@@ -281,20 +343,20 @@ internal static class WorkspaceProjectionFixture
                 declarationBudgetName));
 
         foreach (AssemblyBindingFailureKind kind in Enum.GetValues<AssemblyBindingFailureKind>())
-        foreach (CandidateOpenFailureKind? openKind in Enum.GetValues<CandidateOpenFailureKind>()
-            .Select(kind => (CandidateOpenFailureKind?)kind).Prepend(null))
-        foreach (MetadataRootMalformedReason? reason in openKind == CandidateOpenFailureKind.InvalidImage
-            ? Enum.GetValues<MetadataRootMalformedReason>().Select(reason => (MetadataRootMalformedReason?)reason).Prepend(null)
-            : [null])
-        {
-            var failure = new AssemblyBindingFailure(kind, openKind) { MetadataRootReason = reason };
-            var policy = new Policy(_ => AssemblyBindingSelection.CannotSelect(failure));
-            Run(audit, policy, [moduleOwner], [moduleOwner],
-                TypeResolutionRequest.FromCoreLibrary(moduleOwner, (AssemblyResolutionScope)variant, Name()));
-            Run(audit, new Policy(_ => AssemblyBindingSelection.Invalid(failure)), [moduleOwner], [moduleOwner],
-                TypeResolutionRequest.FromReference(Identity($"Invalid-{variant}"), AssemblyBindingOrigin.FromAssembly(moduleOwner),
-                    (AssemblyResolutionScope)variant, Name()));
-        }
+            foreach (CandidateOpenFailureKind? openKind in Enum.GetValues<CandidateOpenFailureKind>()
+                .Select(kind => (CandidateOpenFailureKind?)kind).Prepend(null))
+                foreach (MetadataRootMalformedReason? reason in openKind == CandidateOpenFailureKind.InvalidImage
+                    ? Enum.GetValues<MetadataRootMalformedReason>().Select(reason => (MetadataRootMalformedReason?)reason).Prepend(null)
+                    : [null])
+                {
+                    var failure = new AssemblyBindingFailure(kind, openKind) { MetadataRootReason = reason };
+                    var policy = new Policy(_ => AssemblyBindingSelection.CannotSelect(failure));
+                    Run(audit, policy, [moduleOwner], [moduleOwner],
+                        TypeResolutionRequest.FromCoreLibrary(moduleOwner, (AssemblyResolutionScope)variant, Name()));
+                    Run(audit, new Policy(_ => AssemblyBindingSelection.Invalid(failure)), [moduleOwner], [moduleOwner],
+                        TypeResolutionRequest.FromReference(Identity($"Invalid-{variant}"), AssemblyBindingOrigin.FromAssembly(moduleOwner),
+                            (AssemblyResolutionScope)variant, Name()));
+                }
         ExerciseDeclarationFailures(audit, variant);
         foreach (var failure in FailureDescriptors(variant))
             Run(audit, new Policy(), [failure.Assembly], [failure.Assembly],
@@ -730,7 +792,7 @@ internal static class WorkspaceProjectionFixture
                 ? Define(metadata, "System", ["ValueType"])
                 : metadata.AddTypeReference(Reference(metadata, Identity("System.Runtime", "b03f5f7f11d50a3a")),
                     metadata.GetOrAddString("System"), metadata.GetOrAddString("ValueType"));
-        if (kind == MetadataTypeDefinitionKind.Unknown)
+        if (kind == MetadataTypeDefinitionKind.Unknown && baseType.IsNil)
             baseType = metadata.AddTypeSpecification(metadata.GetOrAddBlob(new byte[] { 0x08 }));
         TypeDefinitionHandle previous = default;
         for (int index = 0; index < segments.Length; index++)
@@ -746,6 +808,84 @@ internal static class WorkspaceProjectionFixture
             previous = current;
         }
         return previous;
+    }
+
+    static void DefineKindBudget(MetadataBuilder metadata)
+    {
+        int count = MetadataSafetyPolicy.MaxRelationshipNodes + 1;
+        var specifications = new TypeSpecificationHandle[count - 1];
+        for (int index = 0; index < specifications.Length; index++)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger((index + 3) << 2);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x08); // I4
+            specifications[index] = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        }
+
+        for (int index = 0; index < count; index++)
+        {
+            EntityHandle baseType = index == count - 1
+                ? default
+                : specifications[index];
+            TypeDefinitionHandle definition = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    index == 0 ? "Derived`1" : $"Base{index}`1"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                definition,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        }
+    }
+
+    static void DefineKindNameBudget(MetadataBuilder metadata)
+    {
+        TypeReferenceHandle baseType = metadata.AddTypeReference(
+            Reference(metadata, Identity("KindBudgetDependency")),
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(
+                new string(
+                    'B',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters + 1)));
+        TypeDefinitionHandle definition = Define(
+            metadata,
+            segments: ["Derived`1"],
+            baseType: baseType);
+        metadata.AddGenericParameter(
+            definition,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+    }
+
+    static EntityHandle UnsupportedKindBase(
+        MetadataBuilder metadata,
+        int variant)
+    {
+        ModuleReferenceHandle module = metadata.AddModuleReference(
+            metadata.GetOrAddString($"kind-{variant}.netmodule"));
+        TypeReferenceHandle reference = metadata.AddTypeReference(
+            module,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("UnsupportedBase"));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // GENERICINST
+        signature.WriteByte(0x12); // CLASS
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(reference) << 2) | 1);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x08); // I4
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
     }
 
     static AssemblyReferenceHandle Reference(MetadataBuilder metadata, AssemblyReferenceIdentity identity) =>
@@ -989,6 +1129,14 @@ internal static class WorkspaceProjectionFixture
             if (property == nameof(MetadataTypeNameFailure.SubjectToken))
                 return false;
         }
+        // Kind classification is always rooted in a concrete TypeDef, TypeRef,
+        // TypeSpec, or GenericParam handle even though the public evidence
+        // reserves nullable tokens for future owner-defined failures.
+        if (type == typeof(MetadataTypeDefinitionKindFailure.Malformed)
+            && property == nameof(MetadataTypeDefinitionKindFailure.Malformed.SubjectToken)
+            || type == typeof(MetadataTypeDefinitionKindFailure.Unsupported)
+            && property == nameof(MetadataTypeDefinitionKindFailure.Unsupported.SubjectToken))
+            return false;
         return null;
     }
 }

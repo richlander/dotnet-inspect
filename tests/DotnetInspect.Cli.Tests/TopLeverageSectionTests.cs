@@ -304,10 +304,12 @@ public class TopLeverageSectionTests
         var drillMap =
             LibraryMetadataService.BuildLibraryDrillMap(context, logger);
         var result = TopLeverageQuery.Execute(
-            LibraryBodyIndex.OpenFromPrefetchedImage(
+            LibraryBodyAnalysisService.ExecuteImage(
                 path,
                 context.GetPrefetchedImage(),
-                LibraryBodyAnalysisFeatures.Default));
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Default))
+            .Leverage);
         var inspection = new LibraryInspection();
         LibraryMetadataService.ApplyTopLeverageResult(
             path,
