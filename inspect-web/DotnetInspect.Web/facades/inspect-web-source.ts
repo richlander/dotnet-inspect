@@ -22,6 +22,8 @@ export type BrowserCalleeEvidenceState = "Instruction" | "Method" | "Instruction
 
 export type BrowserCostCalleeEvidenceInputKind = "AllocationInLoop" | "Reflection" | "CallInLoop" | "RootReach" | "DirectCallers" | "LoopCalls" | number;
 
+export type BrowserMemberSourcePartKind = "Member" | "XmlDocumentation" | "Attributes" | "Signature" | "Body" | number;
+
 export type BrowserMethodBodyResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
 export type BrowserSourceComparisonResultKind = "Succeeded" | "Failed" | "Canceled" | number;
@@ -249,6 +251,25 @@ export interface BrowserMemberFindingFact {
   readonly detail: string | null;
   readonly conditionality: string;
   readonly instanceKey: number | null;
+}
+
+export interface BrowserMemberSource {
+  readonly source: BrowserSource;
+  readonly parts: ReadonlyArray<BrowserMemberSourcePart>;
+}
+
+export interface BrowserMemberSourcePart {
+  readonly kind: BrowserMemberSourcePartKind;
+  readonly spans: ReadonlyArray<BrowserMemberSourceSpan>;
+}
+
+export interface BrowserMemberSourceSpan {
+  readonly start: number;
+  readonly length: number;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly leadingIndentation: string;
+  readonly end: number;
 }
 
 export interface BrowserMethodBodyComparison {
@@ -706,10 +727,10 @@ export async function queryMemberFindingCensus(packageId: string, version: strin
   return $parsed as BrowserMemberFindingCensus;
 }
 
-export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource> {
+export async function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserMemberSource> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Source"]["SourceExports"]["QueryMemberSource.641907440"](packageId, version, targetFramework, assemblyName, typeIdentity, memberName, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserSource;
+  return $parsed as BrowserMemberSource;
 }
 
 export async function queryMemberSourceComparison(operationId: string, requestJson: string): Promise<BrowserSourceComparisonResult> {

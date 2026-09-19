@@ -12,6 +12,7 @@ import {
   type SourceResultState,
 } from "../src/source-inspection.ts";
 import type {
+  BrowserMemberSource,
   BrowserSource,
   BrowserTypeSourceResult,
 } from "../src/facades/inspect-web-source.d.ts";
@@ -41,6 +42,23 @@ function typeSource(text: string): BrowserTypeSourceResult {
   };
 }
 
+function memberSource(text: string): BrowserMemberSource {
+  return {
+    source: source(text),
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: text.length,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: text.length,
+      }],
+    }],
+  };
+}
+
 function focusSnapshot(selector = "#member-filter"): MemberFocusSnapshot {
   return {
     selector,
@@ -53,8 +71,13 @@ function focusSnapshot(selector = "#member-filter"): MemberFocusSnapshot {
   };
 }
 
-function sourceText(value: SourceResultState): string | undefined {
-  return value.status === "ready" ? value.source.text : undefined;
+function sourceText(
+  value: SourceResultState<BrowserSource | BrowserMemberSource>,
+): string | undefined {
+  if (value.status !== "ready") return undefined;
+  return "source" in value.source
+    ? value.source.source.text
+    : value.source.text;
 }
 
 function inspectionState(
@@ -91,7 +114,7 @@ function inspectionDependencies(
         createId: () => `source-operation-${nextOperationId++}`,
       },
     }),
-    queryMemberSource: async () => source("member"),
+    queryMemberSource: async () => memberSource("member"),
     queryTypeSource: async () => typeSource("type"),
     queryGraphSource: async () => source("graph"),
     memberSourceHasConcreteOverload: () => true,
@@ -150,7 +173,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /case "source":\s*return renderTypeSourceHtml\(item\);/);
   assert.match(
     appSource,
-    /function renderMemberSourceHtml\(\) \{[\s\S]*switch \(state\.memberSource\.status\)[\s\S]*case "ready":[\s\S]*return renderSourceResult\(\{[\s\S]*source: state\.memberSource\.source/);
+    /function renderMemberSourceHtml\(\) \{[\s\S]*switch \(state\.memberSource\.status\)[\s\S]*case "ready":[\s\S]*sourceResultForSignature\([\s\S]*memberSourceText\(source, selectedPart\)/);
 });
 
 async function promiseSettled(promise: Promise<unknown>): Promise<boolean> {
@@ -260,7 +283,7 @@ test("canonical commit clears a settled graph source without rendering", () => {
 });
 
 test("member source publishes only for the current member selection", async () => {
-  const query = deferred<BrowserSource>();
+  const query = deferred<BrowserMemberSource>();
   const focusRenders: Array<string | null> = [];
   let current = true;
   const state = inspectionState();
@@ -294,7 +317,7 @@ test("member source publishes only for the current member selection", async () =
     state.memberSource,
     { status: "loading", signature: "member-signature" });
   current = false;
-  query.resolve(source("stale"));
+  query.resolve(memberSource("stale"));
   await load;
 
   assert.deepEqual(state.memberSource, { status: "idle" });
@@ -369,6 +392,54 @@ test("empty member source failure remains settled", async () => {
   });
   assert.equal(sourceResultNeedsLoad(state.memberSource, "member-signature"), false);
   assert.equal(queries, 1);
+});
+
+test("member source caches one authored catalog without another query", async () => {
+  let queries = 0;
+  const state = inspectionState();
+  const initial = memberSource("/// docs\npublic void Build() { }");
+  const authored: BrowserMemberSource = {
+    ...initial,
+    parts: [...initial.parts, {
+      kind: "Signature",
+      spans: [{
+        start: 9,
+        length: 19,
+        startLine: 2,
+        endLine: 2,
+        leadingIndentation: "",
+        end: 28,
+      }],
+    }],
+  };
+  const coordinator = createSourceInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryMemberSource: async () => {
+        queries++;
+        return authored;
+      },
+    }));
+  const request = {
+    signature: "member-signature",
+    packageId: "Example.Package",
+    version: "1.2.3",
+    framework: "net10.0",
+    assembly: "Example.Package",
+    type: "Example.Widget",
+    member: "Build",
+    selectorKey: "method",
+    metadataToken: 42,
+    taste: "[]",
+    isCurrent: () => true,
+  };
+
+  await coordinator.loadMemberSource(request);
+  await coordinator.loadMemberSource(request);
+
+  assert.equal(queries, 1);
+  assert.equal(state.memberSource.status, "ready");
+  if (state.memberSource.status === "ready")
+    assert.equal(state.memberSource.source.parts.length, 2);
 });
 
 test("type source caches an owned result without repainting a hidden surface", async () => {

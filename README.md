@@ -874,6 +874,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -887,6 +889,19 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 `--lines` only to clip rendered text. Exact-type, selected-section, discovery,
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
+
+Focused member `-S "Source Locations" --json` reports `member`, `document`, and
+`pdb_span` without fetching source text or adding generic section/row wrappers.
+PDB spans describe executable source, not the entire declaration.
+Opt in with `--source-parts` to acquire checksum-verified source and discover
+lexical ranges. `--print --part member|xml-docs|attributes|signature|body`
+prints the selected part; both gestures imply Source Locations when `-S` is
+omitted. The full member includes attached XML documentation and attributes;
+the body includes its delimiters. Missing parts fail visibly, and unqualified
+`--print` still prints the whole source document. These are lexical source
+parts, not parsed documentation or stronger physical-authorship evidence.
+Human-readable part output restores the original first-line indentation;
+structured JSON content remains the exact token-selected text.
 
 Use a Workspace packet as reusable aggregate context when the Type may be
 defined by any Library in its selected context:
