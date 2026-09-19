@@ -439,6 +439,51 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        "--json-array",
+        null,
+        "--json-array requires --value, --urls, --paths, --roots, or --print.")]
+    [InlineData(
+        "--frontmatter",
+        null,
+        "--frontmatter/--yaml-header and --body require --print or --content.")]
+    [InlineData(
+        "--match",
+        "bogus",
+        "--match must be 'all' or 'first', not 'bogus'.")]
+    public async Task Layout_CompetingIntentRetainsOwnedDiagnosticBeforePackageResolution(
+        string option,
+        string? value,
+        string expectedError)
+    {
+        List<string> args =
+        [
+            "--offline",
+            "package",
+            "Package.That.Must.Not.Resolve",
+            "--layout",
+            option,
+        ];
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["--rows", "1"]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expectedError, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Package.That.Must.Not.Resolve",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Package_UnselectedModeRetainsRenderedLineFallback()
     {

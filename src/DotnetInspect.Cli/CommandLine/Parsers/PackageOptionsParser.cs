@@ -572,39 +572,7 @@ public static class PackageOptionsParser
             result.GetValue(args.PackageNameArg) ?? [];
         if (packageArgs.Length != 1
             || !result.GetValue(args.LayoutOption)
-            || result.GetResult(opts.Discover)
-                is { Implicit: false }
-            || result.GetValue(args.DependenciesOption)
-            || result.GetValue(args.TfmsOption)
-            || result.GetResult(args.PathOption)
-                is { Implicit: false }
-            || result.GetResult(args.TypeFilterOption)
-                is { Implicit: false }
-            || result.GetValue(args.ContentOption)
-            || result.GetResult(args.LibraryOption)
-                is { Implicit: false }
-            || result.GetValue(args.AllLibrariesOption)
-            || result.GetValue(args.VersionsOption)
-            || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(opts.Tree)
-            || result.GetValue(opts.Schema)
-            || result.GetValue(opts.Envelope)
-            || result.GetResult(opts.Select)
-                is { Implicit: false }
-            || result.GetValue(opts.Print)
-            || result.GetResult(opts.Row)
-                is { Implicit: false }
-            || result.GetValue(opts.Value)
-            || result.GetValue(opts.Urls)
-            || result.GetValue(opts.Paths)
-            || result.GetValue(args.RootsOption)
-            || result.GetResult(opts.Fields)
-                is { Implicit: false }
-            || result.GetResult(opts.Columns)
-                is { Implicit: false }
-            || (result.GetResult(args.VersionOption)
-                is { Implicit: false }
-                && result.GetValue(args.VersionOption) is null))
+            || HasCompetingPackageLayoutIntent(result, opts, args))
         {
             return false;
         }
@@ -622,6 +590,45 @@ public static class PackageOptionsParser
 
         return true;
     }
+
+    private static bool HasCompetingPackageLayoutIntent(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => result.GetResult(opts.Discover) is { Implicit: false }
+            || result.GetResult(opts.Select) is { Implicit: false }
+            || result.GetValue(opts.Tree)
+            || result.GetValue(opts.Schema)
+            || result.GetValue(opts.Envelope)
+            || result.GetValue(opts.Print)
+            || result.GetResult(opts.Row) is { Implicit: false }
+            || result.GetValue(opts.Value)
+            || result.GetValue(opts.Urls)
+            || result.GetValue(opts.Paths)
+            || result.GetValue(args.RootsOption)
+            || result.GetValue(opts.JsonArray)
+            || result.GetValue(opts.PreferRenderedUrls)
+            || result.GetValue(opts.Table)
+            || result.GetValue(opts.Tsv)
+            || result.GetValue(args.NoHeaderOption)
+            || result.GetResult(opts.Fields) is { Implicit: false }
+            || result.GetResult(opts.Columns) is { Implicit: false }
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.TfmsOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
+            || result.GetResult(args.PathMatchOption) is { Implicit: false }
+            || result.GetValue(args.SkipEmptyOption)
+            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
+            || result.GetResult(args.LibraryOption) is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.IncludeUnlistedOption)
+            || result.GetValue(args.ContentOption)
+            || result.GetValue(args.FrontmatterOption)
+            || result.GetValue(args.BodyOption)
+            || (result.GetResult(args.VersionOption) is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null);
 
     internal static bool IsPackageTfmRowSelection(
         ParseResult parseResult,
