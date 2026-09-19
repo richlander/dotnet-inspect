@@ -246,7 +246,7 @@ public sealed class EcosystemPopulationLoadingTests
     public async Task
         PlatformCompletedChildPreservesEvidenceAndTransfersAuthoritiesOnce()
     {
-        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+        CompletedPlatformPopulation platform =
             await MaterializePlatformPopulationAsync();
         TestInputs inputs = new(LoadMode.PlatformCompleted)
         {
@@ -309,7 +309,7 @@ public sealed class EcosystemPopulationLoadingTests
     public async Task
         PlatformArtifactRetirementWaitsForTransferredLibraryOwner()
     {
-        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+        CompletedPlatformPopulation platform =
             await MaterializePlatformPopulationAsync();
         TestInputs inputs = new(LoadMode.PlatformCompleted)
         {
@@ -435,6 +435,53 @@ public sealed class EcosystemPopulationLoadingTests
     }
 
     [Fact]
+    public async Task PlatformArtifactCleanupFailureRemainsVisible()
+    {
+        var cleanupFailure =
+            new IOException("synthetic Platform artifact cleanup failure");
+        var cleanupLease = new FailingArtifactLease(cleanupFailure);
+        CompletedPlatformPopulation platform =
+            await MaterializePlatformPopulationWithCleanupFailureAsync(
+                cleanupLease);
+        TestInputs inputs = new(LoadMode.PlatformCompleted)
+        {
+            Platform = platform,
+        };
+        await using WorkspaceFixture workspace =
+            WorkspaceFixture.Create(Binding());
+        var outcome =
+            Assert.IsType<EcosystemPopulationLoadOutcome.Completed>(
+                await EcosystemPopulationLoadOperation.InvokeAsync(
+                    workspace.Request(
+                        inputs,
+                        TestContext.Current.CancellationToken)));
+        EcosystemPopulationLoadedLibraryReference library =
+            Assert.Single(outcome.Owners.Libraries);
+        var transferred =
+            Assert.IsType<EcosystemPopulationOwnerTakeOutcome.Transferred>(
+                outcome.Owners.Take(library.Reference));
+
+        Task retirement = outcome.Owners.DisposeAsync().AsTask();
+        Assert.False(retirement.IsCompleted);
+        Assert.Equal(0, cleanupLease.Disposals);
+
+        await transferred.Owner.DisposeAsync();
+        AggregateException failure =
+            await Assert.ThrowsAsync<AggregateException>(() => retirement);
+
+        Assert.Same(
+            cleanupFailure,
+            Assert.Single(failure.Flatten().InnerExceptions));
+        Assert.Same(
+            cleanupFailure,
+            Assert.Single(platform.Artifacts.CleanupFailures));
+        Assert.Equal(1, cleanupLease.Disposals);
+        Assert.Equal(
+            EcosystemPopulationOwnerBatchState.RetirementFailed,
+            outcome.Owners.State);
+    }
+
+    [Fact]
     public async Task CancellationAfterReplyRetiresUntransferredOwners()
     {
         await using ArtifactFixture artifacts =
@@ -463,7 +510,7 @@ public sealed class EcosystemPopulationLoadingTests
     public async Task
         CancellationAfterPlatformReplyRetiresLibraryAndArtifactAuthorities()
     {
-        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+        CompletedPlatformPopulation platform =
             await MaterializePlatformPopulationAsync();
         using var cancellation = new CancellationTokenSource();
         TestInputs inputs = new(LoadMode.PlatformCompleted)
@@ -716,7 +763,7 @@ public sealed class EcosystemPopulationLoadingTests
     public async Task
         ForeignPlatformReplyRetiresLibraryAndArtifactAuthorities()
     {
-        PlatformPopulationArtifactMaterializationOutcome.Completed platform =
+        CompletedPlatformPopulation platform =
             await MaterializePlatformPopulationAsync();
         EcosystemPopulationLoaderBinding<TestInputs> binding = Binding();
         await using WorkspaceFixture workspace =
@@ -1067,7 +1114,7 @@ public sealed class EcosystemPopulationLoadingTests
 
     static EcosystemPopulationCompletedChild PlatformCompletedChild(
         EcosystemPopulationLoadRequest<TestInputs> request,
-        PlatformPopulationArtifactMaterializationOutcome.Completed platform)
+        CompletedPlatformPopulation platform)
     {
         ChildEvidence evidence = Child(request, "platform");
         return request.PlatformCompletedChild(
@@ -1134,13 +1181,11 @@ public sealed class EcosystemPopulationLoadingTests
         Assert.IsType<WorkspaceRegistrationReadResult.Available>(
             workspace.GetRegistrationSnapshot()).Revision;
 
-    static async Task<
-        PlatformPopulationArtifactMaterializationOutcome.Completed>
+    static async Task<CompletedPlatformPopulation>
         MaterializePlatformPopulationAsync() =>
-        Assert.IsType<
-            PlatformPopulationArtifactMaterializationOutcome.Completed>(
-                await MaterializePlatformPopulationOutcomeAsync(
-                    consumedAssemblies: 2));
+        Completed(
+            await MaterializePlatformPopulationOutcomeAsync(
+                consumedAssemblies: 2));
 
     static async Task<
         PlatformPopulationArtifactMaterializationOutcome.Terminal>
@@ -1265,6 +1310,164 @@ public sealed class EcosystemPopulationLoadingTests
                 "ecosystem-platform");
     }
 
+    static CompletedPlatformPopulation Completed(
+        PlatformPopulationArtifactMaterializationOutcome outcome)
+    {
+        var completed =
+            Assert.IsType<
+                PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                    outcome);
+        return new(completed.Population, completed.Artifacts);
+    }
+
+    static async Task<CompletedPlatformPopulation>
+        MaterializePlatformPopulationWithCleanupFailureAsync(
+            IArtifactAcquisitionLease cleanupLease)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformFamilyTarget target = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        PlatformSourceCapabilityIdentity capability =
+            PlatformSourceCapabilityIdentity.Create("runtime-pack");
+        var operation = new PlatformHouseOperation.Realize(
+            new PlatformPopulationDemand.CompletePopulation(),
+            PlatformViewDemand.Implementation);
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                "ecosystem-platform-cleanup"),
+            new PlatformTargetDemand.Exact(target),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "ecosystem-platform-cleanup")),
+            operation,
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "ecosystem-platform-cleanup-sources"),
+                PlatformSourcePolicyGeneration.Create(
+                    "ecosystem-platform-cleanup-generation"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [capability]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 2,
+                maxTargetCandidates: 2,
+                maxAssemblies: 2,
+                maxXmlDocuments: 2,
+                maxPortablePdbs: 2,
+                maxSourceDocuments: 2,
+                maxBytes: 16 * 1024 * 1024,
+                maxForwardingHops: 2,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+        var contribution = new PlatformSourceContribution.Realization(
+            PlatformSourceFacet.Implementation,
+            capability,
+            request.Snapshot,
+            PlatformSourceGeneration.Create(
+                "ecosystem-platform-cleanup-source-generation"),
+            target,
+            PlatformSourceCoordinateIdentity.Create(
+                "ecosystem-platform-cleanup-coordinate"),
+            operation.Population,
+            PlatformSourceContributionCompleteness.Authoritative);
+        byte[] content = await File.ReadAllBytesAsync(
+            typeof(EcosystemPopulationLoadingTests).Assembly.Location,
+            cancellationToken);
+        var session = new ArtifactSetSession();
+        ArtifactQueryLease? queryLease = null;
+        ArtifactContentLease? contentLease = null;
+        try
+        {
+            await session.AddRequiredAcquisitionAsync(
+                (scope, _) =>
+                {
+                    ArtifactContribution artifact = scope.Register(
+                        new PlatformLibraryArtifactProvenance(
+                            contribution,
+                            new Provenance("platform-cleanup")),
+                        _ => new MemoryStream(content, writable: false));
+                    return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                        new ArtifactAcquisitionOutcome.Acquired(
+                            [artifact],
+                            cleanupLease));
+                },
+                cancellationToken: cancellationToken);
+            ArtifactAssemblyProjection? projection = null;
+            Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+                await session.SealWithProjectionAsync(
+                    (view, token) =>
+                    {
+                        projection =
+                            Assert.IsType<
+                                ArtifactAssemblyProjectionOutcome.Projected>(
+                                    ArtifactAssemblyInspection.Project(
+                                        view,
+                                        token))
+                                .Value;
+                        return null;
+                    },
+                    cancellationToken));
+            ArtifactQueryAuthorization authorization =
+                session.CreateQueryAuthorization();
+            queryLease = session.IssueLease(authorization);
+            ArtifactContentReference reference =
+                session.GetCatalog(queryLease)
+                    .Select(
+                        descriptor => session.GetContentReference(
+                            descriptor.Identity,
+                            queryLease))
+                    .Single();
+            contentLease =
+                session.IssueContentLease(reference, queryLease);
+            ArtifactAssemblyProjection exactProjection =
+                Assert.IsType<ArtifactAssemblyProjection>(projection);
+            var selection =
+                new PlatformPopulationLibraryContentSelection(
+                    reference,
+                    exactProjection,
+                    new PlatformPopulationMemberAttribution(
+                        target,
+                        PlatformPopulationMemberRole.Focus));
+            var consumed = new PlatformHouseConsumedWork(
+                sourceOperations: 1,
+                targetCandidates: 0,
+                assemblies: 1,
+                xmlDocuments: 0,
+                portablePdbs: 0,
+                sourceDocuments: 0,
+                bytes: content.LongLength,
+                forwardingHops: 0,
+                targetComparisons: 0,
+                elapsed: TimeSpan.Zero);
+            var population =
+                Assert.IsType<
+                    PlatformPopulationRealizationResult.Completed>(
+                        await PlatformHousePopulationRealizer
+                            .RealizeImplementationsAsync(
+                                request,
+                                [selection],
+                                [contentLease],
+                                consumed));
+            contentLease = null;
+            queryLease.Dispose();
+            queryLease = null;
+            return new(population, session);
+        }
+        catch
+        {
+            contentLease?.Dispose();
+            queryLease?.Dispose();
+            await session.DisposeAsync();
+            throw;
+        }
+    }
+
     static AssemblyReferenceIdentity ReadAssemblyIdentity(byte[] content)
     {
         using var reader =
@@ -1291,8 +1494,7 @@ public sealed class EcosystemPopulationLoadingTests
         public LoadMode Mode { get; } = mode;
         public int InvocationCount { get; set; }
         public LibraryContentOwner? Owner { get; init; }
-        public PlatformPopulationArtifactMaterializationOutcome.Completed?
-            Platform
+        public CompletedPlatformPopulation? Platform
         {
             get;
             init;
@@ -1464,6 +1666,20 @@ public sealed class EcosystemPopulationLoadingTests
     }
 
     sealed record Provenance(string Name) : IArtifactProvenance;
+    sealed record CompletedPlatformPopulation(
+        PlatformPopulationRealizationResult.Completed Population,
+        ArtifactSetSession Artifacts);
+    sealed class FailingArtifactLease(Exception failure) :
+        IArtifactAcquisitionLease
+    {
+        public int Disposals { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            Disposals++;
+            return ValueTask.FromException(failure);
+        }
+    }
     readonly record struct OwnerWithChild(
         LibraryContentOwner Owner,
         ArtifactContentLease Child);

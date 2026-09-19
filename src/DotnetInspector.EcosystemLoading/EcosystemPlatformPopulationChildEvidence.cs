@@ -105,9 +105,6 @@ public static class EcosystemPlatformPopulationChildProjection
                     PlatformPopulationRealizationValue>.Unavailable =>
                     EcosystemPopulationChildSettlementKind.Unavailable,
                 PlatformHouseOutcome<
-                    PlatformPopulationRealizationValue>.Ambiguous =>
-                    EcosystemPopulationChildSettlementKind.Ambiguous,
-                PlatformHouseOutcome<
                     PlatformPopulationRealizationValue>.Incomplete =>
                     EcosystemPopulationChildSettlementKind.Incomplete,
                 PlatformHouseOutcome<

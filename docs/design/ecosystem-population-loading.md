@@ -373,9 +373,13 @@ An empty completed population is valid only when the selected source owner
 positively establishes that the exact demand has no members.
 
 `Ambiguous` means owner evidence permits several active candidates without an
-authorized precedence. A PlatformHouse `Ambiguous` child remains child
+authorized precedence. A child that can issue `Ambiguous` remains child
 `Ambiguous` and is projected as loader `Ambiguous`; it is not relabeled as
-`Unavailable`, `Incomplete`, `Rejected`, or empty completion.
+`Unavailable`, `Incomplete`, `Rejected`, or empty completion. The current
+Platform complete-population producers do not issue an ambiguous population
+result, so the Platform population projection makes no stronger claim. A
+future Platform population ambiguity producer must add its typed construction
+and exact projection gate before that outcome becomes supported.
 
 `Incomplete` preserves successful partial evidence but makes no completeness
 claim. It may carry owners only from independently `Completed` child
@@ -575,7 +579,7 @@ Failure remains attributable to the exact boundary that produced it:
 | Loader and retained registration do not correspond | `Rejected` before capability work |
 | Required host capability absent | Bound `Unavailable` retaining the loader, with no source work |
 | Finite discovery or acquisition bound exhausted | `Incomplete` |
-| Several active Platform candidates without precedence | Child `Ambiguous`, projected as loader `Ambiguous` |
+| Several active adjacent-owner candidates without precedence | Child `Ambiguous`, projected as loader `Ambiguous` |
 | Platform family mismatch | Child `Rejected`, projected as loader `Rejected` |
 | Source or Library construction failure | `Failed` |
 | Workspace admission rejects returned content | Separate admission non-success retaining the loader receipt |
@@ -646,9 +650,9 @@ The contract must preserve these cases:
 10. One Platform Library owner transfers while its Artifact session remains in
     the owner batch; batch retirement starts Artifact retirement, remains
     pending without deadlock, and completes after that Library owner retires.
-11. PlatformHouse returns several active candidates without authorized
-    precedence; the exact request and receipt remain visible and the loader
-    returns `Ambiguous`, not `Rejected` or empty completion.
+11. An adjacent owner returns several active candidates without authorized
+    precedence; the exact child request and receipt remain visible and the
+    loader returns `Ambiguous`, not `Rejected` or empty completion.
 
 The motivating real assets are
 `Microsoft.NETCore.App.Ref@10.0.0/ref/net10.0/System.Text.Json.dll` and
@@ -676,8 +680,9 @@ This shared capability has eight focused stages:
    remains staged.
 5. **Platform handoff prerequisites implemented:** Platform populations retain
    exact focus and binding-support membership; Ecosystem loading retains exact
-   PlatformHouse request and receipt evidence, projects ambiguity distinctly,
-   and transfers Library owners and the adjacent Artifact session once.
+   PlatformHouse request and receipt evidence, projects the terminal outcomes
+   issued by current population producers, and transfers Library owners and
+   the adjacent Artifact session once.
    Implement the `.NET Runtime` and ASP.NET Core loaders over that handoff.
 6. Have Workspace admission and Navigation retain loader and admission
    correspondence and issue exact `.NET Runtime` and ASP.NET Core contribution
@@ -703,7 +708,7 @@ stages add these focused Release gates:
 | Exact selection | Missing or mismatched correspondence returns an unbound selection non-success; one bound request invokes only the exact selected binding |
 | Association | Every bound invocation outcome retains Workspace revision, Ecosystem registration, loader, demand, capability plan, child requests, and receipts |
 | Exact Platform evidence | A Platform child retains the exact owner-issued PlatformHouse request snapshot and population receipt; foreign-parent composition rejects |
-| Ambiguity | PlatformHouse ambiguity remains child and loader `Ambiguous`, never rejection or empty completion |
+| Ambiguity | A child owner that issues ambiguity remains child and loader `Ambiguous`, never rejection or empty completion; no Platform population ambiguity is claimed without a typed producer |
 | Complete result | `Completed` requires every request-relevant child contribution to complete; omission and bounded exhaustion remain incomplete |
 | Partial ownership | A loader-level incomplete result transfers owners only from independently completed children; incomplete PlatformHouse work transfers none |
 | Admission separation | A loader has no Workspace mutation authority; admission retains the loader receipt and owns occurrence publication |
