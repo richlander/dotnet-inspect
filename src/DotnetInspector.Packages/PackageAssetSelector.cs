@@ -60,6 +60,8 @@ public abstract record PackageAssetSelection
     {
     }
 
+    internal bool UsesCompatibleTargetSelection { get; init; }
+
     /// <summary>One effective universe was selected.</summary>
     public sealed record Selected : PackageAssetSelection
     {
@@ -377,7 +379,13 @@ public static class PackageAssetSelector
         if (best.Count > 1)
         {
             return new PackageAssetSelection.Ambiguous(
-                $"More than one asset folder is equally applicable to '{targetFramework}'.");
+                $"More than one asset folder is equally applicable to '{targetFramework}'.")
+            {
+                UsesCompatibleTargetSelection = best.Any(tfm =>
+                    !tfm.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)),
+            };
         }
 
         string selectedFramework = best[0];
@@ -424,7 +432,13 @@ public static class PackageAssetSelector
             // select the bytes. The selected folder name is archive-controlled
             // text, so the message names the framework the caller asked for.
             return new PackageAssetSelection.Ambiguous(
-                $"More than one assembly asset has the same identity in the universe selected for '{targetFramework}'.");
+                $"More than one assembly asset has the same identity in the universe selected for '{targetFramework}'.")
+            {
+                UsesCompatibleTargetSelection =
+                    !selectedFramework.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase),
+            };
         }
 
         var assetPaths = new HashSet<string>(
@@ -449,7 +463,13 @@ public static class PackageAssetSelector
             new PackageAssetUniverse(
                 selectedFramework,
                 runtimeIdentifier,
-                assets));
+                assets))
+        {
+            UsesCompatibleTargetSelection =
+                !selectedFramework.Equals(
+                    targetFramework,
+                    StringComparison.OrdinalIgnoreCase),
+        };
 
         (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
         {

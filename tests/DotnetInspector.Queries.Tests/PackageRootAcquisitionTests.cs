@@ -327,6 +327,50 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task ExactRequest_RejectsReplacementImplementationTarget()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        string producer = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(SplitPackage("net8.0")),
+            TestContext.Current.CancellationToken);
+        WorkspaceContextLoadOptions options = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    "net10.0"),
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal("net10.0", acquired.Request.CompileTargetFramework);
+        Assert.Equal("net8.0", acquired.Request.SelectionTargetFramework);
+        Assert.True(acquired.Request.HasSelectedImplementationUniverse);
+
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(SplitPackage("net7.0")),
+            TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                acquired.Request,
+                options,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failed.Kind);
+    }
+
+    [Fact]
     public async Task ExactRequest_ReopensAfterCandidateWorkspaceDisposal()
     {
         using var http = new HttpClient(new FailingHandler());
@@ -455,6 +499,24 @@ public sealed class PackageRootAcquisitionTests
                 Request(
                     Framework,
                     null,
+                    "net8.0",
+                    null,
+                    compileTargetFramework: Framework),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
+                    hasSelectedImplementationUniverse: false),
+                Request(
+                    Framework,
+                    null,
+                    Framework,
+                    null,
+                    allowsCompatibleTargetSelection: true),
+                Request(
+                    Framework,
+                    null,
                     Framework,
                     null,
                     usesCompatibleImplementationSelection: true),
@@ -495,13 +557,15 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? legacy));
         Assert.Equal(Framework, legacy.CompileTargetFramework);
         Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.False(legacy.AllowsCompatibleTargetSelection);
         Assert.False(legacy.UsesCompatibleImplementationSelection);
+        Assert.True(legacy.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             legacy.Encode(),
             StringComparison.Ordinal);
 
-        string previousToken = VersionedToken(
+        string olderToken = VersionedToken(
             "pkgroot2",
             PackageId,
             Version,
@@ -513,9 +577,58 @@ public sealed class PackageRootAcquisitionTests
             null);
         Assert.True(
             PackageRootReacquisitionRequest.TryDecode(
+                olderToken,
+                out PackageRootReacquisitionRequest? older));
+        Assert.True(older.AllowsCompatibleTargetSelection);
+        Assert.True(older.UsesCompatibleImplementationSelection);
+        Assert.True(older.HasSelectedImplementationUniverse);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            older.Encode(),
+            StringComparison.Ordinal);
+
+        string earlierToken = VersionedToken(
+            "pkgroot3",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                earlierToken,
+                out PackageRootReacquisitionRequest? earlier));
+        Assert.True(earlier.AllowsCompatibleTargetSelection);
+        Assert.True(earlier.UsesCompatibleImplementationSelection);
+        Assert.True(earlier.HasSelectedImplementationUniverse);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            earlier.Encode(),
+            StringComparison.Ordinal);
+
+        string previousToken = VersionedToken(
+            "pkgroot4",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible",
+            "exact");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
                 previousToken,
                 out PackageRootReacquisitionRequest? previous));
-        Assert.True(previous.UsesCompatibleImplementationSelection);
+        Assert.True(previous.AllowsCompatibleTargetSelection);
+        Assert.False(previous.UsesCompatibleImplementationSelection);
+        Assert.True(previous.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             previous.Encode(),
@@ -643,12 +756,92 @@ public sealed class PackageRootAcquisitionTests
                 Token(
                     PackageId,
                     Version,
+                    NuGetCache.GetSourceKey(NuGetOrg.Url),
+                    Framework,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "compatible",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    " ",
+                    " ",
+                    null,
+                    "compatible",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    "exact",
+                    "exact",
+                    "selected"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    " ",
+                    null,
+                    "compatible",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    " net11.0",
+                    " net11.0",
+                    null,
+                    "exact",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
                     "nuget.org",
                     Framework,
                     null,
                     Framework,
                     Framework,
                     null,
+                    "other",
+                    "exact"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "compatible"),
+                Token(
+                    PackageId,
+                    Version,
+                    "nuget.org",
+                    Framework,
+                    null,
+                    Framework,
+                    Framework,
+                    null,
+                    "exact",
+                    "exact",
                     "other"),
             })
         {
@@ -762,7 +955,9 @@ public sealed class PackageRootAcquisitionTests
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool allowsCompatibleTargetSelection = false,
+        bool? hasSelectedImplementationUniverse = null)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -770,7 +965,9 @@ public sealed class PackageRootAcquisitionTests
             selectionTargetFramework,
             selectionRuntimeIdentifier,
             compileTargetFramework,
-            usesCompatibleImplementationSelection);
+            usesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection,
+            hasSelectedImplementationUniverse);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -779,7 +976,9 @@ public sealed class PackageRootAcquisitionTests
         string? selectionTargetFramework,
         string? selectionRuntimeIdentifier,
         string? compileTargetFramework = null,
-        bool usesCompatibleImplementationSelection = false)
+        bool usesCompatibleImplementationSelection = false,
+        bool allowsCompatibleTargetSelection = false,
+        bool? hasSelectedImplementationUniverse = null)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -797,13 +996,23 @@ public sealed class PackageRootAcquisitionTests
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier,
-                usesCompatibleImplementationSelection));
+                hasSelectedImplementationUniverse
+                    ?? selectionTargetFramework is not null,
+                usesCompatibleImplementationSelection,
+                allowsCompatibleTargetSelection));
     }
 
     static string Token(params string?[] fields)
-        => VersionedToken(
+    {
+        if (fields.Length == 9)
+            fields = [.. fields, fields[8]];
+        if (fields.Length == 10)
+            fields = [.. fields, "selected"];
+
+        return VersionedToken(
             PackageRootReacquisitionRequest.TokenPrefix,
             fields);
+    }
 
     static string VersionedToken(
         string prefix,
@@ -882,6 +1091,33 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] SplitPackage(string implementationFramework)
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using (Stream reference = archive
+                .CreateEntry($"ref/net10.0/{AssemblyName}.dll")
+                .Open())
+            {
+                reference.Write(image);
+            }
+            using (Stream implementation = archive
+                .CreateEntry(
+                    $"lib/{implementationFramework}/{AssemblyName}.dll")
+                .Open())
+            {
+                implementation.Write(image);
+            }
         }
 
         return buffer.ToArray();
