@@ -204,8 +204,9 @@ under the existing policy; decompilation is not an authored-parts substitute.
 
 The result is verified, PDB-correlated source. Neither checksum verification
 nor lexical ranges prove exact Metadata-to-physical-declaration authorship.
-The stronger correspondence work in #6584 and parsed documentation in #6583
-remain separate.
+The stronger
+[physical-declaration correspondence](source-house-physical-declaration-correspondence.md)
+tracked by #6584 and parsed documentation in #6583 remain separate.
 
 This is slice 2 of the three-delivery plan in #7718: CSharpText parts,
 SourceHouse settlement with the shared completed inspection handoff, then CLI
