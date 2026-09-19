@@ -202,9 +202,27 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   // then failed only when the build or lint gate actually ran it.
   assert.deepEqual(nodeTsconfig.compilerOptions.lib, ["ES2022"]);
   assert.equal(
+    packageJson.scripts.facades,
+    "node scripts/compile-engine-facades.ts --install",
+  );
+  assert.equal(
     packageJson.scripts.typecheck,
+    "npm run facades && npm run typecheck:authored",
+  );
+  assert.equal(
+    packageJson.scripts["typecheck:authored"],
     "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
       + " && tsc --noEmit -p tsconfig.node.json",
+  );
+  assert.equal(packageJson.scripts.dev, "npm run facades && vite");
+  assert.equal(
+    packageJson.scripts.build,
+    "npm run typecheck && vite build && node scripts/verify-site-artifact.ts dist",
+  );
+  assert.equal(packageJson.scripts.test, "npm run typecheck && node --test");
+  assert.equal(
+    packageJson.scripts["test:browser"],
+    "npm run facades && playwright test --project=firefox",
   );
 });
 
@@ -397,8 +415,14 @@ const facadeModules = [
 ] as const;
 const generatedFacadeSources =
   facadeModules.map(module => `DotnetInspect.Web/facades/${module}.ts`);
+const generatedFacadeDeclarations =
+  facadeModules.map(module => `src/facades/${module}.d.ts`);
 const publishedFacadeModules =
   facadeModules.map(module => `DotnetInspect.Web/wwwroot/${module}.js`);
+const transientFacadeArtifacts = new Set([
+  ...generatedFacadeDeclarations,
+  ...publishedFacadeModules,
+]);
 const runtimeLoaderSource = "DotnetInspect.Web/wwwroot/runtime-loader.js";
 
 const typeScriptExtensions = typeScriptSourceExtensions;
@@ -456,6 +480,104 @@ test("JavaScript is either compiler-derived or the SDK-checked runtime loader", 
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
     "only compiler-derived facades may receive the JavaScript lint exemption");
+});
+
+test("only canonical facade sources are tracked", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const repository = resolve(root, "..");
+  const listed = spawnSync("git", [
+    "ls-files",
+    "inspect-web/DotnetInspect.Web/facades/*.ts",
+    "inspect-web/src/facades/*.d.ts",
+    "inspect-web/DotnetInspect.Web/wwwroot/inspect-web-*.js",
+  ], { cwd: repository, encoding: "utf8" });
+  assert.equal(listed.status, 0, `git ls-files failed: ${listed.stderr}`);
+  assert.deepEqual(
+    listed.stdout.split("\n").filter(line => line.length > 0).sort(),
+    generatedFacadeSources.map(source => `inspect-web/${source}`).sort(),
+  );
+
+  const derived = [...generatedFacadeDeclarations, ...publishedFacadeModules];
+  assert.deepEqual(
+    ignoredFiles(root, derived).sort(),
+    [...derived].sort(),
+    "the transient facade outputs must stay out of source control",
+  );
+});
+
+test("facade compilation replaces stale transient inventories", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const scratch = mkdtempSync(join(tmpdir(), "inspect-web-facades-"));
+  const declarations = resolve(scratch, "declarations");
+  const modules = resolve(scratch, "modules");
+  try {
+    mkdirSync(declarations);
+    mkdirSync(modules);
+    writeFileSync(resolve(declarations, "stale.d.ts"), "stale\n");
+    writeFileSync(resolve(modules, "inspect-web-stale.js"), "stale\n");
+    const compiled = spawnSync(process.execPath, [
+      "scripts/compile-engine-facades.ts",
+      "--install",
+      "--declarations",
+      declarations,
+      "--modules",
+      modules,
+    ], { cwd: root, encoding: "utf8" });
+    assert.equal(
+      compiled.status,
+      0,
+      `facade compilation failed: ${compiled.stderr}`,
+    );
+    assert.deepEqual(
+      readdirSync(declarations).sort(),
+      generatedFacadeDeclarations.map(path => basename(path)).sort(),
+    );
+    assert.deepEqual(
+      readdirSync(modules)
+        .filter(name => /^inspect-web-.*\.js$/u.test(name))
+        .sort(),
+      publishedFacadeModules.map(path => basename(path)).sort(),
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("MSBuild admits only the exact generated facade modules after derivation", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const project = readFileSync(
+    resolve(root, "DotnetInspect.Web/DotnetInspect.Web.csproj"),
+    "utf8",
+  );
+  const configuredModules = [
+    ...project.matchAll(
+      /<_InspectWebGeneratedFacadeModule Include="([^"]+)" \/>/gu,
+    ),
+  ].map(match => {
+    const path = match[1];
+    assert.ok(path);
+    return path.replaceAll("\\", "/");
+  });
+  assert.deepEqual(
+    configuredModules,
+    publishedFacadeModules.map(path =>
+      path.replace("DotnetInspect.Web/", "")),
+  );
+  assert.ok(
+    project.includes('<Content Remove="wwwroot\\inspect-web-*.js" />'),
+    "MSBuild must exclude wildcard-discovered transient facade modules",
+  );
+  const targetMatch =
+    /<Target Name="GenerateInspectWebEngineFacades"[\s\S]*?<\/Target>/u
+      .exec(project);
+  assert.ok(targetMatch);
+  const target = targetMatch[0];
+  const generation = target.indexOf("<Exec ");
+  const admission = target.indexOf(
+    '<Content Include="@(_InspectWebGeneratedFacadeModule)" />',
+  );
+  assert.ok(generation >= 0 && admission > generation,
+    "MSBuild must admit the exact facade set only after derivation");
 });
 
 // Every gate in this file accounts for *files*: the compiler builds a program out of
@@ -1043,6 +1165,9 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   const engineGenerationScript = readFileSync(
     new URL("../../eng/generate-inspect-web-engine-facade.sh", import.meta.url),
     "utf8");
+  const engineCompiler = readFileSync(
+    new URL("../scripts/compile-engine-facades.ts", import.meta.url),
+    "utf8");
   const multiFacadeGenerationScript = readFileSync(
     new URL(
       "../../eng/generate-inspect-web-multi-facade-canary.sh",
@@ -1112,37 +1237,38 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
   assert.match(
     engineGenerationScript,
-    /-p:VersionPrefix="\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"/);
+    /verify_msbuild_facade_build "-p:VersionPrefix=\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"[\s\S]*verify_msbuild_facade_publish "-p:VersionPrefix=\$version_prefix"/);
   // `--contract` produces the complete declaration set into a directory, which is what the
-  // paired async deployment lanes compare against the checked-in declarations.
+  // paired async deployment lanes compare against their independently compiled set.
   assert.match(
     engineGenerationScript,
     /--contract <assembly> <declaration-output-directory> <version-prefix>/);
   assert.match(
-    engineGenerationScript,
+    engineCompiler,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
-    engineGenerationScript,
+    engineCompiler,
     /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
-  assert.doesNotMatch(engineGenerationScript, /DOTNET_ROOT|sort -V/);
-  assert.match(engineGenerationScript, /"newLine": "lf"/);
+  assert.doesNotMatch(engineCompiler, /DOTNET_ROOT|sort -V/);
+  assert.match(engineCompiler, /newLine: "lf"/);
   assert.match(
     engineGenerationScript,
-    /"\$tsc" -p "\$scratch\/sources\/tsconfig\.json"/);
-  assert.match(engineGenerationScript, /"allowJs": true/);
-  assert.match(engineGenerationScript, /"checkJs": true/);
+    /"\$node" "\$compiler"[\s\S]*--sources "\$scratch\/sources"[\s\S]*--output "\$compiled"/);
+  assert.match(engineCompiler, /allowJs: true/);
+  assert.match(engineCompiler, /checkJs: true/);
   assert.match(
-    engineGenerationScript,
-    /cp "\$js_output_directory\/runtime-loader\.js" "\$scratch\/sources\/runtime-loader\.js"/);
+    engineCompiler,
+    /DotnetInspect\.Web\/wwwroot\/runtime-loader\.js/);
   assert.match(
-    engineGenerationScript,
-    /printf ', "runtime-loader\.js"\]/);
+    engineCompiler,
+    /include: \[\.\.\.expectedSources, "runtime-loader\.js"\]/);
   // The whole set is compiled by one program built from an exact file inventory, not from a
   // directory glob that would admit an unowned source.
-  assert.match(
-    engineGenerationScript,
-    /printf '"%s\.ts"' "\$\{facade_modules\[\$index\]\}"/);
-  assert.doesNotMatch(engineGenerationScript, /"include": \["\*/);
+  for (const module of facadeModules) {
+    assert.ok(engineCompiler.includes(`  "${module}",\n`),
+      `the facade compiler does not own ${module}`);
+  }
+  assert.doesNotMatch(engineCompiler, /include: \["\*/);
 
   assert.match(
     multiFacadeGenerationScript,
@@ -1636,8 +1762,9 @@ test("the bundler has no unread path into the shipped output", async () => {
 // skipped in silence while Vite bundled it.
 //
 // So coverage is asked of the ignore rules directly, with git as the oracle for its own
-// file. Anything the project compiles or ships that git would ignore is a file the lint
-// cannot see, whatever its path looks like.
+// file. The sole exception is the exact transient facade set: the lint names each file
+// directly after generating it, which oxlint reads even though its directory walk skips
+// ignored paths.
 // `--no-index` is what makes git's answer match oxlint's. Without it `check-ignore`
 // reports a tracked file as not ignored, because from git's point of view a file it is
 // already tracking is not being ignored -- but oxlint applies the ignore *patterns* and
@@ -1672,6 +1799,7 @@ test("no file the build compiles is hidden from the lint by an ignore rule", () 
 
   const ignored = ignoredFiles(root, candidates)
     .map(file => projectRelative(root, file))
+    .filter(file => !transientFacadeArtifacts.has(file))
     .sort();
 
   assert.deepEqual(ignored, [],
@@ -1766,10 +1894,11 @@ test("the lint reads every file this project owns", () => {
       + "beneath it twice and lets the count below hide a skipped file");
   const overlapping = lintTargets
     .filter(target => lintTargets.some(other => target.startsWith(`${other}/`)))
+    .filter(target => !transientFacadeArtifacts.has(target))
     .sort();
   assert.deepEqual(overlapping, [],
     "these lint targets sit inside another lint target, so oxlint reads them twice; "
-      + "remove the redundant target rather than leaving the count able to cancel out");
+      + "only ignored transient facades may be named directly beneath a directory target");
 
   const sources = projectFiles([...typeScriptExtensions, ...javaScriptExtensions]);
   const compiled = [...programFiles()].filter(file => isProjectOwned(file, root));
@@ -2884,13 +3013,14 @@ test("the analysis host check matches locked native packages and lint wiring", (
 
   assert.equal(
     packageJson.scripts.lint,
-    "node scripts/verify-analysis-host.ts && "
+    "npm run facades && node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
       + "multi-facade-canary/facades "
       + "managed-operation-bridge-canary/initialize.ts "
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades DotnetInspect.Web/facades "
+      + `${generatedFacadeDeclarations.join(" ")} `
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
       + "playwright.config.ts playwright.worker.config.ts "
       + "playwright.worker-cpu.config.ts "
@@ -2902,16 +3032,15 @@ test("the analysis host check matches locked native packages and lint wiring", (
 });
 
 test("the lint gate includes all compiler-derived facade artifacts", () => {
-  for (const module of facadeModules) {
-    assert.ok(
-      !(oxlintConfig.ignorePatterns ?? []).includes(`src/facades/${module}.d.ts`),
-    );
-  }
-  // Reading the script through an index signature makes its absence a real possibility
-  // rather than a silent `undefined` handed to `assert.match`, which would fail with a
-  // type error about the argument instead of naming the missing script.
   const lintScript = packageJson.scripts.lint;
   assert.ok(lintScript !== undefined, "package.json must define a lint script");
+  for (const declaration of generatedFacadeDeclarations) {
+    assert.ok(
+      new RegExp(`(?:^| )${declaration.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
+        .test(lintScript),
+      `the lint gate does not name ${declaration}`,
+    );
+  }
   assert.match(lintScript, /(?:^| )src(?: |$)/);
   assert.match(
     lintScript,
