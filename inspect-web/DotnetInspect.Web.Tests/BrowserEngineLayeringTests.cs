@@ -465,6 +465,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.MemberCallGraphSession",
             "DotnetInspector.Queries.PackageAssemblyRoleCorrespondence",
             "DotnetInspector.Queries.PackageInspectionAssemblyReference",
+            "DotnetInspector.Sections.SelectedContextExactTypeLiveTarget",
             "DotnetInspector.Services.PlatformTypeLookupCandidate",
             "ILInspector.Analysis.CallerResolutionPlan",
             "ILInspector.Analysis.CatalogCallGraphParticipant",
@@ -583,6 +584,7 @@ public sealed class BrowserEngineLayeringTests
         IReadOnlyList<string> banned = BannedSymbols();
         string[] approvedOwners =
         [
+            "DotnetInspector.Sections.SelectedContextExactTypeLiveTarget",
             "DotnetInspector.Services.AssemblyDependencyResolutionOptions",
             "ILInspector.Decompiler.Pipeline.IrFunction",
             "ILInspector.Metadata.ApiDiffInspectionFailure",

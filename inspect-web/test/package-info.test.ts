@@ -34,7 +34,7 @@ test("Package Info renders shared selected-slice measurements", () => {
     packageVersion: "1.2.3",
     compressedPackageBytes: 4096,
     selectedTargetFramework: "net8.0",
-    availableTargetFrameworkCount: 3,
+    availableTargetFrameworks: ["net8.0", "net7.0", "net6.0"],
     selectedTargetFrameworkFolders: ["lib", "runtimes", String.raw`\u202Eevil`],
     selectedLibraryPayloadBytes: 1536,
     selectedLibraryCount: 2,
@@ -50,7 +50,8 @@ test("Package Info renders shared selected-slice measurements", () => {
   assert.match(html, /lib, runtimes, \\u202Eevil/);
   assert.match(html, /Selected-TFM Library Count/);
   assert.match(html, /1\.5 KB/);
-  assert.match(html, /TFM Count/);
+  assert.match(html, /TFMs/);
+  assert.match(html, /net8\.0, net7\.0, net6\.0/);
 });
 
 test("Package Info renders typed non-success instead of empty measurements", () => {
@@ -60,7 +61,10 @@ test("Package Info renders typed non-success instead of empty measurements", () 
     packageVersion: "1.2.3",
     compressedPackageBytes: 2048,
     selectedTargetFramework: null,
-    availableTargetFrameworkCount: 2,
+    availableTargetFrameworks: [
+      "net8.0",
+      String.raw`net6.0\u202EHOSTILE`,
+    ],
     selectedTargetFrameworkFolders: null,
     selectedLibraryPayloadBytes: null,
     selectedLibraryCount: null,
@@ -71,5 +75,7 @@ test("Package Info renders typed non-success instead of empty measurements", () 
 
   assert.match(html, /No Applicable Slice/);
   assert.match(html, /No compile slice applies to net10\.0\./);
+  assert.match(html, /net8\.0, net6\.0\\u202EHOSTILE/);
+  assert.doesNotMatch(html, /\u202E/);
   assert.doesNotMatch(html, /Selected-TFM Size/);
 });

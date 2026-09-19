@@ -827,6 +827,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             extraEntries:
             [
                 ($"{UnsafeFolder}/net11.0/data.bin", new byte[3]),
+                ("lib/net8.0/Legacy.dll", new byte[5]),
             ]);
         var requests = new ConcurrentQueue<string>();
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
@@ -864,7 +865,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 measurements.Status);
             Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
             Assert.Equal("net11.0", measurements.SelectedTargetFramework);
-            Assert.Equal(1, measurements.AvailableTargetFrameworkCount);
+            Assert.Equal(
+                ["net11.0", "net8.0"],
+                measurements.AvailableTargetFrameworks!
+                    .Select(static framework => framework.ToString()));
             Assert.Equal(
                 [@"HOSTILE\u202EMARKER", "lib"],
                 measurements.SelectedTargetFrameworkFolders!
@@ -905,7 +909,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             HostileOutputAssert.NoRenderingHazard(
                 output,
                 "Package Info selected-TFM folders");
-            Assert.Contains("| TFM Count | 1 |", output);
+            Assert.Contains("| TFMs | net11.0, net8.0 |", output);
             Assert.Contains("| Selected-TFM Size | 17 B |", output);
             Assert.Contains("| Selected-TFM Library Count | 1 |", output);
             Assert.DoesNotContain("| Highest TFM |", output);

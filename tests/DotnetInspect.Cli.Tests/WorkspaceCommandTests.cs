@@ -1010,7 +1010,7 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketUrlRoute_InventoriesPackageMembershipFromEveryContext()
+    public async Task PacketRoute_InventoriesPackageMembershipFromEveryContext()
     {
         const string secondPackageId = "Markout";
         byte[] assembly = await File.ReadAllBytesAsync(
@@ -1034,9 +1034,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
-                    Packet =
-                        "https://dotnet-inspect.net/?w="
-                        + WorkspaceSharePacketCodec.Encode(packet),
+                    Packet = WorkspaceSharePacketCodec.Encode(packet),
                     Format = OutputFormat.Json,
                 },
                 LoadOptions(client, store),
@@ -1667,6 +1665,8 @@ public sealed partial class WorkspaceCommandTests
 
     [Theory]
     [InlineData("--packet", "invalid", "Workspace packet could not be restored")]
+    [InlineData("--packet", "", "Workspace packet input is invalid")]
+    [InlineData("--packet", "  ", "Workspace packet input is invalid")]
     [InlineData("--root-request", "invalid", "--root-request must be")]
     public async Task CommandLineInventory_RestorationRoutesUseSemanticRows(
         string route,
@@ -1686,6 +1686,10 @@ public sealed partial class WorkspaceCommandTests
         Assert.Contains(expectedError, captured.Error, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Rendered-line selection",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(ArgumentException),
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -1719,7 +1723,7 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketUrlShare_ReemitsCanonicalPacketWithoutAcquisition()
+    public async Task PacketShare_ReemitsCanonicalPacketWithoutAcquisition()
     {
         WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
             """{"f":3,"t":[],"g":[],"r":[["p","Microsoft.Extensions."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""",
@@ -1731,8 +1735,7 @@ public sealed partial class WorkspaceCommandTests
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
-                    Packet =
-                        $"https://dotnet-inspect.net/?w={encoded}",
+                    Packet = encoded,
                     ShareFormat = WorkspaceShareFormat.Packet,
                 },
                 LoadOptions(client, new FailOnAccessPackageStore()),
@@ -1744,14 +1747,14 @@ public sealed partial class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task PacketShare_RejectsForeignUrlWithoutAcquisition()
+    public async Task PacketShare_RejectsUrlInputWithoutAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
         var captured = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(
                 new WorkspaceOptions
                 {
-                    Packet = "https://example.test/?w=packet",
+                    Packet = "https://dotnet-inspect.net/?w=packet",
                     ShareFormat = WorkspaceShareFormat.Packet,
                 },
                 LoadOptions(client, new FailOnAccessPackageStore()),
@@ -1760,7 +1763,7 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "exact https://dotnet-inspect.net/?w=<packet> URL",
+            "URLs are not supported",
             captured.Error,
             StringComparison.Ordinal);
     }
