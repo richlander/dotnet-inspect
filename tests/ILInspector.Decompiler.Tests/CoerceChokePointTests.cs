@@ -978,7 +978,7 @@ public class CoerceChokePointTests
             [],
             TypeRef.Definition("synthetic", "", "UnusedEnum"));
 
-        Assert.Contains("return 2147483648;", body);
+        Assert.Contains("return (long)2147483648;", body);
         Assert.DoesNotContain("return -2147483648;", body);
         AssertCompiles("public static long M()", body);
     }

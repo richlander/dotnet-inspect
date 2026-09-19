@@ -65,6 +65,15 @@ public static class LongLiteralFoldFixture
     // conv.u8, so the printer must retain the zero-extended positive value.
     public static long JustPastIntMaxValue() => 2147483648L;
 
+    // The same conversion under a lexical checked region: the inner int-to-uint
+    // reinterpretation remains unchecked while the surrounding addition stays checked.
+    public static long CheckedJustPastIntMaxValue(int value, long tail)
+        => checked((long)unchecked((uint)value) + tail);
+
+    // Argument position with an adversarial overload: the emitted spelling must
+    // retain long typing instead of rebinding the call to Consume(uint).
+    public static long JustPastIntMaxValueArgument() => Consume(2147483648L);
+
     // A comfortably large `ldc.i8`, the issue's own example.
     public static long LargeReturn() => 5_000_000_000L;
 
@@ -73,4 +82,6 @@ public static class LongLiteralFoldFixture
     public static long LargeTernaryArms(bool c, long tail) => (c ? 5_000_000_000L : 6_000_000_000L) + tail;
 
     public static long Consume(long value) => value;
+
+    public static long Consume(uint value) => -99L;
 }

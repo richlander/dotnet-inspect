@@ -2416,19 +2416,16 @@ public sealed partial class CSharpPrinter
                 : null;
             if (zeroExtendSource is not null && conv.Operand is Constant { Value: int zeroExtendPayload })
             {
-                var widened = new Constant((long)(uint)zeroExtendPayload, numericTarget);
+                string widened = ((uint)zeroExtendPayload).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
                 return new(
-                    NumericConstant(widened, numericTarget),
-                    CSharpConversionRules.ConstantFits((uint)zeroExtendPayload, numericTarget)
-                        ? "LiteralExpression"
-                        : "ConversionExpression");
+                    $"({TypeText(numericTarget)}){widened}",
+                    "ConversionExpression");
             }
             if (zeroExtendSource is not null)
             {
                 return new(
-                    CheckedSafeNumericCast(
-                        zeroExtendSource,
-                        numericTarget,
+                    CheckedSafeCast(
                         () => $"({TypeText(numericTarget)})({TypeText(zeroExtendSource)}){Operand(conv.Operand)}"),
                     "ConversionExpression");
             }
