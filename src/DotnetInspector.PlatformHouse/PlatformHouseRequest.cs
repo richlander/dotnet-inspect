@@ -107,6 +107,19 @@ public abstract class PlatformHouseRejection
         public PlatformSourceCapabilityIdentity Capability { get; }
     }
 
+    public sealed class TargetDiscoveryCapabilityNotStaged :
+        PlatformHouseRejection
+    {
+        public TargetDiscoveryCapabilityNotStaged(
+            PlatformSourceCapabilityIdentity capability)
+        {
+            ArgumentNullException.ThrowIfNull(capability);
+            Capability = capability;
+        }
+
+        public PlatformSourceCapabilityIdentity Capability { get; }
+    }
+
     public sealed class OwnerEvidence : PlatformHouseRejection
     {
         public OwnerEvidence(
@@ -153,18 +166,37 @@ public abstract class PlatformHouseRequestValidation
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (request.Target is PlatformTargetDemand.Selecting selecting)
+        foreach (PlatformSourceCapabilityIdentity capability
+            in request.Target.AuthorizedDiscoveryCapabilities)
         {
-            foreach (PlatformSourceCapabilityIdentity capability
-                in selecting.DiscoveryCapabilities)
+            if (!request.Sources.Authorizes(
+                    PlatformSourceFacet.TargetDiscovery,
+                    capability))
             {
-                if (!request.Sources.Authorizes(
-                        PlatformSourceFacet.TargetDiscovery,
-                        capability))
+                return new Rejected(
+                    new PlatformHouseRejection
+                        .TargetDiscoveryCapabilityNotAuthorized(capability));
+            }
+        }
+
+        if (request.Target is PlatformTargetDemand.FamilyDefault)
+        {
+            PlatformSourceSelection? selection =
+                request.Sources.SelectionFor(
+                    PlatformSourceFacet.TargetDiscovery);
+            if (selection is not null)
+            {
+                foreach (PlatformSourceCapabilityIdentity capability
+                    in selection.Capabilities)
                 {
-                    return new Rejected(
-                        new PlatformHouseRejection
-                            .TargetDiscoveryCapabilityNotAuthorized(capability));
+                    if (!request.Target.AuthorizesDiscoveryCapability(
+                        capability))
+                    {
+                        return new Rejected(
+                            new PlatformHouseRejection
+                                .TargetDiscoveryCapabilityNotStaged(
+                                    capability));
+                    }
                 }
             }
         }
