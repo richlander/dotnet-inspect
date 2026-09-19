@@ -2075,6 +2075,13 @@ public class DiffCommandTests
             candidate.Subject.MemberName == "ConstantValue");
         Assert.True(member.HasCSharpChanges);
         Assert.True(member.HasIlChanges);
+        Assert.True(result.Complexity.IsAvailable);
+        Assert.Contains(
+            result.Complexity.Changes,
+            change => change.Subject.MemberName == "RegressesAllocInLoop"
+                && change.Kind
+                    == ImplementationComplexityChangeKind.Changed
+                && change.Delta == 1);
         Assert.Contains(view.Rows!, row =>
             row.Member.Contains("ConstantValue", StringComparison.Ordinal)
             && row.Mechanism == "C#"
@@ -2089,6 +2096,11 @@ public class DiffCommandTests
             && row.Mechanism == "IL"
             && row.Difference == nameof(IlBodyDiffOutcome.OperandDiff)
             && row.Evidence.Contains("System.Math::Abs", StringComparison.Ordinal));
+        Assert.Contains(view.Rows!, row =>
+            row.Member.Contains("RegressesAllocInLoop", StringComparison.Ordinal)
+            && row.Mechanism == "Complexity"
+            && row.Change == "1 -> 2"
+            && row.Evidence.Contains("delta=1", StringComparison.Ordinal));
         Assert.DoesNotContain(view.Rows!, row =>
             row.Evidence.Contains("requires a MetadataReader-backed comparison", StringComparison.Ordinal));
     }

@@ -24,15 +24,52 @@ public sealed record ImplementationDiffOptions(
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
 
+public enum ImplementationComplexityChangeKind
+{
+    Unchanged,
+    Changed,
+    Added,
+    Removed,
+    Incomplete,
+}
+
+public sealed record ImplementationComplexityChange(
+    ResearchSubjectKey Subject,
+    ImplementationComplexityChangeKind Kind,
+    int? OldValue,
+    int? NewValue,
+    int? Delta,
+    bool OldIsComplete,
+    bool NewIsComplete,
+    MethodIdentity? OldEvidenceMethod = null,
+    MethodIdentity? NewEvidenceMethod = null);
+
+public sealed record ImplementationComplexityDiff(
+    bool IsAvailable,
+    string? UnavailableReason,
+    IReadOnlyList<ImplementationComplexityChange> Changes)
+{
+    public static ImplementationComplexityDiff Unavailable { get; } =
+        new(
+            false,
+            "Normal-flow cyclomatic complexity was not requested for one or "
+                + "both implementation-diff endpoints.",
+            []);
+}
+
 public sealed record ImplementationAssemblyInput(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryBodyIndex BodyIndex);
+    LibraryBodyIndex BodyIndex,
+    LibraryImplementationProfileAnalysisResult? ProfileAnalysis = null);
 
 public sealed record ImplementationDiffResult(
     IReadOnlyList<ImplementationDiffMember> Members,
     ResearchComparison Research)
 {
+    public ImplementationComplexityDiff Complexity { get; init; } =
+        ImplementationComplexityDiff.Unavailable;
+
     public bool IsEmpty => Members.Count == 0;
 }
 
@@ -120,7 +157,7 @@ public static class ImplementationDiff
             var newContents = OpenAssemblyContents(newAssemblies);
             try
             {
-                return Compare(
+                var result = Compare(
                     new ResearchDiffInput([])
                     {
                         AssemblyContents = oldContents,
@@ -130,6 +167,17 @@ public static class ImplementationDiff
                         AssemblyContents = newContents,
                     },
                     options);
+                return result with
+                {
+                    Complexity = ImplementationComplexityService.Execute(
+                        new ImplementationComplexityComparisonRequest(
+                            [.. oldAssemblies.Select(
+                                static assembly => assembly.ProfileAnalysis)],
+                            [.. newAssemblies.Select(
+                                static assembly => assembly.ProfileAnalysis)],
+                            options?.TypeFilters,
+                            options?.MemberTargetIdentities)),
+                };
             }
             finally
             {

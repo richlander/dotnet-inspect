@@ -533,25 +533,59 @@ public static class DiffOutputFormatter
             }
         }
 
+        if (diff.Complexity.IsAvailable)
+        {
+            foreach (var change in diff.Complexity.Changes.Where(
+                change => change.Kind
+                    is not ImplementationComplexityChangeKind.Unchanged))
+            {
+                string oldValue = change.OldValue?.ToString() ?? "-";
+                string newValue = change.NewValue?.ToString() ?? "-";
+                string evidence = change.Kind
+                    == ImplementationComplexityChangeKind.Incomplete
+                    ? $"old complete={change.OldIsComplete}; "
+                      + $"new complete={change.NewIsComplete}"
+                    : $"delta={change.Delta?.ToString() ?? "-"}";
+                rows.Add(new ImplementationDiffRow(
+                    change.Subject.Display,
+                    "Complexity",
+                    "normal-flow cyclomatic",
+                    $"{oldValue} -> {newValue}",
+                    evidence));
+            }
+        }
+
         if (selectedSource is not null)
             AddSelectedSourceRows(rows, selectedSource);
 
         var csharpCount = rows.Count(row => row.Mechanism == "C#");
         var ilCount = rows.Count(row => row.Mechanism == "IL");
+        var complexityCount = rows.Count(row => row.Mechanism == "Complexity");
         var sourceCount = rows.Count(row => row.Mechanism == "PDB Source");
         bool hasSourceLane = selectedSource is not null || diff.Members.Any(member =>
             member.SourceComparison is not null);
+        string complexityUnavailableNote = diff.Complexity.IsAvailable
+            ? ""
+            : " Normal-flow complexity was unavailable because profiles were not requested.";
+        string complexityCountNote = !diff.Complexity.IsAvailable || complexityCount == 0
+            ? ""
+            : $" {complexityCount} normal-flow complexity row"
+              + (complexityCount == 1 ? "." : "s.");
         var summary = selectedSource is not null
             ? $"1 selected member; {csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} PDB Source "
-              + $"evidence row{(rows.Count == 1 ? "" : "s")}."
+              + $"evidence row{(rows.Count == 1 ? "" : "s")}." + complexityCountNote
+              + complexityUnavailableNote
             : rows.Count == 0
-            ? "No implementation differences detected."
+            ? "No implementation differences detected." + complexityCountNote
+              + complexityUnavailableNote
             : !hasSourceLane
                 ? $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
-                  + $"{csharpCount} C# and {ilCount} IL evidence row{(rows.Count == 1 ? "" : "s")}."
+                  + $"{csharpCount} C#, {ilCount} IL, and {complexityCount} complexity "
+                  + $"evidence row{(rows.Count == 1 ? "" : "s")}." + complexityUnavailableNote
                 : $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
-                  + $"{csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} PDB Source "
-                  + $"evidence row{(rows.Count == 1 ? "" : "s")}.";
+                  + $"{csharpCount} decompiled C#, {ilCount} IL, {complexityCount} complexity, "
+                  + $"and {sourceCount} PDB Source evidence row{(rows.Count == 1 ? "" : "s")}."
+                  + complexityUnavailableNote;
 
         return new ImplementationDiffView(
             DiffViewText.Field($"Implementation Diff: {name}"),

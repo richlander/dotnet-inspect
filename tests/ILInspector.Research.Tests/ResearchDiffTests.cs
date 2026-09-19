@@ -2081,6 +2081,48 @@ public class ResearchDiffTests
                 && change.Kind == ResearchChangeKind.Changed));
     }
 
+    [Fact]
+    public void ImplementationDiff_ReportsNormalFlowComplexityChanges()
+    {
+        const LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.ImplementationProfiles;
+        var oldInput = IdentityInput(
+            File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
+            File.ReadAllBytes(FixtureCatalog.DiffPair.OldAssemblyPath()),
+            features);
+        var newInput = IdentityInput(
+            File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
+            File.ReadAllBytes(FixtureCatalog.DiffPair.NewAssemblyPath()),
+            features);
+
+        var result = ImplementationDiff.Compare([oldInput], [newInput]);
+
+        Assert.True(result.Complexity.IsAvailable);
+        var change = Assert.Single(
+            result.Complexity.Changes,
+            candidate => candidate.Subject.MemberName == "RegressesAllocInLoop");
+        Assert.Equal(
+            ImplementationComplexityChangeKind.Changed,
+            change.Kind);
+        Assert.Equal(1, change.OldValue);
+        Assert.Equal(2, change.NewValue);
+        Assert.Equal(1, change.Delta);
+        Assert.True(change.OldIsComplete);
+        Assert.True(change.NewIsComplete);
+    }
+
+    [Fact]
+    public void ImplementationComplexityService_ReportsUnavailableWithoutBothEndpoints()
+    {
+        var result = ImplementationComplexityService.Execute(
+            new ImplementationComplexityComparisonRequest([], []));
+
+        Assert.False(result.IsAvailable);
+        Assert.Empty(result.Changes);
+        Assert.Contains("both", result.UnavailableReason);
+    }
+
     static ImplementationAssemblyInput IdentityInput(
         byte[] image,
         byte[] indexedImage,
@@ -2098,7 +2140,15 @@ public class ResearchDiffTests
             DecompilerMetadataSource.DefaultAssemblyReferenceResolver(
                 FixtureCatalog.DiffPair.OldAssemblyPath()),
             LibraryBodyIndex.OpenFromPrefetchedImage(
-                "unrelated-index-label.dll", [.. indexedImage], features));
+                "unrelated-index-label.dll", [.. indexedImage], features),
+            features.HasFlag(
+                LibraryBodyAnalysisFeatures.ImplementationProfiles)
+                ? LibraryBodyAnalysisService.ExecuteImage(
+                    "profile-analysis.dll",
+                    [.. image],
+                    LibraryBodyAnalysisRequest.Create(features))
+                    .ImplementationProfiles
+                : null);
     }
 
     static byte[] BuildIdentityAssembly(

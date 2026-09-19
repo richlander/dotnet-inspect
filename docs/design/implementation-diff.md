@@ -248,6 +248,25 @@ alignment; `AnnotationGestureTests.
 AlignedDetailContinuationsShareTheFirstCaretColumn` gates continuation
 alignment in the reusable renderer.
 
+### Normal-flow complexity comparison
+
+Analysis owns `MethodImplementationProfile.NormalFlowCyclomaticComplexity`.
+It measures the ordinary-flow compiled IL graph as
+`1 + conditional branches - switches + switch targets`; exception dispatch and
+cleanup edges remain separate exception-region evidence. This is not a
+source-level C# cyclomatic-complexity value and does not imply a quality score.
+
+`ImplementationComplexityService` accepts the focused profile results from both
+Implementation Diff endpoints and pairs those observations by the existing
+stable member identity plus physical evidence-method identity. The typed result retains
+unchanged, changed, added, removed, and incomplete observations, including
+old/new values and completeness flags. If either endpoint did not request
+profiles, the complexity lane is unavailable rather than silently treated as
+unchanged. The explicit CLI Implementation Diff section renders only
+non-unchanged complexity observations alongside its existing C#, IL, and PDB
+Source evidence lanes. Ranking, clustering, and quality shades remain later
+consumers.
+
 ### PDB-source convergence
 
 `member -S "Source Diff"` is the PDB Source → After reviewer lens. It compares

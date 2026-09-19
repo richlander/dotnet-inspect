@@ -1874,6 +1874,7 @@ public record ImplementationProfileRow(
     int ConditionalBranches,
     int Switches,
     int SwitchTargets,
+    int NormalFlowComplexity,
     int Loops,
     int Exceptions,
     int CatchRegions,
@@ -1934,6 +1935,10 @@ public record ImplementationProfileRow(
 
     [MarkoutPropertyName("Switch Targets")]
     public int SwitchTargets { get; init; } = SwitchTargets;
+
+    [MarkoutPropertyName("Normal-Flow Cyclomatic Complexity")]
+    public int NormalFlowCyclomaticComplexity { get; init; } =
+        NormalFlowComplexity;
 
     public int Loops { get; init; } = Loops;
 
