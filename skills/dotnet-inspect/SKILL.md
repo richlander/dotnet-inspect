@@ -88,6 +88,9 @@ over describing how the user could reconstruct a view:
 
 - Use `--share url` on supported Workspace, public member, and dependency
   routes.
+- Given a schema-4 packet, add `--workspace "$packet" --share url` to one exact
+  Type query to use its selected aggregate context and issue the derived
+  Inspect Web URL.
 - When an envelope has `share.kind: "available"`, use its `full_url` directly
   and treat its `packet` as opaque replay state.
 - Use `workspace --packet URL` to validate and restore an exact Inspect Web
@@ -101,14 +104,19 @@ dnx dotnet-inspect -y -- depends \
   --package Newtonsoft.Json@13.0.4 --tfm net6.0 --share url
 dnx dotnet-inspect -y -- workspace \
   --package System.Text.Json@10.0.0 --tfm net10.0 --share url
+dnx dotnet-inspect -y -- type System.Text.Json.JsonSerializer \
+  --workspace "$schema4_packet" --share url
 ```
 
 These URLs carry canonical datapackets rather than rendered output. The member
 URL opens the selected public API Overview. The package-dependency URL lets
 Inspect Web acquire the exact package and compute its dependency graph. The
-Workspace URL restores the complete projectable definition. Package Query
-envelopes are currently `nonProjectable`; do not hand-author a query-bearing
-packet or promise that Inspect Web can restore it.
+Workspace URL restores the complete projectable definition. The Type command
+uses only a packet string, not a URL; ordinary Type output remains on stdout
+and the derived URL is the final stderr line. A schema-3 packet remains valid
+Type context but cannot encode derived Type Share. Package Query envelopes are
+currently `nonProjectable`; do not hand-author a query-bearing packet or
+promise that Inspect Web can restore it.
 
 ## Member lookup
 
