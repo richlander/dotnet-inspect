@@ -1,7 +1,7 @@
 import type {
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDeactivationResult,
-  BrowserRetainedWorkspaceInstallation,
+  BrowserRetainedWorkspacePosting,
   BrowserRetainedWorkspaceSettlementResult,
 } from "./facades/inspect-web-catalog.d.ts";
 
@@ -53,7 +53,7 @@ export interface RetainedWorkspaceActivationClient {
     intent: string,
     epoch: string,
   ): boolean;
-  recordRetainedWorkspaceNavigationInstallation(
+  recordRetainedWorkspaceNavigationPosting(
     realizationId: string,
     publicationOrdinal: number,
     session: string,
@@ -86,7 +86,7 @@ export interface RetainedWorkspacePredecessorObservation {
 }
 
 export interface RetainedWorkspaceActivationHooks {
-  install(installation: BrowserRetainedWorkspaceInstallation): void;
+  post(posting: BrowserRetainedWorkspacePosting): void;
   clear(): void;
   predecessorSettled(
     observation: RetainedWorkspacePredecessorObservation,
@@ -118,7 +118,7 @@ export function createRetainedWorkspaceActivationController(
   let nextIdentity = 0;
   let selectionGeneration = 0;
   let nextDeactivationGeneration = 0;
-  let installedPublicationOrdinal = 0;
+  let postedPublicationOrdinal = 0;
   let soleDeactivationIntent: SoleDeactivationIntent | null = null;
   const observedSettlementIds = new Set<string>();
   const unsettledActivationCounts = new Map<string, number>();
@@ -175,17 +175,17 @@ export function createRetainedWorkspaceActivationController(
   }
 
   function observePredecessorOnce(
-    installation: BrowserRetainedWorkspaceInstallation,
+    posting: BrowserRetainedWorkspacePosting,
   ): void {
-    const predecessor = installation.predecessor;
+    const predecessor = posting.predecessor;
     if (predecessor === null
       || observedSettlementIds.has(predecessor.settlementId)) {
       return;
     }
     observedSettlementIds.add(predecessor.settlementId);
     const observation: RetainedWorkspacePredecessorObservation = {
-      retainedDefinitionId: installation.retainedDefinitionId,
-      realizationId: installation.realizationId,
+      retainedDefinitionId: posting.retainedDefinitionId,
+      realizationId: posting.realizationId,
       settlementId: predecessor.settlementId,
     };
     void client.observeRetainedWorkspaceSettlement(
@@ -198,17 +198,17 @@ export function createRetainedWorkspaceActivationController(
   }
 
   function authorityArguments(
-    installation: BrowserRetainedWorkspaceInstallation,
+    posting: BrowserRetainedWorkspacePosting,
   ): readonly [string, number, string, string, string, string] {
-    const authority = installation.navigation.authority;
+    const authority = posting.navigation.authority;
     if (authority === null) {
       throw new Error(
-        "A retained Workspace installation requires Navigation effect authority.",
+        "A retained Workspace posting requires Navigation effect authority.",
       );
     }
     return [
-      installation.realizationId,
-      installation.publicationOrdinal,
+      posting.realizationId,
+      posting.publicationOrdinal,
       authority.session,
       authority.revision,
       authority.intent,
@@ -216,11 +216,11 @@ export function createRetainedWorkspaceActivationController(
     ];
   }
 
-  async function abandonInstallation(
-    installation: BrowserRetainedWorkspaceInstallation,
+  async function abandonPosting(
+    posting: BrowserRetainedWorkspacePosting,
   ): Promise<void> {
     const status = await client.abandonRetainedWorkspaceNavigation(
-      ...authorityArguments(installation),
+      ...authorityArguments(posting),
     );
     if (status !== "accepted" && status !== "invalidAuthority") {
       throw new Error(
@@ -229,29 +229,29 @@ export function createRetainedWorkspaceActivationController(
     }
   }
 
-  async function installActivation(
-    installation: BrowserRetainedWorkspaceInstallation,
+  async function postActivation(
+    posting: BrowserRetainedWorkspacePosting,
   ): Promise<boolean> {
-    const authority = authorityArguments(installation);
+    const authority = authorityArguments(posting);
     if (!client.validateRetainedWorkspaceNavigationAuthority(
       ...authority,
     )) {
-      await abandonInstallation(installation);
+      await abandonPosting(posting);
       return false;
     }
-    if (installation.publicationOrdinal <= installedPublicationOrdinal) {
-      if (installation.publicationOrdinal < installedPublicationOrdinal) {
-        await abandonInstallation(installation);
+    if (posting.publicationOrdinal <= postedPublicationOrdinal) {
+      if (posting.publicationOrdinal < postedPublicationOrdinal) {
+        await abandonPosting(posting);
       }
       return false;
     }
 
-    installedPublicationOrdinal = installation.publicationOrdinal;
-    activeDefinitionId = installation.retainedDefinitionId;
+    postedPublicationOrdinal = posting.publicationOrdinal;
+    activeDefinitionId = posting.retainedDefinitionId;
     try {
-      hooks.install(installation);
+      hooks.post(posting);
       const recorded =
-        await client.recordRetainedWorkspaceNavigationInstallation(
+        await client.recordRetainedWorkspaceNavigationPosting(
           ...authority,
         );
       if (recorded === "invalidAuthority") {
@@ -259,7 +259,7 @@ export function createRetainedWorkspaceActivationController(
       }
       if (recorded !== "accepted") {
         throw new Error(
-          `Navigation installation recording returned '${recorded}'.`,
+          `Navigation posting record returned '${recorded}'.`,
         );
       }
       const acknowledged =
@@ -275,11 +275,11 @@ export function createRetainedWorkspaceActivationController(
       return true;
     } catch (error) {
       try {
-        await abandonInstallation(installation);
+        await abandonPosting(posting);
       } catch (abandonmentError) {
         throw new AggregateError(
           [error, abandonmentError],
-          "Retained Workspace installation and Navigation abandonment failed.",
+          "Retained Workspace posting and Navigation abandonment failed.",
           { cause: abandonmentError },
         );
       }
@@ -351,30 +351,30 @@ export function createRetainedWorkspaceActivationController(
       switch (result.status) {
         case "activated":
         case "noEffect": {
-          const installation = result.installation;
-          if (installation === null) {
+          const posting = result.posting;
+          if (posting === null) {
             throw new Error(
-              `Retained Workspace ${result.status} omitted installation evidence.`,
+              `Retained Workspace ${result.status} omitted posting evidence.`,
             );
           }
-          observePredecessorOnce(installation);
+          observePredecessorOnce(posting);
           if (result.status === "activated"
-            && installation.publicationOrdinal
-              > installedPublicationOrdinal) {
+            && posting.publicationOrdinal
+              > postedPublicationOrdinal) {
             try {
-              await installActivation(installation);
+              await postActivation(posting);
             } catch (error) {
               if (generation === selectionGeneration) {
                 lastFailure = error instanceof Error
                   ? error.message
-                  : "Retained Workspace installation failed.";
+                  : "Retained Workspace posting failed.";
               }
               throw error;
             }
           } else if (result.status === "activated"
-            && installation.publicationOrdinal
-              < installedPublicationOrdinal) {
-            await abandonInstallation(installation);
+            && posting.publicationOrdinal
+              < postedPublicationOrdinal) {
+            await abandonPosting(posting);
           }
           if (generation === selectionGeneration) {
             pendingDefinitionId = null;

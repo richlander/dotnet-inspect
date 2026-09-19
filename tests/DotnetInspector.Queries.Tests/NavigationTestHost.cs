@@ -32,7 +32,7 @@ internal sealed class NavigationTestHost
         }
     }
     internal NavigationConsumerSnapshot Snapshot => State.Snapshot;
-    internal NavigationWorkspaceSnapshot InstalledSnapshot => State.InstalledSnapshot;
+    internal NavigationWorkspaceSnapshot CurrentSnapshot => State.CurrentSnapshot;
 
     internal async ValueTask<NavigationConsumerResult> ExecuteAsync(
         NavigationAction action, CancellationToken cancellationToken) =>
@@ -213,8 +213,8 @@ internal sealed class NavigationTestHost
             return NavigationTransitions.ValidateAuthority(_state, authority);
     }
 
-    internal NavigationAuthorityResult RecordConsumerInstallation(NavigationEffectAuthority authority) =>
-        ApplyAuthority(state => NavigationTransitions.RecordConsumerInstallation(state, authority));
+    internal NavigationAuthorityResult RecordConsumerPosting(NavigationEffectAuthority authority) =>
+        ApplyAuthority(state => NavigationTransitions.RecordConsumerPosting(state, authority));
 
     internal NavigationAuthorityResult Acknowledge(NavigationEffectAuthority authority) =>
         ApplyAuthority(state => NavigationTransitions.Acknowledge(state, authority));

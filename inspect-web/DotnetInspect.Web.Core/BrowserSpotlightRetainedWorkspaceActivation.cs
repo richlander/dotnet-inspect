@@ -116,13 +116,13 @@ internal sealed class BrowserSpotlightRetainedWorkspaceHostAuthority
     internal BrowserSpotlightRetainedWorkspaceHostAuthority(
         BrowserRetainedWorkspaceActivationOwner owner,
         BrowserRetainedWorkspaceActivationIntent intent,
-        BrowserRetainedWorkspaceInstallation sourceInstallation,
+        BrowserRetainedWorkspacePosting sourcePosting,
         BrowserSpotlightFreshWorkspaceAuthority authority)
     {
         Owner = owner ?? throw new ArgumentNullException(nameof(owner));
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
-        SourceInstallation = sourceInstallation
-            ?? throw new ArgumentNullException(nameof(sourceInstallation));
+        SourcePosting = sourcePosting
+            ?? throw new ArgumentNullException(nameof(sourcePosting));
         Authority = authority
             ?? throw new ArgumentNullException(nameof(authority));
     }
@@ -131,7 +131,7 @@ internal sealed class BrowserSpotlightRetainedWorkspaceHostAuthority
 
     internal BrowserRetainedWorkspaceActivationIntent Intent { get; }
 
-    internal BrowserRetainedWorkspaceInstallation SourceInstallation
+    internal BrowserRetainedWorkspacePosting SourcePosting
     {
         get;
     }
@@ -174,9 +174,9 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
             BrowserRetainedWorkspaceActivationRequest,
             BrowserPreparedWorkspaceActivation,
             CompleteRestorationFailure,
-            BrowserRetainedWorkspaceInstallation,
+            BrowserRetainedWorkspacePosting,
             BrowserRetainedWorkspaceActivationRejection,
-            BrowserRetainedWorkspaceNonInstallResult>>
+            BrowserRetainedWorkspaceNonPostingResult>>
         ExecuteAsync<TNavigationAction, TPlatformAction, TLibraryIntent>(
             BrowserRetainedWorkspaceActivationOwner owner,
             string sourceRetainedDefinitionId,
@@ -246,9 +246,9 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
                 BrowserRetainedWorkspaceActivationRequest,
                 BrowserPreparedWorkspaceActivation,
                 CompleteRestorationFailure,
-                BrowserRetainedWorkspaceInstallation,
+                BrowserRetainedWorkspacePosting,
                 BrowserRetainedWorkspaceActivationRejection,
-                BrowserRetainedWorkspaceNonInstallResult> result =
+                BrowserRetainedWorkspaceNonPostingResult> result =
                 await BrowserSpotlightExternalPackageActivation.ExecuteAsync<
                     BrowserSpotlightExternalPackageWorkspaceRequest,
                     TNavigationAction,
@@ -258,9 +258,9 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
                     BrowserRetainedWorkspaceActivationRequest,
                     BrowserPreparedWorkspaceActivation,
                     CompleteRestorationFailure,
-                    BrowserRetainedWorkspaceInstallation,
+                    BrowserRetainedWorkspacePosting,
                     BrowserRetainedWorkspaceActivationRejection,
-                    BrowserRetainedWorkspaceNonInstallResult>(
+                    BrowserRetainedWorkspaceNonPostingResult>(
                         source.Workspace,
                         descriptor,
                         external.CuratedPlan,
@@ -332,7 +332,7 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
 
             if (prepared is { IsPending: true })
             {
-                BrowserRetainedWorkspaceNonInstallResult cleanup =
+                BrowserRetainedWorkspaceNonPostingResult cleanup =
                     await prepared.SettleAsync().ConfigureAwait(false);
                 throw new InvalidOperationException(
                     cleanup.Failure is null
@@ -345,7 +345,7 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
         {
             if (prepared is { IsPending: true })
             {
-                BrowserRetainedWorkspaceNonInstallResult cleanup =
+                BrowserRetainedWorkspaceNonPostingResult cleanup =
                     await prepared.SettleAsync().ConfigureAwait(false);
                 if (cleanup.Failure is not null)
                 {
@@ -371,9 +371,9 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
         BrowserRetainedWorkspaceActivationRequest,
         BrowserPreparedWorkspaceActivation,
         CompleteRestorationFailure,
-        BrowserRetainedWorkspaceInstallation,
+        BrowserRetainedWorkspacePosting,
         BrowserRetainedWorkspaceActivationRejection,
-        BrowserRetainedWorkspaceNonInstallResult>
+        BrowserRetainedWorkspaceNonPostingResult>
         Blocked<TNavigationAction, TPlatformAction, TLibraryIntent>(
             BrowserSpotlightDestinationDescriptor<
                 BrowserSpotlightExternalPackageWorkspaceRequest,
@@ -392,9 +392,9 @@ internal static class BrowserSpotlightRetainedWorkspaceActivation
             BrowserRetainedWorkspaceActivationRequest,
             BrowserPreparedWorkspaceActivation,
             CompleteRestorationFailure,
-            BrowserRetainedWorkspaceInstallation,
+            BrowserRetainedWorkspacePosting,
             BrowserRetainedWorkspaceActivationRejection,
-            BrowserRetainedWorkspaceNonInstallResult>.Blocked(
+            BrowserRetainedWorkspaceNonPostingResult>.Blocked(
                 descriptor,
                 new BrowserSpotlightFreshWorkspaceBlock<
                     BrowserRetainedWorkspaceActivationRejection>.Host(
