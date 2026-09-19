@@ -30,16 +30,17 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
-        // previously recompile failures: the
+        // CompoundAssignDictionaryIndexer was previously a recompile failure: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
-        // product printer's short names assume, so they never compiled to be
-        // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (static
-        // method-group caching, compound dictionary-indexer double access)
-        // that were masked, not introduced. Triage tracked separately.
-        "CachedStaticMethodGroup",
+        // product printer's short names assume, so it never compiled to be
+        // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
+        // #4229: the local-function positive restores the <>O cache while csc
+        // drops the bare-method-group carrier; the explicit neighbor preserves
+        // its allocation opcodes. Both import below Full on the lowered rail and
+        // are pinned by the shared focused gates.
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -130,7 +131,11 @@ public class LoweredFidelityGateTests
     /// row to remain an actual diff, and so a row that newly drops to NotFull fails as
     /// the validity regression it is instead of landing here silently.
     /// </summary>
-    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
+    static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
+    {
+        "CachedStaticMethodGroupLocalFunction",
+        "ExplicitStaticMethodGroupLocalFunction",
+    };
 
     /// <summary>
     /// Methods the lowered view keeps exact under the fidelity contract. This is the sugared pinned set minus
@@ -149,6 +154,10 @@ public class LoweredFidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #4229: compiler-cache provenance restores a cache-regenerating
+        // method-group conversion in both official C# views.
+        "CachedStaticMethodGroup",
+        "ExplicitStaticMethodGroupArgument",
         // #4281: the nested enumerator's region-exit leave now raises to a
         // side-effect-preserving break in both official C# views.
         "AllOuterMatchInner",

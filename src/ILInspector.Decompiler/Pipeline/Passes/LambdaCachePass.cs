@@ -15,17 +15,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// (<c>s = &lt;&gt;9__; recv = …; r = s; if (s is null) …</c>) — the shape every
 /// LINQ and <c>Array.FindAll</c>-style call site emits — so the load is found by
 /// scanning back to it, not at a fixed offset.
-/// This pass rewrites that whole dance to a single <c>s = new D(...)</c>,
-/// dropping the cache field, the null guard, and the carrier slots. The cache is
-/// a pure codegen artifact (re-emitting the C# restores an equivalent one), so
-/// erasing it is sound for the raised view — only fidelity to the exact IL is
-/// lost, which the lowered view never promises here.
+/// This pass rewrites that whole dance to a single marked
+/// <see cref="DelegateCreation"/>, dropping the cache field, the null guard, and
+/// the carrier slots. The mark lets emission distinguish a compiler-cached
+/// method group from an explicit delegate construction and choose a spelling
+/// that regenerates the cache.
 ///
-/// <para>Anchored on the cache field's <c>&lt;&gt;9__</c> name — only this idiom
-/// emits it. Runs before the second inlining pass, which folds the surviving
-/// carrier slot into its use; <see cref="LambdaRaisingPass"/> then raises the
-/// bare delegate creation to the lambda itself. A <see cref="NativePasses"/>
-/// member (it inverts a codegen artifact, not a named Roslyn lowering).</para>
+/// <para>Anchored on Roslyn's generated cache-holder and field-name families:
+/// <c>&lt;&gt;c.&lt;&gt;9__</c> for lambdas and <c>&lt;&gt;O.&lt;N&gt;__</c> for
+/// static method groups. Runs before the second inlining pass, which folds the
+/// surviving carrier slot into its use; <see cref="LambdaRaisingPass"/> then
+/// raises the bare delegate creation to the lambda itself. A
+/// <see cref="NativePasses"/> member (it inverts a codegen artifact, not a named
+/// Roslyn lowering).</para>
 /// </summary>
 public sealed class LambdaCachePass : IIrPass
 {
@@ -92,6 +94,7 @@ public sealed class LambdaCachePass : IIrPass
                 continue;
 
             context.Stepper.StepOver($"collapse lazy delegate cache {cacheField.Name}", ifStmt);
+            delegateCreation.MarkCollapsedCompilerCache();
             delegateCreation.Detach();
             ifStmt.ReplaceWith(new StoreStackSlot(resultSlot, delegateCreation));
             seedResult.Detach();
@@ -157,6 +160,7 @@ public sealed class LambdaCachePass : IIrPass
             if (!FieldReferencesOnlyWithin(function, cacheField, [prior.CacheLoad, createBlock]))
                 continue;
 
+            delegateCreation.MarkCollapsedCompilerCache();
             delegateCreation.Detach();
             var replacement = new StoreStackSlot(resultStore.Slot, delegateCreation);
             replacement.InheritSourceOffset(createStore);

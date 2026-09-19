@@ -108,6 +108,18 @@ consume its typed compile and implementation roles without reinterpreting
 package paths. See
 [Package-role planning and cleanup](design/inspection-layers.md#package-role-planning-and-cleanup-boundary).
 
+RID selection currently matches a folder exactly; it does not implement NuGet's
+RID fallback graph. The retained
+[restored RID Workspace fixture](../fixtures/queries/DotnetInspector.RestoredRidFixtures/README.md)
+compares real SDK output with complete Workspace restoration for `win`,
+`win-x64`, `linux-x64`, and `osx-arm64`.
+`CompleteRestorationExecutionTests.RestoredAssets_CreatesWorkspaceWithDocumentedRidSelection`
+gates the requested coordinate, compile/implementation correspondence, actual
+realized asset provenance, and detached inventory after close. The `win-x64`
+case deliberately records disagreement with the SDK's `win` fallback. This is
+not a claim that coordinate-based Workspace restoration imports a restored
+project's exact asset selections.
+
 Current behavior is gated by:
 
 - `PackageCompileAssetSelectorTests.InMemorySelection_PrefersReferenceAssetsAndPackageNamedDefault`;
