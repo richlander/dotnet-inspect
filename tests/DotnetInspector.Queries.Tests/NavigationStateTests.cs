@@ -17,7 +17,7 @@ public sealed class NavigationStateTests
 
         Assert.NotEqual(first.Id, second.State.Id);
         Assert.Same(first.Workspace, second.State.Workspace);
-        Assert.True(NavigationWorkspaceSnapshotEquality.Equals(first.InstalledSnapshot, second.State.InstalledSnapshot));
+        Assert.True(NavigationWorkspaceSnapshotEquality.Equals(first.CurrentSnapshot, second.State.CurrentSnapshot));
         Assert.NotEqual(first.Publication, second.State.Publication);
         Assert.Same(second.State.Snapshot, second.Result.Consumer.Snapshot);
         Assert.Null(second.Result.LensResolution);
@@ -34,17 +34,17 @@ public sealed class NavigationStateTests
         await using Fixture fixture = await Fixture.CreateAsync();
         NavigationState original = fixture.Session.State;
         NavigationConsumerSnapshot consumer = original.Snapshot;
-        NavigationWorkspaceSnapshot installed = original.InstalledSnapshot;
+        NavigationWorkspaceSnapshot current = original.CurrentSnapshot;
         NavigationPublication publication = original.Publication;
         string originalJson = Json(fixture.Session.Initialization);
         NavigationAction action = original.Snapshot.Types[0].Navigation.Action!;
-        var exact = new NavigationLensIdentity(installed.ActiveSubject, new ViewFacetId("library.metadata"));
+        var exact = new NavigationLensIdentity(current.ActiveSubject, new ViewFacetId("library.metadata"));
 
         NavigationTransition first = Begin();
         NavigationTransition second = Begin();
         Assert.NotSame(first.State, second.State);
         Assert.Same(consumer, first.State.Snapshot);
-        Assert.Same(installed, first.State.InstalledSnapshot);
+        Assert.Same(current, first.State.CurrentSnapshot);
         Assert.NotSame(first.Request, second.Request);
         Assert.NotSame(first.Work, second.Work);
         Assert.Equal(first.Request!.Id, second.Request!.Id);
@@ -73,7 +73,7 @@ public sealed class NavigationStateTests
         Assert.Equal(Json(completed.Result.Consumer), Json(equivalent.Result!.Consumer));
         Assert.Equal(completed.State.Publication, equivalent.State.Publication);
         Assert.True(NavigationWorkspaceSnapshotEquality.Equals(
-            completed.State.InstalledSnapshot, equivalent.State.InstalledSnapshot));
+            completed.State.CurrentSnapshot, equivalent.State.CurrentSnapshot));
         if (lens)
         {
             Assert.Same(evaluated.Resolution, completed.Result.LensResolution!.Activation);
@@ -89,7 +89,7 @@ public sealed class NavigationStateTests
         }
 
         Assert.Same(consumer, original.Snapshot);
-        Assert.Same(installed, original.InstalledSnapshot);
+        Assert.Same(current, original.CurrentSnapshot);
         Assert.Equal(publication, original.Publication);
         Assert.Equal(originalJson, Json(fixture.Session.Initialization));
         Assert.True(NavigationTransitions.ValidateAuthority(original, fixture.Session.Initialization.Authority));
@@ -185,11 +185,11 @@ public sealed class NavigationStateTests
         Assert.Same(completed.Result!.Consumer.Snapshot, current.Snapshot);
         Assert.True(NavigationTransitions.ValidateAuthority(current, completed.Result.Consumer.Authority));
 
-        NavigationTransition installation = NavigationTransitions.RecordConsumerInstallation(
+        NavigationTransition posting = NavigationTransitions.RecordConsumerPosting(
             current, completed.Result.Consumer.Authority!);
         NavigationTransition competing = NavigationTransitions.Abandon(current, completed.Result.Consumer.Authority!);
-        Assert.True(NavigationTransitions.CanCommit(current, installation));
-        current = installation.State;
+        Assert.True(NavigationTransitions.CanCommit(current, posting));
+        current = posting.State;
         Assert.False(NavigationTransitions.CanCommit(current, competing));
         Assert.Equal(NavigationAuthorityResult.Accepted,
             NavigationTransitions.Acknowledge(current, completed.Result.Consumer.Authority!).AuthorityResult);
@@ -207,37 +207,37 @@ public sealed class NavigationStateTests
         NavigationTransition explicitBegin = NavigationTransitions.Begin(begun.State, begun.State.Snapshot.Types[1].Navigation.Action!);
         NavigationEvaluationResult selected = NavigationTransitions.Evaluate(
             explicitBegin.Work!, fixture.Ready(explicitBegin.Work!), fixture.Registry);
-        NavigationTransition installed = NavigationTransitions.Complete(explicitBegin.State, explicitBegin.Work!, selected);
-        NavigationTransition invalidated = NavigationTransitions.Complete(installed.State, first, obsolete);
+        NavigationTransition completed = NavigationTransitions.Complete(explicitBegin.State, explicitBegin.Work!, selected);
+        NavigationTransition invalidated = NavigationTransitions.Complete(completed.State, first, obsolete);
 
         Assert.Same(queued.Request, begun.Request);
         Assert.Same(first.Identity, invalidated.Request);
         Assert.Null(invalidated.Result);
         Assert.Null(invalidated.Work);
         Assert.Null(invalidated.Rejection);
-        Assert.Same(installed.State.InstalledSnapshot, invalidated.State.InstalledSnapshot);
-        Assert.Same(installed.State.Snapshot, invalidated.State.Snapshot);
+        Assert.Same(completed.State.CurrentSnapshot, invalidated.State.CurrentSnapshot);
+        Assert.Same(completed.State.Snapshot, invalidated.State.Snapshot);
         NavigationTransition blocked = NavigationTransitions.Advance(invalidated.State);
         Assert.Same(invalidated.State, blocked.State);
         Assert.Null(blocked.Work);
 
         NavigationTransition released = NavigationTransitions.Abandon(
-            invalidated.State, installed.Result!.Consumer.Authority!);
+            invalidated.State, completed.Result!.Consumer.Authority!);
         NavigationTransition regather = NavigationTransitions.Advance(released.State);
         NavigationEvaluationRequest retry = regather.Work!;
         Assert.Same(first.Identity, retry.Identity);
         Assert.NotEqual(first.Attempt, retry.Attempt);
         Assert.NotEqual(first.Intent, retry.Intent);
-        Assert.Equal(installed.State.Publication, retry.Publication);
-        Assert.Same(installed.State.InstalledSnapshot, retry.Basis);
+        Assert.Equal(completed.State.Publication, retry.Publication);
+        Assert.Same(completed.State.CurrentSnapshot, retry.Basis);
         AssertRejected(regather.State, NavigationTransitions.Complete(regather.State, first, obsolete),
             NavigationCompletionRejection.StaleAttempt);
         NavigationEvaluationResult refreshed = NavigationTransitions.Evaluate(retry, fixture.Ready(retry), fixture.Registry);
         NavigationTransition completion = NavigationTransitions.Complete(regather.State, retry, refreshed);
         Assert.Same(first.Identity, completion.Request);
         Assert.Equal(first.Request, completion.Result!.Consumer.Request);
-        Assert.Same(installed.State.Snapshot, completion.State.Snapshot);
-        Assert.Equal(installed.State.Publication, completion.State.Publication);
+        Assert.Same(completed.State.Snapshot, completion.State.Snapshot);
+        Assert.Equal(completed.State.Publication, completion.State.Publication);
     }
 
     [Theory]
@@ -316,7 +316,7 @@ public sealed class NavigationStateTests
         NavigationOperationInitialization initialized = NavigationTransitions.Initialize(
             fixture.Workspace.Identity, facts, fixture.Registry);
         NavigationTransition begun = NavigationTransitions.BeginLens(initialized.State,
-            new(initialized.State.InstalledSnapshot.ActiveSubject, new ViewFacetId("library.metadata")));
+            new(initialized.State.CurrentSnapshot.ActiveSubject, new ViewFacetId("library.metadata")));
         NavigationEvaluationResult evaluation = NavigationTransitions.Evaluate(
             begun.Work!, new NavigationPreparation.Ready(facts), fixture.Registry);
         NavigationTransition completed = NavigationTransitions.Complete(begun.State, begun.Work!, evaluation);
@@ -332,9 +332,9 @@ public sealed class NavigationStateTests
 
     static NavigationState Acknowledge(NavigationState state, NavigationEffectAuthority authority)
     {
-        NavigationTransition installed = NavigationTransitions.RecordConsumerInstallation(state, authority);
-        Assert.Equal(NavigationAuthorityResult.Accepted, installed.AuthorityResult);
-        NavigationTransition acknowledged = NavigationTransitions.Acknowledge(installed.State, authority);
+        NavigationTransition posted = NavigationTransitions.RecordConsumerPosting(state, authority);
+        Assert.Equal(NavigationAuthorityResult.Accepted, posted.AuthorityResult);
+        NavigationTransition acknowledged = NavigationTransitions.Acknowledge(posted.State, authority);
         Assert.Equal(NavigationAuthorityResult.Accepted, acknowledged.AuthorityResult);
         return acknowledged.State;
     }

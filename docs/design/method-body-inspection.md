@@ -61,17 +61,28 @@ weighty production logic.
 The first implementation is `ILOffsetProjectionProducer`:
 
 - `ILOffsetProjectionRequest` carries the already-open `SourceLinkService`,
-  coordinate, and capability flags — never a path, `PEReader`, or command options.
+  optional focused Analysis input, coordinate, and capability flags — never a
+  path, `PEReader`, `LibraryBodyIndex`, or command options.
 - Metadata exposes a session-bound `MethodBodySource` from both `PdbContext` and
   `AssemblyInspectionSession`. It returns copied `MethodBodyData` and implements
   operand-name resolution without exposing its owned readers.
 - `MethodBodyData` lives in `MetadataPrimitives` because it is the neutral
   Metadata-to-Instructions contract; Instructions decodes the snapshot directly.
-- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + Analysis +
-  SourceLink composition and returns `ILOffsetProjectionOutcome`.
+- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + focused
+  Analysis + SourceLink composition and returns `ILOffsetProjectionOutcome`;
+  it never acquires or reopens Analysis.
 - `ResearchViews.ProjectILOffset` forwards directly to the producer.
-- `ILOffsetQuery` retains only CLI parsing, capability selection, symbol
-  acquisition, failure/exit handling, and producer invocation.
+- `ILOffsetQuery` retains CLI parsing, capability selection, one scoped
+  Analysis execution over the SourceLink session's prefetched authoritative
+  image, failure/exit handling, and producer invocation. Coordinate-file
+  execution unions the MethodDef tokens once and reuses one focused input for
+  every row.
+
+`ILOffsetAnalysisInput` joins allocation, safety, and call-graph results from
+one Analysis execution receipt. The producer verifies that the input's module
+version matches the already-open source session and that each requested result
+family participated; missing, mixed, stale, or unrequested evidence remains a
+typed visible failure rather than an empty context.
 
 The capability replaces product friendship. Research and the CLI consume
 explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.

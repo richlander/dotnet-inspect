@@ -24,20 +24,13 @@ public partial class DependsCommand
     private const int PackageManifestTraversalBudget = 1_024;
     private const int PackageDeclarationTraversalBudget = 16_384;
     private const string SummarySection = "Summary";
-    private static readonly InspectionEnvelopeJsonContract<
-        DependencyInspectionContent> AssetDependencyJson =
-            new(
-                "asset-dependencies",
-                1,
-                DependencyInspectionJsonContext.Default
-                    .DependencyInspectionContent);
-    private static readonly EvidenceInspectionEnvelopeJsonContract<
-        DependencyInspectionContent,
-        DependencyInspectionEvidenceDocument> AssetDependencyEvidenceJson =
-            new(
-                AssetDependencyJson,
-                DependencyInspectionJsonContext.Default
-                    .DependencyInspectionEvidenceDocument);
+    private static readonly
+        InspectionEnvelopeJsonContract<DependencyInspectionContent>
+        AssetDependencyJson = new(
+            "asset-dependencies",
+            1,
+            DependencyInspectionJsonContext.Default
+                .DependencyInspectionContent);
 
     public static async Task<int> ExecuteAssetDependsAsync(
         DependsOptions options,
@@ -56,46 +49,23 @@ public partial class DependsCommand
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pruneSource);
 
-        if (DependsShareProjection.ValidateOptions(options) is { } shareError)
+        bool evidenceEnvelopeRequested =
+            options.EvidenceEnvelopePath is not null;
+        if (DependsShareProjection.ValidateOptions(options)
+            is { } shareError)
         {
             CommandError.Write(shareError);
             return 1;
         }
-        if (options.EnvelopeOutput
-            && options.EvidenceEnvelopePath is null)
+        if (!evidenceEnvelopeRequested
+            && options.ShareFormat is not null)
         {
-            CommandError.Write(
-                "--envelope currently requires --evidence-envelope in asset-mode depends.");
-            return 1;
-        }
-        var context = new CommandContext(options.Verbose);
-        DependsShareProjection.AssetSharePreparation.Projectable?
-            sharePreparation = null;
-        if (options.ShareFormat is { } preparedShareFormat)
-        {
-            DependsShareProjection.AssetSharePreparation preparation =
-                await DependsShareProjection.PrepareAssetAsync(
-                    options,
-                    context.HttpClient,
-                    context.Logger,
-                    cancellationToken).ConfigureAwait(false);
-            if (preparation
-                is DependsShareProjection.AssetSharePreparation.Rejected)
-            {
-                return DependsShareProjection.WriteAsset(
-                    preparation,
-                    preparedShareFormat);
-            }
-
-            sharePreparation =
-                (DependsShareProjection.AssetSharePreparation.Projectable)
-                    preparation;
-            if (options.EvidenceEnvelopePath is null)
-            {
-                return DependsShareProjection.WriteAsset(
-                    preparation,
-                    preparedShareFormat);
-            }
+            var shareContext = new CommandContext(options.Verbose);
+            return await DependsShareProjection.WriteAsync(
+                options,
+                shareContext.HttpClient,
+                shareContext.Logger,
+                cancellationToken).ConfigureAwait(false);
         }
 
         SectionCatalog<DependsAssetProjection> catalog =
@@ -159,6 +129,13 @@ public partial class DependsCommand
             includeSections.Add(DependsAssetSections.DependencyHierarchy);
         DependsAssetRequestPlan plan =
             DependsAssetRequestPlan.FromSections(includeSections);
+        if (evidenceEnvelopeRequested)
+        {
+            plan = plan with
+            {
+                SupplementalEvidence = true,
+            };
+        }
         if (!ValidateAssetOptions(
                 options,
                 selection.Sections,
@@ -169,16 +146,25 @@ public partial class DependsCommand
             return 1;
         }
 
+        var context = new CommandContext(options.Verbose);
         try
         {
+            DependsShareProjection.AssetSharePreparation? sharePreparation =
+                options.ShareFormat is null
+                    ? null
+                    : await DependsShareProjection.PrepareAssetAsync(
+                        options,
+                        context.HttpClient,
+                        context.Logger,
+                        cancellationToken).ConfigureAwait(false);
             CommandContext inspectionContext =
-                options.ShareFormat is not null
-                && !options.EnvelopeOutput
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
                     ? context.WithVerboseLogging(enabled: false)
                     : context;
             using IDisposable? networkTrafficLogSuppression =
-                options.ShareFormat is not null
-                && !options.EnvelopeOutput
+                evidenceEnvelopeRequested
+                && sharePreparation is not null
                     ? DotnetInspector.Networking.HttpClientFactory
                         .SuppressNetworkTrafficLogging()
                     : null;
@@ -190,15 +176,9 @@ public partial class DependsCommand
                     options.Effective && options.Depth is null
                         ? 1
                         : options.Depth,
-                    pruneSource,
                     sharePreparation,
+                    pruneSource,
                     cancellationToken).ConfigureAwait(false);
-            InspectionEnvelope<DependencyInspectionContent> inspection =
-                projection.Inspection;
-            EvidenceInspectionEnvelope<
-                DependencyInspectionContent,
-                DependencyInspectionEvidenceDocument>? evidence =
-                    projection.Enriched;
             cancellationToken.ThrowIfCancellationRequested();
             if (options.Effective)
             {
@@ -233,72 +213,98 @@ public partial class DependsCommand
                     AssetExitCode(projection));
             }
 
-            int primaryExitCode = options.ShareFormat is { } shareFormat
-                ? options.EnvelopeOutput
-                    ? InspectionEnvelopeOutput.TryWrite(
-                        inspection,
-                        AssetDependencyJson,
-                        includeEnvelope: true,
-                        options.CompactJson)
-                        ? 0
-                        : 1
-                    : WorkspaceShareOutput.WriteScalar(
-                        inspection.Share,
-                        shareFormat)
-                : options.EnvelopeOutput
-                    ? InspectionEnvelopeOutput.TryWrite(
-                        inspection,
-                        AssetDependencyJson,
-                        includeEnvelope: true,
-                        options.CompactJson)
-                        ? 0
-                        : 1
-                    : WriteAssetProjection(
-                        projection,
-                        options,
-                        includeSections)
-                        ? 0
-                        : 1;
-            int exitCode = primaryExitCode;
-            bool shareOnlyPrimary =
-                options.ShareFormat is not null
-                && !options.EnvelopeOutput;
-            if (!shareOnlyPrimary)
+            byte[] evidencePayload = [];
+            Exception? evidenceSerializationError = null;
+            if (evidenceEnvelopeRequested)
             {
-                WriteAssetDiagnostics(projection);
-                exitCode = Math.Max(
-                    exitCode,
-                    AssetExitCode(projection));
-            }
-            if (options.EvidenceEnvelopePath is { } evidencePath)
-            {
-                if (evidence is null)
+                if (projection.Enriched is null)
                 {
-                    CommandError.Write(
-                        "Evidence envelopes are unavailable in this build.");
-                    exitCode = 1;
+                    evidenceSerializationError =
+                        new InvalidOperationException(
+                            "The dependency inspection did not produce its requested evidence.");
                 }
-                else if (!InspectionEnvelopeOutput.TryWriteEvidence(
-                    evidence,
-                    AssetDependencyEvidenceJson,
-                    evidencePath,
-                    options.CompactJson))
+                else
                 {
-                    exitCode = 1;
+                    InspectionEnvelopeOutput.TrySerializeEvidence(
+                        projection.Enriched,
+                        AssetDependencyJson,
+                        DependencyInspectionJsonContext.Default
+                            .DependencyInspectionEvidenceDocument,
+                        options.CompactJson,
+                        out evidencePayload,
+                        out evidenceSerializationError);
                 }
             }
 
-            if (options is
+            bool ordinaryOutputWritten = true;
+            if (options.ShareFormat is null)
+            {
+                if (options.EnvelopeOutput)
                 {
-                    EnvelopeOutput: true,
-                    ShareFormat: { } envelopeShareFormat,
-                })
+                    ordinaryOutputWritten =
+                        InspectionEnvelopeOutput.TryWrite(
+                            projection.Inspection,
+                            AssetDependencyJson,
+                            includeEnvelope: true,
+                            options.CompactJson,
+                            options.OutputPath);
+                }
+                else
+                {
+                    OutputDestination.Write(
+                        options.OutputPath,
+                        options.Rows,
+                        output => ordinaryOutputWritten =
+                            WriteAssetProjection(
+                                projection,
+                                options,
+                                includeSections,
+                                output));
+                }
+            }
+            if (!ordinaryOutputWritten)
+            {
+                return 1;
+            }
+
+            int exitCode = 0;
+            if (options.ShareFormat is null)
+            {
+                WriteAssetDiagnostics(projection);
+                exitCode = AssetExitCode(projection);
+            }
+            if (evidenceEnvelopeRequested)
+            {
+                string evidencePath = options.EvidenceEnvelopePath!;
+                if (evidenceSerializationError is not null)
+                {
+                    CommandError.Write(
+                        $"Evidence envelope serialization failed for '{evidencePath}': {evidenceSerializationError.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else if (!EvidenceEnvelopeOutput.TryPublish(
+                        evidencePath,
+                        evidencePayload,
+                        out Exception? publicationError))
+                {
+                    CommandError.Write(
+                        $"Evidence envelope publication failed for '{evidencePath}': {publicationError!.Message}");
+                    exitCode = Math.Max(exitCode, 1);
+                }
+                else
+                {
+                    CommandError.WriteLine(
+                        $"Evidence envelope: {evidencePath}");
+                }
+            }
+
+            if (options.ShareFormat is { } shareFormat)
             {
                 exitCode = Math.Max(
                     exitCode,
-                    WorkspaceShareOutput.Write(
-                        inspection.Share,
-                        envelopeShareFormat));
+                    DependsShareProjection.WriteAsset(
+                        projection.Inspection.Share,
+                        shareFormat));
             }
 
             return exitCode;
@@ -400,6 +406,27 @@ public partial class DependsCommand
             && candidateSections.Contains(
                 DependsAssetSections.Failures,
                 StringComparer.OrdinalIgnoreCase);
+        if (!discoveryMode
+            && hierarchyFailuresJsonl
+            && IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
+            return false;
+        }
+        DocumentSchema projectionSchema =
+            options.Tabular && !options.Count
+                ? DependsAssetSections.CreateTableSchema()
+                : DependsAssetSections.CreateSchema();
+        if (!discoveryMode
+            && !ProjectionDiagnostics.ValidateProjection(
+                projectionSchema,
+                candidateSections,
+                options.Fields,
+                options.Columns))
+        {
+            return false;
+        }
         if (!discoveryMode
             && options.Tabular
             && !options.Count
@@ -664,9 +691,9 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth: null,
+            sharePreparation: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
-            sharePreparation: null,
             cancellationToken);
     }
 
@@ -704,9 +731,9 @@ public partial class DependsCommand
             context,
             plan,
             traversalDepth,
+            sharePreparation: null,
             static frameworkSpec =>
                 InstalledPlatformPruneSource.Read(frameworkSpec),
-            sharePreparation: null,
             cancellationToken);
     }
 
@@ -716,9 +743,8 @@ public partial class DependsCommand
             CommandContext context,
             DependsAssetRequestPlan plan,
             int? traversalDepth,
+            DependsShareProjection.AssetSharePreparation? sharePreparation,
             Func<string, InstalledPlatformPruneSource.Result> pruneSource,
-            DependsShareProjection.AssetSharePreparation.Projectable?
-                sharePreparation,
             CancellationToken cancellationToken)
     {
         DependencyEvidenceAcquisitionOptions evidenceOptions =
@@ -1014,16 +1040,11 @@ public partial class DependsCommand
             pruning.Rows,
             pruning.Failures,
             pruning.Summary,
-            sharePreparation?.Share
-                ?? new InspectionShare.NonProjectable(
-                    "asset-dependencies/share",
-                    "Share projection was not requested."));
+            sharePreparation?.Share);
         var builder = new EvidenceInspectionBuilder<
             DependencyInspectionContent,
             DependencyInspectionEvidenceDocument>();
-        builder.RequestEvidence(
-            plan.SupplementalEvidence
-            || options.EvidenceEnvelopePath is not null);
+        builder.RequestEvidence(plan.SupplementalEvidence);
         (
             InspectionEnvelope<DependencyInspectionContent> inspection,
             EvidenceInspectionEnvelope<
@@ -1864,7 +1885,8 @@ public partial class DependsCommand
                 projection,
                 options,
                 includeSections,
-                schema);
+                schema,
+                output);
 
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
             Window(projection.HierarchyRows, options.Rows);
@@ -1913,12 +1935,6 @@ public partial class DependsCommand
             && failuresSelected;
         if (hierarchyFailuresJsonl)
         {
-            if (IsColumnProjectionRequested(options))
-            {
-                CommandError.Write(
-                    "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
-                return false;
-            }
             WriteAssetHierarchyFailuresJsonLines(
                 projection,
                 options.Rows,
@@ -1934,15 +1950,6 @@ public partial class DependsCommand
                 "Projected JSON and JSONL columns cannot represent typed traversal failure detail; use unprojected --json.");
             return false;
         }
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                includeSections,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         DependsAssetView view = BuildAssetView(
             projection,
             includeSections,
@@ -2251,7 +2258,8 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
-        DocumentSchema schema)
+        DocumentSchema schema,
+        TextWriter output)
     {
         string[] ordered =
         [
@@ -2260,15 +2268,6 @@ public partial class DependsCommand
         ];
         if (ordered.Length == 0)
             ordered = [DependsAssetSections.DependencyHierarchy];
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema,
-                ordered,
-                options.Fields,
-                options.Columns))
-        {
-            return false;
-        }
-
         foreach (string section in ordered)
         {
             if (IsExactAssetRowSet(projection, section))
@@ -2300,7 +2299,8 @@ public partial class DependsCommand
                 : options.Tsv ? OutputFormat.Tsv
                 : options.Tabular ? OutputFormat.Table
                 : OutputFormat.Markdown,
-            options.NoHeader);
+            options.NoHeader,
+            output);
         return true;
     }
 

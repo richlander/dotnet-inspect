@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 
@@ -353,38 +352,6 @@ public sealed record PackageHouseDependencyPruningApplicability(
     PackageHouseDependencyPruningTargetUnavailableReason?
         TargetUnavailableReason);
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.Evaluated),
-    "evaluated")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult
-        .ApplicationAuthoredExemption),
-    "applicationAuthoredExemption")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.UnattributedAuthorship),
-    "unattributedAuthorship")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.ProcessingIncomplete),
-    "processingIncomplete")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.ProcessingUnavailable),
-    "processingUnavailable")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.ProcessingFailed),
-    "processingFailed")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.RuntimeProjected),
-    "runtimeProjected")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.PreviouslyEvaluated),
-    "previouslyEvaluated")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.ProcessingNotEvidenced),
-    "processingNotEvidenced")]
-[JsonDerivedType(
-    typeof(PackageHouseDependencyPruningResult.TargetUnavailable),
-    "targetUnavailable")]
 public abstract record PackageHouseDependencyPruningResult(
     PackageHouseDependencyInput Input)
 {

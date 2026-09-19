@@ -15,12 +15,6 @@ public sealed class InspectionEnvelopeOutputTests
             "test-content",
             7,
             EnvelopeTestContentJsonContext.Default.EnvelopeTestContent);
-    private static readonly EvidenceInspectionEnvelopeJsonContract<
-        EnvelopeTestContent,
-        EnvelopeTestEvidence> EvidenceContract =
-            new(
-                Contract,
-                EnvelopeTestContentJsonContext.Default.EnvelopeTestEvidence);
 
     [Theory]
     [InlineData(WorkspaceShareFormat.Url)]
@@ -243,149 +237,106 @@ public sealed class InspectionEnvelopeOutputTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task EvidenceEnvelopePublishesCompleteFramedAttachment(
-        bool destinationExists)
+    [Fact]
+    public void EnrichedEnvelopeUsesFlatTransportFrame()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(),
-            "dotnet-inspect-envelope-tests",
-            Guid.NewGuid().ToString("n"));
-        Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, "evidence.json");
-        if (destinationExists)
-        {
-            await File.WriteAllTextAsync(
-                path,
-                "existing",
-                TestContext.Current.CancellationToken);
-        }
         var inspection = new InspectionEnvelope<EnvelopeTestContent>(
             Content(),
             new InspectionShare.Available(
                 "https://example.test/inspect",
                 "packet"));
-        var envelope =
+        var enriched =
             new EvidenceInspectionEnvelope<
                 EnvelopeTestContent,
                 EnvelopeTestEvidence>(
-                inspection,
-                new EnvelopeTestEvidence("selected", 3));
-        bool written = false;
+                    inspection,
+                    new EnvelopeTestEvidence("retained"));
 
-        (string output, string error) = await ConsoleCapture.RunAsync(() =>
-            written = InspectionEnvelopeOutput.TryWriteEvidence(
-                envelope,
-                EvidenceContract,
-                path));
+        bool serialized =
+            InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                Contract,
+                EnvelopeTestContentJsonContext.Default
+                    .EnvelopeTestEvidence,
+                compactJson: true,
+                out byte[] payload,
+                out Exception? exception);
+        bool prettySerialized =
+            InspectionEnvelopeOutput.TrySerializeEvidence(
+                enriched,
+                Contract,
+                EnvelopeTestContentJsonContext.Default
+                    .EnvelopeTestEvidence,
+                compactJson: false,
+                out byte[] prettyPayload,
+                out Exception? prettyException);
 
-        Assert.True(written);
-        Assert.Empty(output);
-        Assert.Equal(
-            $"Evidence envelope: {path}{Environment.NewLine}",
-            error);
-        using JsonDocument document =
-            JsonDocument.Parse(File.ReadAllText(path));
+        Assert.True(serialized);
+        Assert.True(prettySerialized);
+        Assert.Null(exception);
+        Assert.Null(prettyException);
+        Assert.Equal((byte)'\n', payload[^1]);
+        AssertJsonEqual(
+            System.Text.Encoding.UTF8.GetString(prettyPayload),
+            System.Text.Encoding.UTF8.GetString(payload));
+        using JsonDocument document = JsonDocument.Parse(payload);
         JsonElement root = document.RootElement;
-        AssertPropertyNames(
-            root,
-            "schema_version",
-            "result_kind",
-            "content",
-            "share",
-            "diagnostics",
-            "evidence");
         Assert.Equal(7, root.GetProperty("schema_version").GetInt32());
         Assert.Equal(
             "test-content",
             root.GetProperty("result_kind").GetString());
         Assert.Equal(
-            "selected",
+            "retained",
             root.GetProperty("evidence")
-                .GetProperty("Decision")
+                .GetProperty("owner_evidence_name")
                 .GetString());
-        Assert.Equal(
-            3,
-            root.GetProperty("evidence")
-                .GetProperty("CandidateCount")
-                .GetInt32());
-        Assert.DoesNotContain(
-            Directory.EnumerateFiles(directory),
-            file => !string.Equals(
-                file,
-                path,
-                StringComparison.Ordinal));
+        Assert.False(root.TryGetProperty("inspection", out _));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task EvidenceSerializationFailurePreservesDestination(
-        bool destinationExists)
+    [Fact]
+    public void EvidencePublicationAtomicallyReplacesTheExistingFile()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(),
-            "dotnet-inspect-envelope-tests",
-            Guid.NewGuid().ToString("n"));
-        Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, "evidence.json");
-        if (destinationExists)
-        {
-            await File.WriteAllTextAsync(
-                path,
-                "existing",
-                TestContext.Current.CancellationToken);
-        }
-        var contract = new EvidenceInspectionEnvelopeJsonContract<
-            EnvelopeTestContent,
-            FailingEnvelopeContent>(
-                Contract,
-                FailingEnvelopeContentJsonContext.Default
-                    .FailingEnvelopeContent);
-        var envelope =
-            new EvidenceInspectionEnvelope<
-                EnvelopeTestContent,
-                FailingEnvelopeContent>(
-                new InspectionEnvelope<EnvelopeTestContent>(
-                    Content(),
-                    new InspectionShare.Available(
-                        "https://example.test/inspect",
-                        "packet")),
-                new FailingEnvelopeContent());
-        bool written = true;
+        using var directory =
+            new TemporaryTestDirectory("evidence-publication-");
+        string path = Path.Combine(directory.FullName, "evidence.json");
+        File.WriteAllText(path, "old");
+        byte[] payload = "new\n"u8.ToArray();
 
-        (string output, string error) = await ConsoleCapture.RunAsync(() =>
-            written = InspectionEnvelopeOutput.TryWriteEvidence(
-                envelope,
-                contract,
-                path));
+        bool published = EvidenceEnvelopeOutput.TryPublish(
+            path,
+            payload,
+            out Exception? exception);
 
-        Assert.False(written);
-        Assert.Empty(output);
-        Assert.Contains(
-            "could not be serialized",
-            error,
-            StringComparison.Ordinal);
-        if (destinationExists)
-        {
-            Assert.Equal(
-                "existing",
-                await File.ReadAllTextAsync(
-                    path,
-                    TestContext.Current.CancellationToken));
-        }
-        else
-        {
-            Assert.False(File.Exists(path));
-        }
-        Assert.DoesNotContain(
-            Directory.EnumerateFiles(directory),
-            file => !string.Equals(
-                    file,
-                    path,
-                    StringComparison.Ordinal));
+        Assert.True(published);
+        Assert.Null(exception);
+        Assert.Equal(payload, File.ReadAllBytes(path));
+        Assert.Equal(
+            [path],
+            Directory.EnumerateFiles(directory.FullName));
+    }
+
+    [Fact]
+    public void EvidencePublicationFailureLeavesAbsentDestinationAbsent()
+    {
+        using var directory =
+            new TemporaryTestDirectory("evidence-publication-failure-");
+        string missingParent = Path.Combine(
+            directory.FullName,
+            "missing");
+        string path = Path.Combine(missingParent, "evidence.json");
+
+        bool published = EvidenceEnvelopeOutput.TryPublish(
+            path,
+            "new\n"u8,
+            out Exception? exception);
+
+        Assert.False(published);
+        Assert.IsType<DirectoryNotFoundException>(exception);
+        Assert.False(Directory.Exists(missingParent));
+        Assert.False(File.Exists(path));
+        Assert.Equal(
+            [],
+            Directory.EnumerateFileSystemEntries(directory.FullName));
     }
 
     private static EnvelopeTestContent Content() =>
@@ -481,8 +432,7 @@ internal enum EnvelopeTestStatus
 }
 
 internal sealed record EnvelopeTestEvidence(
-    string Decision,
-    int CandidateCount);
+    [property: JsonPropertyName("owner_evidence_name")] string Name);
 
 [JsonSourceGenerationOptions(
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,

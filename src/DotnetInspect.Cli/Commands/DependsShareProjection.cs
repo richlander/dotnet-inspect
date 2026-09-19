@@ -11,32 +11,28 @@ namespace DotnetInspect.Cli.Commands;
 
 internal static class DependsShareProjection
 {
+    private const string AssetSharePath = "asset-dependencies/share";
     private const string BrowserPlatformPackageId = "Microsoft.NETCore.App";
 
-    internal abstract record AssetSharePreparation
-    {
-        private AssetSharePreparation()
-        {
-        }
-
-        internal sealed record Projectable(
-            PackageSourceCoordinate Coordinate,
-            PackageSourceAuthorization Authorization,
-            InspectionShare Share) : AssetSharePreparation;
-
-        internal sealed record Rejected(
-            string Message) : AssetSharePreparation;
-    }
+    internal sealed record AssetSharePreparation(
+        InspectionShare Share,
+        PackageSourceCoordinate? Coordinate = null,
+        PackageSourceAuthorization? Authorization = null);
 
     internal static string? ValidateOptions(DependsOptions options)
     {
         if (options.ShareFormat is null)
             return null;
 
+        if (options.EnvelopeOutput || options.OutputPath is not null)
+        {
+            return "--share cannot be combined with --envelope or --out while "
+                + "Package Dependencies uses scalar-only Share output.";
+        }
+
         if (options.OutputFormatExplicitlySet
             || options.LineWindowExplicitlySet
-            || (options.CompactJson
-                && options.EvidenceEnvelopePath is null)
+            || options.CompactJson
             || options.Tree
             || options.NoHeader
             || options.Rows is not null
@@ -72,25 +68,32 @@ internal static class DependsShareProjection
                 httpClient,
                 logger,
                 cancellationToken).ConfigureAwait(false);
-        return WriteAsset(
-            preparation,
-            options.ShareFormat!.Value);
+        return WriteAsset(preparation.Share, options.ShareFormat!.Value);
     }
 
     internal static int WriteAsset(
-        AssetSharePreparation preparation,
-        WorkspaceShareFormat format) =>
-        preparation switch
+        InspectionShare share,
+        WorkspaceShareFormat format)
+    {
+        if (share is InspectionShare.NonProjectable nonProjectable)
         {
-            AssetSharePreparation.Projectable projectable =>
-                WorkspaceShareOutput.WriteScalar(
-                    projectable.Share,
-                    format),
-            AssetSharePreparation.Rejected rejected =>
-                NonProjectable(rejected.Message),
-            _ => throw new InvalidOperationException(
-                "Unknown asset Share preparation."),
-        };
+            CommandError.Write(nonProjectable.Reason.ToString());
+            return 1;
+        }
+
+        return WorkspaceShareOutput.WriteScalar(share, format);
+    }
+
+    internal static async Task<InspectionShare> ProjectAssetAsync(
+        DependsOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        CancellationToken cancellationToken = default) =>
+        (await PrepareAssetAsync(
+            options,
+            httpClient,
+            logger,
+            cancellationToken).ConfigureAwait(false)).Share;
 
     internal static async Task<AssetSharePreparation> PrepareAssetAsync(
         DependsOptions options,
@@ -103,7 +106,7 @@ internal static class DependsShareProjection
                 ".nupkg",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 "--share requires an exact NuGet.org package coordinate; "
                 + "local package archives cannot be restored by the published Browser.");
         }
@@ -112,7 +115,7 @@ internal static class DependsShareProjection
             PackageReferenceParser.Parse(packageReference);
         if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 "--share requires a valid NuGet package id.");
         }
         if (string.Equals(
@@ -120,7 +123,7 @@ internal static class DependsShareProjection
                 BrowserPlatformPackageId,
                 StringComparison.OrdinalIgnoreCase))
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 $"--share cannot project NuGet package '{packageId}' because "
                 + "the published Browser reserves that id for the .NET Platform.");
         }
@@ -128,7 +131,7 @@ internal static class DependsShareProjection
                 options.Tfm,
                 out string? framework))
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 "--share requires one valid target framework with --tfm.");
         }
 
@@ -137,14 +140,14 @@ internal static class DependsShareProjection
                 .AuthorizeSourcesFor(packageId);
         if (sourceAuthorization.DenialReason is { } denialReason)
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 "--share could not apply the effective package source policy: "
                 + denialReason);
         }
         if (sourceAuthorization.Sources.Count != 1
             || !sourceAuthorization.Sources[0].IsNuGetOrg)
         {
-            return new AssetSharePreparation.Rejected(
+            return NonProjectableAssetPreparation(
                 "--share requires the effective package source policy to "
                 + "authorize exactly one NuGet.org source because the "
                 + "published Browser cannot preserve another source selection.");
@@ -180,33 +183,14 @@ internal static class DependsShareProjection
                     unavailable.Message,
                 _ => "The package coordinate could not be resolved.",
             };
-            return new AssetSharePreparation.Rejected(
-                "--share could not resolve an exact NuGet.org package coordinate: "
-                + message);
+            return NonProjectableAssetPreparation(
+                $"--share could not resolve an exact NuGet.org package coordinate: {message}");
         }
-
-        PackageSourceCoordinate coordinate =
-            PackageSourceCoordinate.Create(
-                resolved.Coordinate.PackageId,
-                resolved.Coordinate.Version);
-        return new AssetSharePreparation.Projectable(
-            coordinate,
-            sourceAuthorization,
-            ProjectAsset(
-                coordinate.PackageId,
-                coordinate.Version,
-                framework!));
-    }
-
-    private static InspectionShare ProjectAsset(
-        string packageId,
-        string version,
-        string framework)
-    {
-        var definitionCoordinate =
+        string normalizedVersion = resolved.Coordinate.Version;
+        var coordinate =
             new DefinitionMemberCoordinate.PackageCoordinate(
                 packageId,
-                version,
+                normalizedVersion,
                 framework);
         var workspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
@@ -215,7 +199,7 @@ internal static class DependsShareProjection
                 new WorkspaceContextDefinition(
                     "g0",
                     framework: framework,
-                    members: [definitionCoordinate]),
+                    members: [coordinate]),
             ]);
         var navigation = new NavigationDefinition(
             InspectionDefinitionSchema.Version1,
@@ -223,7 +207,7 @@ internal static class DependsShareProjection
             [
                 new NavigationTabDefinition(
                     "t0",
-                    coordinate: definitionCoordinate),
+                    coordinate: coordinate),
             ],
             "t0");
         var view = new ViewDefinition(
@@ -248,15 +232,21 @@ internal static class DependsShareProjection
         {
             WorkspaceSharePacketProjectionFailure failure =
                 projection.Failure!;
-            return AssetNonProjectableShare(
-                $"the package dependency view is not projectable at "
-                    + $"{failure.Path}: {failure.Message}");
+            return NonProjectableAssetPreparation(
+                $"The package dependency view is not projectable at "
+                + $"{failure.Path}: {failure.Message}");
         }
 
-        string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
-        return new InspectionShare.Available(
-            WorkspaceShareOutput.UrlPrefix + encoded,
-            encoded);
+        string encoded =
+            WorkspaceSharePacketCodec.Encode(projection.Packet!);
+        return new AssetSharePreparation(
+            new InspectionShare.Available(
+                WorkspaceShareOutput.UrlPrefix + encoded,
+                encoded),
+            PackageSourceCoordinate.Create(
+                resolved.Coordinate.PackageId,
+                resolved.Coordinate.Version),
+            sourceAuthorization);
     }
 
     internal static InspectionShare ProjectType(
@@ -391,11 +381,6 @@ internal static class DependsShareProjection
     private static InspectionShare NonProjectableShare(string reason) =>
         new InspectionShare.NonProjectable("type-dependency-share", reason);
 
-    private static InspectionShare AssetNonProjectableShare(string reason) =>
-        new InspectionShare.NonProjectable(
-            "asset-dependency-share",
-            reason);
-
     internal static bool TryNormalizeFramework(
         string? value,
         out string? framework)
@@ -431,9 +416,11 @@ internal static class DependsShareProjection
         }
     }
 
-    private static int NonProjectable(string message)
-    {
-        CommandError.Write(message);
-        return 1;
-    }
+    private static InspectionShare.NonProjectable
+        NonProjectableAssetShare(string reason) =>
+            new(AssetSharePath, reason);
+
+    private static AssetSharePreparation
+        NonProjectableAssetPreparation(string reason) =>
+            new(NonProjectableAssetShare(reason));
 }

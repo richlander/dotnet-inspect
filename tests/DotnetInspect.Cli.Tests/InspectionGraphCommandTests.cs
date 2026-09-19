@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
@@ -133,6 +134,25 @@ public sealed class InspectionGraphCommandTests
                 or "--direction"
                 or "--relationship"
                 or "--cluster");
+    }
+
+    [Fact]
+    public void LibrariesCommand_LowersCanonicalGraphLibrariesIntent()
+    {
+        Assert.True(
+            LibraryCallUseQueryOptions.TryParse(
+                ["Cluster=3"],
+                out LibraryCallUseQueryOptions query,
+                out OptionError error),
+            error.Message);
+        Assert.Equal(3, query.Plan.Cluster);
+        Assert.Equal(
+            PortableQueryPayloadCodec.Encode(
+                GraphLibrariesQuery.CreateIntent(3),
+                TestContext.Current.CancellationToken),
+            PortableQueryPayloadCodec.Encode(
+                query.Plan.Intent,
+                TestContext.Current.CancellationToken));
     }
 
     [Fact]

@@ -73,6 +73,15 @@ public static class MetadataFormatAdmission
         return peReader.GetMetadataReader(options);
     }
 
+    internal static MetadataReader GetMetadataReader(
+        PEReader peReader,
+        MetadataReaderOptions options,
+        MetadataStringDecoder utf8Decoder)
+    {
+        EnsureMetadata(peReader);
+        return peReader.GetMetadataReader(options, utf8Decoder);
+    }
+
     internal static bool HasDeclaredClrHeader(PEReader peReader)
     {
         PEHeader? peHeader = peReader.PEHeaders.PEHeader;

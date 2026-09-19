@@ -47,8 +47,7 @@ public sealed record DependencyInspectionOperationRequest
         IEnumerable<DependencyInspectionPruning>? pruning,
         IEnumerable<DependencyInspectionFailure>? pruningFailures,
         DependencyInspectionPruningSummary pruningSummary,
-        InspectionShare? share = null,
-        IEnumerable<InspectionDiagnostic>? diagnostics = null)
+        InspectionShare? share = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentOutOfRangeException.ThrowIfNegative(requestedRoots);
@@ -77,7 +76,6 @@ public sealed record DependencyInspectionOperationRequest
             ?? new InspectionShare.NonProjectable(
                 "asset-dependencies/share",
                 "Asset dependency inspection does not yet have a canonical Workspace Share projection.");
-        Diagnostics = (diagnostics ?? []).ToImmutableArray();
     }
 
     public DependencyInspectionPlan Plan { get; }
@@ -109,8 +107,6 @@ public sealed record DependencyInspectionOperationRequest
     public DependencyInspectionPruningSummary PruningSummary { get; }
 
     public InspectionShare Share { get; }
-
-    public ImmutableArray<InspectionDiagnostic> Diagnostics { get; }
 }
 
 /// <summary>
@@ -181,8 +177,7 @@ public static class DependencyInspectionOperation
             failures);
         var inspection = new InspectionEnvelope<DependencyInspectionContent>(
             content,
-            request.Share,
-            request.Diagnostics);
+            request.Share);
         return (inspection, evidenceDocument);
     }
 

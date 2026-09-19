@@ -113,7 +113,73 @@ public static class ImplementationComplexityService
             changes.AddRange(CompareProfiles(oldProfiles, newProfiles, request));
         }
 
-        return new ImplementationComplexityDiff(true, null, changes);
+        return new ImplementationComplexityDiff(true, null, WithPopulationContext(changes));
+    }
+
+    /// <summary>
+    /// Ranks each change's absolute normal-flow complexity delta against the
+    /// full local population of changes from this comparison request (see
+    /// <see cref="ImplementationComplexityPopulationContext"/>). Changes
+    /// without a delta (Added/Removed, or Incomplete rows missing one side)
+    /// are left without a population context - there is nothing to rank.
+    /// </summary>
+    static IReadOnlyList<ImplementationComplexityChange> WithPopulationContext(
+        IReadOnlyList<ImplementationComplexityChange> changes)
+    {
+        int[] absoluteDeltas = changes
+            .Where(change => change.Delta is not null)
+            .Select(change => Math.Abs(change.Delta!.Value))
+            .Order()
+            .ToArray();
+        if (absoluteDeltas.Length == 0)
+        {
+            return changes;
+        }
+
+        return changes
+            .Select(change =>
+            {
+                if (change.Delta is null)
+                {
+                    return change;
+                }
+
+                int absoluteDelta = Math.Abs(change.Delta.Value);
+                int countAtOrBelow = UpperBound(absoluteDeltas, absoluteDelta);
+                double percentileRank =
+                    100.0 * countAtOrBelow / absoluteDeltas.Length;
+                return change with
+                {
+                    PopulationContext = new ImplementationComplexityPopulationContext(
+                        absoluteDeltas.Length,
+                        percentileRank),
+                };
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Count of elements in a sorted array that are less than or equal to
+    /// <paramref name="value"/>.
+    /// </summary>
+    static int UpperBound(int[] sortedValues, int value)
+    {
+        int low = 0;
+        int high = sortedValues.Length;
+        while (low < high)
+        {
+            int middle = low + ((high - low) / 2);
+            if (sortedValues[middle] <= value)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
     }
 
     static string AssemblyKey(

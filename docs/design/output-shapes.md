@@ -53,13 +53,11 @@ the [Diff envelope adoption](command-transition-model.md#envelope-complete-adopt
 
 The envelope owner's
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
-adds a typed companion without changing that content boundary. Asset-mode
-`depends` adopts `--evidence-envelope <path>` under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117); remaining
-consumers are tracked by
-[#7293](https://github.com/richlander/dotnet-inspect/issues/7293). It is a
-Debug-only diagnostic attachment, not a new rung in this ladder or a retail
-output option.
+adds a typed companion without changing that content boundary. Its first
+`--evidence-envelope <path>` consumer is asset-mode dependency inspection,
+implemented under [#7293](https://github.com/richlander/dotnet-inspect/issues/7293)
+with the dependency value adopted under #7117. It is a Debug-only diagnostic
+attachment, not a new rung in this ladder.
 
 ### Implementation status
 
@@ -71,6 +69,12 @@ The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
+
+Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
+`DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
+It preserves the ordinary primary output, supports a distinct ordinary
+`--out` destination and paired baseline `--envelope`, and publishes the
+complete enriched frame atomically.
 
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
@@ -131,12 +135,11 @@ projection, discovery, Count, and competing formats remain on compatibility
 paths or are rejected with `--envelope`. Typed incomplete or unavailable
 Content remains visible before the command returns a nonzero exit.
 
-Asset-mode `depends` registers the Debug-only `asset-dependencies` baseline and
-enriched forms when `--evidence-envelope` is present. Its standalone
-`--envelope` route remains unadopted, as do other Type routes, other commands,
-Discover, and Count unless named above. Library API Diff's complete Browser
-baseline transport is governed by its
-[Browser owner](inspect-web-library-api-diff.md#managed-composition).
+Asset-mode `depends`, other Type routes, other commands, Discover, Count,
+`--evidence-envelope`, optional evidence capture from
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117) remain
+unadopted. Library API Diff's complete Browser baseline transport is governed
+by its [Browser owner](inspect-web-library-api-diff.md#managed-composition).
 [#7703](https://github.com/richlander/dotnet-inspect/issues/7703) owns the
 remaining Diff command-family adoption.
 
@@ -415,13 +418,20 @@ Serialization never recaptures evidence or projects Share.
 | `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
-| `--share[=url\|packet]` | Preserve its existing stderr and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. |
+| `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
 | `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
 | `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
+
+During Package Dependencies' documented scalar-only migration window, an
+explicit Share cannot also select paired baseline `--envelope` or Debug
+`--out`; admission rejects either combination before acquisition. The scalar
+fast path cannot honor a second stdout envelope or ordinary destination, and
+evidence transport does not silently drop either modifier or partially perform
+the broader #6725 migration.
 
 When both explicit destinations are present, their normalized absolute paths
 must be distinct using ordinal-ignore-case comparison on every host. This
@@ -471,9 +481,12 @@ delivery succeeds.
 
 Successful attachment publication writes one contained locator line to stderr:
 `Evidence envelope: <effective-path>`. It appears after ordinary diagnostics
-but before an explicitly requested Share scalar that must remain the final
-non-empty stderr line. Failure writes a bounded contained error naming the
-effective path. Raw envelope JSON never enters stderr.
+but before an explicitly requested stderr Share scalar, which remains the final
+non-empty stderr line. During Package Dependencies' documented scalar-only
+migration window, an available Share retains that adopter's stdout channel and
+the locator is its final stderr line; a non-projectable refusal remains the
+final stderr line. Failure writes a bounded contained error naming the effective
+path. Raw envelope JSON never enters stderr.
 
 An owner-issued partial or non-success Content is still serializable content:
 write its complete envelope and retain the operation's exit-status policy.
@@ -488,13 +501,17 @@ status. Progress and host-only notices remain outside the value.
 `Share.NonProjectable` alone does not fail an otherwise successful inspection;
 an explicit `--share` request still follows
 [CLI Workspace sharing](cli-workspace-sharing.md#output-selection), including
-its nonzero refusal and final non-empty stderr line for an available scalar.
+its nonzero refusal and the documented existing-adopter exception for an
+available Package Dependencies scalar.
 
 ### Transport adoption gates
 
 The baseline transport is a supported public machine contract.
 `--evidence-envelope` uses the same typed, versioned framing as a supported
 Debug-only machine contract; its availability does not make it an ad-hoc dump.
+A Release-configuration PR gate explicitly defines `DEBUG` and exercises the
+adopter's public command contracts; the ordinary Release binary, where that
+host surface is absent, cannot enforce them.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
@@ -532,11 +549,6 @@ likewise exercise their public command entry point:
   same-path preflight; and
 - prove the contained stderr locator, Share ordering, explicit nonzero failure,
   and absence of raw envelope JSON from stderr.
-
-The asset-mode dependency adopter assigns its Debug public-entry gates,
-generated baseline and enriched serialization gates, and Release rejection
-gate to
-[Dependency inspection](dependency-inspection-command.md#gates-and-production-adoption).
 
 Use the authentic Npgsql type-dependency scenario recorded above and, for the
 second adopter, the existing `System.Text.Json@9.0.0..10.0.0` comparison, with

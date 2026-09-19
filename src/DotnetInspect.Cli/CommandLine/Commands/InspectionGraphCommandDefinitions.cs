@@ -267,7 +267,7 @@ public static class InspectionGraphCommandDefinitions
                 new LibraryCallUseOptions
                 {
                     Libraries = libraries,
-                    Cluster = query.Cluster,
+                    QueryPlan = query.Plan,
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
                     Rows = opts.ParseRows(parseResult),

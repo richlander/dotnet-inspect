@@ -11,33 +11,96 @@ internal sealed record InspectionEnvelopeJsonContract<TContent>(
     int SchemaVersion,
     JsonTypeInfo<TContent> ContentTypeInfo);
 
-internal sealed record EvidenceInspectionEnvelopeJsonContract<
-    TContent,
-    TEvidence>(
-    InspectionEnvelopeJsonContract<TContent> Inspection,
-    JsonTypeInfo<TEvidence> EvidenceTypeInfo);
-
 internal static class InspectionEnvelopeOutput
 {
     internal static bool TryWrite<TContent>(
         InspectionEnvelope<TContent> envelope,
         InspectionEnvelopeJsonContract<TContent> contract,
         bool includeEnvelope,
-        bool compactJson = false)
+        bool compactJson = false,
+        string? outputPath = null)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         ArgumentNullException.ThrowIfNull(contract);
 
+        if (!TrySerialize(
+                envelope,
+                contract,
+                includeEnvelope,
+                compactJson,
+                out byte[] payload,
+                out Exception? exception))
+        {
+            CommandError.Write(exception!);
+            return false;
+        }
+
+        OutputDestination.Write(
+            outputPath,
+            rowWindow: null,
+            writer =>
+            {
+                writer.Write(Encoding.UTF8.GetString(
+                    payload.AsSpan(0, payload.Length - 1)));
+                writer.WriteLine();
+            });
+        return true;
+    }
+
+    internal static bool TrySerializeEvidence<TContent, TEvidence>(
+        EvidenceInspectionEnvelope<TContent, TEvidence> envelope,
+        InspectionEnvelopeJsonContract<TContent> contract,
+        JsonTypeInfo<TEvidence> evidenceTypeInfo,
+        bool compactJson,
+        out byte[] payload,
+        out Exception? exception)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(evidenceTypeInfo);
+
         var buffer = new ArrayBufferWriter<byte>();
         try
         {
-            using var writer = new Utf8JsonWriter(
-                buffer,
-                new JsonWriterOptions
-                {
-                    Indented = !compactJson,
-                });
+            using var writer = CreateWriter(buffer, compactJson);
+            writer.WriteStartObject();
+            WriteEnvelopeProperties(
+                writer,
+                envelope.Inspection,
+                contract);
+            writer.WritePropertyName("evidence");
+            JsonSerializer.Serialize(
+                writer,
+                envelope.Evidence,
+                evidenceTypeInfo);
+            writer.WriteEndObject();
+            writer.Flush();
 
+            payload = CompletePayload(buffer);
+            exception = null;
+            return true;
+        }
+        catch (Exception caught)
+            when (caught is JsonException or NotSupportedException)
+        {
+            payload = [];
+            exception = caught;
+            return false;
+        }
+    }
+
+    private static bool TrySerialize<TContent>(
+        InspectionEnvelope<TContent> envelope,
+        InspectionEnvelopeJsonContract<TContent> contract,
+        bool includeEnvelope,
+        bool compactJson,
+        out byte[] payload,
+        out Exception? exception)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        try
+        {
+            using var writer = CreateWriter(buffer, compactJson);
             if (includeEnvelope)
                 WriteEnvelope(writer, envelope, contract);
             else
@@ -47,115 +110,35 @@ internal static class InspectionEnvelopeOutput
                     contract.ContentTypeInfo);
 
             writer.Flush();
+            payload = CompletePayload(buffer);
+            exception = null;
+            return true;
         }
-        catch (Exception exception)
-            when (exception is JsonException or NotSupportedException)
+        catch (Exception caught)
+            when (caught is JsonException or NotSupportedException)
         {
-            CommandError.Write(exception);
+            payload = [];
+            exception = caught;
             return false;
         }
-
-        Console.Out.Write(
-            string.Concat(
-                Encoding.UTF8.GetString(buffer.WrittenSpan),
-                Environment.NewLine));
-        return true;
     }
 
-    internal static bool TryWriteEvidence<TContent, TEvidence>(
-        EvidenceInspectionEnvelope<TContent, TEvidence> envelope,
-        EvidenceInspectionEnvelopeJsonContract<TContent, TEvidence> contract,
-        string path,
-        bool compactJson = false)
+    private static Utf8JsonWriter CreateWriter(
+        IBufferWriter<byte> buffer,
+        bool compactJson) =>
+        new(
+            buffer,
+            new JsonWriterOptions
+            {
+                Indented = !compactJson,
+            });
+
+    private static byte[] CompletePayload(ArrayBufferWriter<byte> buffer)
     {
-        ArgumentNullException.ThrowIfNull(envelope);
-        ArgumentNullException.ThrowIfNull(contract);
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        path = Path.GetFullPath(path);
-
-        var buffer = new ArrayBufferWriter<byte>();
-        try
-        {
-            using var writer = new Utf8JsonWriter(
-                buffer,
-                new JsonWriterOptions
-                {
-                    Indented = !compactJson,
-                });
-
-            writer.WriteStartObject();
-            writer.WriteNumber(
-                "schema_version",
-                contract.Inspection.SchemaVersion);
-            writer.WriteString(
-                "result_kind",
-                contract.Inspection.ResultKind);
-            WriteInspectionMembers(
-                writer,
-                envelope.Inspection,
-                contract.Inspection);
-            writer.WritePropertyName("evidence");
-            JsonSerializer.Serialize(
-                writer,
-                envelope.Evidence,
-                contract.EvidenceTypeInfo);
-            writer.WriteEndObject();
-            writer.Flush();
-        }
-        catch (Exception exception)
-            when (exception is JsonException or NotSupportedException)
-        {
-            CommandError.Write(
-                $"The evidence envelope for '{path}' could not be serialized: "
-                    + exception.Message);
-            return false;
-        }
-
-        string directory = Path.GetDirectoryName(path)!;
-        string temporaryPath = Path.Combine(
-            directory,
-            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            byte[] newline = Encoding.UTF8.GetBytes(Environment.NewLine);
-            byte[] payload = GC.AllocateUninitializedArray<byte>(
-                buffer.WrittenCount + newline.Length);
-            buffer.WrittenSpan.CopyTo(payload);
-            newline.CopyTo(payload.AsSpan(buffer.WrittenCount));
-            File.WriteAllBytes(temporaryPath, payload);
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        catch (Exception exception)
-            when (exception is IOException
-                or UnauthorizedAccessException
-                or ArgumentException
-                or NotSupportedException
-                or System.Security.SecurityException)
-        {
-            CommandError.Write(
-                $"The evidence envelope could not be published to '{path}': "
-                    + exception.Message);
-            return false;
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(temporaryPath);
-            }
-            catch (Exception exception)
-                when (exception is IOException
-                    or UnauthorizedAccessException
-                    or System.Security.SecurityException)
-            {
-                CommandError.WriteWarning(
-                    $"The temporary evidence envelope file '{temporaryPath}' could not be removed: "
-                        + exception.Message);
-            }
-        }
-
-        CommandError.WriteLine($"Evidence envelope: {path}");
-        return true;
+        byte[] payload = new byte[buffer.WrittenCount + 1];
+        buffer.WrittenSpan.CopyTo(payload);
+        payload[^1] = (byte)'\n';
+        return payload;
     }
 
     private static void WriteEnvelope<TContent>(
@@ -164,17 +147,18 @@ internal static class InspectionEnvelopeOutput
         InspectionEnvelopeJsonContract<TContent> contract)
     {
         writer.WriteStartObject();
-        writer.WriteNumber("schema_version", contract.SchemaVersion);
-        writer.WriteString("result_kind", contract.ResultKind);
-        WriteInspectionMembers(writer, envelope, contract);
+        WriteEnvelopeProperties(writer, envelope, contract);
         writer.WriteEndObject();
     }
 
-    private static void WriteInspectionMembers<TContent>(
+    private static void WriteEnvelopeProperties<TContent>(
         Utf8JsonWriter writer,
         InspectionEnvelope<TContent> envelope,
         InspectionEnvelopeJsonContract<TContent> contract)
     {
+        writer.WriteNumber("schema_version", contract.SchemaVersion);
+        writer.WriteString("result_kind", contract.ResultKind);
+
         writer.WritePropertyName("content");
         JsonSerializer.Serialize(
             writer,

@@ -313,12 +313,12 @@ Package input context
       Available(PackageManifestFacts)
       | Unavailable(input-issue reference)
   - dependency-group selection:
-      Available(requested target, selection status,
-                selected target, selected group index)
+      Available(PackageDependencyGroups, including SelectedGroup)
       | Unavailable(input-issue reference)
       | NotAttempted(input-issue reference)
   - compile-asset selection:
-      Available(PackageCompileAssetSelectionReceipt)
+      Available(PackageCompileAssetSelectionReceipt,
+                selected asset/portable Library correspondences)
       | Unavailable(input-issue reference)
       | NotAttempted(input-issue reference)
 
@@ -340,17 +340,31 @@ The available Package component values consume existing owner-issued values:
 
 - `PackageManifestFacts` identifies the manifest whose declarations were
   projected;
-- the dependency-group query's requested target, selection status, selected
-  target, and selected group index retain which manifest group supplied
-  Package observations; and
-- `PackageCompileAssetSelectionReceipt` retains the requested and selected
-  compile slice from which selected-Library observations were produced.
+- `PackageDependencyGroups` retains the complete owner-issued selection,
+  including its exact logical `SelectedGroup`; and
+- `PackageCompileAssetSelectionReceipt` plus explicit selected
+  asset/`PortableLibraryIdentity` correspondences retain both the selected
+  compile slice and the metadata identity of every Library realized from it.
 
 The context does not rerun either selection. A complete Package batch requires
 all three components to be available and corresponding, including one
-effective target-framework slice for the combined observation population. An
-unavailable or not-attempted component, or a mismatch among available
-components, is an input issue and cannot produce a complete Document.
+effective target-framework request for the combined observation population.
+Target-framework correspondence uses the lower owner's normalized NuGet
+semantics rather than raw manifest/folder spelling, and a universal `any`
+dependency group corresponds to the concrete compile request that selected it.
+`NoDependencyGroups`, `NoCompileAssets`, and `EmptyCompileGroup` are successful
+empty selections. `NoMatchingTargetFramework` and
+`InvalidImplementationAssets` are failed selections and cannot appear as an
+available component. An unavailable or not-attempted component, incomplete
+selected-asset/Library correspondence, or a mismatch among available
+components cannot produce a complete Document.
+
+The dependency query may issue either one selected manifest group or a
+compatible-policy logical group that coalesces several implicit manifest runs.
+Recognition accepts both owner-issued forms and does not independently
+coalesce or reselect them. Universal group target spelling may be `any` or
+empty; the original spelling remains evidence while both forms correspond to
+the concrete effective target request.
 
 The semantic subject is not a display header. Two complete empty Documents for
 different subjects remain distinct and attributable. Hosts must not use
@@ -413,6 +427,15 @@ facts.
 The caller supplies direct observations only. The recognition owner does not
 walk Package dependencies, resolve assembly references, acquire candidate
 Packages, or decide whether an observation is direct.
+
+For Package inspection, a declaration observation retains the exact
+`DeclaredPackageDependency` occurrence from
+`PackageDependencyGroups.SelectedGroup`; structural equality with a
+declaration from another group is insufficient. An assembly-reference
+observation joins through the explicit selected-asset/Library correspondence,
+not through `PackageCompileAsset.AssemblyName`: that field is the asset file
+name and may include `.dll`, while `PortableLibraryIdentity.Name` is the
+metadata simple name.
 
 The classifier consumes one validated profile and one ordered direct-observation
 population and returns `EcosystemDependencyClassification`. It does not decide
@@ -729,10 +752,12 @@ propagates the lower envelope's Share and diagnostics into the new envelope.
 Classification and recognition coverage are the other parts of the one
 authoritative Content value.
 
-The Package or Library composition supplies the `InspectionShare` outcome for
-the exact semantic subject plan. Recognition validates that this plan
-corresponds to the Document's semantic subject. It does not derive Share from
-a Package ID, assembly name, rendered command, or dependency evidence.
+The Package or Library composition supplies a subject-bound
+`EcosystemDependencyRecognitionShare` containing the `InspectionShare` outcome
+for the exact semantic subject plan. Recognition requires its typed subject to
+equal the batch subject before constructing the envelope. It does not derive
+Share correspondence from a Package ID, assembly name, rendered command,
+packet text, or dependency evidence.
 
 Input issues remain in the owner-issued content outcome. Supplemental
 cross-host diagnostics may also appear in the envelope, but diagnostics alone

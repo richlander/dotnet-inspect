@@ -62,13 +62,6 @@ internal static class DependsAssetSections
         !section.Equals(Failures, StringComparison.OrdinalIgnoreCase)
         || !selectedSections.Contains(Pruning);
 
-    public static bool RequestsEvidence(
-        IReadOnlySet<string> selectedSections) =>
-        selectedSections.Contains(Roots)
-        || selectedSections.Contains(RestoredEdges)
-        || selectedSections.Contains(DependencyGroups)
-        || selectedSections.Contains(RestoredPackages);
-
     private static SectionPipeline<DependsAssetProjection> CreatePipeline()
     {
         var pipeline = new SectionPipeline<DependsAssetProjection>()

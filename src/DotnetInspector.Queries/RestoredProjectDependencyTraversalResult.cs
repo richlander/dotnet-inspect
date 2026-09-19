@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Text.Json.Serialization;
 using InertText;
 
 namespace DotnetInspector.Queries;
@@ -208,13 +207,6 @@ public sealed record RestoredProjectDependencyTraversal
 }
 
 /// <summary>Why a traversal could not be produced, preserving the owning phase's typed failure.</summary>
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "case")]
-[JsonDerivedType(
-    typeof(RestoredProjectDependencyTraversalFailure.Document),
-    "document")]
-[JsonDerivedType(
-    typeof(RestoredProjectDependencyTraversalFailure.Graph),
-    "graph")]
 public abstract record RestoredProjectDependencyTraversalFailure
 {
     private RestoredProjectDependencyTraversalFailure()

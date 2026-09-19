@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
-using System.Diagnostics;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -608,10 +607,18 @@ public static class SearchCommandDefinitions
                 "Maximum dependency depth; 1 includes direct relationships only"
         };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json or --envelope)" };
-        var evidenceEnvelopeRegistration =
-            new EvidenceEnvelopeOptionRegistration();
         var shareOption = WorkspaceShareOption.Create(
             "Emit a resolved NuGet package dependency view as a canonical Workspace packet or complete URL");
+#if DEBUG
+        var evidenceEnvelopeOption =
+            new Option<string?>("--evidence-envelope")
+            {
+                Description =
+                    "Write the complete enriched dependency envelope to a JSON sidecar",
+                Arity = ArgumentArity.ExactlyOne,
+            };
+        var outOption = SharedOptions.CreateOutputPathOption();
+#endif
 
         depthOption.Validators.Add(result =>
         {
@@ -637,6 +644,13 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(maxPackagesOption);
         dependsCommand.Options.Add(depthOption);
         dependsCommand.Options.Add(shareOption);
+#if DEBUG
+        dependsCommand.Options.Add(evidenceEnvelopeOption);
+        dependsCommand.Options.Add(outOption);
+        SharedOptions.AddOutputPathValidator(
+            dependsCommand,
+            outOption);
+#endif
         dependsCommand.Options.Add(opts.Json);
         dependsCommand.Options.Add(compactOption);
         dependsCommand.Options.Add(opts.Mermaid);
@@ -652,10 +666,6 @@ public static class SearchCommandDefinitions
             dependsCommand,
             opts.Discover, opts.Schema, opts.Effective, opts.Select,
             opts.Verbosity, opts.Count);
-        RegisterEvidenceEnvelopeOption(
-            dependsCommand,
-            targetTypeArg,
-            evidenceEnvelopeRegistration);
 
         dependsCommand.Validators.Add(result =>
         {
@@ -680,27 +690,46 @@ public static class SearchCommandDefinitions
             }
             bool typeMode =
                 !string.IsNullOrEmpty(result.GetValue(targetTypeArg));
-            Option<string?>? evidenceEnvelopeOption =
-                evidenceEnvelopeRegistration.Option;
-            bool evidenceEnvelopeRequested =
-                evidenceEnvelopeOption is not null
-                && result.GetResult(evidenceEnvelopeOption)
+#if DEBUG
+            bool evidenceEnvelope =
+                result.GetResult(evidenceEnvelopeOption)
                     is { Implicit: false };
-            if (evidenceEnvelopeRequested
-                && (result.GetResult(opts.Discover)
-                        is { Implicit: false }
-                    || result.GetValue(opts.Effective)
-                    || result.GetValue(opts.Schema)))
+            if (evidenceEnvelope && typeMode)
             {
                 result.AddError(
-                    "--evidence-envelope requires dependency inspection, not discovery or schema output.");
+                    "--evidence-envelope is supported only by asset-mode depends.");
             }
+            if (evidenceEnvelope
+                && (result.GetResult(opts.Discover)
+                        is { Implicit: false }
+                    || result.GetValue(opts.Schema)
+                    || result.GetValue(opts.Effective)))
+            {
+                result.AddError(
+                    "--evidence-envelope requires an asset dependency inspection, not discovery or schema output.");
+            }
+            if (result.GetResult(outOption) is { Implicit: false }
+                && !evidenceEnvelope)
+            {
+                result.AddError(
+                    "--out is supported by asset-mode depends only with --evidence-envelope.");
+            }
+#else
+            const bool evidenceEnvelope = false;
+#endif
             if (result.GetValue(opts.Envelope)
                 && !typeMode
-                && !evidenceEnvelopeRequested)
+                && !evidenceEnvelope)
             {
                 result.AddError(
                     "--envelope currently requires a positional type in depends.");
+            }
+            if (evidenceEnvelope
+                && !typeMode
+                && result.GetValue(opts.Envelope))
+            {
+                RejectAssetEnvelopeRowOption(opts.Rows, "--rows");
+                RejectAssetEnvelopeRowOption(opts.Limit, "-n");
             }
             bool effective = result.GetValue(opts.Effective);
             bool discovery =
@@ -769,6 +798,17 @@ public static class SearchCommandDefinitions
                 if (result.GetResult(option) is { Implicit: false })
                     result.AddError($"{name} is available only with a positional type.");
             }
+
+            void RejectAssetEnvelopeRowOption(
+                Option option,
+                string name)
+            {
+                if (result.GetResult(option) is { Implicit: false })
+                {
+                    result.AddError(
+                        $"--envelope cannot be combined with {name} for asset dependency inspection.");
+                }
+            }
         });
 
         dependsCommand.SetAction(async (parseResult, ct) =>
@@ -787,6 +827,55 @@ public static class SearchCommandDefinitions
                         opts);
             WorkspaceShareFormat? shareFormat =
                 WorkspaceShareOption.Parse(parseResult, shareOption);
+#if DEBUG
+            string? evidenceEnvelopePath = null;
+            string? outputPath = null;
+            if (parseResult.GetResult(evidenceEnvelopeOption)
+                is { Implicit: false })
+            {
+                string requestedEvidencePath =
+                    parseResult.GetValue(evidenceEnvelopeOption)!;
+                if (!EvidenceEnvelopeOutput.TryResolvePath(
+                        requestedEvidencePath,
+                        out evidenceEnvelopePath,
+                        out string? pathError))
+                {
+                    CommandError.Write(pathError!);
+                    return 1;
+                }
+
+                string? requestedOutputPath =
+                    parseResult.GetValue(outOption);
+                if (requestedOutputPath is not null)
+                {
+                    try
+                    {
+                        outputPath = Path.GetFullPath(requestedOutputPath);
+                    }
+                    catch (Exception exception)
+                        when (exception is ArgumentException
+                            or NotSupportedException
+                            or PathTooLongException)
+                    {
+                        CommandError.Write("--out requires a valid file path.");
+                        return 1;
+                    }
+
+                    if (string.Equals(
+                            evidenceEnvelopePath,
+                            outputPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        CommandError.Write(
+                            "--out and --evidence-envelope must name distinct files.");
+                        return 1;
+                    }
+                }
+            }
+#else
+            const string? evidenceEnvelopePath = null;
+            const string? outputPath = null;
+#endif
             bool hasNonPackageShareInput =
                 !string.IsNullOrEmpty(targetType)
                 || packages.Length != 1
@@ -871,14 +960,10 @@ public static class SearchCommandDefinitions
                         : null,
                     Format = outputFormat,
                     JsonOutput = outputFormat == OutputFormat.Json,
-                    EnvelopeOutput = parseResult.GetValue(opts.Envelope),
-                    EvidenceEnvelopePath =
-                        evidenceEnvelopeRegistration.Option
-                            is { } registeredEvidenceEnvelopeOption
-                            ? ResolveEvidenceEnvelopePath(
-                                parseResult.GetValue(
-                                    registeredEvidenceEnvelopeOption))
-                            : null,
+                    EnvelopeOutput =
+                        parseResult.GetValue(opts.Envelope),
+                    EvidenceEnvelopePath = evidenceEnvelopePath,
+                    OutputPath = outputPath,
                     CompactJson = parseResult.GetValue(compactOption),
                     MermaidOutput = outputFormat == OutputFormat.Mermaid,
                     EmbeddedMermaid = opts.IsEmbeddedMermaid(parseResult),
@@ -1019,85 +1104,6 @@ public static class SearchCommandDefinitions
                     lowering));
 
         return dependsCommand;
-    }
-
-    [Conditional("DEBUG")]
-    private static void RegisterEvidenceEnvelopeOption(
-        Command command,
-        Argument<string?> targetType,
-        EvidenceEnvelopeOptionRegistration registration)
-    {
-        var option = new Option<string?>("--evidence-envelope")
-        {
-            Description =
-                "Write the complete Debug evidence envelope to a JSON file",
-            Arity = ArgumentArity.ExactlyOne,
-        };
-        registration.Option = option;
-        command.Options.Add(option);
-        command.Validators.Add(result =>
-        {
-            if (result.Errors.Any()
-                || result.Children.Any(static child => child.Errors.Any())
-                || result.GetResult(option) is not { Implicit: false })
-            {
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(result.GetValue(targetType)))
-            {
-                result.AddError(
-                    "--evidence-envelope is available only without a positional type.");
-                return;
-            }
-
-            string? path = result.GetValue(option);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                result.AddError(
-                    "--evidence-envelope requires a non-empty path.");
-                return;
-            }
-
-            string fullPath;
-            try
-            {
-                fullPath = Path.GetFullPath(path);
-            }
-            catch (Exception exception)
-                when (exception is ArgumentException
-                    or NotSupportedException
-                    or PathTooLongException)
-            {
-                result.AddError(
-                    "--evidence-envelope requires a valid file path.");
-                return;
-            }
-
-            if (Directory.Exists(fullPath))
-            {
-                result.AddError(
-                    "--evidence-envelope requires a file path, not a directory.");
-                return;
-            }
-
-            string? parent = Path.GetDirectoryName(fullPath);
-            if (parent is null || !Directory.Exists(parent))
-            {
-                result.AddError(
-                    "--evidence-envelope requires an existing parent directory.");
-            }
-        });
-    }
-
-    private static string? ResolveEvidenceEnvelopePath(string? path) =>
-        path is null
-            ? null
-            : Path.GetFullPath(path);
-
-    private sealed class EvidenceEnvelopeOptionRegistration
-    {
-        internal Option<string?>? Option { get; set; }
     }
 
     private static DependsAssetRoot[] ParseDependsAssetRoots(

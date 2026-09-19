@@ -310,6 +310,25 @@ public partial class ApiCommand
                 _ => "PDB source is unavailable.",
             };
 
+    internal static string PdbSourceUnavailableReason(
+        AssemblyMemberSourceEntry source)
+        => source switch
+        {
+            AssemblyMemberSourceEntry.Available
+            {
+                Source: AssemblyMemberSource.Decompiled decompiled,
+            } => PdbInspectionReason(decompiled.PdbAttempt),
+            AssemblyMemberSourceEntry.Unavailable
+            {
+                PdbAttempt: { } attempt,
+            } => PdbInspectionReason(attempt),
+            AssemblyMemberSourceEntry.Unavailable unavailable =>
+                unavailable.Failure.Detail,
+            AssemblyMemberSourceEntry.Rejected =>
+                "The selected assembly image was rejected.",
+            _ => "PDB source is unavailable.",
+        };
+
     private static string? MemberSourceUrl(MemberOptions? options)
         => PdbAttempt(options?.MemberSourceComparison) switch
         {
@@ -327,28 +346,32 @@ public partial class ApiCommand
             AssemblyMemberPdbSourceAttempt.Available =>
                 "PDB comparison is available",
             AssemblyMemberPdbSourceAttempt.Unavailable unavailable =>
-                unavailable.Inspection.Outcome switch
-                {
-                    PdbMemberSourceOutcome.PortablePdbUnavailable =>
-                        NoPortablePdbReason,
-                    PdbMemberSourceOutcome.PortablePdbAcquisitionFailed =>
-                        "Portable PDB acquisition failed.",
-                    PdbMemberSourceOutcome.SourceMappingUnavailable =>
-                        NoPdbSourceMappingReason,
-                    PdbMemberSourceOutcome.NoVouchedDeclaration =>
-                        NoPdbDeclarationReason + " "
-                            + NoPdbDeclarationDetail,
-                    PdbMemberSourceOutcome.SourceTooComplex =>
-                        SourceTooComplexReason,
-                    PdbMemberSourceOutcome.InvalidSequencePointCoordinates =>
-                        SourceCoordinatesInvalidReason,
-                    PdbMemberSourceOutcome.SourceExtractionFailed
-                        or PdbMemberSourceOutcome.InspectionFailed =>
-                        PdbSourceInspectionFailedReason,
-                    _ => NoMatchingPdbSourceReason,
-                },
+                PdbInspectionReason(unavailable.Inspection),
             _ => throw new InvalidOperationException(
                 "Unknown PDB source attempt."),
+        };
+
+    private static string PdbInspectionReason(
+        PdbMemberSourceInspection inspection)
+        => inspection.Outcome switch
+        {
+            PdbMemberSourceOutcome.PortablePdbUnavailable =>
+                NoPortablePdbReason,
+            PdbMemberSourceOutcome.PortablePdbAcquisitionFailed =>
+                "Portable PDB acquisition failed.",
+            PdbMemberSourceOutcome.SourceMappingUnavailable =>
+                NoPdbSourceMappingReason,
+            PdbMemberSourceOutcome.NoVouchedDeclaration =>
+                NoPdbDeclarationReason + " "
+                    + NoPdbDeclarationDetail,
+            PdbMemberSourceOutcome.SourceTooComplex =>
+                SourceTooComplexReason,
+            PdbMemberSourceOutcome.InvalidSequencePointCoordinates =>
+                SourceCoordinatesInvalidReason,
+            PdbMemberSourceOutcome.SourceExtractionFailed
+                or PdbMemberSourceOutcome.InspectionFailed =>
+                PdbSourceInspectionFailedReason,
+            _ => NoMatchingPdbSourceReason,
         };
 
     private static string DecompilerAttemptReason(
