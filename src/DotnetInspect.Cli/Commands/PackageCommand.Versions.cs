@@ -79,7 +79,7 @@ public partial class PackageCommand
             CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
             return 1;
         }
-        if ((latest || isRange || ordinaryListing)
+        if ((latest || isRange || ordinaryListing || options.SingleVersionQuery)
             && PackageCoordinateResolver.Validate(new PackageCoordinate(packageId)) is { } invalid)
         {
             CommandError.Write(
@@ -122,7 +122,6 @@ public partial class PackageCommand
                 options);
         }
 
-        if (ordinaryListing)
         {
             using PackageSourceOperationLease operation =
                 composition.IssueSettlementOperation();
@@ -134,62 +133,126 @@ public partial class PackageCommand
                         options.SourceOptions,
                         context.Logger.Log),
                     operation,
-                    options.IncludePrerelease,
-                    options.IncludeUnlisted);
+                    pinned || options.IncludePrerelease,
+                    pinned || options.IncludeUnlisted);
+            if (pinned)
+            {
+                return WritePinnedVersionListingSettlement(
+                    listing,
+                    packageId,
+                    requestedVersion!,
+                    pinnedVersion!,
+                    options);
+            }
+            if (options.SingleVersionQuery)
+            {
+                return WriteSingleVersionListingSettlement(
+                    listing,
+                    packageId,
+                    packageReference,
+                    options);
+            }
             return WriteVersionListingSettlement(
                 listing,
                 packageReference,
                 options);
         }
+    }
 
-        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
-            packageId,
-            pinned || options.IncludePrerelease,
-            options.VersionRowSelection is not null || pinned
-                ? null : options.Limit,
-            options.SourceOptions,
-            context.Logger.Log,
-            includeUnlisted: pinned || options.IncludeUnlisted);
-
-        bool requiresCompleteEvidence =
-            !pinned && options.SingleVersionQuery;
-        if (discovery.State == PackageVersionDiscoveryState.Failed
-            || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
+    private static int WriteSingleVersionListingSettlement(
+        InspectionEnvelope<PackageVersionListingOutcome> envelope,
+        string packageId,
+        string packageReference,
+        InspectionOptions options)
+    {
+        string notFoundMessage =
+            $"Package '{packageReference}' not found on eligible configured sources.";
+        if (envelope.Content
+            is PackageVersionListingOutcome.NotAvailable notAvailable)
         {
-            WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+            return WriteVersionListingFailure(
+                notAvailable.Failure,
+                notFoundMessage);
+        }
+        if (envelope.Content
+            is not PackageVersionListingOutcome.Listed available)
+        {
+            throw new InvalidOperationException(
+                "Unknown package version listing outcome.");
+        }
+        if (available.Document.Completeness
+            == PackageVersionListingCompleteness.Partial)
+        {
+            WriteVersionDiscoveryFailureDetails(
+                packageId,
+                [
+                    .. available.AuthorityFailures.Select(value =>
+                        (value.Kind, value.Message.ToString())),
+                ]);
             return 1;
         }
 
-        IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
-        if (pinned)
+        return WriteVersionQueryRows(
+            [.. available.Document.Versions.Take(1)],
+            available.Document.SourceListings,
+            options);
+    }
+
+    private static int WritePinnedVersionListingSettlement(
+        InspectionEnvelope<PackageVersionListingOutcome> envelope,
+        string packageId,
+        string requestedVersion,
+        NuGet.Versioning.NuGetVersion pinnedVersion,
+        InspectionOptions options)
+    {
+        string notFoundMessage =
+            $"Version '{requestedVersion}' of package '{packageId}' not found. "
+            + "Use --versions to see available versions.";
+        if (envelope.Content
+            is PackageVersionListingOutcome.NotAvailable notAvailable)
         {
-            listings = [.. listings.Where(row =>
+            return WriteVersionListingFailure(
+                notAvailable.Failure,
+                notFoundMessage);
+        }
+        if (envelope.Content
+            is not PackageVersionListingOutcome.Listed available)
+        {
+            throw new InvalidOperationException(
+                "Unknown package version listing outcome.");
+        }
+
+        IReadOnlyList<PackageVersionInfo> listings =
+        [
+            .. available.Document.Versions.Where(row =>
                 NuGet.Versioning.VersionComparer.VersionRelease.Equals(
-                    NuGet.Versioning.NuGetVersion.Parse(row.Version), pinnedVersion))];
-            if (listings.Count == 0
-                && discovery.Failures.Any(failure => failure.Kind != PackageAuthorityFailureKind.IncompleteMetadata))
+                    NuGet.Versioning.NuGetVersion.Parse(row.Version),
+                    pinnedVersion)),
+        ];
+        if (listings.Count == 0)
+        {
+            if (available.AuthorityFailures.Any(failure =>
+                    failure.Kind
+                        != PackageAuthorityFailureKind.IncompleteMetadata))
             {
-                WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+                WriteVersionDiscoveryFailureDetails(
+                    packageId,
+                    [
+                        .. available.AuthorityFailures.Select(value =>
+                            (value.Kind, value.Message.ToString())),
+                    ]);
                 return 1;
             }
-        }
 
-        if (!discovery.HasAnyCandidate || ((pinned || latest) && listings.Count == 0))
-        {
-            CommandError.Write(pinned
-                ? $"Version '{requestedVersion}' of package '{packageId}' not found. Use --versions to see available versions."
-                : $"Package '{packageReference}' not found on eligible configured sources.");
+            CommandError.Write(notFoundMessage);
             return 1;
         }
 
-        if (discovery.State == PackageVersionDiscoveryState.Partial)
-        {
-            CommandError.WriteWarning(
-                $"Version results for package '{packageId}' are partial.",
-                [.. discovery.Failures.Select(failure => failure.Message)]);
-        }
-
-        return WriteVersionQueryRows(listings, discovery.SourceListings, options);
+        WriteVersionListingDiagnostics(envelope, available);
+        return WriteVersionQueryRows(
+            listings,
+            available.Document.SourceListings,
+            options);
     }
 
     private static int WriteVersionListingSettlement(
@@ -197,21 +260,9 @@ public partial class PackageCommand
         string packageReference,
         InspectionOptions options)
     {
-        if (envelope.Content
-            is PackageVersionListingOutcome.Listed listed
-            && listed.Document.Completeness
-                == PackageVersionListingCompleteness.Partial)
-        {
-            CommandError.WriteWarning(
-                $"Version results for package '{listed.Document.Request.PackageId}' are partial.",
-                [.. envelope.Diagnostics.Select(
-                    diagnostic => diagnostic.Summary.ToString())]);
-        }
-        else
-        {
-            foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
-                CommandError.WriteWarning(diagnostic.Summary.ToString());
-        }
+        WriteVersionListingDiagnostics(
+            envelope,
+            envelope.Content as PackageVersionListingOutcome.Listed);
 
         if (options.EnvelopeOutput && !options.Count)
         {
@@ -273,14 +324,38 @@ public partial class PackageCommand
             throw new InvalidOperationException(
                 "Unknown package version listing outcome.");
         }
-        PackageVersionListingFailure failure = notAvailable.Failure;
-        if (failure.Kind == PackageVersionListingFailureKind.NotFound)
+        return WriteVersionListingFailure(
+            notAvailable.Failure,
+            $"Package '{packageReference}' not found on eligible configured sources.");
+    }
+
+    private static void WriteVersionListingDiagnostics(
+        InspectionEnvelope<PackageVersionListingOutcome> envelope,
+        PackageVersionListingOutcome.Listed? listed)
+    {
+        if (listed?.Document.Completeness
+            == PackageVersionListingCompleteness.Partial)
         {
-            CommandError.Write(
-                $"Package '{packageReference}' not found on eligible configured sources.");
-            return 1;
+            CommandError.WriteWarning(
+                $"Version results for package '{listed.Document.Request.PackageId}' are partial.",
+                [.. envelope.Diagnostics.Select(
+                    diagnostic => diagnostic.Summary.ToString())]);
+            return;
         }
 
+        foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
+            CommandError.WriteWarning(diagnostic.Summary.ToString());
+    }
+
+    private static int WriteVersionListingFailure(
+        PackageVersionListingFailure failure,
+        string notFoundMessage)
+    {
+        if (failure.Kind == PackageVersionListingFailureKind.NotFound)
+        {
+            CommandError.Write(notFoundMessage);
+            return 1;
+        }
         if (!failure.AuthorityFailures.IsEmpty)
         {
             WriteVersionDiscoveryFailureDetails(

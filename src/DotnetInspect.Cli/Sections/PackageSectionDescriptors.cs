@@ -67,6 +67,7 @@ public static class PackageSectionDescriptors
             .Add<Statistics>()
             .Add<TargetFrameworks>()
             .Add<NuspecFiles>()
+            .Add<LicenseFiles>()
             .Add<SkillFiles>()
             .Add<SourceFiles>()
             .Add<SourceLinkAvailability>(
@@ -247,6 +248,17 @@ public static class PackageSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
         public static bool CanRender(InspectionResult model)
             => Matches(model, PackageSections.FilesSkills);
+    }
+
+    public sealed class LicenseFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.FilesLicenses;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(InspectionResult model)
+            => Matches(model, PackageSections.FilesLicenses);
     }
 
     public sealed class NuspecFiles : ISectionDescriptor<InspectionResult>

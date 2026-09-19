@@ -19,6 +19,12 @@ public sealed class DependencyGraphOutputAdapterTests
     [Fact]
     public async Task Json_PackageProjectionRetainsIssuedDiagnostics()
     {
+        var runtimeFailure = new PackageAuthorityFailure(
+            new InertString(
+                TextPolicy.Field,
+                "local authority"),
+            PackageAuthorityFailureKind.Transport,
+            "The source could not provide the manifest.");
         var document = new DependencyGraphDocument(
             [new DependencyGraphRootOccurrence(1, 0)],
             [
@@ -43,13 +49,12 @@ public sealed class DependencyGraphOutputAdapterTests
                     Candidate: null,
                     RootOccurrence: null,
                     [
-                        new PackageAuthorityFailure(
-                            new InertString(
-                                TextPolicy.Field,
-                                "local authority"),
-                            PackageAuthorityFailureKind.Transport,
-                            "The source could not provide the manifest."),
-                    ]),
+                        DependencyInspectionPackageAuthorityFailure.Create(
+                            runtimeFailure),
+                    ])
+                {
+                    RuntimeDiagnostics = [runtimeFailure],
+                },
             ],
             []);
 

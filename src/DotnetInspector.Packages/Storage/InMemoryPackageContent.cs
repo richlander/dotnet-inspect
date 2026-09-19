@@ -99,6 +99,20 @@ public sealed class InMemoryPackageContent :
                 ProducerKey,
                 _generationIdentity);
 
+    internal InMemoryPackageContent AsCacheHitForProducer(
+        string producerKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(producerKey);
+        return FromCache
+            && ProducerKey.Equals(producerKey, StringComparison.Ordinal)
+                ? this
+                : new InMemoryPackageContent(
+                    _nupkgBytes,
+                    fromCache: true,
+                    producerKey,
+                    _generationIdentity);
+    }
+
     static byte[] Copy(byte[] nupkgBytes)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);

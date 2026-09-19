@@ -429,6 +429,7 @@ public sealed class InstalledReferencePackSource
                     generation,
                     path,
                     request.Work.MaxBytes,
+                    request.IncludeCompiledXmlDocumentation,
                     cancellationToken)
                 .ConfigureAwait(false);
         if (libraryOutcome is not InstalledPlatformSourceOutcome<
@@ -532,6 +533,7 @@ public sealed class InstalledReferencePackSource
                         generation,
                         assemblyPath,
                         remainingBytes,
+                        request.IncludeCompiledXmlDocumentation,
                         cancellationToken)
                     .ConfigureAwait(false);
             if (libraryOutcome is not InstalledPlatformSourceOutcome<
@@ -552,7 +554,7 @@ public sealed class InstalledReferencePackSource
             }
 
             libraries.Add(succeeded.Value);
-            remainingBytes -= succeeded.Value.ContentLength;
+            remainingBytes -= succeeded.Value.TotalContentLength;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -568,6 +570,7 @@ public sealed class InstalledReferencePackSource
             InstalledPlatformSourceGeneration generation,
             string path,
             long remainingBytes,
+            bool includeCompiledXmlDocumentation,
             CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -616,6 +619,50 @@ public sealed class InstalledReferencePackSource
 
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
+            InstalledReferenceDocumentation? documentation = null;
+            if (includeCompiledXmlDocumentation)
+            {
+                string documentationPath =
+                    Path.ChangeExtension(path, ".xml");
+                try
+                {
+                    await using FileStream documentationStream = new(
+                        documentationPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read | FileShare.Delete,
+                        bufferSize: 64 * 1024,
+                        FileOptions.Asynchronous
+                            | FileOptions.SequentialScan);
+                    long documentationAllowance = Math.Min(
+                        _maxFileBytes,
+                        remainingBytes - content.LongLength);
+                    if (documentationStream.Length
+                        > documentationAllowance)
+                    {
+                        return Incomplete<InstalledReferenceLibrary>(
+                            generation,
+                            "An installed compiled-XML companion exceeds the request byte budget.");
+                    }
+
+                    byte[] documentationContent =
+                        new byte[checked(
+                            (int)documentationStream.Length)];
+                    await documentationStream.ReadExactlyAsync(
+                            documentationContent,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    documentation =
+                        new InstalledReferenceDocumentation(
+                            Path.GetFileName(documentationPath),
+                            documentationContent);
+                }
+                catch (Exception ex) when (
+                    ex is FileNotFoundException
+                        or DirectoryNotFoundException)
+                {
+                }
+            }
             cancellationToken.ThrowIfCancellationRequested();
             return new InstalledPlatformSourceOutcome<
                 InstalledReferenceLibrary>.Succeeded(
@@ -623,7 +670,8 @@ public sealed class InstalledReferencePackSource
                     new InstalledReferenceLibrary(
                         Path.GetFileName(path),
                         identity,
-                        content));
+                        content,
+                        documentation));
         }
         catch (OperationCanceledException)
         {
@@ -659,7 +707,7 @@ public sealed class InstalledReferencePackSource
         {
             return Failed<InstalledReferenceLibrary>(
                 generation,
-                "An installed reference assembly could not be read.");
+                "Installed reference content could not be read.");
         }
     }
 

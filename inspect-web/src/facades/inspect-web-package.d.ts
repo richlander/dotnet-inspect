@@ -525,8 +525,28 @@ export interface BrowserPackageIcon {
     readonly mediaType: string;
     readonly base64: string;
 }
+export interface BrowserPackageInfoMeasurementInspection {
+    readonly content: BrowserPackageInfoMeasurements;
+    readonly share: BrowserInspectionShare;
+    readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+export interface BrowserPackageInfoMeasurements {
+    readonly status: string;
+    readonly packageId: string;
+    readonly packageVersion: string;
+    readonly compressedPackageBytes: number | null;
+    readonly selectedTargetFramework: string | null;
+    readonly availableTargetFrameworkCount: number | null;
+    readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
+    readonly selectedLibraryPayloadBytes: number | null;
+    readonly selectedLibraryCount: number | null;
+    readonly detail: string | null;
+    readonly unavailableReason: string | null;
+    readonly hasSelectedSlice: boolean;
+}
 export interface BrowserPackageLoadResult {
     readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+    readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
     readonly surface: BrowserPackageSurface | null;
 }
 export interface BrowserPackagePruningRequest {
@@ -572,6 +592,11 @@ export interface BrowserPackagePruningSupply {
     readonly family: string;
     readonly package: string;
     readonly version: string;
+}
+export interface BrowserPackageQueryAnswer {
+    readonly id: string;
+    readonly value: string;
+    readonly term: BrowserPackageQueryTerm | null;
 }
 export interface BrowserPackageQueryCancellation {
     readonly kind: BrowserPackageQueryCancellationKind;
@@ -623,10 +648,15 @@ export interface BrowserPackageQueryEvent {
 }
 export interface BrowserPackageQueryEvidence {
     readonly id: string;
-    readonly text: string;
     readonly scope: BrowserPackageQueryEvidenceScope;
     readonly summary: BrowserPackageQueryEvidenceSummary | null;
+    readonly properties: ReadonlyArray<BrowserPackageQueryEvidenceProperty>;
+    readonly number: number | null;
     readonly term: BrowserPackageQueryTerm | null;
+}
+export interface BrowserPackageQueryEvidenceProperty {
+    readonly name: string;
+    readonly value: string;
 }
 export interface BrowserPackageQueryEvidenceSummary {
     readonly count: number;
@@ -701,6 +731,7 @@ export interface BrowserPackageQueryRow {
     readonly packageId: string;
     readonly version: string;
     readonly tier: BrowserPackageQueryAcquisitionTier;
+    readonly answers: ReadonlyArray<BrowserPackageQueryAnswer>;
     readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
     readonly totalDownloads: number | null;
     readonly verified: boolean | null;

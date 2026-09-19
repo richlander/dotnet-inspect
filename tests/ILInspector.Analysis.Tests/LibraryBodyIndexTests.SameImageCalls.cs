@@ -398,6 +398,30 @@ public partial class LibraryBodyIndexTests
                             method.MetadataToken
                                 == target.MetadataToken))
                     .IncomingOverloadCallerCount);
+            LibraryBodyAnalysisExecution execution =
+                LibraryBodyAnalysisService.ExecuteImage(
+                    path,
+                    ImmutableArray.Create(image),
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures
+                            .ImplementationProfiles));
+            Assert.Equal(
+                expected,
+                execution.ImplementationProfiles
+                    .OverloadRelationships.Any(
+                        relationship =>
+                            relationship.Caller.MetadataToken
+                                == call.Caller.MetadataToken
+                            && relationship.Callee.MetadataToken
+                                == target.MetadataToken));
+            Assert.Equal(
+                expected ? 1 : 0,
+                Assert.Single(
+                    execution.ImplementationProfiles.Profiles,
+                    method =>
+                        method.Method.MetadataToken
+                            == target.MetadataToken)
+                    .IncomingOverloadCallerCount);
             Assert.Equal(
                 expected ? 1 : 0,
                 Assert.Single(

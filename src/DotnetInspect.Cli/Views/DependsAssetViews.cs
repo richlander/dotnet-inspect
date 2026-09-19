@@ -92,11 +92,13 @@ public sealed class DependsAssetView
     [MarkoutSkipNull]
     public int? RequestedDepth { get; init; }
 
-    [MarkoutPropertyName("Graph Nodes")]
-    public required int GraphNodes { get; init; }
+    [MarkoutPropertyName("Hierarchy Occurrences")]
+    public required int HierarchyOccurrences { get; init; }
 
-    [MarkoutPropertyName("Graph Edges")]
-    public required int GraphEdges { get; init; }
+    [MarkoutPropertyName("Canonical Nodes")]
+    public required int CanonicalNodes { get; init; }
+
+    public required int Relationships { get; init; }
 
     [MarkoutIgnore]
     public InertString? PrefixText { get; init; }
@@ -126,9 +128,9 @@ public sealed class DependsAssetView
     }
 
     [MarkoutSection(
-        Name = DependsAssetSections.DependencyGraph,
+        Name = DependsAssetSections.DependencyHierarchy,
         EmptyText = "No dependency relationships.")]
-    public Markout.Graph? DependencyGraph { get; init; }
+    public Markout.Graph? DependencyHierarchy { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.Roots)]
     public List<DependsRootView>? Roots { get; init; }
@@ -156,8 +158,9 @@ public sealed class DependsAssetView
 [MarkoutSerializable]
 public sealed class DependsAssetTableView
 {
-    [MarkoutSection(Name = DependsAssetSections.DependencyGraph)]
-    public List<DependsGraphEdgeView>? DependencyGraph { get; init; }
+    [MarkoutSection(Name = DependsAssetSections.DependencyHierarchy)]
+    public List<DependsHierarchyOccurrenceView>? DependencyHierarchy
+    { get; init; }
 
     [MarkoutSection(Name = DependsAssetSections.Roots)]
     public List<DependsRootView>? Roots { get; init; }
@@ -185,8 +188,104 @@ public sealed class DependsAssetTableView
 [MarkoutSerializable]
 public sealed class DependsGraphTableView
 {
-    [MarkoutSection(Name = DependsAssetSections.DependencyGraph)]
+    [MarkoutSection(Name = DependsTypeSections.DependencyGraph)]
     public List<DependsGraphEdgeView>? DependencyGraph { get; init; }
+}
+
+[MarkoutSerializable]
+public sealed class DependsHierarchyOccurrenceView
+{
+    internal static DependsHierarchyOccurrenceView From(
+        DependencyHierarchyOccurrenceRow row) =>
+        new()
+        {
+            Occurrence = row.OccurrenceId,
+            Root = row.RootOccurrence,
+            ParentOccurrence = row.ParentOccurrenceId,
+            EdgeId = row.EdgeId,
+            Depth = row.Depth,
+            SourceKind = row.SourceKind,
+            SourceIdentityText = row.SourceIdentityText,
+            SourceText = row.SourceText,
+            Relationship = row.Relationship,
+            TargetKind = row.TargetKind,
+            TargetIdentityText = row.TargetIdentityText,
+            TargetText = row.TargetText,
+            Disposition = row.Disposition,
+            Resolution = row.Resolution,
+            EvidenceKind = row.EvidenceKind,
+            EvidenceIdentityText = row.EvidenceIdentityText,
+        };
+
+    public required int Occurrence { get; init; }
+
+    public required int Root { get; init; }
+
+    [MarkoutPropertyName("Parent Occurrence")]
+    public required int ParentOccurrence { get; init; }
+
+    [MarkoutPropertyName("Edge ID")]
+    public required int EdgeId { get; init; }
+
+    public required int Depth { get; init; }
+
+    [MarkoutPropertyName("Source Kind")]
+    public required string SourceKind
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Source Identity")]
+    public string SourceIdentity => SourceIdentityText.ToString();
+
+    public string Source => SourceText.ToString();
+
+    public required string Relationship
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Target Kind")]
+    public required string TargetKind
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Target Identity")]
+    public string TargetIdentity => TargetIdentityText.ToString();
+
+    public string Target => TargetText.ToString();
+
+    public required string Disposition
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    public required string Resolution
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Field(value).ToString();
+    }
+
+    [MarkoutPropertyName("Evidence Kind")]
+    public string? EvidenceKind
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
+    [MarkoutPropertyName("Evidence Identity")]
+    public string? EvidenceIdentity => EvidenceIdentityText?.ToString();
+
+    [MarkoutIgnore] public InertString SourceIdentityText { get; init; }
+    [MarkoutIgnore] public InertString SourceText { get; init; }
+    [MarkoutIgnore] public InertString TargetIdentityText { get; init; }
+    [MarkoutIgnore] public InertString TargetText { get; init; }
+    [MarkoutIgnore] public InertString? EvidenceIdentityText { get; init; }
 }
 
 [MarkoutSerializable]
@@ -220,7 +319,7 @@ public sealed class DependsRootView
                 DependencyEvidenceViewText.Optional(evidence?.PackageVersion),
             IdentityTrustText = DependencyEvidenceViewText.Optional(
                 evidence?.IdentityProvenance?.ToString()),
-            ProducerText = evidence?.Source?.Producer.Display,
+            ProducerText = evidence?.Source?.ProducerDisplay,
             SourceAssociation = evidence?.Source is { } source
                 ? tokens.Project(source)?.Association
                 : null,
@@ -871,7 +970,7 @@ public sealed class DependsFailureView
 
     private static string DescribeTraversalFailure(
         DependencyInspectionTraversalFailure row) =>
-        row.CandidateOutcome switch
+        row.RuntimeCandidateOutcome switch
         {
             PackageDependencyTraversalCandidateResult.Failed =>
                 "No exact package candidate was issued for this declaration.",
@@ -885,14 +984,16 @@ public sealed class DependsFailureView
                 is DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                        RestoredProjectDependencyTraversalFailure.Document
+                        DependencyInspectionRestoredTraversalOutcomeFailure
+                            .Document
                             document,
             } => document.Failure.Message,
             _ when row.RestoredFailure
                 is DependencyInspectionRestoredTraversalFailure.Outcome
             {
                 Value:
-                        RestoredProjectDependencyTraversalFailure.Graph graph,
+                        DependencyInspectionRestoredTraversalOutcomeFailure
+                            .Graph graph,
             } => graph.Failure.Message,
             _ when row.RestoredFailure
                 is DependencyInspectionRestoredTraversalFailure.Graph graph =>
@@ -941,7 +1042,7 @@ public sealed class DependsFailureView
             DependencyInspectionPruningFailure.Candidate candidate => new()
             {
                 Phase = DependencyEvidenceFailurePhase.Pruning.ToString(),
-                Reason = candidate.Outcome switch
+                Reason = candidate.RuntimeOutcome switch
                 {
                     PackageDependencyCandidateResult.Failed failed =>
                         failed.Failure.GetType().Name,
@@ -1015,6 +1116,7 @@ public sealed class DependsFailureView
 [MarkoutContext(typeof(DependsAssetTableView))]
 [MarkoutContext(typeof(DependsGraphTableView))]
 [MarkoutContext(typeof(DependsRootView))]
+[MarkoutContext(typeof(DependsHierarchyOccurrenceView))]
 [MarkoutContext(typeof(DependsGraphEdgeView))]
 [MarkoutContext(typeof(DependsDependencyView))]
 [MarkoutContext(typeof(DependsPruningView))]

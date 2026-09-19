@@ -296,6 +296,14 @@ whether the bounded caller-scope census is complete. A positive witness remains
 valid under any reported limit, while an empty incomplete census says only that
 no cycle was observed within the available scope.
 
+When Analysis classifies the exact physical relationship as framework
+`Task.Wait(...)`, `Task<T>.Result`, or task-awaiter `GetResult()`, the same
+`call.edge` detail shows its typed synchronous-completion kind. The text says
+that the operation may block the current thread when the task is incomplete and
+that no runtime blocking or duration was measured. The browser does not infer
+this evidence from a member label or source spelling, and it renders no negative
+claim when the relationship has no such observation.
+
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
