@@ -182,9 +182,12 @@ one manifest:
   section spellings. Their entry-by-entry current utility and removal status
   have not been classified, so that inventory is **unverified** under this
   policy;
-- visible library `--references` and `--dependencies`, plus package
-  `--dependencies`, identify themselves as legacy aliases. Their independent
-  current utility and removal status are likewise **unverified**;
+- visible library `--references` and `--dependencies` identify themselves as
+  legacy aliases. Their independent current utility and removal status are
+  **unverified**. Package `--dependencies` is removed and hidden; its focused
+  invalid-input guard directs users to
+  `-S "Dependency Hierarchy" --tree`, while `Dependencies --tree` separately
+  explains that direct evidence is not a hierarchy;
 - unadopted valued `--head N` and `--tail N` inputs have a focused pre-parse guard because
   the current boolean option would otherwise leave the count to bind as a
   positional target. The `--tail N` outcome is gated; the symmetric `--head N`

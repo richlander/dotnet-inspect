@@ -112,7 +112,8 @@ public partial class PackageCommand
                 return 1;
 
             Console.WriteLine(JsonSerializer.Serialize(
-                results.Select(PackageInspectionJson.Create).ToArray(),
+                results.Select(static result =>
+                    PackageInspectionJson.Create(result)).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
             return PackageIntegrityExitCode([.. results]);
         }
@@ -137,6 +138,17 @@ public partial class PackageCommand
         int currentExitCode,
         params InspectionResult[] results)
     {
+        foreach (DependsAssetProjection projection in results
+                     .Select(static result =>
+                         result.DependencyHierarchyProjection)
+                     .OfType<DependsAssetProjection>())
+        {
+            DependsCommand.WriteAssetDiagnostics(projection);
+            currentExitCode = Math.Max(
+                currentExitCode,
+                DependsCommand.AssetExitCode(projection));
+        }
+
         var identifierFailures = results
             .Select(
                 (result, index) =>
