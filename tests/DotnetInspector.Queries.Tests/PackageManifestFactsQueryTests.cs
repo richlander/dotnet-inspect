@@ -1,4 +1,5 @@
 using System.Text;
+using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
 
@@ -51,6 +52,11 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal("git", facts.RepositoryType);
         Assert.Equal("abc123", facts.RepositoryCommit);
         Assert.Equal("MIT", facts.License);
+        Assert.Equal(
+            new PackageLicenseDeclaration(
+                PackageLicenseDeclarationKind.Expression,
+                "MIT"),
+            facts.LicenseDeclaration);
         Assert.Equal("https://licenses.nuget.org/MIT", facts.LicenseUrl);
         Assert.Equal(["DotnetTool"], facts.PackageTypes);
         Assert.True(facts.IsToolPackage);
@@ -890,6 +896,9 @@ public sealed class PackageManifestFactsQueryTests
         Assert.Equal(expected.RepositoryCommit, actual.RepositoryCommit);
         Assert.Equal(expected.License, actual.License);
         Assert.Equal(expected.LicenseUrl, actual.LicenseUrl);
+        Assert.Equal(
+            expected.LicenseDeclaration,
+            actual.LicenseDeclaration);
         Assert.Equal(expected.PackageTypes, actual.PackageTypes);
         Assert.Equal(expected.IsToolPackage, actual.IsToolPackage);
         Assert.Equal(expected.IconFile, actual.IconFile);

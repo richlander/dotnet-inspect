@@ -36,6 +36,60 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("package", "Newtonsoft.Json")]
+    [InlineData("library", "Example.dll")]
+    [InlineData("type", "JsonReader", "--package", "Newtonsoft.Json")]
+    [InlineData("member", "JsonReader", "Read:1", "--package", "Newtonsoft.Json")]
+    [InlineData("library", "coordinate", "0x06000001+0x0", "--library", "Example.dll")]
+    public async Task RenderedUrlPreference_ReplacesLegacyFlags(params string[] arguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var baseline = root.Parse(arguments);
+        Assert.Empty(baseline.Errors);
+        var option = Assert.IsType<Option<bool>>(
+            Assert.Single(baseline.CommandResult.Command.Options,
+                option => option.Name == "--prefer-rendered-urls"));
+        Assert.False(baseline.GetValue(option));
+
+        var rendered = root.Parse([.. arguments, "--prefer-rendered-urls"]);
+        Assert.Empty(rendered.Errors);
+        Assert.True(rendered.GetValue(option));
+
+        foreach (string removed in new[] { "--raw", "--blob" })
+        {
+            string[] tokens = [.. arguments, removed];
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Unrecognized", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains($"'{removed}'", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void RenderedUrlPreference_SourceLocationRetainsUnmappedUrl()
+    {
+        var method = typeof(DotnetInspector.Queries.EmbeddedFixtures.EmbeddedSourceFixture)
+            .GetMethod(nameof(DotnetInspector.Queries.EmbeddedFixtures.EmbeddedSourceFixture.Echo))!;
+        using var source = ILInspector.SourceLink.SourceLinkService.Open(
+            method.DeclaringType!.Assembly.Location);
+        var location = Assert.IsType<ILInspector.SourceLink.SourceLinkResolver.ILOffsetSourceInfo>(
+            source.ResolveByILOffset(method.MetadataToken, 0));
+        Assert.Null(location.GitHubBrowseUrl);
+        Assert.StartsWith("https://example.test/", location.SourceUrl);
+
+        var result = ILInspector.Research.ResearchViews.ProjectILOffset(
+            new ILInspector.Research.ILOffsetProjectionRequest(
+                source, method.MetadataToken, 0,
+                ILInspector.Research.ILOffsetProjectionCapabilities.SourceLocation,
+                BrowsableUrls: true));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal($"{location.SourceUrl}#L{location.Line}", result.Projection!.Url);
+    }
+
+    [Theory]
     [InlineData("package", "Newtonsoft.Json", "--out")]
     [InlineData("package", "Newtonsoft.Json", "--output")]
     [InlineData("package", "Newtonsoft.Json", "-o")]

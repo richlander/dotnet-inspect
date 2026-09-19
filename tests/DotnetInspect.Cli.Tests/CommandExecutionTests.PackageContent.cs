@@ -232,11 +232,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_SourceFilesSection_TypeFilterAndBlobUrls()
+    public async Task Package_SourceFilesSection_TypeFilterAndPreferRenderedUrls()
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json",
-            "-S", "Source Files", "-t", "JsonConvert", "--blob", "--tsv", "--no-headers", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonConvert", "--prefer-rendered-urls", "--tsv", "--no-headers", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -250,7 +250,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "-t", "JsonReader", "--bare", "--raw", "--tips", "q");
+            "-S", "Source Files", "-t", "JsonReader", "--bare", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -268,7 +268,7 @@ public partial class CommandExecutionTests
         [
             "package", "Newtonsoft.Json@13.0.3",
             "-S", "SourceLink: Files", "-t", "JsonReader",
-            "--raw", "--tips", "q",
+            "--tips", "q",
         ];
         var baseline = await RunAppAsync(
             [.. baselineArgs, "--tsv", "--no-headers"]);
@@ -417,7 +417,7 @@ public partial class CommandExecutionTests
             [
                 "package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "-t", "JsonReader",
-                "--bare", "--raw",
+                "--bare",
             ];
 
             var stdout = await RunAppInDirectoryAsync(
@@ -988,6 +988,107 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_LicenseFiles_ListsCountsAndPrintsDocuments()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicenseFiles",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">OSMFEULA.txt</license>",
+            extraFiles:
+            [
+                ("OSMFEULA.txt", "declared license"),
+                ("LICENSE.md", "conventional license"),
+                ("licenses/Dependency.txt", "dependency license"),
+                ("THIRD-PARTY-NOTICES.TXT", "not a license"),
+                ("content/driving-license.png", "not a document"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| LICENSE.md |", listOutput);
+            Assert.Contains("| OSMFEULA.txt |", listOutput);
+            Assert.Contains("| licenses/Dependency.txt |", listOutput);
+            Assert.DoesNotContain("THIRD-PARTY-NOTICES", listOutput);
+            Assert.DoesNotContain("driving-license.png", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("3\n", countOutput);
+            Assert.Empty(countError);
+
+            var (printExit, printOutput, printError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--print",
+                "--row",
+                "2",
+                "--bare");
+            Assert.Equal(0, printExit);
+            Assert.Equal("declared license", printOutput);
+            Assert.Empty(printError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LicenseFiles_HonorsLeadingCurrentDirectorySegment()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.LicensePath",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+                "<license type=\"file\">./legal/TERMS.bin</license>",
+            extraFiles:
+            [
+                ("legal/TERMS.bin", "declared license"),
+            ]);
+        try
+        {
+            var (listExit, listOutput, listError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files");
+            Assert.Equal(0, listExit);
+            Assert.Contains("| legal/TERMS.bin |", listOutput);
+            Assert.Empty(listError);
+
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package license files",
+                "--count");
+            Assert.Equal(0, countExit);
+            Assert.Equal("1\n", countOutput);
+            Assert.Empty(countError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_FilesNuspec_PrintRendersTheManifestDocument()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -1253,7 +1354,7 @@ public partial class CommandExecutionTests
             [
                 "package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "-t", "JsonReader",
-                "--urls", "--row", "1", "--raw", "--tips", "q"
+                "--urls", "--row", "1", "--tips", "q"
             ];
             var urlsBaseline = await RunAppAsync(urlsArguments);
             var urlsRedirected = await RunAppAsync(
@@ -1767,13 +1868,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_Readme_BlobLeavesMarkdownLinksVerbatim()
+    public async Task Package_Readme_PreferRenderedUrlsLeavesMarkdownLinksVerbatim()
     {
         const string readme = "[code](https://github.com/owner/repo/blob/main/src/File.cs)";
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--blob");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--prefer-rendered-urls");
 
             Assert.Equal(0, exit);
             Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);

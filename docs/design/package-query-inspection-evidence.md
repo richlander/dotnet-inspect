@@ -2,10 +2,12 @@
 
 ## Claim and ownership
 
-Package Query emits package-specific inspection evidence as a total and a
-bounded preview of the items actually observed. Query-wide source selection
-and provenance remain distinguishable from inspection facts about a package.
-This document is the sole owner of that evidence contract.
+Package Query emits semantic answers separately from package-specific
+inspection evidence. Evidence is structured data: named properties, numeric
+facts, or a total with a bounded preview of the items actually observed.
+Query-wide source selection and provenance remain distinguishable from
+inspection facts about a package. This document is the sole owner of that
+answer-and-evidence contract.
 
 [Input selection](package-query-input-selection.md) supplies the candidate
 scope. [Package Query](package-query-cli.md) owns facet meaning, acquisition
@@ -63,23 +65,36 @@ summary consumes the admitted manifest; a skills summary consumes the entry
 inventory already used by its selected content facet. Summaries do not request
 additional manifests, archives, or skill-document bodies.
 
-## Evidence and rendering
+## Answers, evidence, and rendering
 
-Each evidence entry retains its product-issued ID and inert explanation, and
-identifies whether it is query-wide context or package-specific evidence. Item
-summaries remain typed alongside their compact text explanation; consumers do
-not parse counts or identities out of prose.
+Each selected term that matches emits one typed answer carrying the
+product-issued term ID, semantic value, and originating Portable Query term.
+For example, `license=MIT` answers `MIT`; it does not answer with a sentence
+about how MIT was identified. Presence terms answer their closed value, such
+as `true` or `none`; `license=any` therefore answers `true`.
 
-The Browser transports these fields through its generated facade. Its existing
-HTML card renderer uses the shared explanation, while query-scoped evidence
-appears once for the displayed result set rather than inside each card. This
-continues the Browser's existing deliberate host-specific rendering instead of
-introducing Markout into interactive cards. Operation feedback, item failures,
-completion accounting, and window credit retain their existing owners.
+Evidence separately retains the product-issued ID, query or package scope,
+originating term, and only structured facts:
 
-The planned CLI projection consumes the same evidence and lowers its compact
-explanation through Sections/Markout. CLI facet execution remains unimplemented;
-this evidence change does not advertise a new CLI command.
+- named inert properties such as nuspec license declaration kind and value;
+- a typed number such as total downloads; or
+- a complete observed item count with bounded inert previews.
+
+Package Query never authors explanatory text. Consumers must not parse answers,
+counts, identities, or provenance out of prose because the query layer emits no
+such prose.
+
+The Browser transports answers and evidence through its generated facade. Its
+HTML card renderer constructs host presentation from those typed values, while
+query-scoped evidence appears once for the displayed result set rather than
+inside each card. This continues the Browser's existing deliberate
+host-specific rendering instead of introducing Markout into interactive cards.
+Operation feedback, item failures, completion accounting, and window credit
+retain their existing owners.
+
+The CLI projection consumes the same answers and evidence. Sections/Markout
+renders a direct `Answer` column and a host-authored `Evidence` presentation;
+JSON and JSONL remain valid projected data rather than query-authored prose.
 
 ## Boundary and evidence
 
@@ -89,15 +104,15 @@ construction applies the existing `InertString` field contract. Browser HTML
 encoding remains the final sink boundary. Typed item counts are calculated
 before preview encoding or shortening.
 
-`PackageQueryTests` is the Release outcome gate for distinct IDs, all-group and
-selected-group dependency scope, compatible selection, selected-empty,
-no-groups and no-match distinctions, multiple frameworks, root and nested
-skill paths, assembly-reference matching across framework groups, malformed
-managed images, package-content limits, preview bounds, text containment,
-unchanged acquisition counts, and visible unavailable content. Browser engine
-tests gate the typed
-projection; frontend source and view tests gate transport, package-specific
-cards, and once-per-result-set context.
+`PackageQueryTests` is the Release outcome gate for semantic answers, structured
+license provenance, distinct IDs, all-group and selected-group dependency
+scope, compatible selection, selected-empty, no-groups and no-match
+distinctions, multiple frameworks, root and nested skill paths,
+assembly-reference matching across framework groups, malformed managed images,
+package-content limits, preview bounds, unchanged acquisition counts, and
+visible unavailable content. Browser engine tests gate the typed projection;
+frontend source and view tests gate transport, host rendering,
+package-specific cards, and once-per-result-set context.
 
 The design follows ordinary count-plus-preview disclosure: NuGet manifest
 dependency groups supply the existing structured facts, while the current
@@ -106,9 +121,9 @@ evidence, not authority for a new dependency resolver or skill parser.
 
 ## Three-step production adoption
 
-1. Produce shared typed summaries and scope classification with their outcome
-   gates.
-2. Adopt them in the Browser facade and cards, retiring repeated query context
-   from cards in the same change.
-3. Adopt the shared evidence when CLI Package Query execution lands under the
-   [CLI owner](package-query-cli.md); keep this step visibly pending in #6071.
+1. Produce shared typed answers, evidence facts, summaries, and scope
+   classification with their outcome gates.
+2. Adopt them in the Browser facade and cards, with presentation authored by
+   the Browser host.
+3. Adopt them in CLI Package Query through Sections/Markout, with direct answer
+   values and host-authored evidence presentation.

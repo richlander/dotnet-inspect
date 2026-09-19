@@ -2383,9 +2383,10 @@ public sealed partial class CSharpPrinter
                     : "ConversionExpression",
                 IsContextualWrapper: !CSharpConversionRules.ConstantFits(literal, t));
         }
-        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(EffectiveType(value), numericTarget))
+        var numericSource = CoercionSourceType(value);
+        if (target is not { } numericTarget || !CoercionRendering.CanSpellPrimitiveNumeric(numericSource, numericTarget))
             return TransparentCoercion(value);
-        if (!CSharpConversionRules.NeedsNumericCast(EffectiveType(value), target))
+        if (!CSharpConversionRules.NeedsNumericCast(numericSource, target))
             return TransparentCoercion(value);
         // A plain conversion to a same-width sibling (conv.u2 → ushort feeding a
         // char slot) is subsumed by the boundary cast: emit one cast to the
@@ -2408,19 +2409,24 @@ public sealed partial class CSharpPrinter
             }
             return new(
                 CheckedSafeNumericCast(
-                    EffectiveType(conv.Operand),
+                    CoercionSourceType(conv.Operand),
                     numericTarget,
                     () => $"({TypeText(numericTarget)}){Operand(conv.Operand)}"),
                 "ConversionExpression");
         }
         return new(
             CheckedSafeNumericCast(
-                EffectiveType(value),
+                numericSource,
                 numericTarget,
                 () => $"({TypeText(numericTarget)}){Operand(value)}"),
             "ConversionExpression",
             IsContextualWrapper: true);
     }
+
+    TypeRef? CoercionSourceType(IrExpression value)
+        => value is Unary && TypeFamilies.Of(value.ResultType) is StackFamily.I8 or StackFamily.I
+            ? WideIndexOperandType(value)
+            : EffectiveType(value);
 
     bool EnumConditionalHasCompleteSymbolicArms(
         Conditional conditional,
@@ -2477,8 +2483,7 @@ public sealed partial class CSharpPrinter
         // the condition renders at the NullCoalescing demand: a Conditional
         // (even hidden behind a stale Coerce/Convert — RenderedCondition
         // strips wrappers for classification, the #2345 round-5 lesson) wraps;
-        // every other bool form out-binds it. The arms render through Operand,
-        // which already wraps a nested conditional where needed.
+        // every other bool form out-binds it. Each arm accepts a full expression.
         var condition = RenderedCondition(conditional.Condition).At(Precedence.NullCoalescing);
         // Two-stage join decision (#2306 unified with #2322): first the
         // join-level bare-vs-spell call (EffectiveJoinTarget — neutralizes the
@@ -2606,7 +2611,7 @@ public sealed partial class CSharpPrinter
         // arm (constant or not; a cross-assembly enum is unresolved, and its
         // structural test catches it), the composed `(E)(cond ? 1 : 0)` for a
         // bool arm. A same-assembly enum arm is enum-typed (not integer-like)
-        // and renders its member name via Operand.
+        // and renders its member name via Expression.
         if (TryCoerceJoinArm(
             arm,
             target,
@@ -2621,7 +2626,7 @@ public sealed partial class CSharpPrinter
         {
             return BoolToIntegerText(arm, intTarget);
         }
-        return Operand(arm);
+        return Expression(arm);
     }
 
     string BoolToIntegerText(IrExpression value, TypeRef target)

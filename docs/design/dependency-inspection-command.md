@@ -236,7 +236,8 @@ requested constraints are not interchangeable with resolved versions.
 
 The broader asset set is justified by the product's inspection purpose. The
 typed result and explicit completion states are required so that combining
-those assets does not turn unavailable evidence into a false complete graph.
+those assets does not turn unavailable evidence into a false complete
+hierarchy.
 
 An explicit remote package root remains the authorization for package
 acquisition, including its current complete traversal when no depth is
@@ -245,7 +246,7 @@ authority; the explicit root gesture does. Selecting evidence without the graph
 does not acquire transitive package manifests.
 
 The executed request plan is nevertheless section-dependent, as progressive
-disclosure requires. Selecting `Dependency Graph` requests traversal;
+disclosure requires. Selecting `Dependency Hierarchy` requests traversal;
 selecting only evidence sections does not. Completion, failures, and exit
 status describe the producers that the selected plan actually ran. A phase
 that was not requested is `NotRequested`, not complete, failed, or silently
@@ -370,9 +371,9 @@ than silently ignoring them:
 | NuGet source options | Accepted when package scope consumes them | Accepted when the selected plan performs remote package acquisition |
 | `-D`, `-S`, verbosity, rows, count, and output formats | Dependency document projection | Dependency document projection |
 
-`--depth` is valid only when `Dependency Graph` is selected directly or through
-the active verbosity preset. A depth supplied to an evidence-only request
-fails as an unused operation gesture.
+`--depth` is valid only when `Dependency Hierarchy` is selected directly or
+through the active verbosity preset. A depth supplied to an evidence-only
+request fails as an unused operation gesture.
 
 One positional type gesture produces exactly one root attempt. The type
 resolver must return one owner-issued selected type identity or a typed
@@ -407,7 +408,7 @@ than silently accepting an inert gesture. Direct nuspec, restored-project,
 library-only, type-only, and package-prefix requests do not acquire package
 manifests merely because a source option is present.
 
-A local `.nupkg` can consume source options only when `Dependency Graph` is
+A local `.nupkg` can consume source options only when `Dependency Hierarchy` is
 selected and traversal may expand beyond its direct declarations. An
 evidence-only local-package request has no remote package operation, so source
 options are rejected as unused.
@@ -446,10 +447,10 @@ Root identity is owner-issued:
   for semantic identity.
 
 Two root gestures that resolve to the same semantic subject remain two root
-occurrences with shared graph identity. Their occurrence order and provenance
-remain visible without duplicating the semantic node.
+occurrences with shared dependency identity. Their occurrence order and
+provenance remain visible without duplicating the semantic node.
 
-The command graph uses two identity layers:
+The producer-issued dependency topology uses two identity layers:
 
 - semantic node identity is the owner-issued type, library, package,
   restored-project, or dependency identity; and
@@ -534,9 +535,66 @@ union of the per-root admitted edges. Tree and depth-boundary lowering consume
 the per-root relation, so an edge admitted through a short path from root B is
 not incorrectly rendered below root A when it lies beyond A's depth.
 
-A semantic node that is also an explicit root remains one graph node with a
-separate root occurrence. Tree lowering renders that occurrence as its own
-top-level tree even when the same node also appears below another root.
+A semantic node that is also an explicit root remains one canonical dependency
+node with a separate root occurrence. The hierarchy projects that occurrence
+as its own top-level root even when the same node also appears below another
+root.
+
+## Dependency Hierarchy occurrence model
+
+`Dependency Hierarchy` is the Depends-owned rooted explanatory result. Its
+primary currency is one dependency relationship occurrence addressed within
+one explicit root occurrence. Canonical dependency nodes and relationships
+remain backing evidence; they do not collapse ancestry or root-relative path
+identity.
+
+The immutable hierarchy contains:
+
+- one root occurrence for every admitted explicit root, including roots with no
+  outgoing relationships;
+- one non-root occurrence for every emitted parent-to-target relationship;
+- a document-local occurrence ID;
+- the owning root occurrence;
+- the parent occurrence ID, or a root position for a root occurrence;
+- the canonical target node and incoming relationship association;
+- root-relative depth; and
+- one of `Expanded`, `Revisit`, or `Cycle` for a non-root occurrence.
+
+Projection is deterministic in explicit-root order, root-relative breadth, and
+producer-issued relationship order. Expansion belongs to a root-relative
+expansion context: the canonical node plus its source-relative package
+projection when package evidence supplies one, or the canonical node alone
+otherwise. The minimum-depth occurrence of each expansion context is expanded;
+producer relationship order breaks equal-depth ties. Another occurrence of
+the same context under that root is retained as a `Revisit` boundary and is not
+expanded again. An occurrence whose target context is already in its ancestor
+chain is retained as a `Cycle` boundary and is not expanded.
+
+The same canonical target reached from two parents therefore produces two
+hierarchy occurrences even though the backing topology contains one canonical
+node. Distinct source-relative package projections of that canonical node are
+distinct expansion contexts: each may expand once, and each consumes only the
+outgoing relationships issued for that projection. This prevents a
+longer-path occurrence or one package authority's projection from owning
+another occurrence's descendants.
+
+This bounded expansion emits each root-admitted backing relationship once per
+root. It cannot recurse indefinitely, and it preserves the source relationship
+that explains every occurrence. A node admitted at the traversal depth remains
+an occurrence endpoint; its typed depth boundary explains why it has no
+expanded children. Depth-boundary association uses the same expansion context,
+including source-relative package projection identity, so one projection's
+boundary never annotates another projection of the same canonical node.
+Hierarchy construction rejects a depth boundary unless its node exists, its
+optional package projection belongs to that node, and it names a non-empty,
+duplicate-free set of known root occurrences. Malformed boundary evidence
+therefore fails visibly instead of becoming an unexplained leaf.
+
+Rows, row windows, Count, Tree, Mermaid, tables, JSONL, and structured JSON all
+consume the same ordered non-root occurrence sequence. Roots are required
+context rather than counted relationship rows. A window retains explicit roots
+and the selected occurrences' endpoint context, but it never invents an
+unselected parent-to-child relationship.
 
 ## One dependency document
 
@@ -547,6 +605,7 @@ request plan:
 ordered explicit root occurrences
   + typed semantic nodes
   + typed directed dependency edges
+  + rooted dependency hierarchy occurrences
   + owner-issued declaration and resolution evidence
   + candidate-bound package-pruning applicability and policy evidence
   + root, acquisition, projection, and traversal failures
@@ -563,19 +622,35 @@ The host-neutral `DependencyInspectionOperation` now settles the semantic
 selected-plan value as owner-issued `DependencyInspectionContent` and returns
 it in `InspectionEnvelope<DependencyInspectionContent>`. Its request contains
 the already-acquired Package Dependency Evidence outcome, explicit root inputs,
-graph, pruning, and typed host-adapted failures. The operation owns occurrence
-association, phase projection, declaration-to-restored-edge joins, plan-relative
-graph, traversal, pruning, and failure inclusion, and aggregate completion.
+traversal topology, pruning, and typed host-adapted failures. The operation owns
+root and hierarchy occurrence association, phase projection,
+declaration-to-restored-edge joins, plan-relative traversal, pruning, and
+failure inclusion, and aggregate completion.
 Producer values for an unselected traversal or pruning phase do not enter
 Content even if a host adapter supplies them. The CLI projection consumes that
-envelope and continues to own section membership, graph rows, row windows,
-display ordering, and rendering. This extraction is not a new dependency-
-semantics model. The Content value carries references to or copies of owner-
-issued identities and evidence plus dependency-inspection occurrence
-identities, graph endpoint indices, and stable semantic ordering.
+envelope and continues to own section membership, row windows, presentation
+ordering, and rendering. The ordered hierarchy occurrence sequence itself is
+host-neutral Content so CLI and Browser/Wasm consumers cannot disagree about
+root, parent, revisit, cycle, or row identity. This extraction is not a new
+dependency-semantics model. The Content value carries references to or copies
+of owner-issued identities and evidence plus dependency-inspection occurrence
+identities, canonical endpoint indices, and stable semantic ordering.
+
+Package candidate, source failure, authority failure, manifest failure,
+restored-traversal failure, and pruning-result Content use closed portable
+projections. A package source projection retains credential-free producer
+identity and transport kind but never the configured source, credential,
+runtime source association, or acquisition correspondence. A candidate retains
+its coordinate, kind, and discovery contract but no configured authorities or
+acquisition capability. The CLI presentation aggregate may retain those live
+runtime values only for immediate compatibility rendering of the existing
+ordinary output. They are not part of the issued
+`DependencyInspectionContent`: Content construction copies only the portable
+values, so both in-memory host delivery and generated serialization are
+authority-free and remain usable after the operation ends.
 
 This selected-plan document is baseline Content for envelope adoption.
-Root-set and requested-phase completion, graph meaning, normalized
+Root-set and requested-phase completion, hierarchy meaning, normalized
 dependencies, pruning results, and typed failures remain here whether or not
 service evidence is requested. The
 [Debug enrichment](#debug-service-evidence-enrichment) composes supplemental
@@ -592,7 +667,7 @@ second host-local implementation. Browser/Wasm consumes the extracted
 consumes the CLI projection or presentation model.
 
 Normalized evidence currencies have one stable universe: explicit admitted
-roots only. Selecting `Dependency Graph` may acquire or admit transitive graph
+roots only. Selecting `Dependency Hierarchy` may acquire or admit transitive
 subjects, but it does not add those subjects' manifests to `Dependencies` or
 `Pruning`, or to the diagnostic group, restored-package, and restored-edge
 projections. Adding or removing the graph section therefore never changes
@@ -604,20 +679,20 @@ For restored-project roots, the explicit root's owner-issued evidence already
 contains the selected restored package nodes and edges.
 
 The same semantic node may be reached from several parents. It appears once in
-the node set, and every directed relationship appears as its own edge. A tree
-projection may repeat a node label with a revisit marker for readability, but
-the underlying graph and edge rows remain lossless.
+the canonical node set and once under each explaining parent in the hierarchy.
+Every directed relationship remains backing evidence; each root-relative
+parent occurrence remains a separately addressed hierarchy occurrence.
 
 Section resolution happens before producer execution. The acquisition plan is
 the union of producers required by the selected sections and the traversal
 bound. An evidence-only request does not run transitive traversal, while a
-graph request acquires only the facts needed for its requested depth. Once that
-plan completes, one immutable document supplies every selected view without
-rerunning a producer.
+hierarchy request acquires only the facts needed for its requested depth. Once
+that plan completes, one immutable document supplies every selected view
+without rerunning a producer.
 
-The graph is usable when some evidence sections are unavailable, and evidence
-is usable when traversal stops at an unresolved boundary. Neither projection
-turns the other's incompleteness into success-shaped absence.
+The hierarchy is usable when some evidence sections are unavailable, and
+evidence is usable when traversal stops at an unresolved boundary. Neither
+projection turns the other's incompleteness into success-shaped absence.
 
 ## Sections and disclosure
 
@@ -632,12 +707,12 @@ The retail base section ladder is:
 
 | Section | Declared row | Default visibility |
 | --- | --- | --- |
-| `Dependency Graph` | One directed logical dependency edge. | Minimal |
+| `Dependency Hierarchy` | One rooted dependency relationship occurrence. | Minimal |
 | `Dependencies` | One normalized direct declaration. | Normal when applicable |
 | `Pruning` | One direct declaration's pruning applicability or candidate-bound policy result. | Explicit only |
 | `Failures` | One typed root, acquisition, projection, or traversal failure occurrence. | Normal when present |
 
-`Dependency Graph` is the asset route's single high-value minimal section. It
+`Dependency Hierarchy` is the asset route's single high-value minimal section. It
 preserves the current reason to invoke the Dependency operation: seeing what
 depends on what.
 
@@ -646,7 +721,7 @@ interpret the result. `Pruning` is unbounded because it may read an installed
 platform inventory and resolve exact package candidates; it enters no
 verbosity level. `-v:d` does not add it.
 
-The `@Dependencies` category contains `Dependency Graph`, `Dependencies`, and
+The `@Dependencies` category contains `Dependency Hierarchy`, `Dependencies`, and
 `Failures`. It deliberately excludes `Pruning`, so selecting the category
 preserves its established cost and acquisition contract. A caller that wants
 declaration evidence without traversal selects the public evidence and failure
@@ -670,7 +745,7 @@ inventory. The family is a disclosed policy comparison target, not a claim
 that an application activates that shared framework.
 
 Root-set completion and the state of every requested phase are mandatory typed
-Content and remain present in unprojected JSON when the selected graph or
+Content and remain present in unprojected JSON when the selected hierarchy or
 evidence rows are empty or partial. Ordinary Markdown renders the selected H2
 sections directly rather than projecting completion as a root document or
 table. Diagnostics, exit status, and exact-count eligibility still consume
@@ -702,7 +777,7 @@ category name may have different authored membership in another command;
 package inspection continues to use its own direct dependency-section
 membership. Automatic verbosity selects only the asset route's base category.
 
-`Dependency Graph` declares conditional acquisition cost. It is network-free
+`Dependency Hierarchy` declares conditional acquisition cost. It is network-free
 for restored assets and already-admitted local facts, and package-acquiring
 when an expandable package root requires another manifest. A plain `-D`
 remains structural and network-free. Bare `-S` includes the graph only when
@@ -748,7 +823,7 @@ these roles:
 | Current data | Role after adoption |
 | --- | --- |
 | Root-set completion, requested and admitted counts, per-root admission, traversal and pruning completion, graph counts, and selected-plan phase completion | Required baseline Content. |
-| `Dependency Graph`, `Dependencies`, and `Pruning` rows | Baseline Content selected by the command contract. |
+| `Dependency Hierarchy`, `Dependencies`, and `Pruning` rows | Baseline Content selected by the command contract. |
 | Root, acquisition, declaration, relationship, traversal, and pruning failures | Typed baseline Content; required operational context may also remain in ordinary Diagnostics. |
 | Package root identity, provenance, declaration groups, group selection, restored package nodes, restored edges, processing observations, and their owner-issued phase states | Supplemental Package Dependency Evidence retained in `TEvidence`. |
 | CLI root labels, section membership, row windows, display ordering, and Markout or JSON lowering | Host presentation, not service evidence. |
@@ -762,8 +837,8 @@ baseline consumer to understand `TEvidence`.
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption are implemented. Generated sidecar serialization and
-Browser/Wasm adoption remain proposed.
+CLI consumption, and closed generated serialization are implemented. Generated
+sidecar serialization and Browser/Wasm adoption remain proposed.
 
 The dependency service issues one named settled Document:
 
@@ -792,6 +867,14 @@ baseline root and graph facts do not become a synthetic package input. A
 zero-root `PackageInputs` outcome is therefore a complete empty package
 evidence value only when baseline Content establishes that no admitted root was
 applicable.
+
+Package-source provenance uses
+`PackageDependencyEvidenceSourceIdentity`, not the runtime
+`PackageSourceResultIdentity`. It retains credential-free producer identity,
+inert display, transport kind, and a one-based document-local association.
+The association correlates prefix completion, admitted roots, and failures
+without serializing the opaque caller association or granting acquisition
+authority.
 
 The wrapper is a Document rather than another Outcome. Package-root rejection,
 phase unavailability, incomplete evidence, and typed producer failure already
@@ -901,6 +984,14 @@ pathological fixtures. They cover:
 
 - semantic equality between the extracted `DependencyInspectionContent` and
   the existing asset-mode command projection before host rendering;
+- exclusion of configured source locations, credentials, runtime source
+  associations, acquisition correspondence, and live authority objects from
+  both in-memory Content and its generated wire form while ordinary CLI
+  rendering remains unchanged;
+- round-trip of every reachable closed candidate, manifest,
+  restored-traversal, and pruning outcome, including default immutable
+  collections, plus rejection of noncanonical framework and portable producer
+  identities;
 - exact admitted and failed occurrence association, including mixed root kinds
   and a package-prefix failure without an explicit occurrence, while rejecting
   an unassociated failure for a non-prefix request;
@@ -915,7 +1006,7 @@ pathological fixtures. They cover:
   recapture; and
 - exact `asset-dependencies` version `1` framing for baseline and enriched
   forms, rejection of a missing or mismatched registration, and round-trip of
-  both concrete source-generated serializers; and
+  both concrete source-generated serializers;
 - parsed-wire equality for existing `DependsAssetDocument` JSON with and
   without the sidecar, including selected-section presence and row windows;
   rejection of standalone asset-mode `--envelope`; and
@@ -932,72 +1023,73 @@ demonstration consumes the same evidence value. These gates do not verify the
 already documented Release host-surface absence, which remains **unverified**
 under the generic envelope policy.
 
-## Graph rendering and row currency
+## Hierarchy rendering and row currency
 
-The graph's declared row currency is one directed logical dependency edge.
-The same selected edge sequence supplies:
+The hierarchy's declared row currency is one rooted dependency relationship
+occurrence. The same selected non-root occurrence sequence supplies:
 
 - the default Markdown dependency tree;
 - standalone `--tree`;
 - standalone or embedded Mermaid;
-- the `Dependency Graph` edge table;
+- the `Dependency Hierarchy` occurrence table;
 - `--table`, `--tsv`, and `--jsonl`;
-- typed and lowered JSON graph edges; and
+- typed and lowered JSON hierarchy occurrences; and
 - `--count`.
 
-Tree nodes, root headings, revisit markers, cycle markers, depth boundaries,
-and disconnected-component headings are presentation context. They are not
-additional rows.
+Root headings and endpoint nodes are presentation context. Every revisit,
+cycle, and ordinary dependency branch is an occurrence row because each
+preserves a distinct parent-to-target explanation. Depth-boundary annotations
+and window-fragment markers are context rather than additional rows.
 
-Multi-root output is a graph with several explicit roots, not a synthetic
-semantic super-root. Tree lowering renders a spanning forest in root occurrence
-order and emits every selected logical edge exactly once. The renderer tracks
-emitted edges, not globally expanded nodes. When it reaches an already-emitted
-edge whose target still leads, for the current root occurrence, to an
-unrendered selected edge, it inserts a non-row revisit connector and continues
-until that edge can be rendered. A revisit connector must lead to at least one
-unrendered selected edge, so connector traversal is finite. When no such edge
-remains, the revisit marker terminates that branch.
+Multi-root output is a hierarchy forest with several explicit roots, not a
+synthetic semantic super-root. The host-neutral hierarchy has already bounded
+expansion and classified each non-root occurrence before a renderer runs.
+Renderers do not deduplicate relationships, re-run traversal, or decide which
+occurrence is a revisit.
 
-A later explicit root whose selected outgoing edges were all emitted below an
-earlier root remains visible as a top-level root/revisit marker without
-duplicating those edge rows. Root order may choose the branch under which an
-edge is first rendered, but it does not change edge cardinality or identity.
-Mermaid and edge-table lowering retain all disconnected components.
+A semantic node that is also a later explicit root remains visible as a
+top-level root occurrence and has its own per-root expansion. Reaching that
+same node below an earlier root does not spend, merge, or suppress the later
+root's occurrences.
 
-`--rows` windows the ordered edge sequence before every graph renderer.
-Required endpoint nodes and explicit root context remain present so a selected
-edge is interpretable. Tree lowering renders each connected component induced
-by the selected edges and marks it as a windowed fragment when its original
-root path is absent. It never draws an unselected connecting edge. Isolated
-explicit roots remain graph context but do not become invented edge rows.
+`--rows` windows the ordered non-root occurrence sequence before every
+hierarchy renderer. Required endpoint nodes and explicit root context remain
+present so a selected occurrence is interpretable. When the selected
+occurrence's parent row is absent, the parent endpoint is marked as a windowed
+fragment. The renderer never draws an unselected parent relationship. Isolated
+explicit roots remain hierarchy context but do not become invented
+relationship rows.
 
-Graph ordering is deterministic and independent of rendered labels. It uses
-root occurrence order, owner-issued semantic node identity, relationship or
-evidence identity when available, and a document-local edge ordinal.
-Source-authored text never participates in deduplication, cycle detection, or
-row identity.
+Hierarchy ordering is deterministic and independent of rendered labels. It
+uses root occurrence order, producer-issued relationship order, and
+document-local occurrence identity. Source-authored text never participates in
+deduplication, cycle detection, or row identity.
 
-The heterogeneous edge table has one common schema:
+The heterogeneous occurrence table has one common schema:
 
-- root occurrence set;
+- occurrence ID;
+- root occurrence;
+- parent occurrence ID;
+- root-relative depth;
 - source kind and typed source identity;
-- relationship kind;
+- relationship kind and backing relationship identity;
 - target kind and typed target identity;
-- minimum depth;
+- occurrence disposition (`Expanded`, `Revisit`, or `Cycle`);
 - resolution state; and
 - evidence identity when an owner issued one.
 
+The document-local backing relationship identity is exposed as `Edge ID` in
+tables and projected views and as `edge_id` in JSONL and structured JSON.
 Human columns render safe labels beside those typed fields. Typed JSON uses
 discriminated endpoint identities rather than forcing type, library, project,
-and package identities into one string grammar. `-D "Dependency Graph"`
+and package identities into one string grammar. `-D "Dependency Hierarchy"`
 exposes that common schema without acquiring roots.
 
 [#3320](https://github.com/richlander/dotnet-inspect/issues/3320) supplies the
 pathological acceptance case: a shared package dependency reached through
-several parents must retain every edge; tree output must distinguish a revisit
-from a true leaf; and Mermaid must contain the explicit root and its outgoing
-edges.
+several parents must retain every occurrence; tree output must distinguish a
+revisit from a true leaf; and Mermaid must contain the explicit root and its
+outgoing occurrences.
 
 ## Evidence rows and graph association
 
@@ -1165,18 +1257,18 @@ Markdown and typed JSON may carry the complete multi-section document.
 Lowered JSON carries the same selected Markout sections. Table, TSV, and JSONL
 require exactly one selected table-shaped section.
 
-Standalone tree and Mermaid require exactly one selected graph section. The
-default Markdown document may combine the dependency graph with evidence
+Standalone tree and Mermaid require exactly one selected hierarchy section.
+The default Markdown document may combine the dependency hierarchy with evidence
 tables.
 
 Outside discovery, `--tree` selects the standalone tree rendering of
-`Dependency Graph`. With `-D/--discover`, the existing discovery contract
+`Dependency Hierarchy`. With `-D/--discover`, the existing discovery contract
 retains ownership: `--tree` renders the schema tree and does not request
 dependency traversal.
 
 Count follows the selected section's declared row currency:
 
-- `Dependency Graph` counts selected logical edges;
+- `Dependency Hierarchy` counts selected non-root relationship occurrences;
 - `Dependencies` counts normalized direct declarations;
 - `Pruning` counts projected direct-declaration policy rows;
 - `Failures` counts failure occurrences.
@@ -1192,7 +1284,7 @@ they do not collapse into one request-wide scalar.
 Traversal depth never filters `Dependencies` or the diagnostic group,
 `Pruning`, restored-package, and restored-edge projections. Those projections
 describe direct owner-issued evidence for the explicit roots. Depth applies
-only to `Dependency Graph`. A row window may reduce rendered pruning rows, but
+only to `Dependency Hierarchy`. A row window may reduce rendered pruning rows, but
 it does not change acquisition, the pruning summary, failure retention, or exit
 status.
 
@@ -1239,7 +1331,7 @@ The completed consolidation into `depends` was intentionally breaking:
 - positional type-to-library fallback is removed in favor of explicit
   `--library`;
 - `Dependencies` moves from the separate command's single minimal section to a
-  normal evidence section behind the minimal `Dependency Graph`;
+  normal evidence section behind the minimal `Dependency Hierarchy`;
 - `dependency-evidence` is removed as a supported command; and
 - current README examples, help, demos, and product skills use `depends`.
 
@@ -1411,7 +1503,7 @@ The target asset-root experience combines traversal and evidence under
 
 ```console
 $ dotnet-inspect graph dependencies --project ./src/App/App.csproj \
-    --depth 2 -S "Dependency Graph" -S Dependencies
+    --depth 2 -S "Dependency Hierarchy" -S Dependencies
 
 # App dependencies
 
@@ -1419,7 +1511,7 @@ $ dotnet-inspect graph dependencies --project ./src/App/App.csproj \
 **Roots:** 1 complete
 **Traversal:** complete through depth 2
 
-## Dependency Graph
+## Dependency Hierarchy
 
 App
 └─ Microsoft.Extensions.Hosting 10.0.0
@@ -1433,8 +1525,8 @@ App
 | App | net10.0 | Microsoft.Extensions.Hosting | 10.* | 10.0.0 |
 ```
 
-The neighboring direct-only package case uses the same route and graph row
-currency:
+The neighboring direct-only package case uses the same route and hierarchy
+occurrence currency:
 
 ```console
 dotnet-inspect graph dependencies \
@@ -1452,8 +1544,9 @@ App
    └─ Shared ↩
 ```
 
-Both `Package.A -> Shared` and `Package.B -> Shared` remain graph edges and
-appear in edge-table, Mermaid, JSON, row-window, and count output.
+Both `Package.A -> Shared` and `Package.B -> Shared` remain distinct
+root-relative occurrences and appear in the occurrence table, Mermaid, JSON,
+row-window, and count output.
 
 The explicit pruning projection shows direct-declaration policy evidence
 without changing that graph:
@@ -1504,15 +1597,15 @@ targeted Debug-build probe.
 | Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
-| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Graph`. |
+| Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Hierarchy`. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free pruning outcomes perform no inventory or candidate work. | Restored-project application-authorship and direct-nuspec source-boundary tests with throwing producers. |
 | `Subsumed` delegates, while an older platform-supplied version retains the newer package candidate. | CLI projection test for `System.Text.Json@9.0.0` against platform `11.0.0` and `System.Runtime@4.3.2` against platform `4.3.1`. |
 | Inventory failure and target mismatch remain typed failures and prevent candidate work. | Instrumented inventory tests asserting nonzero status, affected declarations, and `Failures` rows. |
 | Row windows and rendering formats do not reinterpret pruning policy. | Markdown, table, typed JSON, and one-row window tests over the same two policy outcomes. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
-| A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress edge rows in tree output. | Depth-asymmetric two-root graph fixture run in both root orders, asserting one rendering per selected logical edge and equal tree/table/JSON/count cardinality. |
-| Shared DAG nodes retain every edge and roots survive Mermaid lowering. | #3320 graph fixture across Markdown tree, Mermaid, edge table, JSON, count, and row selection. |
+| A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress either root's occurrence rows. | Depth-asymmetric two-root fixture run in both root orders, asserting independent per-root expansion and equal tree/table/JSON/count cardinality. |
+| Shared DAG targets retain every parent occurrence and roots survive Mermaid lowering. | #3320 fixture across Markdown tree, Mermaid, occurrence table, JSON, count, and row selection. |
 | Declaration constraints remain when child resolution is unavailable. | Package or nuspec test with a valid declaration and unavailable child expansion. |
 | Restored-edge identity survives independently of command graph-edge projection. | Direct-assets owner-level identity assertions and command graph projection assertions over the same owner-issued edge. |
 | Retail builds expose only sections with documented consumer scenarios. | Release catalog, category, exact and wildcard selection, discovery/schema, verbosity, count-order, and typed JSON absence tests; Debug exact-selection tests for the diagnostic farm team. |

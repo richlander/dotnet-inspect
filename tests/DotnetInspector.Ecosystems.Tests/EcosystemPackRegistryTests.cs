@@ -517,6 +517,98 @@ public sealed class EcosystemPackRegistryTests
     }
 
     [Fact]
+    public async Task PopulationLoaderSelectionRequiresExactCatalogRegistrationCorrespondence()
+    {
+        s_firstLoaderInvocations = 0;
+        EcosystemPopulationLoaderBinding<TestLoaderInputs> binding =
+            EcosystemPopulationLoaderBinding.Create<TestLoaderInputs>(
+                EcosystemPopulationLoaderId.Create(
+                    "ecosystem-loader.first"),
+                LoadFirstAsync);
+        EcosystemPackId firstId =
+            EcosystemPackId.Create("ecosystem.first");
+        EcosystemPackId secondId =
+            EcosystemPackId.Create("ecosystem.second");
+        WorkspaceEcosystemRegistrationDeclaration first =
+            Declaration(firstId, "Example.First");
+        WorkspaceEcosystemRegistrationDeclaration second =
+            Declaration(secondId, "Example.Second");
+        EcosystemPackRegistry registry = Registry(
+            Pack(firstId.Value, 100, null) with
+            {
+                PopulationLoader = binding,
+                WorkspaceRegistration = first,
+            },
+            Pack(secondId.Value, 200, null) with
+            {
+                WorkspaceRegistration = second,
+            });
+        await using var workspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                ImmutableArray.Create<WorkspaceRegistration>(
+                    new WorkspaceRegistration.Ecosystem(first),
+                    new WorkspaceRegistration.Ecosystem(second))));
+        WorkspaceRegistrationRevision revision = Read(workspace);
+        EcosystemPopulationDemand demand =
+            EcosystemPopulationDemand.WholePopulation.Instance;
+
+        var known =
+            Assert.IsAssignableFrom<EcosystemPopulationLoaderSelection.Known>(
+                registry.SelectPopulationLoader(
+                    revision,
+                    first,
+                    demand));
+        Assert.Same(binding, known.Binding);
+
+        var unavailable =
+            Assert.IsType<EcosystemPopulationLoaderSelection.Unavailable>(
+                registry.SelectPopulationLoader(
+                    revision,
+                    second,
+                    demand));
+        Assert.Equal(
+            "ecosystem-loader.unavailable",
+            Assert.Single(unavailable.Diagnostics).Code);
+
+        WorkspaceEcosystemRegistrationDeclaration equalButDistinct =
+            Declaration(firstId, "Example.First");
+        Assert.Throws<ArgumentException>(
+            () => registry.SelectPopulationLoader(
+                revision,
+                equalButDistinct,
+                demand));
+        await using var mismatchedWorkspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                ImmutableArray.Create<WorkspaceRegistration>(
+                    new WorkspaceRegistration.Ecosystem(
+                        equalButDistinct))));
+        var mismatch =
+            Assert.IsType<EcosystemPopulationLoaderSelection.Rejected>(
+                registry.SelectPopulationLoader(
+                    Read(mismatchedWorkspace),
+                    equalButDistinct,
+                    demand));
+        Assert.Equal(
+            "ecosystem-loader.registration-mismatch",
+            Assert.Single(mismatch.Diagnostics).Code);
+
+        WorkspaceEcosystemRegistrationDeclaration unknown =
+            Declaration(
+                EcosystemPackId.Create("ecosystem.unknown"),
+                "Example.Unknown");
+        await using var unknownWorkspace = new InspectionWorkspace(
+            new WorkspacePlan(
+                ImmutableArray.Create<WorkspaceRegistration>(
+                    new WorkspaceRegistration.Ecosystem(unknown))));
+        Assert.IsType<EcosystemPopulationLoaderSelection.Rejected>(
+            registry.SelectPopulationLoader(
+                Read(unknownWorkspace),
+                unknown,
+                demand));
+        Assert.Equal(0, s_firstLoaderInvocations);
+    }
+
+    [Fact]
     public void LoaderOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack()
     {
         EcosystemPopulationLoaderBinding<TestLoaderInputs> binding =
@@ -651,6 +743,20 @@ public sealed class EcosystemPackRegistryTests
             $"{scenarioId} summary",
             order,
             ProductDemoSourceBinding.Create(scenarioId, source));
+
+    private static WorkspaceRegistrationRevision Read(
+        InspectionWorkspace workspace) =>
+        Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+            workspace.GetRegistrationSnapshot()).Revision;
+
+    private static WorkspaceEcosystemRegistrationDeclaration Declaration(
+        EcosystemPackId id,
+        string packageId) =>
+        new(
+            WorkspaceEcosystemRegistrationId.Create(id.Value),
+            [],
+            [new PackageCoordinate(packageId)],
+            []);
 
     private static InspectionDefinitionRecord[] CreateFirstRecords()
     {

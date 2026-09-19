@@ -90,8 +90,7 @@ internal static class LibraryCoordinateCommandDefinitions
         command.Options.Add(tfmOption);
         command.Options.Add(fileOption);
         command.Options.Add(metadataRootOption);
-        command.Options.Add(opts.RawUrls);
-        command.Options.Add(opts.BrowsableUrls);
+        command.Options.Add(opts.PreferRenderedUrls);
         command.Options.Add(opts.Trace);
         command.Options.Add(opts.Effective);
         command.Options.Add(opts.Json);
@@ -281,9 +280,8 @@ internal static class LibraryCoordinateCommandDefinitions
                 Tfm = tfm,
                 CoordinateRequest = coordinateRequest,
                 MetadataRoot = metadataRoot,
-                BrowsableUrls =
-                    parseResult.GetValue(opts.BrowsableUrls)
-                    && !parseResult.GetValue(opts.RawUrls),
+                PreferRenderedUrls =
+                    parseResult.GetValue(opts.PreferRenderedUrls),
                 JsonOutput = format == OutputFormat.Json,
                 Markdown = parseResult.GetValue(opts.Markdown),
                 PlainText = parseResult.GetValue(opts.PlainText),

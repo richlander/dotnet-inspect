@@ -629,8 +629,30 @@ export interface BrowserPackageIcon {
   readonly base64: string;
 }
 
+export interface BrowserPackageInfoMeasurementInspection {
+  readonly content: BrowserPackageInfoMeasurements;
+  readonly share: BrowserInspectionShare;
+  readonly diagnostics: ReadonlyArray<BrowserInspectionDiagnostic>;
+}
+
+export interface BrowserPackageInfoMeasurements {
+  readonly status: string;
+  readonly packageId: string;
+  readonly packageVersion: string;
+  readonly compressedPackageBytes: number | null;
+  readonly selectedTargetFramework: string | null;
+  readonly availableTargetFrameworkCount: number | null;
+  readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
+  readonly selectedLibraryPayloadBytes: number | null;
+  readonly selectedLibraryCount: number | null;
+  readonly detail: string | null;
+  readonly unavailableReason: string | null;
+  readonly hasSelectedSlice: boolean;
+}
+
 export interface BrowserPackageLoadResult {
   readonly versionSettlement: BrowserPackageVersionSettlementInspection;
+  readonly packageInfo: BrowserPackageInfoMeasurementInspection | null;
   readonly surface: BrowserPackageSurface | null;
 }
 
@@ -681,6 +703,12 @@ export interface BrowserPackagePruningSupply {
   readonly family: string;
   readonly package: string;
   readonly version: string;
+}
+
+export interface BrowserPackageQueryAnswer {
+  readonly id: string;
+  readonly value: string;
+  readonly term: BrowserPackageQueryTerm | null;
 }
 
 export interface BrowserPackageQueryCancellation {
@@ -740,10 +768,16 @@ export interface BrowserPackageQueryEvent {
 
 export interface BrowserPackageQueryEvidence {
   readonly id: string;
-  readonly text: string;
   readonly scope: BrowserPackageQueryEvidenceScope;
   readonly summary: BrowserPackageQueryEvidenceSummary | null;
+  readonly properties: ReadonlyArray<BrowserPackageQueryEvidenceProperty>;
+  readonly number: number | null;
   readonly term: BrowserPackageQueryTerm | null;
+}
+
+export interface BrowserPackageQueryEvidenceProperty {
+  readonly name: string;
+  readonly value: string;
 }
 
 export interface BrowserPackageQueryEvidenceSummary {
@@ -827,6 +861,7 @@ export interface BrowserPackageQueryRow {
   readonly packageId: string;
   readonly version: string;
   readonly tier: BrowserPackageQueryAcquisitionTier;
+  readonly answers: ReadonlyArray<BrowserPackageQueryAnswer>;
   readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
   readonly totalDownloads: number | null;
   readonly verified: boolean | null;
@@ -1606,6 +1641,20 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+function $serializeJsonInput(
+  value: unknown,
+  operation: string,
+  parameter: string,
+): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) {
+    throw new TypeError(
+      `${operation} parameter '${parameter}' could not be serialized as JSON.`,
+    );
+  }
+  return json;
+}
+
 export async function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
   const $parsed: unknown = JSON.parse($result);
@@ -1624,8 +1673,8 @@ export function cancelPackageQuery(operationId: string, reason: string): Browser
   return $parsed as BrowserPackageQueryCancellation;
 }
 
-export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: string): ReadonlyArray<BrowserPackageGraphIdentityRole> {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, packageIdsJson);
+export function classifyPackageGraphIdentities(inspectedPackageId: string, packageIdsJson: ReadonlyArray<string>): ReadonlyArray<BrowserPackageGraphIdentityRole> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClassifyPackageGraphIdentities.271973316"](inspectedPackageId, $serializeJsonInput(packageIdsJson, "DotnetInspect.Web.Interop.Package.PackageExports.ClassifyPackageGraphIdentities.271973316", "packageIdsJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserPackageGraphIdentityRole>;
 }
@@ -1672,8 +1721,8 @@ export async function loadRuntimePackAssembly(targetFramework: string, platformV
   return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["LoadRuntimePackAssembly.1330709314"](targetFramework, platformVersion, assemblyFileName, pack, assetFileName);
 }
 
-export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: string): BrowserDependencyCoordinateMatch {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, candidatesJson);
+export function matchPackageDependencyCoordinate(packageId: string, declaredRange: string | null, candidatesJson: ReadonlyArray<BrowserDependencyCoordinateCandidate>): BrowserDependencyCoordinateMatch {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["MatchPackageDependencyCoordinate.1537767637"](packageId, declaredRange, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.MatchPackageDependencyCoordinate.1537767637", "candidatesJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserDependencyCoordinateMatch;
 }
@@ -1764,8 +1813,8 @@ export async function runPackageQuery(operationId: string, prefix: string, terms
   return $parsed as BrowserPackageQueryResult;
 }
 
-export function searchTypes(query: string, candidatesJson: string): ReadonlyArray<BrowserTypeSearchHit> {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, candidatesJson);
+export function searchTypes(query: string, candidatesJson: ReadonlyArray<BrowserTypeCandidate>): ReadonlyArray<BrowserTypeSearchHit> {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["SearchTypes.271973316"](query, $serializeJsonInput(candidatesJson, "DotnetInspect.Web.Interop.Package.PackageExports.SearchTypes.271973316", "candidatesJson"));
   const $parsed: unknown = JSON.parse($result);
   return $parsed as ReadonlyArray<BrowserTypeSearchHit>;
 }

@@ -162,8 +162,8 @@ substrates, and inspection producers that will extend that space.
   Outcome/Document and scalar population-count Result semantics for CLI and
   Browser/Wasm. History preserves native temporal evidence; Count alone counts
   package versions without payload inspection.
-  [Command Transition Model](design/command-transition-model.md#historical-subject-owned-diff-placement)
-  retains Package count binding, comparison-adoption evidence, and the
+  [Command Transition Model](design/command-transition-model.md#diff-operation-and-subject-section-adoption)
+  retains Package count binding, focused Diff adoption, and the
   envelope-complete boundary, including public CLI envelope output.
   Top-level Diff placement and equivalent subject sections are owned by
   [Operation Commands and Subject Sections](design/operation-command-and-subject-section-composition.md);

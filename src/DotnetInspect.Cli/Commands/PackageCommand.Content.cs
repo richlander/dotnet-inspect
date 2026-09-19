@@ -37,7 +37,8 @@ public partial class PackageCommand
         string packageName,
         string packageVersion,
         string? readmeFile,
-        string? declaredReadmeFile) : IDisposable
+        string? declaredReadmeFile,
+        string? declaredLicenseFile) : IDisposable
     {
         public PackageFileContentSet Read(
             InspectionOptions options,
@@ -49,6 +50,7 @@ public partial class PackageCommand
                 packageVersion,
                 readmeFile,
                 declaredReadmeFile,
+                declaredLicenseFile,
                 options,
                 suppressUnaryPayloadRead,
                 selectedPayloadPath);
@@ -215,7 +217,13 @@ public partial class PackageCommand
                     PackageFileLister.ResolvePackageReadme(
                         resolution.ExtractPath,
                         nuspec?.ReadmeFile),
-                    nuspec?.ReadmeFile);
+                    nuspec?.ReadmeFile,
+                    nuspec?.LicenseDeclaration is
+                        {
+                            Kind: PackageLicenseDeclarationKind.File,
+                        } license
+                            ? license.Value
+                            : null);
             ownershipTransferred = true;
             return acquisition;
         }
@@ -674,7 +682,7 @@ public partial class PackageCommand
                     List<SourceFileInfo> rows = await SourceFileCollector.CollectAsync(
                         source,
                         libraryPath,
-                        browsableUrls: options.BrowsableUrls,
+                        preferRenderedUrls: options.PreferRenderedUrls,
                         typeFilter: options.TypeFilter).ConfigureAwait(false);
                     result.SourceFiles!.AddRange(rows.Select(row => new PackageSourceFileInfo(
                         relativePath,
@@ -820,7 +828,10 @@ public partial class PackageCommand
         result.PackageReadmeFile = packageReadme;
         result.HasReadme = packageReadme != null;
         result.HasAgentDocumentation = File.Exists(Path.Combine(extractPath, "AGENTS.md"));
-        var files = PackageFileLister.ListAll(extractPath, packageReadme);
+        var files = PackageFileLister.ListAll(
+            extractPath,
+            packageReadme,
+            result.DeclaredLicenseFile);
         result.PackageFiles = files;
         if (wantsPackageFileRows
             && (HasPathFilter(options)
@@ -857,11 +868,15 @@ public partial class PackageCommand
         string version,
         string? readmeFile,
         string? declaredReadmeFile,
+        string? declaredLicenseFile,
         InspectionOptions options,
         bool suppressUnaryPayloadRead = false,
         string? selectedPayloadPath = null)
     {
-        var files = PackageFileLister.ListAll(extractPath, readmeFile);
+        var files = PackageFileLister.ListAll(
+            extractPath,
+            readmeFile,
+            declaredLicenseFile);
         List<PackageFile> selectedFiles =
         [
             .. FilterPackageFiles(files, options)
@@ -891,7 +906,7 @@ public partial class PackageCommand
                     version,
                     file,
                     options.ContentScope,
-                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
                     includeExactContent))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
@@ -913,15 +928,7 @@ public partial class PackageCommand
 
         string section = sections.Single();
         return options.Print
-            && (section.Equals(
-                    PackageSections.FilesReadme,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    PackageSections.FilesNuspec,
-                    StringComparison.OrdinalIgnoreCase)
-                || section.Equals(
-                    PackageSections.FilesSkills,
-                    StringComparison.OrdinalIgnoreCase))
+            && PackageFileFamily.IsFamilySection(section)
             || options.Bare
             && section.Equals(
                 PackageSections.FilesReadme,
@@ -1513,7 +1520,7 @@ public partial class PackageCommand
             version,
             files[0],
             PackageFileContentScope.Full,
-            normalizeGithubLinksToRaw: !options.BrowsableUrls,
+            normalizeGithubLinksToRaw: !options.PreferRenderedUrls,
             includeExactContent: HasUnstructuredOutputPath(options));
         ContainmentDiagnosticOutput.Write(content.SelectedContent);
         if (ProjectionDestinationWriter.IsFile(destination))
@@ -1791,6 +1798,12 @@ public partial class PackageCommand
         result.RepositoryCommit = nuspec.RepositoryCommit;
         result.License = nuspec.License;
         result.LicenseUrl = nuspec.LicenseUrl;
+        result.DeclaredLicenseFile = nuspec.LicenseDeclaration is
+            {
+                Kind: PackageLicenseDeclarationKind.File,
+            } license
+                ? license.Value
+                : null;
         result.PackageTypes = nuspec.PackageTypes;
         result.IsToolPackage = nuspec.IsToolPackage;
         result.ReadmeFile = nuspec.ReadmeFile;

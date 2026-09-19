@@ -28,6 +28,11 @@ public static class PackageSections
     public const string FilesReadme = "Package README file";
 
     /// <summary>
+    /// Nuspec-declared and corpus-backed license documents shipped by the package.
+    /// </summary>
+    public const string FilesLicenses = "Package license files";
+
+    /// <summary>
     /// <c>skills/**/SKILL.md</c> documents shipped by the package.
     /// </summary>
     public const string FilesSkills = "Package skill files";

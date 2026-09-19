@@ -77,6 +77,16 @@ public static class PackageVersionListingInspection
         PackageVersionListingRequest request,
         PackageHouseVersionListingResult listing)
     {
+        ImmutableArray<PackageVersionListingAuthorityFailure> failures =
+        [
+            .. listing.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>()
+                .Select(value => new PackageVersionListingAuthorityFailure(
+                    value.Failure.Authority,
+                    value.Failure.Kind,
+                    Field(value.Failure.Message),
+                    value.Failure.Timeout?.Kind)),
+        ];
         if (listing is PackageHouseVersionListingResult.Available available)
         {
             PackageVersionDiscoveryResult discovery =
@@ -90,7 +100,9 @@ public static class PackageVersionListingInspection
                     : PackageVersionListingCompleteness.Partial,
                 [.. discovery.Listings],
                 [.. discovery.SourceListings]);
-            return new PackageVersionListingOutcome.Listed(document);
+            return new PackageVersionListingOutcome.Listed(
+                document,
+                failures);
         }
 
         (PackageVersionListingFailureKind kind, InertString reason) =
@@ -109,16 +121,6 @@ public static class PackageVersionListingInspection
                 _ => throw new InvalidOperationException(
                     "Version-listing settlement returned an unsupported outcome."),
             };
-        ImmutableArray<PackageVersionListingAuthorityFailure> failures =
-        [
-            .. listing.Evidence.Failures
-                .OfType<PackageHouseFailure.Authority>()
-                .Select(value => new PackageVersionListingAuthorityFailure(
-                    value.Failure.Authority,
-                    value.Failure.Kind,
-                    Field(value.Failure.Message),
-                    value.Failure.Timeout?.Kind)),
-        ];
         return new PackageVersionListingOutcome.NotAvailable(
             new(
                 request,

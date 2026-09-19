@@ -66,7 +66,27 @@ public sealed record BrowserPackageSurface(
 
 public sealed record BrowserPackageLoadResult(
     BrowserPackageVersionSettlementInspection VersionSettlement,
+    BrowserPackageInfoMeasurementInspection? PackageInfo,
     BrowserPackageSurface? Surface);
+
+public sealed record BrowserPackageInfoMeasurementInspection(
+    BrowserPackageInfoMeasurements Content,
+    BrowserInspectionShare Share,
+    BrowserInspectionDiagnostic[] Diagnostics);
+
+public sealed record BrowserPackageInfoMeasurements(
+    string Status,
+    string PackageId,
+    string PackageVersion,
+    long? CompressedPackageBytes,
+    string? SelectedTargetFramework,
+    int? AvailableTargetFrameworkCount,
+    string[]? SelectedTargetFrameworkFolders,
+    long? SelectedLibraryPayloadBytes,
+    int? SelectedLibraryCount,
+    string? Detail,
+    string? UnavailableReason,
+    bool HasSelectedSlice);
 
 public sealed record BrowserPackageVersionSettlementInspection(
     BrowserPackageVersionSettlementOutcome Content,
@@ -359,11 +379,21 @@ public sealed record BrowserPackageQueryEvidenceSummary(
     int Count,
     string[] Preview);
 
+public sealed record BrowserPackageQueryAnswer(
+    string Id,
+    string Value,
+    BrowserPackageQueryTerm? Term = null);
+
+public sealed record BrowserPackageQueryEvidenceProperty(
+    string Name,
+    string Value);
+
 public sealed record BrowserPackageQueryEvidence(
     string Id,
-    string Text,
     BrowserPackageQueryEvidenceScope Scope,
     BrowserPackageQueryEvidenceSummary? Summary,
+    BrowserPackageQueryEvidenceProperty[] Properties,
+    long? Number,
     BrowserPackageQueryTerm? Term = null);
 
 public sealed record BrowserPackageQueryDeclaredDependency(
@@ -405,6 +435,7 @@ public sealed record BrowserPackageQueryRow(
     string PackageId,
     string Version,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryAnswer[] Answers,
     BrowserPackageQueryEvidence[] Evidence,
     long? TotalDownloads,
     bool? Verified,

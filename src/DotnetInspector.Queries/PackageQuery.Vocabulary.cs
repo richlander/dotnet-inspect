@@ -59,6 +59,7 @@ internal enum PackageQueryPredicateKind
     DependencyTarget,
     Depends,
     Downloads,
+    License,
     Readme,
     Tool,
     ToolFormat,
@@ -250,12 +251,10 @@ internal sealed class PackageQueryVocabulary
                     or PackageQueryPredicateKind.Prefix);
         SourceSelector input;
         string scope;
-        string explanation;
         if (population.Predicate.Kind == PackageQueryPredicateKind.Package)
         {
             scope = population.Predicate.Text!;
             input = new SourceSelector.Package(new PackageCoordinate(scope));
-            explanation = $"Package ID is \"{scope}\".";
         }
         else
         {
@@ -265,7 +264,6 @@ internal sealed class PackageQueryVocabulary
                     scope,
                     maximumCandidates,
                     includePrerelease));
-            explanation = $"Package ID matches prefix \"{scope}\".";
         }
 
         ImmutableArray<BoundPackageQueryTerm> terms =
@@ -293,7 +291,6 @@ internal sealed class PackageQueryVocabulary
         return new PackageQueryPlan(
             intent,
             Evidence(scope),
-            Evidence(explanation),
             terms,
             DependencyTarget(resolved.Terms),
             maximumCandidates,

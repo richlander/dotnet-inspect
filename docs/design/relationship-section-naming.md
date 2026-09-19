@@ -221,7 +221,7 @@ each component.
 | --- | --- | --- |
 | Package `Dependencies` | Direct declared dependency evidence | Conforming direct name |
 | Package `Dependencies --tree` | Resolved transitive rooted dependency result | **Target:** separate `Dependency Hierarchy`; projection must stop changing the result |
-| Depends `Dependency Graph` | Mixed carrier with roots and root-relative behavior over canonical nodes and a union of logical edges | **Target:** #7648 adopts an occurrence-addressed `Dependency Hierarchy`; the current mixed result is not renamed in place |
+| Depends `Dependency Hierarchy` | Rooted occurrence-addressed dependency result over canonical backing evidence | Conforming hierarchy name and identity; adopted by #7648 |
 | Library `References` without `--tree` | Direct assembly-reference evidence | Conforming direct name |
 | Library `References --tree` | Resolved transitive rooted reference result | **Target:** separate `Reference Hierarchy`; projection must stop changing the result |
 | `Calls` and `Callers` | Direct call evidence by direction | Conforming direct names |
@@ -243,15 +243,15 @@ performing a blind text replacement:
 
 | Surface | Current evidence | Adoption obligation |
 | --- | --- | --- |
-| Canonical section registration | Depends registers `Dependency Graph`; Package and Library register `Dependencies` and `References` | Register the new canonical section in the owning catalog and preserve direct sections as direct |
+| Canonical section registration | Depends registers `Dependency Hierarchy`; Package and Library register `Dependencies` and `References` | Preserve the canonical Depends hierarchy and add the Package and Library hierarchy sections in their owning adoptions |
 | Request planning and acquisition | Package `Dependencies --tree` and Library `References --tree` currently authorize transitive work | Bind `Dependency Hierarchy` or `Reference Hierarchy` before producer planning; make `--tree` projection-only |
 | Help, discovery, and completion | Host output is derived from or supplemented around current section catalogs | Advertise the canonical name once, classify obsolete spellings, and avoid presenting an alias as a second supported result |
 | Categories | `@Dependencies`, `@Calls`, `@Relations`, and `@Integrations` group current sections | Keep category identity separate; deliberately place each new hierarchy or graph section |
 | Compatibility aliases | `SelectResolver.LegacySectionAliases` globally maps `Dependencies` to `References` when no exact section wins | Remove or narrow the cross-domain alias under CLI change classification |
 | Portable View Facets | `package.dependencies`, `library.references`, `library.integrations`, and `member.call-graph` are issued identities | Preserve their current purposes; issue a distinct identity for each new hierarchy or graph result |
-| Structured output | Depends currently exposes a `DependencyGraph` schema member and graph-named nested types for the mixed result | Decide whether the hierarchy result requires a new or versioned schema in the Dependency adoption; do not infer a field rename from the display name |
+| Structured output | Depends exposes a `dependency_hierarchy` member whose roots and relationship occurrences retain root and parent identity | Package and Library adoptions must issue their own hierarchy-shaped schemas rather than repurpose direct-result fields |
 | Share and replay | Portable state binds facet identity and query intent rather than display text | Preserve old packet meaning and map new result shapes through new or explicitly versioned identities |
-| README, focused docs, and shipped skills | Current guidance contains existing `Dependency Graph`, `Dependencies --tree`, and `References --tree` spellings | Update examples in the adoption that makes the replacement executable |
+| README, focused docs, and shipped skills | Depends guidance uses `Dependency Hierarchy`; Package and Library guidance still contains `Dependencies --tree` and `References --tree` spellings | Update each remaining example in the adoption that makes its replacement executable |
 | Browser labels and gestures | Browser currently exposes direct `Integrations` and `Call Graph`; hierarchy facets are not issued | Reuse conforming names and add hierarchy labels only when the shared host-neutral result is available |
 | Tests and snapshots | Existing gates assert current selectors, help, projections, schemas, and facet titles | Replace or add assertions in the owning adoption and retain compatibility cases only for the approved migration |
 

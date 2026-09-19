@@ -318,7 +318,10 @@ diff, and IL. Use `Fidelity Causes` when a body cannot be raised faithfully.
 In Inspect Web, **All** also reveals exact direct-call relationships at their
 source locations; these remain outside the default Finding set. Selecting a
 recursive relationship shows its exact direct or mutual cycle witness and
-whether the bounded focus-graph census was complete.
+whether the bounded focus-graph census was complete. Selecting a framework
+`Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
+shows the exact synchronous-completion structure without claiming that runtime
+blocking was measured.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -378,6 +381,7 @@ transport.
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
 | Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
 | Control package sources | `--offline`, `--source`, `--add-source`, `--nugetconfig`, `--http-timeout` |
@@ -385,6 +389,10 @@ transport.
 `--table`, `--tsv`, and `--jsonl` render one section at a time, so pair them
 with a concrete `-S` when querying sectioned output. Markdown and JSON can
 represent multi-section documents.
+
+Source URLs are fetchable by default. `--prefer-rendered-urls` prefers a browser
+view when supported; it changes neither `--print` acquisition nor `--bare`
+decoration. The old `--raw` and `--blob` flags are no longer accepted.
 
 `-n N` selects the command's items. It selects semantic rows when the active
 command or lens declares them; otherwise it selects the first N rendered lines.
@@ -432,7 +440,7 @@ dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
-  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls --raw
+  -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -509,12 +517,45 @@ This package-content term matches simple names case-insensitively and reports
 the matching framework and archive path. It does not resolve or traverse the
 reference.
 
+License selection also stays at the manifest boundary. `license=any` matches
+any nuspec license declaration. Closed semantic values match nuspec metadata
+without reading a license document: SPDX expressions match their exact
+expression, and `license=OSMF` recognizes a declared `OSMFEULA.*` file:
+
+```bash
+dotnet-inspect package query wix \
+  --where "license=OSMF" --nuspec-only
+dotnet-inspect package query Newtonsoft.Json \
+  --where "license=MIT" --nuspec-only
+```
+
+Neither query opens the package archive. To inspect the license documents that
+the package actually ships, use the separate package-file section:
+
+```bash
+dotnet-inspect package wix@7.0.0 -S "Package license files"
+dotnet-inspect package wix@7.0.0 -S "Package license files" --count
+dotnet-inspect package wix@7.0.0 -S "Package license files" --print --bare
+```
+
+Package Query places the semantic result in `Answer`: `MIT` for the
+Newtonsoft.Json query, `OSMF` for the WiX query, and `true` for
+`license=any`. Supporting nuspec
+declaration kind and value remain separate evidence. `--count` already emits
+only the scalar count; `--bare` is useful with `--print` when only the selected
+document body is wanted without package or section framing.
+
+The exact nuspec `<license type="file">` target is always included. The same
+section also finds conventional text or Markdown license names and license
+directories; notices remain a separate legal-document concern. Reading that
+content is an explicit package projection and never informs license identity.
+
 Add `--where "key=value"` to select product-owned Package Query terms, with one
-matched package per row and product-authored evidence. The initial CLI
+matched package per row, semantic answers, and structured evidence. The initial CLI
 vocabulary covers package metadata, dependencies, cross-prefix dependencies,
 downloads, README presence, .NET tools and their CLI v1/v2 format, assembly
-references, and skill packages. Discover the
-admitted keys and values before constructing a query:
+references, skill packages, and nuspec license identity. Discover the admitted
+keys and values before constructing a query:
 
 ```bash
 dotnet-inspect package query -Q Packages
@@ -834,6 +875,7 @@ fallback.
 
 ```bash
 dotnet-inspect type string --shape
+dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -845,6 +887,15 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
 ```
+
+For a Type catalog with an explicit package, library, platform, or project
+source, including positional or `-t` Type globs, `-n`, `--tail`, and
+`--rows A..B` select complete types after type, kind, and unsafe filtering.
+Markdown, table, TSV, JSONL, and JSON observe the same selected types;
+assembly-level companion evidence such as Type forwarders remains visible. Add
+`--lines` only to clip rendered text. Exact-type, selected-section, discovery,
+shape, match, and ambiguous commandless modes retain rendered-line fallback.
+Numeric `-t` is a literal Type filter, not a row-count spelling.
 
 ### Compatibility and change tracking
 
@@ -1015,7 +1066,7 @@ dotnet-inspect depends NpgsqlOptionsExtension \
 dotnet-inspect depends \
   --project ./src/App/App.csproj \
   --depth 2 \
-  -S "Dependency Graph,Dependencies"
+  -S "Dependency Hierarchy,Dependencies"
 dotnet-inspect depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --nuspec ./artifacts/local.nuspec \
@@ -1066,6 +1117,13 @@ dotnet-inspect graph libraries \
   -S "Provider API Types" \
   --table
 ```
+
+For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
+shared targets reached through different parents remain separate occurrences,
+and tables, JSON, JSONL, row windows, and Count use that same occurrence
+currency. `Dependencies` remains the direct declaration evidence section.
+Positional `depends <type>` retains its existing `Dependency Graph` section
+until Type relationships move to the general Graph operation.
 
 For `graph integrations` and `graph calls`, one semantic row is one logical
 graph edge in the completed typed document. Head/Tail and strict Window select

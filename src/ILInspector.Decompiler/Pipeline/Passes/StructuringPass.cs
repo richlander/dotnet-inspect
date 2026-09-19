@@ -464,8 +464,10 @@ public sealed class StructuringPass : IIrPass
             return false;
         }
 
+        List<string>? pendingRetainedDeclines =
+            context.StructuringDiagnostics is null ? null : [];
         var plan = StructuringJoinAnalysis.Analyze(sourceCtx.Blocks);
-        var ranges = PlanRetainedRanges(sourceCtx, plan, context.StructuringDiagnostics);
+        var ranges = PlanRetainedRanges(sourceCtx, plan, pendingRetainedDeclines);
         foreach (var backEdge in plan.BackEdgeRegions)
         {
             bool consumed = ranges.Any(range =>
@@ -473,14 +475,15 @@ public sealed class StructuringPass : IIrPass
                 && range.Start + 1 == backEdge.Start
                 && range.Stop == backEdge.Merge);
             if (!consumed)
-                context.StructuringDiagnostics?.RecordRetainedDecline("retained-back-edge-region");
+                pendingRetainedDeclines?.Add("retained-back-edge-region");
         }
         if (ranges.Count == 0)
         {
             if (!plan.UnrootedDecisions.IsEmpty)
-                context.StructuringDiagnostics?.RecordRetainedDecline("retained-unrooted");
+                pendingRetainedDeclines?.Add("retained-unrooted");
             if (!plan.VirtualExitDecisions.IsEmpty)
-                context.StructuringDiagnostics?.RecordRetainedDecline("retained-virtual-exit");
+                pendingRetainedDeclines?.Add("retained-virtual-exit");
+            PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
             return false;
         }
 
@@ -518,8 +521,8 @@ public sealed class StructuringPass : IIrPass
                     range.Start,
                     range.Stop))
             {
-                context.StructuringDiagnostics?.RecordRetainedDecline(
-                    "retained-loop-changes-control-flow-owner");
+                pendingRetainedDeclines?.Add("retained-loop-changes-control-flow-owner");
+                PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
                 return false;
             }
             if (range.AllowRetainedMergeWithinLoop
@@ -528,8 +531,8 @@ public sealed class StructuringPass : IIrPass
                     built,
                     range.RetainedMerges))
             {
-                context.StructuringDiagnostics?.RecordRetainedDecline(
-                    "retained-dangling-merge-label");
+                pendingRetainedDeclines?.Add("retained-dangling-merge-label");
+                PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
                 return false;
             }
             replacement.Add(built);
@@ -544,6 +547,7 @@ public sealed class StructuringPass : IIrPass
             container);
 
         container.ReplaceWith(replacement);
+        PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
         context.StructuringDiagnostics?.RecordStructured();
         foreach (var _ in ranges)
             context.StructuringDiagnostics?.RecordRetainedRegion();
@@ -553,7 +557,7 @@ public sealed class StructuringPass : IIrPass
     static List<RetainedRange> PlanRetainedRanges(
         Ctx sourceCtx,
         StructuringJoinPlan plan,
-        StructuringDiagnostics? diagnostics)
+        ICollection<string>? retainedDeclines)
     {
         var ranges = new List<RetainedRange>();
         int cursor = 0;
@@ -601,7 +605,7 @@ public sealed class StructuringPass : IIrPass
                     break;
                 }
 
-                diagnostics?.RecordRetainedDecline(decline);
+                retainedDeclines?.Add(decline);
             }
 
             if (selected is { } accepted)
@@ -616,6 +620,17 @@ public sealed class StructuringPass : IIrPass
         }
 
         return ranges;
+    }
+
+    static void PublishRetainedDeclines(
+        StructuringDiagnostics? diagnostics,
+        IEnumerable<string>? retainedDeclines)
+    {
+        if (diagnostics is null || retainedDeclines is null)
+            return;
+
+        foreach (string decline in retainedDeclines)
+            diagnostics.RecordRetainedDecline(decline);
     }
 
     static RetainedRange? TryPlanRetainedLoopRange(

@@ -37,7 +37,7 @@ internal static class MemberShareProjection
                 + "combined with section, discovery, or analysis selection.";
         }
         if (options.FormatFlagExplicitlySet
-            || options.LegacyUrlModeExplicitlySet
+            || options.UrlPreferenceExplicitlySet
             || options.LineWindowExplicitlySet
             || options.CompactJson
             || options.PlainText

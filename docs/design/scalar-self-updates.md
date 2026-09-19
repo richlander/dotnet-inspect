@@ -11,7 +11,7 @@ inside the right-hand side.
 This is a bounded retirement under
 [value-typed emission](value-typed-emission.md), not a claim that all numeric
 binding is decided in IR. The existing printer continues to own enum operand
-coercion, enum-shift decomposition, mixed-sign binding, shift-mask spelling,
+coercion, enum-shift decomposition, unchecked mixed-sign binding, shift-mask spelling,
 and overflow-context syntax.
 
 ## Representation and admission
@@ -37,8 +37,14 @@ is not a storage-identity test: a Boolean read uses `ldind.u1`, whereas its
 write uses `stind.i1`. The typed address owns the destination; the existing
 numeric renderer still owns binding the operation to it.
 
+The [checked integer operand binder](checked-integer-operands.md) may expose
+that read through a `Coerce` to the destination's exact semantic type.
+That identity boundary is transparent to place matching; a different target
+type is not. This keeps a checked signed operation over unsigned storage from
+becoming an unsigned compound, or vice versa.
+
 An integer `1` on the right of addition or subtraction selects increment or
-decrement, matching the former printer decision. Other admitted binaries
+decrement, including a coerced integer `1`. Other admitted binaries
 select a binary self-update. That selection does not promise that C# has a
 compound operator for the destination type: enum shifts retain the existing
 explicit assignment and cast.
@@ -61,8 +67,8 @@ and user-defined operator updates retain their existing owners.
 
 **Lowering shell:** Roslyn Release emits a store of a binary whose left operand
 reads that same scalar destination. The fixture family and the runtime Math
-witness pin this shell; converted or otherwise wrapped values remain outside
-this decision's domain.
+witness pin this shell; a converted or otherwise wrapped store value remains
+outside this decision's domain.
 
 **Consumed ownership:** the annotation consumes no nodes, temporaries, or
 entries. Rendering may use one destination evaluation only when the bounded

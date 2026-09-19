@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PortableQueries;
 using DotnetInspector.RowSelection;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using InertText;
 using NuGetFetch;
 
@@ -141,6 +142,7 @@ public sealed class PackageQueryTests
                 ("dependencies", 100),
                 ("dependency-target", 150),
                 ("depends", 200),
+                ("license", 250),
                 ("downloads", 300),
                 ("readme", 400),
                 ("tool", 500),
@@ -242,6 +244,13 @@ public sealed class PackageQueryTests
             PackageQueryTermControlKind.Input,
             references.ControlKind);
         Assert.Equal("assembly simple name", references.ValueKind);
+        PackageQueryTermDescriptor license = PackageQuery.Terms.Single(
+            term => term.Key == PackageQuery.LicenseTermKey);
+        Assert.Equal(PackageQueryAcquisitionTier.Nuspec, license.Tier);
+        Assert.Equal(PackageQueryTermControlKind.Choice, license.ControlKind);
+        Assert.Equal(
+            ["any", "MIT", "OSMF"],
+            license.Options.Select(option => option.Value));
     }
 
     [Theory]
@@ -264,6 +273,11 @@ public sealed class PackageQueryTests
         "dependencies",
         PortableQueryOperator.Equal,
         "other",
+        PackageQueryRequestFailureReason.InvalidTermValue)]
+    [InlineData(
+        "license",
+        PortableQueryOperator.Equal,
+        "Apache-2.0",
         PackageQueryRequestFailureReason.InvalidTermValue)]
     [InlineData(
         "dependency-target",
@@ -660,18 +674,12 @@ public sealed class PackageQueryTests
             termEvidence,
             evidence => evidence.Term!.Value
                 == "Microsoft.Extensions.DependencyInjection");
-        Assert.Contains(
-            "Microsoft.Extensions.Configuration [10.0.0, 11.0.0)",
-            termEvidence.Single(evidence =>
-                evidence.Term!.Value
-                    == "microsoft.extensions.configuration").Value,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Microsoft.Extensions.DependencyInjection [10.0.0, 11.0.0)",
-            termEvidence.Single(evidence =>
-                evidence.Term!.Value
-                    == "Microsoft.Extensions.DependencyInjection").Value,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            [
+                "microsoft.extensions.configuration",
+                "Microsoft.Extensions.DependencyInjection",
+            ],
+            match.Answers.Select(answer => answer.Value));
         PackageQueryEvidence configurationEvidence =
             termEvidence.Single(evidence =>
                 evidence.Term!.Value
@@ -753,11 +761,10 @@ public sealed class PackageQueryTests
                 "net8.0: System.Text.Json 10.0.0",
             ],
             evidence.Summary.Preview.Select(value => value.ToString()));
-        Assert.Contains(
-            "First package-ID segment Microsoft",
-            evidence.Value,
-            StringComparison.Ordinal);
-        Assert.Contains("(+1 more)", evidence.Value, StringComparison.Ordinal);
+        Assert.Equal(
+            "Microsoft",
+            EvidenceProperty(evidence, "package-prefix"));
+        Assert.Equal(1, evidence.Summary.Count - evidence.Summary.Preview.Length);
         Assert.Equal(2, source.ManifestRequests.Count);
         Assert.Equal(0, source.PackageRequests);
     }
@@ -856,8 +863,8 @@ public sealed class PackageQueryTests
         Assert.Contains(
             "net8.0: Microsoft.Identity.Client 4.77.0",
             net8Match.Evidence.Single(evidence =>
-                evidence.Id == PackageQuery.DependenciesTermKey).Value,
-            StringComparison.Ordinal);
+                    evidence.Id == PackageQuery.DependenciesTermKey)
+                .Summary!.Preview.Select(value => value.ToString()));
     }
 
     [Fact]
@@ -898,11 +905,11 @@ public sealed class PackageQueryTests
         Assert.Equal(
             PackageQueryDependencyTargetKind.All,
             all.DependencyTarget.Kind);
-        Assert.Contains(
+        Assert.Equal(
             "netstandard2.0: System.Threading.Tasks.Extensions 4.5.4",
-            allMatch.Evidence.Single(evidence =>
-                evidence.Id == PackageQuery.DependsTermKey).Value,
-            StringComparison.Ordinal);
+            Assert.Single(allMatch.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Summary!.Preview)
+                .ToString());
 
         PackageQueryPlan net12Dependency = Accepted(
             PackageQuery.PlanInput(
@@ -943,12 +950,12 @@ public sealed class PackageQueryTests
                 net12Empty,
                 TestContext.Current.CancellationToken)))
             .OfType<PackageQueryEvent.Match>()).Value;
-        Assert.Contains(
-            "Dependency target net12.0 selected manifest group net8.0.",
-            emptyMatch.Evidence.Single(evidence =>
-                evidence.Id
-                    == PackageQuery.DependencyTargetTermKey).Value,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "net8.0",
+            EvidenceProperty(
+                emptyMatch,
+                PackageQuery.DependencyTargetTermKey,
+                "selected-group"));
 
         PackageQueryPlan netStandardDependency = Accepted(
             PackageQuery.PlanInput(
@@ -977,10 +984,11 @@ public sealed class PackageQueryTests
                 PackageQuery.DependsTermKey,
             ],
             selectedMatch.Evidence.Select(evidence => evidence.Id));
-        Assert.Contains(
-            "selected manifest group netstandard2.0",
-            selectedMatch.Evidence[1].Value,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "netstandard2.0",
+            EvidenceProperty(
+                selectedMatch.Evidence[1],
+                "selected-group"));
         Assert.Equal(
             PackageQueryEvidenceScope.Package,
             selectedMatch.Evidence[1].Scope);
@@ -1024,10 +1032,7 @@ public sealed class PackageQueryTests
             evidence =>
                 evidence.Id == PackageQuery.DependencyTargetTermKey);
         Assert.Equal(PackageQueryEvidenceScope.Query, allTarget.Scope);
-        Assert.Contains(
-            "all package manifest groups",
-            allTarget.Value,
-            StringComparison.Ordinal);
+        Assert.Equal("all", EvidenceProperty(allTarget, "target"));
 
         PackageQueryPlan anyNet8 = Accepted(
             PackageQuery.PlanInput(
@@ -1073,15 +1078,12 @@ public sealed class PackageQueryTests
             evidence =>
                 evidence.Id == PackageQuery.DependencyTargetTermKey);
         Assert.Equal(PackageQueryEvidenceScope.Package, anyTarget.Scope);
-        Assert.Contains(
-            "selected manifest group any",
-            anyTarget.Value,
-            StringComparison.Ordinal);
-        Assert.Contains(
+        Assert.Equal("any", EvidenceProperty(anyTarget, "selected-group"));
+        Assert.Equal(
             "any: Universal.Dependency 1.0.0",
-            anyMatch.Evidence.Single(evidence =>
-                evidence.Id == PackageQuery.DependsTermKey).Value,
-            StringComparison.Ordinal);
+            Assert.Single(anyMatch.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Summary!.Preview)
+                .ToString());
     }
 
     [Fact]
@@ -1115,11 +1117,11 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken)))
             .OfType<PackageQueryEvent.Match>()).Value;
 
-        Assert.Contains(
+        Assert.Equal(
             "any: Late.Dependency 2.0.0",
-            match.Evidence.Single(evidence =>
-                evidence.Id == PackageQuery.DependsTermKey).Value,
-            StringComparison.Ordinal);
+            Assert.Single(match.Evidence.Single(evidence =>
+                evidence.Id == PackageQuery.DependsTermKey).Summary!.Preview)
+                .ToString());
     }
 
     [Fact]
@@ -1164,12 +1166,97 @@ public sealed class PackageQueryTests
             .OfType<PackageQueryEvent.Match>()).Value;
 
         Assert.Equal("Contoso.NoGroups", match.Package.PackageId);
-        Assert.Contains(
-            "found no declared dependency groups",
-            match.Evidence.Single(evidence =>
-                evidence.Id
-                    == PackageQuery.DependencyTargetTermKey).Value,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            PackageDependencyGroupSelectionStatus.NoDependencyGroups.ToString(),
+            EvidenceProperty(
+                match,
+                PackageQuery.DependencyTargetTermKey,
+                "selection-status"));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_LicenseAnswersAreSemanticAndNuspecOnly()
+    {
+        SearchResult[] candidates =
+        [
+            Match("Contoso.Mit"),
+            Match("Contoso.Osmf"),
+            Match("Contoso.Generic"),
+        ];
+        var source = new FakePackageSource(
+            candidates,
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.mit@1.0.0"] = Manifest(
+                    "Contoso.Mit",
+                    license: """<license type="expression">MIT</license>"""),
+                ["contoso.osmf@1.0.0"] = Manifest(
+                    "Contoso.Osmf",
+                    license: """<license type="file">licenses/OSMFEULA.txt</license>"""),
+                ["contoso.generic@1.0.0"] = Manifest(
+                    "Contoso.Generic",
+                    license: """<license type="file">LICENSE.txt</license>"""),
+            });
+
+        PackageQueryMatch mit = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                Accepted(PackageQuery.PlanInput(
+                    "Contoso.*",
+                    terms: [Term(PackageQuery.LicenseTermKey, "MIT")],
+                    maximumCandidates: 3,
+                    maximumMatches: null)),
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("MIT", Assert.Single(mit.Answers).Value);
+        PackageQueryEvidence mitEvidence = Assert.Single(
+            mit.Evidence,
+            evidence => evidence.Id == PackageQuery.LicenseTermKey);
+        Assert.Equal(
+            PackageLicenseDeclarationKind.Expression.ToString(),
+            EvidenceProperty(mitEvidence, "declaration-kind"));
+        Assert.Equal(
+            "MIT",
+            EvidenceProperty(mitEvidence, "declaration-value"));
+
+        PackageQueryMatch osmf = Assert.Single(
+            (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                Accepted(PackageQuery.PlanInput(
+                    "Contoso.*",
+                    terms: [Term(PackageQuery.LicenseTermKey, "OSMF")],
+                    maximumCandidates: 3,
+                    maximumMatches: null)),
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("OSMF", Assert.Single(osmf.Answers).Value);
+        PackageQueryEvidence osmfEvidence = Assert.Single(
+            osmf.Evidence,
+            evidence => evidence.Id == PackageQuery.LicenseTermKey);
+        Assert.Equal(
+            PackageLicenseDeclarationKind.File.ToString(),
+            EvidenceProperty(osmfEvidence, "declaration-kind"));
+        Assert.Equal(
+            "licenses/OSMFEULA.txt",
+            EvidenceProperty(osmfEvidence, "declaration-value"));
+
+        PackageQueryMatch[] any =
+        [
+            .. (await CollectAsync(PackageQuery.ExecuteAsync(
+                source,
+                Accepted(PackageQuery.PlanInput(
+                    "Contoso.*",
+                    terms: [Term(PackageQuery.LicenseTermKey, "any")],
+                    maximumCandidates: 3,
+                    maximumMatches: null)),
+                TestContext.Current.CancellationToken)))
+            .OfType<PackageQueryEvent.Match>()
+            .Select(item => item.Value),
+        ];
+        Assert.Equal(3, any.Length);
+        Assert.All(any, match =>
+            Assert.Equal("true", Assert.Single(match.Answers).Value));
+        Assert.Equal(0, source.PackageRequests);
     }
 
     [Theory]
@@ -1244,9 +1331,6 @@ public sealed class PackageQueryTests
             PackageQuery.Plan(new PackageQueryRequest("System.*")));
 
         Assert.Equal("System.", plan.Prefix.ToString());
-        Assert.Equal(
-            "Package ID matches prefix \"System.\".",
-            plan.PrefixEvidence.ToString());
         Assert.Equal(
             PackageQueryRequestFailureReason.InvalidPackageInput,
             Rejected(PackageQuery.Plan(
@@ -1555,35 +1639,32 @@ public sealed class PackageQueryTests
             ],
             match.Evidence.Select(evidence => evidence.Id));
         Assert.Equal(
-            "Package ID matches prefix \"Contoso.\".",
-            match.Evidence[0].Value);
-        Assert.Contains(
-            "Example.Dependency [1.0.0]",
-            match.Evidence[1].Value,
-            StringComparison.Ordinal);
+            ["Example.Dependency", "1m", "true", "v2"],
+            match.Answers.Select(answer => answer.Value));
+        Assert.Equal(
+            "Contoso.",
+            EvidenceProperty(match.Evidence[0], "prefix"));
+        Assert.Equal(
+            "net8.0: Example.Dependency [1.0.0]",
+            Assert.Single(match.Evidence[1].Summary!.Preview).ToString());
         Assert.Equal(PackageQueryEvidenceScope.Query, match.Evidence[0].Scope);
         Assert.All(match.Evidence.Skip(1), evidence =>
             Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope));
         Assert.Equal(1, Assert.IsType<PackageQueryEvidenceSummary>(
             match.Evidence[1].Summary).Count);
-        Assert.Contains(
-            "1,500,000 total downloads",
-            match.Evidence[2].Value,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "CLI v2",
-            match.Evidence[4].Value,
-            StringComparison.Ordinal);
+        Assert.Equal(1_500_000, match.Evidence[2].Number);
+        Assert.Equal(
+            "2",
+            EvidenceProperty(match.Evidence[4], "settings-version"));
         Assert.Equal(["Contoso.Tool"], content.Requests);
         Assert.All(
             match.Evidence,
             evidence =>
             {
-                Assert.NotEmpty(evidence.Value);
                 Assert.True(
-                    InertString.IsPermitted(
-                        TextPolicy.Prose,
-                        evidence.Value));
+                    evidence.Properties.Length > 0
+                    || evidence.Number is not null
+                    || evidence.Summary is not null);
             });
     }
 
@@ -1622,9 +1703,6 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["net8.0: Alpha [1.0.0]", "net9.0: Alpha [2.0.0]"],
             summary.Preview.Select(item => item.ToString()));
-        Assert.Equal(
-            "2 dependency declarations: net8.0: Alpha [1.0.0], net9.0: Alpha [2.0.0].",
-            evidence.Value);
         Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
         Assert.Single(source.ManifestRequests);
         Assert.Equal(0, source.PackageRequests);
@@ -1669,10 +1747,6 @@ public sealed class PackageQueryTests
             Assert.True(preview.ToString().Length <= PackageQuery.MaximumEvidencePreviewCharacters);
             Assert.True(InertString.IsPermitted(TextPolicy.Field, preview.ToString()));
         });
-        Assert.StartsWith("5 skill documents: skills/SKILL.md, ", evidence.Value);
-        Assert.EndsWith("(+2 more).", evidence.Value);
-        Assert.DoesNotContain("\n", evidence.Value);
-        Assert.DoesNotContain(longPath, evidence.Value);
         Assert.Equal(PackageQueryEvidenceScope.Package, evidence.Scope);
         Assert.Single(source.ManifestRequests);
         Assert.Single(content.Requests);
@@ -1739,13 +1813,6 @@ public sealed class PackageQueryTests
                 "net462: lib/net462/Microsoft.Extensions.Http.dll -> Microsoft.Extensions.DependencyInjection.Abstractions",
             ],
             summary.Preview.Select(item => item.ToString()));
-        Assert.Equal(
-            "2 assembly references: "
-                + "net10.0: lib/net10.0/Microsoft.Extensions.Http.dll -> "
-                + "Microsoft.Extensions.DependencyInjection.Abstractions, "
-                + "net462: lib/net462/Microsoft.Extensions.Http.dll -> "
-                + "Microsoft.Extensions.DependencyInjection.Abstractions.",
-            evidence.Value);
         Assert.Equal(PackageQueryAcquisitionTier.PackageContent, match.Tier);
         Assert.Equal(
             [
@@ -2145,10 +2212,11 @@ public sealed class PackageQueryTests
                 PackageQuery.ToolTermKey,
             ],
             match.Evidence.Select(evidence => evidence.Id));
-        Assert.Contains(
-            ".NET tool package type",
-            match.Evidence[^1].Value,
-            StringComparison.Ordinal);
+        Assert.Equal("true", Assert.Single(match.Answers,
+            answer => answer.Id == PackageQuery.ToolTermKey).Value);
+        Assert.Equal(
+            "DotnetTool",
+            EvidenceProperty(match.Evidence[^1], "package-type"));
     }
 
     [Fact]
@@ -2210,11 +2278,11 @@ public sealed class PackageQueryTests
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
             anyTools.Select(item => item.Package.PackageId));
-        Assert.Equal(
-            Enumerable.Repeat(
-                "The package manifest declares the .NET tool package type.",
-                2),
-            anyTools.Select(item => item.Evidence[^1].Value));
+        Assert.All(
+            anyTools,
+            item => Assert.Equal(
+                "true",
+                Assert.Single(item.Answers).Value));
         Assert.All(
             anyTools,
             item => Assert.Equal(
@@ -2302,14 +2370,16 @@ public sealed class PackageQueryTests
             ],
             bothVersions.Select(item =>
                 item.Evidence.Select(evidence => evidence.Id)));
-        Assert.Contains(
-            "CLI v1 format",
-            bothVersions[0].Evidence[^1].Value,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "CLI v2 format",
-            bothVersions[1].Evidence[^1].Value,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "1",
+            EvidenceProperty(
+                bothVersions[0].Evidence[^1],
+                "settings-version"));
+        Assert.Equal(
+            "2",
+            EvidenceProperty(
+                bothVersions[1].Evidence[^1],
+                "settings-version"));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2"],
             content.Requests);
@@ -2372,12 +2442,10 @@ public sealed class PackageQueryTests
             skillEvents.OfType<PackageQueryEvent.Match>()
                 .Select(item => item.Value.Package.PackageId));
         Assert.Equal(
-            [
-                "1 skill document: SKILLS/demo/skill.MD.",
-                "1 skill document: skills/SKILL.md.",
-            ],
+            ["SKILLS/demo/skill.MD", "skills/SKILL.md"],
             skillEvents.OfType<PackageQueryEvent.Match>()
-                .Select(item => item.Value.Evidence[^1].Value));
+                .Select(item => Assert.Single(
+                    item.Value.Evidence[^1].Summary!.Preview).ToString()));
         Assert.Equal(
             ["Contoso.V1", "Contoso.V2", "Contoso.Library"],
             content.Requests);
@@ -2425,8 +2493,8 @@ public sealed class PackageQueryTests
                 .OfType<PackageQueryEvent.Match>()).Value;
 
         Assert.Equal(
-            "The package manifest declares the .NET tool package type.",
-            match.Evidence[^1].Value);
+            "DotnetTool",
+            EvidenceProperty(match.Evidence[^1], "package-type"));
         Assert.Empty(content.Requests);
     }
 
@@ -2658,8 +2726,8 @@ public sealed class PackageQueryTests
             Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         Assert.Equal("System.Text.Json", match.Package.PackageId);
         Assert.Equal(
-            "Package ID matches prefix \"System.\".",
-            Assert.Single(match.Evidence).Value);
+            "System.",
+            EvidenceProperty(Assert.Single(match.Evidence), "prefix"));
         Assert.Equal("System.", plan.Prefix.ToString());
     }
 
@@ -2697,7 +2765,9 @@ public sealed class PackageQueryTests
             Assert.IsType<PackageQueryEvidenceSummary>(emptyEvidence.Summary);
         Assert.Equal(0, emptySummary.Count);
         Assert.Empty(emptySummary.Preview);
-        Assert.Equal("0 dependencies.", emptyEvidence.Value);
+        Assert.Equal(
+            "none",
+            Assert.Single(emptyMatch.Answers).Value);
     }
 
     [Fact]
@@ -3077,6 +3147,23 @@ public sealed class PackageQueryTests
     private static PortableQueryTerm Term(string key, string value) =>
         new(key, PortableQueryOperator.Equal, value);
 
+    private static string EvidenceProperty(
+        PackageQueryMatch match,
+        string evidenceId,
+        string propertyName) =>
+        EvidenceProperty(
+            Assert.Single(
+                match.Evidence,
+                evidence => evidence.Id == evidenceId),
+            propertyName);
+
+    private static string EvidenceProperty(
+        PackageQueryEvidence evidence,
+        string propertyName) =>
+        Assert.Single(
+            evidence.Properties,
+            property => property.Name == propertyName).Value;
+
     private static PortableQueryTerm[] InspectionTerms(int count) =>
     [
         .. Enumerable.Range(0, count).Select(index =>
@@ -3168,7 +3255,8 @@ public sealed class PackageQueryTests
         string version = "1.0.0",
         string dependencies = "",
         string packageTypes = "",
-        string readme = "") =>
+        string readme = "",
+        string license = "") =>
         Encoding.UTF8.GetBytes(
             $$"""
             <?xml version="1.0" encoding="utf-8"?>
@@ -3178,6 +3266,7 @@ public sealed class PackageQueryTests
                 <version>{{version}}</version>
                 <authors>Manifest Author</authors>
                 <description>Package query test.</description>
+                {{license}}
                 {{packageTypes}}
                 {{readme}}
                 <dependencies>{{dependencies}}</dependencies>

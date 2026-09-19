@@ -426,6 +426,37 @@ public sealed class SourceScopedRoutingTests : IDisposable
             request => request.EndsWith(
                 $"/{packageName.ToLowerInvariant()}/index.json",
                 StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task BareVersion_StableFilterCanReturnEmptyListing()
+    {
+        string packageName = $"PreviewOnly{Guid.NewGuid():N}";
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0-preview.1",
+                [
+                    "package",
+                    packageName,
+                    "--version",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Empty(error);
+        Assert.Contains(
+            requests,
+            request => request.EndsWith(
+                $"/{packageName.ToLowerInvariant()}/index.json",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2684,6 +2715,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData("", "--version", false, "2.0.0")]
+    [InlineData("", "--version", true, "3.0.0-preview.1")]
     [InlineData("@latest", "--version", false, "2.0.0")]
     [InlineData("@latest", "--versions", true, "3.0.0-preview.1")]
     [InlineData("@1.0", "--version", false, "1.0.0")]
@@ -2736,7 +2769,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
         const string PackageName = "pinned-local";
         string local = Path.Combine(_testRoot, PackageName);
         WriteLocalPackage(local, PackageName, "1.0.0");
-        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
             PackageName, "9.0.0",
             ["package", PackageName + "@1.0", "--version", "--jsonl",
                 "--source", RefusedSource, "--source", local],
@@ -2745,6 +2779,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal("""{"version":"1.0.0"}""", output.Trim());
         Assert.Contains("partial", error);
         Assert.Contains("requires credentials", error);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
@@ -2820,10 +2859,17 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(output);
         Assert.Contains("not found", error);
         Assert.NotEmpty(requests);
+        Assert.DoesNotContain(
+            requests,
+            request => request.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Theory]
     [InlineData("all", true, "3.0.0,2.0.0,1.0.0")]
+    [InlineData("bare", false, "2.0.0")]
+    [InlineData("bare", true, "3.0.0")]
     [InlineData("feeds", false, "2.0.0,1.0.0")]
     [InlineData("feeds", true, "3.0.0,2.0.0,2.0.0,1.0.0")]
     [InlineData("latest", true, "2.0.0")]
@@ -2867,8 +2913,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 PackageArgs = [PackageName + suffix],
                 ListVersions = true,
                 ListVersionsWithFeed = mode == "feeds",
-                Limit = mode is "pinned" or "latest" ? 1 : null,
+                Limit = mode is "bare" or "pinned" or "latest" ? 1 : null,
                 ForceLatest = mode == "latest",
+                SingleVersionQuery = mode == "bare",
                 IncludeUnlisted = includeUnlisted,
                 Jsonl = true,
                 SourceOptions = new NuGetSourceOptions { Sources = [Gallery, local] },

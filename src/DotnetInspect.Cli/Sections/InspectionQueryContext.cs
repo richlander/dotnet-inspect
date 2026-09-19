@@ -47,6 +47,7 @@ public sealed class InspectionQueryContext : IDisposable
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
     private MethodBodyInspectionSession? _bodySession;
+    private bool _bodyIndexRecorded;
     private AssemblyInspectionSession? _session;
     private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
@@ -198,11 +199,12 @@ public sealed class InspectionQueryContext : IDisposable
     /// <summary>
     /// Refuses a shared resource to a query that did not declare it could afford one.
     ///
-    /// The body index is a whole-assembly IL build. The registry cannot see that an executor
-    /// touches it because <see cref="BodyIndex"/> is handed over as a lazily-invoked method group
-    /// so the declaration is enforced at acquisition rather than inferred from delegate shape.
+    /// Body analysis is a whole-assembly IL build. The registry cannot see that an executor
+    /// touches it because focused results and the compatibility <see cref="BodyIndex"/> are
+    /// acquired lazily, so the declaration is enforced at acquisition rather than inferred from
+    /// delegate shape.
     ///
-    /// So the declaration is enforced where the cost is actually incurred. Adding a body-index
+    /// So the declaration is enforced where the cost is actually incurred. Adding a body-analysis
     /// call to a producer that still claims to be cheap fails loudly instead of quietly restoring
     /// the defect. Gates:
     /// <c>SectionPipelineTests.Query_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
@@ -238,18 +240,48 @@ public sealed class InspectionQueryContext : IDisposable
     public void Dispose() => _session?.Dispose();
 
     /// <summary>
-    /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
-    /// Body-index queries share it instead of each rebuilding the full
-    /// <c>LibraryBodyIndex</c>. Work runs sequentially, so no synchronization is required. The
-    /// build is narrowed to the phases the requested work consumes (see
+    /// Shared focused method-body Analysis results for <see cref="AssemblyPath"/>, produced once
+    /// on first use. Work runs sequentially, so no synchronization is required. Execution is
+    /// narrowed to the producers the requested work consumes (see
     /// <see cref="BodyAnalysisFeatures"/>).
+    /// </summary>
+    public Analysis.LibraryBodyAnalysisExecution BodyAnalysis()
+    {
+        RequireUnboundedDeclaration("body analysis");
+        if (_bodySession is not null)
+            return _bodySession.AnalysisExecution;
+
+        OpenBodySession("body analysis");
+        return _bodySession!.AnalysisExecution;
+    }
+
+    /// <summary>
+    /// Compatibility index for consumers not yet migrated to focused Analysis
+    /// results. It adapts the same shared execution returned by
+    /// <see cref="BodyAnalysis"/>.
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex()
     {
         RequireUnboundedDeclaration("body index");
-        if (_bodySession is not null)
-            return _bodySession.BodyIndex;
+        if (_bodySession is null)
+        {
+            OpenBodySession("body index");
+            _bodyIndexRecorded = true;
+        }
+        else if (!_bodyIndexRecorded)
+        {
+            Trace?.RecordResource(
+                "body index",
+                new InertString(
+                    TextPolicy.Field,
+                    "adapted from the shared body analysis"));
+            _bodyIndexRecorded = true;
+        }
+        return _bodySession!.BodyIndex;
+    }
 
+    private void OpenBodySession(string resource)
+    {
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
@@ -262,23 +294,19 @@ public sealed class InspectionQueryContext : IDisposable
         }
         catch (Exception ex)
         {
-            // The trace must distinguish attempted acquisition from a run that correctly never
-            // needed the index.
             Trace?.RecordResource(
-                "body index",
+                resource,
                 InertString.Format(
                     TextPolicy.Field,
                     $"FAILED after {Elapsed(start)}: {ex.GetType().Name}"));
             throw;
         }
 
-        var index = _bodySession.BodyIndex;
         Trace?.RecordResource(
-            "body index",
+            resource,
             InertString.Format(
                 TextPolicy.Field,
                 $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})"));
-        return index;
     }
 
     private static string Elapsed(long start)
