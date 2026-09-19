@@ -312,13 +312,6 @@ public static class MemberCommand
                 || catalogNeedsTargetResolution
                 || memberGestureChanged)
             {
-                if (options.RouterDeferredTypeOrMember
-                    && options.ShapeExplicitlySet)
-                {
-                    CommandError.Write("--shape is only valid for type targets.");
-                    return 1;
-                }
-
                 MemberOptions planningOptions =
                     options.RouterDeferredTypeOrMember
                         ? unresolvedOptions
@@ -1125,7 +1118,7 @@ public static class MemberCommand
                 if (overloadGroups.Any(g => g.Count() > 1))
                     tips.Add(new(Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
 
-                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
                 tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
                 if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))

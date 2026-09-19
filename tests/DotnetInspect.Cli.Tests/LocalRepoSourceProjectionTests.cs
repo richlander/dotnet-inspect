@@ -218,7 +218,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     [InlineData("xml-docs")]
     [InlineData("signature")]
     [InlineData("body")]
-    public async Task MemberParts_PrintPreservesExactOriginalText(string partName)
+    public async Task MemberParts_PrintPreservesOriginalTextAndInitialIndentation(string partName)
     {
         string source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSharpText.MemberSlicing", "MemberTextSlicer.cs"));
@@ -240,7 +240,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
 
         Assert.True(result.Exit == 0, result.Error);
         Assert.Empty(result.Error);
-        Assert.Equal(source.Substring(part.Start, part.Length), result.Output);
+        Assert.Equal("    " + source.Substring(part.Start, part.Length), result.Output);
     }
 
     [Fact]
@@ -291,6 +291,7 @@ public sealed class LocalRepoSourceProjectionTests : IDisposable
     }
 
     [Theory]
+    [InlineData("--json")]
     [InlineData("--jsonl")]
     [InlineData("--json-array")]
     public async Task MemberParts_StructuredPrintKeepsTheSelectedText(string format)

@@ -52,7 +52,6 @@ public class MemberOptionsParserTests
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = true };
-        var shapeOption = new Option<bool>("--shape") { Hidden = true };
         var routerDeferredTargetOption =
             new Option<string?>(
                 RouterCommandDefinition.DeferredTypeOrMemberOptionName)
@@ -85,7 +84,6 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
-        memberCommand.Options.Add(shapeOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
@@ -104,7 +102,7 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            shapeOption, routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
 
         return (root, opts, args);
     }
@@ -980,15 +978,16 @@ public class MemberOptionsParserTests
         Assert.Contains(".ctor", options.MemberFilter);
     }
 
-    // ── Numeric member means limit ───────────────────────────────────────
+    // ── Numeric member selectors ─────────────────────────────────────────
 
     [Fact]
-    public async Task NumericPositionalMember_SetsLimit()
+    public async Task NumericPositionalMember_IsOrdinaryFilterInput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "5");
 
         Assert.Equal("JsonSerializer", options.TypeName);
-        Assert.Equal(5, options.Limit);
+        Assert.Contains("5", options.MemberFilter);
+        Assert.Null(options.Limit);
     }
 
     // ── Kind filter ──────────────────────────────────────────────────────

@@ -164,7 +164,8 @@ internal static class MemberSourcePartsOutput
             if (options.JsonOutput || options.Jsonl || options.JsonArray)
                 WriteJson([result], options, output);
             else
-                ProjectionDestinationWriter.WriteRenderedText(new(null, options.Rows), text);
+                ProjectionDestinationWriter.WriteRenderedText(new(null, options.Rows),
+                    MemberSourcePartsProjection.GetDisplayText(document.Text, part));
             return 0;
         }
 

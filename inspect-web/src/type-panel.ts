@@ -851,7 +851,8 @@ export function memberSourceText(
       || span.end > memberSource.source.text.length) {
       throw new Error(`Member source ${selected.kind} span is invalid.`);
     }
-    return memberSource.source.text.slice(span.start, span.end);
+    return span.leadingIndentation
+      + memberSource.source.text.slice(span.start, span.end);
   }).join("\n");
 }
 

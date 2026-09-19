@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using CSharpText;
 using DotnetInspect.Web.Interop.Source;
+using DotnetInspector.Sections;
 using InertText;
 
 namespace DotnetInspect.Web.Tests;
@@ -20,11 +21,11 @@ public sealed class BrowserMemberSourceTests
             "MemberTextSlicer.cs"));
         int signatureStart = source.IndexOf(
             "    public static string? ExtractMemberText(",
-            StringComparison.Ordinal);
+            StringComparison.Ordinal) + "    ".Length;
         int memberStart = source.LastIndexOf(
             "    /// <summary>",
             signatureStart,
-            StringComparison.Ordinal);
+            StringComparison.Ordinal) + "    ".Length;
         int bodyStart = source.IndexOf(
             "\n    {\n",
             signatureStart,
@@ -51,8 +52,9 @@ public sealed class BrowserMemberSourceTests
             body);
         string memberText =
             source.Substring(parts.Member.Start, parts.Member.Length);
-        BrowserMemberSource browser = SourceExports.AdaptMember(
-            BrowserSource(memberText),
+        BrowserMemberSource browser = BrowserMemberSource(
+            source,
+            memberText,
             parts);
 
         Assert.Equal(memberText, browser.Source.Text);
@@ -69,6 +71,7 @@ public sealed class BrowserMemberSourceTests
                 Assert.Equal(0, span.Start);
                 Assert.Equal(memberText.Length, span.Length);
                 Assert.Equal(memberText.Length, span.End);
+                Assert.Equal("    ", span.LeadingIndentation);
             },
             documentation =>
             {
@@ -76,6 +79,9 @@ public sealed class BrowserMemberSourceTests
                     BrowserMemberSourcePartKind.XmlDocumentation,
                     documentation.Kind);
                 Assert.NotEmpty(documentation.Spans);
+                Assert.All(
+                    documentation.Spans,
+                    span => Assert.Equal("    ", span.LeadingIndentation));
             },
             signature =>
             {
@@ -87,6 +93,7 @@ public sealed class BrowserMemberSourceTests
                     "public static string? ExtractMemberText(",
                     memberText.Substring(span.Start, span.Length),
                     StringComparison.Ordinal);
+                Assert.Equal("    ", span.LeadingIndentation);
             },
             body =>
             {
@@ -96,6 +103,7 @@ public sealed class BrowserMemberSourceTests
                     "{",
                     memberText.Substring(span.Start, span.Length),
                     StringComparison.Ordinal);
+                Assert.Equal("    ", span.LeadingIndentation);
             });
 
         string json = JsonSerializer.Serialize(
@@ -111,18 +119,85 @@ public sealed class BrowserMemberSourceTests
             .GetProperty("spans")[0];
         Assert.Equal(0, memberSpan.GetProperty("start").GetInt32());
         Assert.Equal(memberText.Length, memberSpan.GetProperty("end").GetInt32());
+        Assert.Equal(
+            "    ",
+            memberSpan.GetProperty("leadingIndentation").GetString());
         Assert.True(memberSpan.GetProperty("startLine").GetInt32() > 0);
         Assert.True(memberSpan.GetProperty("endLine").GetInt32() > 0);
     }
 
     [Fact]
+    public void MarkoutWriteHeadingWire_RestoresEveryXmlDocumentationLineIndentation()
+    {
+        const string prefix =
+            "namespace Markout;\n\npublic partial class MarkoutWriter\n{\n";
+        const string indentedMember =
+            "    /// <summary>\n"
+            + "    /// Writes a heading at the specified level.\n"
+            + "    /// </summary>\n"
+            + "    /// <returns><c>true</c> if rendered or filtered; "
+            + "<c>false</c> if the formatter does not support headings.</returns>\n"
+            + "    public bool WriteHeading(int level, string text) "
+            + "=> WriteHeading(level, text, null);";
+        string document = prefix + indentedMember + "\n}\n";
+        int memberStart = prefix.Length + "    ".Length;
+        int memberEnd = prefix.Length + indentedMember.Length;
+        int signatureStart = document.IndexOf(
+            "public bool WriteHeading(",
+            memberStart,
+            StringComparison.Ordinal);
+        int bodyStart = document.IndexOf(
+            "=> WriteHeading(",
+            signatureStart,
+            StringComparison.Ordinal);
+        var parts = new MemberTextParts(
+            Part(document, memberStart, memberEnd),
+            [Part(document, memberStart, TrimEnd(document, memberStart, signatureStart))],
+            [],
+            Part(document, signatureStart, TrimEnd(document, signatureStart, bodyStart)),
+            Part(document, bodyStart, memberEnd));
+        string memberText =
+            document.Substring(parts.Member.Start, parts.Member.Length);
+
+        BrowserMemberSource browser = BrowserMemberSource(
+            document,
+            memberText,
+            parts);
+
+        Assert.StartsWith("/// <summary>", browser.Source.Text);
+        Assert.Equal(memberText, browser.Source.Text);
+        BrowserMemberSourcePart member = Assert.Single(
+            browser.Parts,
+            part => part.Kind == BrowserMemberSourcePartKind.Member);
+        BrowserMemberSourceSpan memberSpan = Assert.Single(member.Spans);
+        Assert.Equal(0, memberSpan.Start);
+        Assert.Equal(memberText.Length, memberSpan.Length);
+        Assert.Equal("    ", memberSpan.LeadingIndentation);
+
+        BrowserMemberSourcePart documentation = Assert.Single(
+            browser.Parts,
+            part => part.Kind == BrowserMemberSourcePartKind.XmlDocumentation);
+        BrowserMemberSourceSpan documentationSpan =
+            Assert.Single(documentation.Spans);
+        string rawDocumentation = memberText.Substring(
+            documentationSpan.Start,
+            documentationSpan.Length);
+        Assert.Equal(
+            [0, 4, 4, 4],
+            rawDocumentation.Split('\n')
+                .Select(line => line.TakeWhile(character => character == ' ').Count())
+                .ToArray());
+        Assert.Equal("    ", documentationSpan.LeadingIndentation);
+    }
+
+    [Fact]
     public void DecompiledMemberSource_HasNoAuthoredPartCatalog()
     {
-        BrowserMemberSource browser = SourceExports.AdaptMember(
+        BrowserMemberSource browser = new(
             BrowserSource(
                 "public string Value => \"decompiled\";",
                 provider: "decompiled"),
-            parts: null);
+            []);
 
         Assert.Equal("decompiled", browser.Source.Provider);
         Assert.Empty(browser.Parts);
@@ -132,47 +207,51 @@ public sealed class BrowserMemberSourceTests
     public void Projection_PreservesEveryExactNativeFragment()
     {
         const string prefix = "class C\n{\n";
-        const string member =
+        const string indentedMember =
             "    /// first\r\n"
             + "    /// continuation\r\n"
             + "    [First(\r\n"
             + "        1)]\n"
             + "    /// second\n"
-            + "    [Second]\r\n"
+            + "\t[Second]\r\n"
             + "    public void M(\r\n"
             + "        int value)\n"
             + "    {\r\n"
             + "        _ = value;\n"
             + "    }";
-        string document = prefix + member + "\n}\n";
-        int memberStart = prefix.Length;
+        string document = prefix + indentedMember + "\n}\n";
+        int memberStart = prefix.Length + "    ".Length;
+        int memberEnd = prefix.Length + indentedMember.Length;
         var native = new MemberTextParts(
-            Part(document, memberStart, memberStart + member.Length),
+            Part(document, memberStart, memberEnd),
             [
                 Fragment(
                     document,
                     memberStart,
-                    "    /// first\r\n    /// continuation"),
-                Fragment(document, memberStart, "    /// second"),
+                    "/// first\r\n    /// continuation"),
+                Fragment(document, memberStart, "/// second"),
             ],
             [
                 Fragment(
                     document,
                     memberStart,
-                    "    [First(\r\n        1)]"),
-                Fragment(document, memberStart, "    [Second]"),
+                    "[First(\r\n        1)]"),
+                Fragment(document, memberStart, "[Second]"),
             ],
             Fragment(
                 document,
                 memberStart,
-                "    public void M(\r\n        int value)"),
+                "public void M(\r\n        int value)"),
             Fragment(
                 document,
                 memberStart,
-                "    {\r\n        _ = value;\n    }"));
+                "{\r\n        _ = value;\n    }"));
+        string member =
+            document.Substring(native.Member.Start, native.Member.Length);
 
-        BrowserMemberSource browser = SourceExports.AdaptMember(
-            BrowserSource(member),
+        BrowserMemberSource browser = BrowserMemberSource(
+            document,
+            member,
             native);
 
         Assert.Equal(member, browser.Source.Text);
@@ -229,6 +308,12 @@ public sealed class BrowserMemberSourceTests
                 part => document.Substring(part.Start, part.Length)),
             browser.Spans.Select(
                 span => member.Substring(span.Start, span.Length)));
+        Assert.Equal(
+            native.Select(
+                part => MemberSourcePartsProjection.GetLeadingIndentation(
+                    document,
+                    part)),
+            browser.Spans.Select(span => span.LeadingIndentation));
     }
 
     static MemberTextPart Fragment(
@@ -271,6 +356,14 @@ public sealed class BrowserMemberSourceTests
             "https://example.test/source.cs",
             null,
             text);
+
+    static BrowserMemberSource BrowserMemberSource(
+        string document,
+        string member,
+        MemberTextParts parts) =>
+        new(
+            BrowserSource(member),
+            SourceExports.ProjectMemberParts(document, parts, member.Length));
 
     static string RepositoryRoot()
     {

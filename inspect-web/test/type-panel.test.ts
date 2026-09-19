@@ -1335,6 +1335,130 @@ test("member source selection lowers every original fragment for display and cop
   assert.doesNotMatch(html, /public void M/);
 });
 
+test("member source restores Markout WriteHeading indentation for display and copy", () => {
+  const text =
+    "/// <summary>\n"
+    + "    /// Writes a heading at the specified level.\n"
+    + "    /// </summary>\n"
+    + "    /// <returns><c>true</c> if rendered or filtered; "
+    + "<c>false</c> if the formatter does not support headings.</returns>\n"
+    + "    public bool WriteHeading(int level, string text) "
+    + "=> WriteHeading(level, text, null);";
+  const signature = "public bool WriteHeading(int level, string text)";
+  const body = "=> WriteHeading(level, text, null);";
+  const signatureStart = text.indexOf(signature);
+  const documentationEnd = text.indexOf("\n    public bool WriteHeading");
+  const bodyStart = text.indexOf(body);
+  const source: BrowserMemberSource = {
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/MarkoutWriter.cs",
+      pdbSourceLimitation: null,
+      text,
+    },
+    parts: [
+      {
+        kind: "Member",
+        spans: [{
+          start: 0,
+          length: text.length,
+          startLine: 1,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: text.length,
+        }],
+      },
+      {
+        kind: "XmlDocumentation",
+        spans: [{
+          start: 0,
+          length: documentationEnd,
+          startLine: 1,
+          endLine: 4,
+          leadingIndentation: "    ",
+          end: documentationEnd,
+        }],
+      },
+      {
+        kind: "Signature",
+        spans: [{
+          start: signatureStart,
+          length: signature.length,
+          startLine: 5,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: signatureStart + signature.length,
+        }],
+      },
+      {
+        kind: "Body",
+        spans: [{
+          start: bodyStart,
+          length: body.length,
+          startLine: 5,
+          endLine: 5,
+          leadingIndentation: "    ",
+          end: bodyStart + body.length,
+        }],
+      },
+    ],
+  };
+
+  const member = memberSourceText(source, "Member");
+  const documentation = memberSourceText(source, "XmlDocumentation");
+  assert.equal(source.source.text, text);
+  assert.equal(member, `    ${text}`);
+  assert.deepEqual(
+    documentation.split("\n").map(line => line.match(/^ */)?.[0].length),
+    [4, 4, 4, 4]);
+  assert.equal(
+    memberSourceText(source, "Signature"),
+    `    ${signature}`);
+  assert.equal(memberSourceText(source, "Body"), `    ${body}`);
+});
+
+test("member source indentation preserves multiline literal characters", () => {
+  const body = "{\r\n"
+    + "    const string value = \"\"\"\r\n"
+    + "        first\tvalue\r\n"
+    + "        second value\r\n"
+    + "        \"\"\";\r\n"
+    + "}";
+  const source: BrowserMemberSource = {
+    source: {
+      provider: "pdb",
+      provenance: inertStringFixture("SourceLink"),
+      url: "https://example.test/source.cs",
+      pdbSourceLimitation: null,
+      text: body,
+    },
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: body.length,
+        startLine: 1,
+        endLine: 6,
+        leadingIndentation: "\t",
+        end: body.length,
+      }],
+    }, {
+      kind: "Body",
+      spans: [{
+        start: 0,
+        length: body.length,
+        startLine: 1,
+        endLine: 6,
+        leadingIndentation: "\t",
+        end: body.length,
+      }],
+    }],
+  };
+
+  assert.equal(memberSourceText(source, "Body"), `\t${body}`);
+});
+
 test("member source part selection resets across request signatures and absent parts", () => {
   const selector = createMemberSourcePartSelector();
   const authored = memberSourceFixture();
@@ -1456,6 +1580,7 @@ function memberSourceFixture(): BrowserMemberSource {
       length: fragment.length,
       startLine,
       endLine: startLine + fragment.split(/\r\n|\r|\n/).length - 1,
+      leadingIndentation: "",
       end: start + fragment.length,
     };
   };
@@ -1476,6 +1601,7 @@ function memberSourceFixture(): BrowserMemberSource {
           length: text.length,
           startLine: 1,
           endLine: 8,
+          leadingIndentation: "",
           end: text.length,
         }],
       },

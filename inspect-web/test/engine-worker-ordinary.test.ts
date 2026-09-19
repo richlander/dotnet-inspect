@@ -613,6 +613,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
         length: flat.text.length,
         startLine: 1,
         endLine: 1,
+        leadingIndentation: "",
         end: flat.text.length,
       }],
     }, {
@@ -622,6 +623,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
         length: 3,
         startLine: 1,
         endLine: 1,
+        leadingIndentation: "",
         end: 19,
       }],
     }],

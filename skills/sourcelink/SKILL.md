@@ -100,8 +100,9 @@ selection uses exact character spans, not whole-line slicing.
 
 Discovery supports Markdown, plaintext, and `--json`. Printing supports
 ordinary text and `--json`, `--jsonl`, or `--json-array`; JSON preserves the
-selected source characters, while rendered CLI text follows normal LF and
-text-containment rules. Unqualified `--print` still prints the whole file.
+selected source characters. Rendered CLI text restores each fragment's original
+first-line indentation and follows normal LF and text-containment rules.
+Unqualified `--print` still prints the whole file.
 `xml-docs` selects raw source comments, not parsed DocumentationHouse content.
 These lexical ranges do not strengthen the PDB/checksum provenance claim.
 

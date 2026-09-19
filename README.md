@@ -856,7 +856,7 @@ fallback.
 ### Types, members, and source
 
 ```bash
-dotnet-inspect type string --shape
+dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
@@ -891,6 +891,8 @@ omitted. The full member includes attached XML documentation and attributes;
 the body includes its delimiters. Missing parts fail visibly, and unqualified
 `--print` still prints the whole source document. These are lexical source
 parts, not parsed documentation or stronger physical-authorship evidence.
+Human-readable part output restores the original first-line indentation;
+structured JSON content remains the exact token-selected text.
 
 Use a Workspace packet as reusable aggregate context when the Type may be
 defined by any Library in its selected context:

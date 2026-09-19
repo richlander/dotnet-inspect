@@ -407,29 +407,25 @@ public static partial class SourceExports
         bool includeParts)
     {
         BrowserSource browserSource = Adapt(source, participant);
-        MemberTextParts? parts = includeParts
+        BrowserMemberSourcePart[] parts = includeParts
             && source is AssemblyMemberSource.Pdb
             {
                 MemberDocument: { } document,
             }
-                ? document.Parts
-                : null;
-        return AdaptMember(browserSource, parts);
+                ? ProjectMemberParts(
+                    document.Text,
+                    document.Parts,
+                    browserSource.Text.Length)
+                : [];
+        return new BrowserMemberSource(browserSource, parts);
     }
 
-    internal static BrowserMemberSource AdaptMember(
-        BrowserSource source,
-        MemberTextParts? parts) =>
-        new(
-            source,
-            parts is null
-                ? []
-                : ProjectMemberParts(parts, source.Text.Length));
-
     internal static BrowserMemberSourcePart[] ProjectMemberParts(
+        string documentText,
         MemberTextParts parts,
         int memberTextLength)
     {
+        ArgumentNullException.ThrowIfNull(documentText);
         ArgumentNullException.ThrowIfNull(parts);
         if (memberTextLength < 0)
             throw new ArgumentOutOfRangeException(nameof(memberTextLength));
@@ -453,7 +449,10 @@ public static partial class SourceExports
                 start,
                 part.Length,
                 part.Lines.StartLine,
-                part.Lines.EndLine);
+                part.Lines.EndLine,
+                MemberSourcePartsProjection.GetLeadingIndentation(
+                    documentText,
+                    part));
         }
 
         return

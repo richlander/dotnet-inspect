@@ -20,6 +20,15 @@ attached documentation and attributes. A selected part preserves each original
 text fragment; multiple discontiguous fragments are joined with LF for display
 or copying, without normalization within a fragment.
 
+Human text rendering restores the first physical line's original leading
+indentation before each exact fragment. Token spans omit that indentation on
+their first line but retain it on subsequent lines; presenting the raw slice
+alone would shift the first XML-doc line to the left. The shared presentation
+projection supplies this whitespace separately from the native span. It never
+includes preceding same-line code, changes span boundaries, dedents later
+lines, or rewrites string contents. Raw JSON content remains the token-exact
+selection.
+
 ## Consumer lowering
 
 This is the third and final planned delivery for #7718, following lexical
@@ -43,13 +52,17 @@ Discovery accepts Markdown, plaintext, or complete JSON; incompatible table,
 scalar, graph, and row-window projections fail visibly. Part printing also
 supports JSONL and a JSON array. `--row` chooses a member before part selection;
 it does not choose a part. JSON retains the selected text characters. Rendered
-CLI text uses the existing LF normalization and inert-text containment policy,
-rather than promising a byte-for-byte file transfer.
+CLI text restores first-line indentation and uses the existing LF normalization
+and inert-text containment policy, rather than promising a byte-for-byte file
+transfer.
 
 Browser lowers the catalog into its existing Source viewer. Its wire spans
 address the returned full-member text, mechanically rebased from the original
-document. Selection and Copy consume the same selected text without another
-acquisition. Decompiled fallback remains ordinary Source, with no authored
+document. Each wire span also carries the shared projection's leading
+indentation for presentation. Selection and Copy prepend that whitespace to
+the same selected text without another acquisition. The default is the complete
+Member, including attached documentation, attributes, signature, and body.
+Decompiled fallback remains ordinary Source, with no authored
 part catalog. This host deliberately reuses its escaped DOM code viewer rather
 than Markout: the structured catalog reaches the viewer boundary, and selection
 changes an existing code display and Copy action rather than generating a new
@@ -69,3 +82,10 @@ The motivating asset is `richlander/dotnet-inspect` at
 metadata-only default, shared completed acquisition, exact selection, absent
 parts, checksum failure, and neighboring whole-document/decompiled behavior.
 Frontend cases gate selected rendering, Copy, and stale-result handling.
+
+The published `Markout@0.37.0` method
+`Markout.MarkoutWriter.WriteHeading(int, string)` motivates the first-line
+indentation correction. Its four XML-doc lines must retain equal indentation
+in human CLI output and Browser display/Copy while structured JSON remains
+token-exact. The focused presentation and host cases also preserve tabs, line
+terminators, discontiguous fragments, and multiline literal contents.

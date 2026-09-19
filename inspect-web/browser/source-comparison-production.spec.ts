@@ -229,7 +229,24 @@ test.describe("published authored Source comparison transport", () => {
         throw new Error("Authored fixture member did not publish its body part.");
       }
       const expectedBody = body.spans.map(span =>
-        authoredMember.source.text.slice(span.start, span.end)).join("\n");
+        span.leadingIndentation
+        + authoredMember.source.text.slice(span.start, span.end)).join("\n");
+      const member = authoredMember.parts.find(
+        part => part.kind === "Member");
+      if (!member) {
+        throw new Error("Authored fixture member did not publish its complete-member part.");
+      }
+      const expectedMember = member.spans.map(span =>
+        span.leadingIndentation
+        + authoredMember.source.text.slice(span.start, span.end)).join("\n");
+      const documentation = authoredMember.parts.find(
+        part => part.kind === "XmlDocumentation");
+      if (!documentation) {
+        throw new Error("Authored fixture member did not publish its XML documentation.");
+      }
+      const expectedDocumentation = documentation.spans.map(span =>
+        span.leadingIndentation
+        + authoredMember.source.text.slice(span.start, span.end)).join("\n");
 
       const applicationPage = await page.context().newPage();
       await applicationPage.addInitScript(() => {
@@ -279,8 +296,18 @@ test.describe("published authored Source comparison transport", () => {
       await expect(selector).toHaveValue("Member", { timeout: 60_000 });
       const sourceCode = applicationPage.locator(".source-result code");
       await expect.poll(() => sourceCode.textContent())
-        .toBe(authoredMember.source.text);
+        .toBe(expectedMember);
       const settledSourceFetchCount = sourceFetchCount;
+      await selector.selectOption("XmlDocumentation");
+      await expect.poll(() => sourceCode.textContent())
+        .toBe(expectedDocumentation);
+      expect(sourceFetchCount).toBe(settledSourceFetchCount);
+      await applicationPage.locator("#copy-source").click();
+      await expect.poll(() => applicationPage.evaluate(() =>
+        (window as typeof window & {
+          __copiedMemberSource?: string;
+        }).__copiedMemberSource)).toBe(expectedDocumentation);
+      expect(sourceFetchCount).toBe(settledSourceFetchCount);
       await selector.selectOption("Body");
       await expect.poll(() => sourceCode.textContent()).toBe(expectedBody);
       expect(sourceFetchCount).toBe(settledSourceFetchCount);

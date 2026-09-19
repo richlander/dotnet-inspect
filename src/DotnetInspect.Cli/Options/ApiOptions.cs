@@ -209,7 +209,6 @@ public partial record ApiOptions : IProjectionOptions
     /// establishes whether an explicit-source target is a type or member.
     /// </summary>
     public bool ShapeOutput { get; init; }
-    public bool ShapeExplicitlySet { get; init; }
     public string[]? Select { get; init; }
 
     /// <summary>
@@ -323,7 +322,7 @@ public record TypeOptions : ApiOptions
     /// <summary>
     /// True when no explicit output format was selected (default invocation).
     /// </summary>
-    public bool IsDefaultInvocation => !FormatExplicitlySet && !ShapeExplicitlySet;
+    public bool IsDefaultInvocation => !FormatExplicitlySet;
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

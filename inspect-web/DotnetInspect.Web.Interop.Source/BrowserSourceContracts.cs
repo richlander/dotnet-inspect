@@ -40,7 +40,8 @@ public sealed record BrowserMemberSourceSpan(
     int Start,
     int Length,
     int StartLine,
-    int EndLine)
+    int EndLine,
+    string LeadingIndentation)
 {
     public int End => checked(Start + Length);
 }
@@ -108,6 +109,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         BrowserAnnotatedSourceCallCycleInspection CallCycles,
         BrowserAnnotatedSourceSynchronousCompletionInspection
             SynchronousCompletions,
+        BrowserAnnotatedSourceAwaitCompletionPathInspection
+            AwaitCompletionPaths,
         BrowserAnnotatedSourceInvocationDestination[] InvocationDestinations)
     {
         ArgumentNullException.ThrowIfNull(DefaultFindingIds);
@@ -118,6 +121,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         ArgumentNullException.ThrowIfNull(CallRelationships);
         ArgumentNullException.ThrowIfNull(CallCycles);
         ArgumentNullException.ThrowIfNull(SynchronousCompletions);
+        ArgumentNullException.ThrowIfNull(AwaitCompletionPaths);
         ArgumentNullException.ThrowIfNull(InvocationDestinations);
         if (!Destinations.Available && InvocationDestinations.Length > 0)
         {
@@ -135,6 +139,7 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
         this.CallRelationships = CallRelationships;
         this.CallCycles = CallCycles;
         this.SynchronousCompletions = SynchronousCompletions;
+        this.AwaitCompletionPaths = AwaitCompletionPaths;
     }
 
     public int[] DefaultFindingIds => [.. _defaultFindingIds];
@@ -148,6 +153,8 @@ public sealed record BrowserAnnotatedSourceViewerCatalog
     public BrowserAnnotatedSourceCallCycleInspection CallCycles { get; }
     public BrowserAnnotatedSourceSynchronousCompletionInspection
         SynchronousCompletions { get; }
+    public BrowserAnnotatedSourceAwaitCompletionPathInspection
+        AwaitCompletionPaths { get; }
 }
 
 public sealed record BrowserAnnotatedSourceInvocationDestination(
@@ -327,6 +334,48 @@ public sealed record BrowserAnnotatedSourceSynchronousCompletionInspection
         [.. _observations];
 }
 
+/// <summary>
+/// One Decompiler-issued classic <c>await</c> node whose inline and
+/// suspension/resume paths were proven before reconstruction.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAwaitCompletionPath(int NodeId);
+
+/// <summary>
+/// Positive classic-await completion-path observations. Empty carries no
+/// absence claim about unsupported or declined lowerings.
+/// </summary>
+public sealed record BrowserAnnotatedSourceAwaitCompletionPathInspection
+{
+    private readonly BrowserAnnotatedSourceAwaitCompletionPath[] _observations;
+
+    public BrowserAnnotatedSourceAwaitCompletionPathInspection(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason,
+        BrowserAnnotatedSourceAwaitCompletionPath[] Observations)
+    {
+        ArgumentNullException.ThrowIfNull(Observations);
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                "Await completion-path availability requires exactly one of Available or UnavailableReason.");
+        }
+        if (!Available && Observations.Length > 0)
+        {
+            throw new ArgumentException(
+                "Unavailable await completion paths cannot carry observations.");
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+        _observations = [.. Observations];
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+    public BrowserAnnotatedSourceAwaitCompletionPath[] Observations =>
+        [.. _observations];
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserCalleeEvidenceKind>))]
 public enum BrowserCalleeEvidenceKind
 {
@@ -451,6 +500,11 @@ public sealed record BrowserMemberFindingCensus
             synchronousCompletions = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         if (receipt is not { IsDefault: false } censusReceipt)
@@ -576,7 +630,9 @@ public sealed record BrowserMemberFindingCensus
                 callCycles,
                 callCyclesUnavailableReason,
                 synchronousCompletions,
-                synchronousCompletionsUnavailableReason),
+                synchronousCompletionsUnavailableReason,
+                awaitCompletionPaths,
+                awaitCompletionPathsUnavailableReason),
             projectedIdentities);
     }
 
@@ -1010,6 +1066,11 @@ public sealed record BrowserAnnotatedSource
             synchronousCompletions = null,
         BrowserAnnotatedSourceCapabilityUnavailableReason
             synchronousCompletionsUnavailableReason =
+                BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            awaitCompletionPathsUnavailableReason =
                 BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -1031,7 +1092,9 @@ public sealed record BrowserAnnotatedSource
                 callCycles,
                 callCyclesUnavailableReason,
                 synchronousCompletions,
-                synchronousCompletionsUnavailableReason),
+                synchronousCompletionsUnavailableReason,
+                awaitCompletionPaths,
+                awaitCompletionPathsUnavailableReason),
             provenance,
             contextLimitation,
             findingEvidenceDocuments ?? [],

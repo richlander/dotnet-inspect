@@ -2656,7 +2656,7 @@ public class ApiCommand
         {
             if (LensProjection.TryProject(
                     options,
-                    "--shape",
+                    "type tree output",
                     rowCount: 0,
                     out var projectionExitCode))
             {
@@ -2668,9 +2668,9 @@ public class ApiCommand
                     || options.Columns is { Length: > 0 }))
             {
                 CommandError.Write(
-                    "--fields/--columns are not available with --shape, which "
-                    + "renders a tree rather than projected rows. Replace "
-                    + "--json --shape with --table, --tsv, or --jsonl for "
+                    "--fields/--columns are not available with type tree output, "
+                    + "which renders a tree rather than projected rows. Use "
+                    + "--table, --tsv, or --jsonl for "
                     + "projected rows, or omit --fields/--columns to keep tree output.");
                 return 1;
             }
