@@ -20,7 +20,7 @@ public sealed class NavigationDetachmentTests
         {
             Participant = new AssemblyContextParticipant(different, NoResolverAssemblyBindingPolicy.Instance),
         };
-        StructuralSubjectIdentity.PackageSubject package = fixture.Session.InstalledSnapshot.RetainedContext!.Package;
+        StructuralSubjectIdentity.PackageSubject package = fixture.Session.CurrentSnapshot.RetainedContext!.Package;
         StructuralSubjectIdentity.LibrarySubject first = StructuralSubjectIdentity.ForLibrary(package, original);
         StructuralSubjectIdentity.LibrarySubject same = StructuralSubjectIdentity.ForLibrary(package, original);
         StructuralSubjectIdentity.LibrarySubject other = StructuralSubjectIdentity.ForLibrary(package, otherLibrary);
@@ -66,7 +66,7 @@ public sealed class NavigationDetachmentTests
                 specimen.RetainedTypeFailure.IncompleteInventory!.Evidence));
 
         var evidence = Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
-            Assert.Single(specimen.Failed.State.InstalledSnapshot.Inventory!.Types.Evidence));
+            Assert.Single(specimen.Failed.State.CurrentSnapshot.Inventory!.Types.Evidence));
         Assert.Equal(typeof(InvalidOperationException).FullName, evidence.Error.Type);
         Assert.Equal("fixture participant failed", evidence.Error.Message);
         Assert.Contains("fixture participant failed", evidence.Error.Detail);
@@ -94,21 +94,21 @@ public sealed class NavigationDetachmentTests
         var facts = new NavigationEvaluationFacts(fixture.Scope, failedPackage, fixture.Availability);
         NavigationOperationInitialization initial = NavigationTransitions.Initialize(
             fixture.Workspace.Identity, facts, fixture.Registry);
-        NavigationState installed = NavigationTransitions.RecordConsumerInstallation(
+        NavigationState posted = NavigationTransitions.RecordConsumerPosting(
             initial.State, initial.Result.Consumer.Authority!).State;
         NavigationState acknowledged = NavigationTransitions.Acknowledge(
-            installed, initial.Result.Consumer.Authority!).State;
+            posted, initial.Result.Consumer.Authority!).State;
         NavigationTransition queued = NavigationTransitions.QueueMaintenance(acknowledged);
         NavigationTransition begun = NavigationTransitions.Advance(queued.State);
         NavigationEvaluationResult evaluation = NavigationTransitions.Evaluate(
             begun.Work!, new NavigationPreparation.Ready(facts), fixture.Registry);
         NavigationTransition completed = NavigationTransitions.Complete(begun.State, begun.Work!, evaluation);
 
-        Assert.Same(initial.State.InstalledSnapshot, completed.State.InstalledSnapshot);
+        Assert.Same(initial.State.CurrentSnapshot, completed.State.CurrentSnapshot);
         Assert.Equal(initial.State.Publication, completed.State.Publication);
         Assert.Equal(NavigationSynchronizationDisposition.Current, completed.Result!.Consumer.Synchronization);
         var original = Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
-            initial.State.InstalledSnapshot.Inventory!.Types.Evidence[0]);
+            initial.State.CurrentSnapshot.Inventory!.Types.Evidence[0]);
         var refreshed = Assert.IsType<NavigationInventoryEvidence.DetachedParticipantFailed>(
             evaluation.Snapshot.Inventory!.Types.Evidence[0]);
         Assert.Same(original.Error.Identity, refreshed.Error.Identity);
@@ -150,7 +150,7 @@ public sealed class NavigationDetachmentTests
                 var evaluations = ImmutableArray.CreateBuilder<NavigationEvaluationResult>();
                 NavigationOperationInitialization initialized = NavigationTransitions.Initialize(workspace.Identity, facts, registry);
                 StructuralSubjectIdentity.LibrarySubject library = Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                    initialized.State.InstalledSnapshot.ActiveSubject);
+                    initialized.State.CurrentSnapshot.ActiveSubject);
                 Assert.Equal(library, StructuralSubjectIdentity.ForLibrary(library.Package, libraries[0].Library));
                 Assert.Same(library.Identity.Registration,
                     NavigationRegistrationIdentity.From(registration));
@@ -188,7 +188,7 @@ public sealed class NavigationDetachmentTests
                         registry);
                 StructuralSubjectIdentity.TypeSubject retainedType =
                     Assert.IsType<StructuralSubjectIdentity.TypeSubject>(
-                        typeResult.State.InstalledSnapshot.ActiveSubject);
+                        typeResult.State.CurrentSnapshot.ActiveSubject);
                 NavigationTransition publication =
                     NavigationTransitions.PublishRetainedTypeAction(
                         memberResult.State,
