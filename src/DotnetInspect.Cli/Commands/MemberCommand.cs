@@ -1265,7 +1265,8 @@ public static class MemberCommand
                 options.IncludeAll,
                 options.SourceOptions,
                 context.HttpClient,
-                context.Logger);
+                context.Logger,
+                options.PlatformFramework);
 
             if (memberResolution.Status == TypeFindIfMissStatus.Found)
                 return await ExecuteAsync(memberResolution.ApplyTo(options));
@@ -1278,7 +1279,8 @@ public static class MemberCommand
             options.IncludeAll,
             options.SourceOptions,
             context.HttpClient,
-            context.Logger);
+            context.Logger,
+            options.PlatformFramework);
 
         return resolution.Status switch
         {

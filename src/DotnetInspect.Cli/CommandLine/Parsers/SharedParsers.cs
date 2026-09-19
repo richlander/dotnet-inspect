@@ -161,11 +161,13 @@ public static class SharedParsers
         SourceSelectionInputs inputs,
         NuGetSourceOptions? sourceOptions,
         bool verbose,
-        bool tryQualifiedTypeName)
+        bool tryQualifiedTypeName,
+        string? platformFramework = null)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            sourceOptions, verbose, tryQualifiedTypeName).ConfigureAwait(false);
+            sourceOptions, verbose, tryQualifiedTypeName, platformFramework)
+            .ConfigureAwait(false);
 
         return new SourceSelection(
             inputs.Args,

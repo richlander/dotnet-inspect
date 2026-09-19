@@ -253,8 +253,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             PackageArtifactRootRequest.Create(
                 legacyCoordinate,
                 binding.CompileTargetFramework,
-                binding.Root.RequestedTargetFramework,
-                binding.Root.RequestedRuntimeIdentifier));
+                binding.ImplementationSelectionTargetFramework,
+                binding.Root.RequestedRuntimeIdentifier,
+                binding.HasSelectedImplementationUniverse,
+                binding.UsesCompatibleImplementationSelection,
+                binding.AllowsCompatibleTargetSelection));
         PackageRootBinding legacyRebound =
             Assert.IsType<PackageRootRebindingOutcome.Bound>(
                 PackageRootAcquisition.BindReacquired(
