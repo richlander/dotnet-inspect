@@ -215,11 +215,13 @@ parse source text or labels to recover it.
 relationship rows and performs no graph or source acquisition. The current body
 is the visual root. One visual edge represents each producer-issued stable edge
 row, and its label discloses repeated physical-occurrence count and loop state.
-Companion target entries keep **Member** and **Source** explicit and provide an
-explicit **call site(s)** action that returns to **Table** and focuses the first
-exact physical row for that logical edge. The diagram itself is not a
-navigation surface: Mermaid labels and node identifiers never select a target
-or recover identity.
+One stable edge may retain multiple occurrence-specific typed destinations,
+including version-distinct assembly identities. Companion target entries keep
+each such destination's **Member** and **Source** actions explicit rather than
+choosing one, and provide an explicit **call site(s)** action that returns to
+**Table** and focuses the first exact physical row for that logical edge. The
+diagram itself is not a navigation surface: Mermaid labels and node identifiers
+never select a target or recover identity.
 
 Changing **Table** or **Diagram** preserves primary selection, Finding detail,
 annotation membership, visible media, and coordinate visibility. Focus remains

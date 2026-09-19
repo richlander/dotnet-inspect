@@ -45,11 +45,64 @@ test("Annotated Source relationship graphs aggregate stable edges without losing
   assert.deepEqual(graph.edges[0]?.factIds, [3, 4]);
   assert.deepEqual(graph.edges[0]?.kinds, ["Call", "CallVirtual"]);
   assert.equal(graph.edges[0]?.inLoop, true);
+  assert.equal(graph.edges[0]?.destinations.length, 1);
+  assert.deepEqual(graph.edges[0]?.destinations[0]?.factIds, [3, 4]);
   assert.equal((graph.definition.match(/ar0 -->/g) ?? []).length, 1);
   assert.match(graph.definition, /Call \/ Virtual call ×2 · loop/);
   assert.match(
     graph.definition,
     /Example\.Targets\.Target\(System\.Int32\)/,
+  );
+});
+
+test("Annotated Source relationship graphs retain version-distinct occurrence targets", () => {
+  const firstTarget = {
+    ...sampleInvocationTarget,
+    assemblyVersion: "1.0.0.0",
+    surfaceAssemblyId: "surface-v1",
+  };
+  const graph = buildAnnotatedRelationshipGraphMermaid([
+    {
+      edgeRow: 7,
+      factId: 3,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 0,
+      operandToken: 0x0A000001,
+      kind: "Call",
+      inLoop: false,
+      target: firstTarget,
+    },
+    {
+      edgeRow: 7,
+      factId: 4,
+      moduleVersionId: "11111111-1111-1111-1111-111111111111",
+      callerToken: 0x06000001,
+      ilOffset: 1,
+      operandToken: 0x0A000001,
+      kind: "Call",
+      inLoop: false,
+      target: {
+        ...firstTarget,
+        assemblyVersion: "2.0.0.0",
+        surfaceAssemblyId: "surface-v2",
+      },
+    },
+  ]);
+
+  assert.ok(graph);
+  assert.equal(graph.edges.length, 1);
+  assert.deepEqual(
+    graph.edges[0]?.destinations.map(destination => [
+      destination.relationshipIndex,
+      destination.factIds,
+      destination.target.assemblyVersion,
+      destination.target.surfaceAssemblyId,
+    ]),
+    [
+      [0, [3], "1.0.0.0", "surface-v1"],
+      [1, [4], "2.0.0.0", "surface-v2"],
+    ],
   );
 });
 

@@ -751,7 +751,8 @@ function renderRelationshipDiagram(context: SourceRenderContext): string {
     <div class="annotated-relationship-diagram-targets"
       aria-label="Diagram targets">
       ${edges.map(edge => {
-        const targetLabel = annotatedRelationshipTargetLabel(edge.target);
+        const targetLabel = annotatedRelationshipTargetLabel(
+          edge.destinations[0]!.target);
         const occurrenceLabel = edge.factIds.length === 1
           ? "1 call site"
           : `${edge.factIds.length} call sites`;
@@ -764,31 +765,61 @@ function renderRelationshipDiagram(context: SourceRenderContext): string {
                 .join(" / "))}
                 \u00b7 edge ${edge.edgeRow}${edge.inLoop ? " \u00b7 in loop" : ""}</small>
             </div>
-            <div class="annotated-relationship-actions">
+            <div class="annotated-relationship-diagram-edge-actions">
               <button type="button"
                 data-annotated-action="relationship-occurrences-open"
                 data-fact-id="${edge.factIds[0]}"
                 aria-label="Show ${occurrenceLabel} for ${escapeHtml(targetLabel)}">
                 ${occurrenceLabel}
               </button>
-              <button type="button"
-                data-annotated-action="relationship-destination-open"
-                data-relationship-index="${edge.relationshipIndex}"
-                data-destination="member"
-                aria-label="Open member overview for ${escapeHtml(targetLabel)}">
-                Member
-              </button>
-              <button type="button"
-                data-annotated-action="relationship-destination-open"
-                data-relationship-index="${edge.relationshipIndex}"
-                data-destination="source"
-                aria-label="Open source for ${escapeHtml(targetLabel)}">
-                Source
-              </button>
+            </div>
+            <div class="annotated-relationship-diagram-destinations">
+              ${edge.destinations.map(destination => {
+                const destinationLabel =
+                  annotatedRelationshipTargetLabel(destination.target);
+                const destinationContext =
+                  annotatedRelationshipDestinationContext(destination.target);
+                return `
+                  <div class="annotated-relationship-diagram-destination">
+                    <div>
+                      <strong>${escapeHtml(destinationLabel)}</strong>
+                      <small>${escapeHtml(destinationContext)}</small>
+                    </div>
+                    <div class="annotated-relationship-actions">
+                      <button type="button"
+                        data-annotated-action="relationship-destination-open"
+                        data-relationship-index="${destination.relationshipIndex}"
+                        data-destination="member"
+                        aria-label="Open member overview for ${escapeHtml(
+                          destinationLabel)}, ${escapeHtml(destinationContext)}">
+                        Member
+                      </button>
+                      <button type="button"
+                        data-annotated-action="relationship-destination-open"
+                        data-relationship-index="${destination.relationshipIndex}"
+                        data-destination="source"
+                        aria-label="Open source for ${escapeHtml(
+                          destinationLabel)}, ${escapeHtml(destinationContext)}">
+                        Source
+                      </button>
+                    </div>
+                  </div>`;
+              }).join("")}
             </div>
           </article>`;
       }).join("")}
     </div>`;
+}
+
+function annotatedRelationshipDestinationContext(
+  target: AnnotatedSourceViewerModel["callRelationships"][number]["target"],
+): string {
+  const assembly = target.assemblyVersion
+    ? `${target.assembly} ${target.assemblyVersion}`
+    : target.assembly;
+  return target.surfaceAssemblyId
+    ? `${assembly} \u00b7 surface ${target.surfaceAssemblyId}`
+    : assembly;
 }
 
 function callKindLabel(

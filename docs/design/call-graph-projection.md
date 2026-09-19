@@ -573,11 +573,15 @@ IL offset.
 renders the current body as the root and one visual edge per producer-issued
 stable edge row. Repeated physical occurrences may therefore share one visual
 edge, but the Browser retains every exact `factId`, discloses the occurrence
-count, and provides an explicit path back to the physical table rows. The
-diagram's companion targets retain the typed graph target and explicitly named
-**Member** and **Source** actions; SVG text and Mermaid node identifiers are
-presentation only and never become identity. Diagram activation performs no
-Call Graph query, Analysis acquisition, target-index build, or source open.
+count, and provides an explicit path back to the physical table rows. One
+stable edge may contain occurrence-specific typed targets with different
+assembly identities; the grouped edge therefore retains every distinct typed
+target and representative relationship index rather than choosing one.
+The diagram's companion entries expose explicitly named **Member** and
+**Source** actions for each retained target; SVG text and Mermaid node
+identifiers are presentation only and never become identity. Diagram
+activation performs no Call Graph query, Analysis acquisition, target-index
+build, or source open.
 
 Both presentations are independent of annotation membership: they are
 available whenever the relationship capability is available, while **All**

@@ -29,10 +29,15 @@ export function resolveMermaidCssVariables(
 export interface AnnotatedRelationshipGraphEdge {
   edgeRow: number;
   factIds: readonly number[];
-  relationshipIndex: number;
-  target: BrowserCallGraphTarget;
+  destinations: readonly AnnotatedRelationshipGraphDestination[];
   kinds: readonly BrowserAnnotatedSourceCallRelationship["kind"][];
   inLoop: boolean;
+}
+
+export interface AnnotatedRelationshipGraphDestination {
+  factIds: readonly number[];
+  relationshipIndex: number;
+  target: BrowserCallGraphTarget;
 }
 
 export interface AnnotatedRelationshipGraph {
@@ -74,8 +79,11 @@ export function groupAnnotatedRelationships(
   relationships: readonly BrowserAnnotatedSourceCallRelationship[],
 ): readonly AnnotatedRelationshipGraphEdge[] {
   const byEdgeRow = new Map<number, {
-    relationshipIndex: number;
-    relationship: BrowserAnnotatedSourceCallRelationship;
+    destinations: Map<string, {
+      relationshipIndex: number;
+      target: BrowserCallGraphTarget;
+      factIds: number[];
+    }>;
     factIds: number[];
     kinds: BrowserAnnotatedSourceCallRelationship["kind"][];
     inLoop: boolean;
@@ -84,15 +92,27 @@ export function groupAnnotatedRelationships(
     const existing = byEdgeRow.get(relationship.edgeRow);
     if (existing) {
       existing.factIds.push(relationship.factId);
+      addAnnotatedRelationshipDestination(
+        existing.destinations,
+        relationship,
+        relationshipIndex);
       if (!existing.kinds.includes(relationship.kind)) {
         existing.kinds.push(relationship.kind);
       }
       existing.inLoop ||= relationship.inLoop;
       return;
     }
-    byEdgeRow.set(relationship.edgeRow, {
-      relationshipIndex,
+    const destinations = new Map<string, {
+      relationshipIndex: number;
+      target: BrowserCallGraphTarget;
+      factIds: number[];
+    }>();
+    addAnnotatedRelationshipDestination(
+      destinations,
       relationship,
+      relationshipIndex);
+    byEdgeRow.set(relationship.edgeRow, {
+      destinations,
       factIds: [relationship.factId],
       kinds: [relationship.kind],
       inLoop: relationship.inLoop,
@@ -101,11 +121,56 @@ export function groupAnnotatedRelationships(
   return [...byEdgeRow.entries()].map(([edgeRow, group]) => ({
     edgeRow,
     factIds: group.factIds,
-    relationshipIndex: group.relationshipIndex,
-    target: group.relationship.target,
+    destinations: [...group.destinations.values()],
     kinds: group.kinds,
     inLoop: group.inLoop,
   }));
+}
+
+function addAnnotatedRelationshipDestination(
+  destinations: Map<string, {
+    relationshipIndex: number;
+    target: BrowserCallGraphTarget;
+    factIds: number[];
+  }>,
+  relationship: BrowserAnnotatedSourceCallRelationship,
+  relationshipIndex: number,
+): void {
+  const key = annotatedRelationshipTargetKey(relationship.target);
+  const existing = destinations.get(key);
+  if (existing) {
+    existing.factIds.push(relationship.factId);
+    return;
+  }
+  destinations.set(key, {
+    relationshipIndex,
+    target: relationship.target,
+    factIds: [relationship.factId],
+  });
+}
+
+function annotatedRelationshipTargetKey(
+  target: BrowserCallGraphTarget,
+): string {
+  return JSON.stringify([
+    target.id,
+    target.assembly,
+    target.assemblyVersion,
+    target.assemblyCulture,
+    target.assemblyPublicKeyToken,
+    target.typeFullName,
+    target.typeMetadataId,
+    target.typeDefinitionId,
+    target.memberName,
+    target.parameterTypes,
+    target.returnType,
+    target.genericArity,
+    target.metadataToken,
+    target.selectorKey,
+    target.kind,
+    target.platformPack,
+    target.surfaceAssemblyId,
+  ]);
 }
 
 export function buildAnnotatedRelationshipGraphMermaid(
@@ -120,8 +185,9 @@ export function buildAnnotatedRelationshipGraphMermaid(
   ];
   edges.forEach((edge, index) => {
     const nodeId = `ar${index + 1}`;
+    const target = edge.destinations[0]!.target;
     const targetLabel = mermaidLabel(
-      annotatedRelationshipTargetLabel(edge.target));
+      annotatedRelationshipTargetLabel(target));
     const kindLabel = edge.kinds
       .map(annotatedRelationshipKindLabel)
       .join(" / ");

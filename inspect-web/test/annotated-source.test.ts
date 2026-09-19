@@ -485,6 +485,21 @@ function repeatedRelationshipResult(): AnnotatedSourceResult {
   };
 }
 
+function versionDistinctRelationshipResult(): AnnotatedSourceResult {
+  const source = repeatedRelationshipResult();
+  return {
+    ...source,
+    callRelationships: source.callRelationships.map((relationship, index) => ({
+      ...relationship,
+      target: {
+        ...relationship.target,
+        assemblyVersion: index === 0 ? "1.0.0.0" : "2.0.0.0",
+        surfaceAssemblyId: index === 0 ? "surface-v1" : "surface-v2",
+      },
+    })),
+  };
+}
+
 test("the result preserves the validated portable document contract", () => {
   const document: AnnotatedSourceDocument = result.document;
   assert.equal(document, sampleDocument);
@@ -942,6 +957,44 @@ test("the Relationships diagram is opt-in and preserves a path to physical calls
       value: "Diagram",
     }),
     "#annotated-relationships-diagram",
+  );
+});
+
+test("the Relationships diagram preserves version-distinct typed destinations", () => {
+  const source = versionDistinctRelationshipResult();
+  const model = createAnnotatedSourceViewerModel(source);
+  const diagram = renderAnnotatedSourceModal({
+    result: source,
+    session: {
+      ...openModalSession(model, createEmbeddedSession(model)).modal,
+      relationshipPresentation: "Diagram",
+    },
+    escapeHtml,
+  });
+
+  assert.equal(
+    (diagram.match(
+      /class="annotated-relationship-diagram-destination"/g,
+    ) ?? []).length,
+    2,
+  );
+  assert.match(diagram, /Example 1\.0\.0\.0 · surface surface-v1/);
+  assert.match(diagram, /Example 2\.0\.0\.0 · surface surface-v2/);
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="member"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="1"\s+data-destination="member"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="0"\s+data-destination="source"/,
+  );
+  assert.match(
+    diagram,
+    /data-relationship-index="1"\s+data-destination="source"/,
   );
 });
 
