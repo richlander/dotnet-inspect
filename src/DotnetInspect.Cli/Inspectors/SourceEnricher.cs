@@ -70,7 +70,6 @@ internal static class SourceEnricher
 
     internal static async Task EnrichTypeWithSourceInfoAsync(
         ApiType apiType,
-        string typeName,
         string dllPath,
         ApiOptions options,
         VerboseLogger logger,
@@ -79,6 +78,7 @@ internal static class SourceEnricher
         string? fallbackPackageName = null,
         string? fallbackPackageVersion = null)
     {
+        string typeName = apiType.FullName;
         if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
         {
             EnrichFromXmlDocFile(apiType, typeName, options, logger);
@@ -158,7 +158,10 @@ internal static class SourceEnricher
                 return;
             }
 
-            var sourceInfo = service.ResolveTypeSource(typeName);
+            var sourceInfo =
+                apiType.DefinitionName is { } definitionName
+                    ? service.ResolveTypeSource(definitionName)
+                    : service.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
                 if (sourceAssembly is null
