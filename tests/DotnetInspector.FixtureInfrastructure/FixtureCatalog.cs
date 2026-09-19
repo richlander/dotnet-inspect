@@ -165,6 +165,7 @@ public static class FixtureIds
     public const string RunFasterAllocation = "runfaster.allocation";
 
     public const string RestoredProjectDependencyFacts = "restored-project.dependency-facts";
+    public const string RestoredRidAssets = "restored-project.rid-assets";
 
     public const string ServicesRouteLearningBase =
         "services.route-learning.base";
@@ -858,6 +859,16 @@ public static class FixtureCatalog
         Asset("project.assets.json", "DotnetInspector.RestoredProjectFixtures", "project.assets.json"),
         Asset("manifest.nuspec", "DotnetInspector.RestoredProjectFixtures", "RestoredProjectFixture.nuspec"));
 
+    public static readonly FixtureDefinition RestoredRidAssets = Fixture(
+        FixtureIds.RestoredRidAssets,
+        "DotnetInspector.RestoredRidFixtures",
+        "DotnetInspector.RestoredRidFixtures.dll",
+        ["restored-project", "rid-assets"],
+        Boundaries(FixtureBoundary.TargetFramework, FixtureBoundary.SidecarAsset),
+        Asset("project.assets.json", "DotnetInspector.RestoredRidFixtures", "project.assets.json"),
+        Asset("rid-cases.json", "DotnetInspector.RestoredRidFixtures", "rid-cases.json"),
+        Asset("pkcs.nupkg", "DotnetInspector.RestoredRidFixtures", "pkcs.nupkg"));
+
     public static readonly FixtureDefinition ServicesRouteLearningBase =
         Fixture(
             FixtureIds.ServicesRouteLearningBase,
@@ -1054,6 +1065,7 @@ public static class FixtureCatalog
         DecompilerVbFinalizer,
         RunFasterAllocation,
         RestoredProjectDependencyFacts,
+        RestoredRidAssets,
         ServicesRouteLearningBase,
         ServicesRouteLearningContract,
         ServicesRouteLearningInterfaceBase,
@@ -1421,6 +1433,7 @@ public static class FixtureCatalog
             "DotnetInspector.MatchBinding.Facade" => "fixtures/cli/DotnetInspector.MatchBinding.Facade",
             "DotnetInspector.MatchBinding.Implementation" => "fixtures/cli/DotnetInspector.MatchBinding.Implementation",
             "DotnetInspector.RestoredProjectFixtures" => "fixtures/queries/DotnetInspector.RestoredProjectFixtures",
+            "DotnetInspector.RestoredRidFixtures" => "fixtures/queries/DotnetInspector.RestoredRidFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",

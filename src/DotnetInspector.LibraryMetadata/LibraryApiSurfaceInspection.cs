@@ -142,7 +142,7 @@ public static class LibraryApiSurfaceInspection
             cancellationToken);
     }
 
-    private static unsafe LibraryApiSurfaceInspectionOutcome Inspect(
+    private static LibraryApiSurfaceInspectionOutcome Inspect(
         scoped LibraryContentView view,
         LibraryApiSurfaceInspectionRequest request,
         CancellationToken cancellationToken)
@@ -151,89 +151,101 @@ public static class LibraryApiSurfaceInspection
         if (view.Content.IsEmpty)
             return Failed(LibraryApiSurfaceInspectionFailureKind.MalformedMetadata);
 
-        fixed (byte* content = view.Content)
+        LibraryContentReference reference = view.Reference;
+        return view.UseReadStream(
+            content => Inspect(
+                content,
+                reference,
+                request,
+                cancellationToken));
+    }
+
+    private static LibraryApiSurfaceInspectionOutcome Inspect(
+        Stream content,
+        LibraryContentReference reference,
+        LibraryApiSurfaceInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var peReader = new PEReader(content);
+        try
         {
-            using var peReader = new PEReader(content, view.Content.Length);
-            try
-            {
-                if (!MetadataFormatAdmission.AdmitImage(peReader))
-                {
-                    return Failed(
-                        LibraryApiSurfaceInspectionFailureKind
-                            .NotManagedAssembly);
-                }
-
-                MetadataReader reader =
-                    MetadataFormatAdmission.GetMetadataReader(peReader);
-                if (!reader.IsAssembly)
-                {
-                    return Failed(
-                        LibraryApiSurfaceInspectionFailureKind.ManagedModule);
-                }
-
-                AssemblyReferenceIdentity identity =
-                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-                ManagedMetadataIdentity.Assembly? expectedIdentity =
-                    view.Reference.AssemblyIdentity;
-                if (expectedIdentity is null
-                    || !identity.IsEquivalentTo(expectedIdentity.Identity))
-                {
-                    return new LibraryApiSurfaceInspectionOutcome.Rejected(
-                        LibraryApiSurfaceInspectionRejectionKind
-                            .AssemblyIdentityMismatch);
-                }
-
-                Guid moduleVersionId =
-                    reader.GetGuid(reader.GetModuleDefinition().Mvid);
-                if (moduleVersionId == Guid.Empty)
-                {
-                    return Failed(
-                        LibraryApiSurfaceInspectionFailureKind
-                            .EmptyModuleVersionId);
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                ApiSurfaceExtractionResult extraction =
-                    ApiSurfaceExtractor.ExtractBounded(
-                        peReader,
-                        request.Scope,
-                        request.Bounds,
-                        request.TypesOnly,
-                        request.IncludeCompilerGenerated);
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (extraction
-                    is ApiSurfaceExtractionResult.Exceeded exceeded)
-                {
-                    return new LibraryApiSurfaceInspectionOutcome.Incomplete(
-                        exceeded.Bound);
-                }
-
-                ApiSurfaceExtractionResult.Extracted extracted =
-                    (ApiSurfaceExtractionResult.Extracted)extraction;
-                return new LibraryApiSurfaceInspectionOutcome.Completed(
-                    new LibraryApiSurfaceCorrespondence(
-                        view.Reference,
-                        moduleVersionId,
-                        extracted.Surface,
-                        request.Scope,
-                        request.TypesOnly,
-                        request.IncludeCompilerGenerated,
-                        extracted.MetadataRows,
-                        extracted.RetainedTextCharacters));
-            }
-            catch (UnsupportedMetadataFormatException)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 return Failed(
                     LibraryApiSurfaceInspectionFailureKind
-                        .UnsupportedWindowsMetadata);
+                        .NotManagedAssembly);
             }
-            catch (Exception exception) when (
-                exception is BadImageFormatException or OverflowException)
+
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
+            if (!reader.IsAssembly)
             {
                 return Failed(
-                    LibraryApiSurfaceInspectionFailureKind.MalformedMetadata);
+                    LibraryApiSurfaceInspectionFailureKind.ManagedModule);
             }
+
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            ManagedMetadataIdentity.Assembly? expectedIdentity =
+                reference.AssemblyIdentity;
+            if (expectedIdentity is null
+                || !identity.IsEquivalentTo(expectedIdentity.Identity))
+            {
+                return new LibraryApiSurfaceInspectionOutcome.Rejected(
+                    LibraryApiSurfaceInspectionRejectionKind
+                        .AssemblyIdentityMismatch);
+            }
+
+            Guid moduleVersionId =
+                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            if (moduleVersionId == Guid.Empty)
+            {
+                return Failed(
+                    LibraryApiSurfaceInspectionFailureKind
+                        .EmptyModuleVersionId);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            ApiSurfaceExtractionResult extraction =
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    request.Scope,
+                    request.Bounds,
+                    request.TypesOnly,
+                    request.IncludeCompilerGenerated);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (extraction
+                is ApiSurfaceExtractionResult.Exceeded exceeded)
+            {
+                return new LibraryApiSurfaceInspectionOutcome.Incomplete(
+                    exceeded.Bound);
+            }
+
+            ApiSurfaceExtractionResult.Extracted extracted =
+                (ApiSurfaceExtractionResult.Extracted)extraction;
+            return new LibraryApiSurfaceInspectionOutcome.Completed(
+                new LibraryApiSurfaceCorrespondence(
+                    reference,
+                    moduleVersionId,
+                    extracted.Surface,
+                    request.Scope,
+                    request.TypesOnly,
+                    request.IncludeCompilerGenerated,
+                    extracted.MetadataRows,
+                    extracted.RetainedTextCharacters));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Failed(
+                LibraryApiSurfaceInspectionFailureKind
+                    .UnsupportedWindowsMetadata);
+        }
+        catch (Exception exception) when (
+            exception is BadImageFormatException or OverflowException)
+        {
+            return Failed(
+                LibraryApiSurfaceInspectionFailureKind.MalformedMetadata);
         }
     }
 

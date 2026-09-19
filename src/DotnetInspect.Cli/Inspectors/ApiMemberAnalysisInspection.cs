@@ -25,7 +25,7 @@ internal sealed class ApiMemberAnalysisInspection
     readonly bool _includeOpportunities;
     readonly bool _includeGraphAllocations;
     readonly bool _includeGraphOpportunities;
-    readonly bool _includeResearchContext;
+    readonly bool _includeResearchAnalysis;
     readonly Analysis.LibraryBodyAnalysisFeatures _features;
     readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
@@ -37,7 +37,7 @@ internal sealed class ApiMemberAnalysisInspection
         Analysis.TypeRef,
         List<MethodBodyInspectionSession>> _directCallerScopes = [];
     MethodBodyInspectionSession? _session;
-    ResearchAssemblyContext? _researchContext;
+    MemberProjectionAnalysisInput? _researchAnalysis;
     ResolvedAssemblyReference? _targetAssembly;
     IReadOnlyList<ResolvedAssemblyReference>? _scopeCandidates;
     List<MethodBodyInspectionSession>? _callerScopes;
@@ -75,7 +75,7 @@ internal sealed class ApiMemberAnalysisInspection
             requestsResearchProjection
                 ? ResearchFactRegistry.Default.Requirements
                 : ResearchFactRequirements.None;
-        _includeResearchContext =
+        _includeResearchAnalysis =
             researchRequirements.Scope != ResearchAnalysisScope.None;
         if ((researchRequirements.Features
                 & Analysis.LibraryBodyAnalysisFeatures.Allocations) != 0)
@@ -138,10 +138,13 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
 
-    internal ResearchAssemblyContext? ResearchContext =>
-        _includeResearchContext
-            ? _researchContext ??=
-                ResearchAssemblyContext.Create(BodyIndex)
+    internal MemberProjectionAnalysisInput? ResearchAnalysis =>
+        _includeResearchAnalysis
+            ? _researchAnalysis ??= new(
+                Session.AnalysisExecution.Allocations,
+                Session.AnalysisExecution.Safety,
+                Session.AnalysisExecution.CallGraph,
+                Session.AnalysisExecution.Leverage)
             : null;
 
     internal IReadOnlyList<CallGraphField> CallGraphFields =>
