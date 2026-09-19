@@ -14,7 +14,7 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         """{"f":3,"t":[["P","1.0.0","net11.0",null]],"g":[[0]],"r":[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["l",["t","DotNetRuntime",["System.Runtime","11.0.0.0",null,"b03f5f7f11d50a3a"]]],["e","ecosystem.platform",["System"],["system.runtime"],[["l",["p","system.text.json","10.0.0",["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"]]],["t","AspNetCore"],["p","Microsoft.Extensions."]]]],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}""";
 
     private const string QueryOnlyJson =
-        """{"f":3,"t":[],"g":[],"r":[],"a":null,"x":null,"q":[["package-query/v1",{"t":[["depends","eq","Microsoft.Extensions.DependencyInjection"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","stable"]],"b":[["candidates",200]]}]],"v":[{"t":null,"u":{"k":"workspace"},"q":[0]}]}""";
+        """{"f":3,"t":[],"g":[],"r":[],"a":null,"x":null,"q":[["package-query/v1",{"t":[["depends","eq","Microsoft.Extensions.DependencyInjection"],["depends-ecosystem","eq","ecosystem.aspire"],["prefix","eq","Microsoft.Extensions."],["prerelease","eq","stable"]],"b":[["candidates",200]]}]],"v":[{"t":null,"u":{"k":"workspace"},"q":[0]}]}""";
 
     [Fact]
     public void CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState()
@@ -368,6 +368,9 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         Assert.Contains(
             binding.Plan.Terms,
             term => term.Key == PackageQuery.DependsTermKey);
+        Assert.Contains(
+            binding.Plan.Terms,
+            term => term.Key == PackageQuery.DependsEcosystemTermKey);
     }
 
     [Fact]
