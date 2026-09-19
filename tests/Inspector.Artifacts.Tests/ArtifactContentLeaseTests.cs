@@ -64,6 +64,22 @@ public sealed partial class ArtifactSetSessionTests
                         },
                         cancellationToken));
         Assert.Equal(3, accessed.Value);
+        Stream escaped =
+            Assert.IsType<
+                ArtifactContentAccessOutcome<Stream>.Accessed>(
+                    content.WithContent(
+                        static (view, _) => view.UseReadStream(
+                            static stream =>
+                            {
+                                Assert.Equal(
+                                    1,
+                                    stream.ReadByte());
+                                return stream;
+                            }),
+                        cancellationToken)).Value;
+        Assert.False(escaped.CanRead);
+        Assert.Throws<ObjectDisposedException>(
+            () => escaped.ReadByte());
         ArtifactContentDigest digest =
             Assert.IsType<
                 ArtifactContentAccessOutcome<
@@ -208,6 +224,49 @@ public sealed partial class ArtifactSetSessionTests
         content.Dispose();
         await disposal.WaitAsync(cancellationToken);
         Assert.Equal(1, acquisition.DisposeCount);
+    }
+
+    [Fact]
+    public async Task
+        ArtifactContentLease_RepeatedReadStreamsDoNotAllocateFullImage()
+    {
+        const int ImageSize = 1024 * 1024;
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("content"),
+                new byte[ImageSize],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        using ArtifactQueryLease query =
+            session.IssueLease(
+                session.CreateQueryAuthorization());
+        ArtifactContentReference reference =
+            session.GetContentReference(
+                Assert.Single(session.GetCatalog(query)).Identity,
+                query);
+        using ArtifactContentLease content =
+            session.IssueContentLease(reference, query);
+        ArtifactContentCallback<int> callback =
+            static (view, _) => view.UseReadStream(
+                static stream => checked((int)stream.Length));
+        content.WithContent(callback, cancellationToken);
+
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 16; index++)
+            content.WithContent(callback, cancellationToken);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < ImageSize,
+            $"Scoped stream allocations: {allocated} bytes.");
     }
 
     [Fact]

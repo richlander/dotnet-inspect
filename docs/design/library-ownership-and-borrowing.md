@@ -273,9 +273,15 @@ The public contract follows the `Inspector.Resources` callback model:
 3. the owner begins read-only borrows for the complete set;
 4. it invokes one synchronous callback with a scoped ref-like Library content
    view;
-5. the callback reads the requested contents as `ReadOnlySpan<byte>` values;
+5. the callback reads the requested contents as `ReadOnlySpan<byte>` values or
+   uses a zero-copy seekable stream inside the view's nested synchronous
+   `UseReadStream` callback;
 6. the callback returns a detached or independently owned value; and
 7. the owner ends all borrows before returning or propagating failure.
+
+The stream adapter disposes the stream and drops its image reference before it
+returns. Returning or capturing the stream cannot extend the Library borrow or
+retain the image.
 
 One callback may borrow multiple contents when an algorithm needs simultaneous
 spans, such as assembly and PDB input. This is an access convenience, not a

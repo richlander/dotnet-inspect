@@ -227,8 +227,8 @@ has a dormant realization.
 The active selection associates:
 
 - one retained-definition identity,
-- one exact `WorkspaceRealizationIdentity` issued by the realization
-  coordinator,
+- one exact `InspectionWorkspaceIdentity` issued by the realization
+  coordinator and represented to the Browser by a host-issued realization ID,
 - the complete definition snapshot captured by that realization, and
 - presentation and Navigation state evaluated for that realization.
 
@@ -240,6 +240,13 @@ TypeScript uses that ordinal only to order asynchronously delivered
 installation results; it does not parse realization identities or use the
 ordinal for operation admission. A lower ordinal cannot replace presentation
 already installed from a higher ordinal.
+
+The initial Navigation result contributes the third currency in the
+cross-runtime installation join: its opaque effect authority. The Browser may
+install and settle retained presentation only when realization identity,
+publication ordinal, and effect authority all belong to the same successful
+publication. Definition identity and package coordinates remain presentation
+facts, not substitutes for that tuple.
 
 ### Activation intent
 
@@ -309,9 +316,12 @@ Selection is asynchronous and transactional:
    `WorkspaceRealizationConstructionLease.Workspace`,
 6. complete construction with the exact definition snapshot,
 7. cut over only if the intent is still current,
-8. hand the authorized Navigation outcome to Inspect Web Navigation Consumer
-   for installation, canonical location, history, focus, and announcement, and
-9. observe predecessor settlement independently.
+8. retire the predecessor Navigation state slot and publish the successor's
+   exact realization identity, publication ordinal, initial Navigation result,
+   and detached package presentation,
+9. let Inspect Web Navigation Consumer synchronously install and record the
+   exact result before its later visible effects and acknowledgement, and
+10. observe predecessor settlement independently.
 
 Definition lowering cannot require a live Workspace and cannot run through a
 different temporary Workspace. The continuation receives the
@@ -324,6 +334,19 @@ presentation is discarded.
 
 Candidate construction may derive initial presentation in private, but that
 presentation cannot become current before successful cutover.
+
+Complete restoration projects the package presentation only while the exact
+Root bindings and Navigation package evaluations are available. Queries owns
+the correlation between Navigation package order, opaque package subject
+identity, Root request, Root binding, and evaluation. The callback exposes a
+validated ordered projection rather than raw dictionaries or the live
+Workspace. Browser code must detach its package surfaces before returning.
+
+The successor `BrowserNavigationStateSlot` is created only after successful
+cutover. A candidate that never installs therefore creates no live Navigation
+slot requiring retirement. The predecessor slot is invalidated before the
+successor presentation can install, even when cancellation callbacks make
+retirement report cleanup failure.
 
 ### Selecting the active definition
 
@@ -357,6 +380,12 @@ presentation selected.
 The failure is attached to the attempted retained definition and is visible.
 Cancellation is not reported as success. A retry creates a new intent and a
 fresh candidate.
+
+Failure after successful cutover has a different boundary. If Browser
+presentation installation, installation recording, or later required effects
+fail, the new managed realization remains active, its exact Navigation
+authority is abandoned, and the failure is visible. The host cannot restore
+the predecessor because managed operation authority has already transferred.
 
 ### Predecessor settlement failure
 
@@ -599,9 +628,10 @@ tracks the end-to-end architecture retirement.
    restoration path for asynchronous selection, rollback presentation, exact
    managed realization association, and detached Navigation installation
    evidence. The transaction does not create a Browser-private restoration
-   recipe or treat a currently projectable version-1 URL as a complete record.
-   Existing producers remain on their compatibility snapshot path until slice
-   3 migrates them; no migrated path may exchange a live application snapshot.
+   recipe and rejects version-1 links. Existing producers remain on their
+   temporary snapshot path until slice 3 migrates them; no migrated path may
+   exchange a live application snapshot, and no compatibility lowering may be
+   added for an unshipped Browser format.
    Tracked by
    [#7028](https://github.com/richlander/dotnet-inspect/issues/7028).
 3. **Fresh materialization producers.** Route saved Open, Spotlight external
@@ -644,8 +674,9 @@ detached Navigation plus canonical projection and predecessor-settlement
 evidence.
 Scope supplies complete membership through its ordinary fresh-Workspace
 operations; it does not require a restoration-only participant. The existing
-snapshot path remains only as explicit compatibility state for the unmigrated
-slice-3 producers; it is not an input or fallback for retained activation.
+snapshot path is temporary unmigrated implementation state for slice-3
+producers, not compatibility state and not an input or fallback for retained
+activation.
 
 ### Required retirement inventory
 
