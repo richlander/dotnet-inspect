@@ -414,6 +414,29 @@ public static class SourceHouse
             surface =
                 ((ApiSurfaceExtractionResult.Extracted)extraction)
                     .Surface;
+
+            if (!TargetExists(surface, request.Target)
+                && RequiresCompilerGeneratedSurface(request.Target))
+            {
+                extraction =
+                    session.BoundedApiSurface(
+                        ApiSurfaceExtractionScope.IncludeAll,
+                        request.Plan.Limits.TargetBounds,
+                        includeCompilerGenerated: true);
+                if (extraction
+                    is ApiSurfaceExtractionResult.Exceeded)
+                {
+                    return PreparedAuthoredSource.TerminalOutcome(
+                        Incomplete(
+                            SourceHouseIncompleteBoundary.TargetSurface,
+                            PdbUnavailable(),
+                            work));
+                }
+
+                surface =
+                    ((ApiSurfaceExtractionResult.Extracted)extraction)
+                        .Surface;
+            }
         }
 
         if (!TargetExists(surface, request.Target))
@@ -1463,6 +1486,14 @@ public static class SourceHouse
                 && ApiMemberIdentity.GetMemberAnchor(type, candidate)
                     == memberTarget.Member);
     }
+
+    private static bool RequiresCompilerGeneratedSurface(
+        SourceHouseTarget target) =>
+        TypeFilters.IsCompilerGeneratedNested(
+            target.Type.ToNestedMetadataName())
+        || target is SourceHouseTarget.MemberTarget member
+            && MemberFilters.IsCompilerGenerated(
+                member.Member.MemberName);
 
     private static ApiSurfaceInspectionFailure?
         FindPotentialTargetInspectionFailure(

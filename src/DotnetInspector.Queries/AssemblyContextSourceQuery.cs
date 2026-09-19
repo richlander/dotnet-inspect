@@ -543,7 +543,9 @@ public static partial class AssemblyContextSourceQuery
             throw new InvalidOperationException(
                 "Unknown assembly image access result.");
         }
-        if (available.Value.Target is not { } target)
+        if (available.Value.Target is not { }
+            && (request.AllowDecompiledFallback
+                || !RequiresCompilerGeneratedSurface(request)))
         {
             return new AssemblyMemberSourceEntry.Unavailable(
                 subject,
@@ -560,7 +562,7 @@ public static partial class AssemblyContextSourceQuery
                     participant,
                     request,
                     context,
-                    target,
+                    available.Value.Target,
                     available.Value.Retained,
                     bindingPolicyVersion,
                     cancellationToken)
@@ -574,6 +576,13 @@ public static partial class AssemblyContextSourceQuery
                 InspectionFailure(ex));
         }
     }
+
+    static bool RequiresCompilerGeneratedSurface(
+        AssemblyMemberSourceRequest request) =>
+        TypeFilters.IsCompilerGeneratedNested(
+            request.Type.ToNestedMetadataName())
+        || MemberFilters.IsCompilerGenerated(
+            request.Member.MemberName);
 
     internal static async Task<AssemblyMemberSourceComparisonEntry>
         ExecuteComparisonAsync(
@@ -752,7 +761,7 @@ public static partial class AssemblyContextSourceQuery
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
         AssemblyContextSourceQueryContext context,
-        (ApiType Type, ApiMember Member) target,
+        (ApiType Type, ApiMember Member)? target,
         ResolvedAssemblyReference retained,
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
@@ -815,7 +824,8 @@ public static partial class AssemblyContextSourceQuery
             DecompileMember(
                 participant,
                 request,
-                target,
+                target ?? throw new InvalidOperationException(
+                    "Decompiler fallback requires an API member target."),
                 retained,
                 bindingPolicyVersion,
                 pdb.PdbImage,

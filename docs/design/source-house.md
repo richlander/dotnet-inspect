@@ -272,6 +272,66 @@ decompiler cases with an adjacent PDB gate the path-first acquisition boundary
 and unchanged metadata-open count. Shared query Release cases continue to gate
 the detached House outcome and finite bounds.
 
+#### CLI implementation-diff PDB Source adoption
+
+The focused general-batch consumer slice is #7857. When `diff --pdb-source`
+does not resolve to the exact selected-member pair operation, the CLI retains
+the Research comparison subject as the outer association and uses Research's
+typed old/new implementation-profile evidence to recover each endpoint's exact
+physical MethodDef. It then creates an authored-only
+`AssemblyMemberSourceRequest` from the Metadata/API-issued type, member anchor,
+and token and consumes the completed
+`InspectionEnvelope<AssemblyMemberSourceEntry>` from
+`MemberSourceInspection.ExecuteAsync`. The CLI does not parse the Research
+display label or compare it textually with the API anchor.
+
+One workspace, assembly-context group, source-query context, PDB store, and
+source-content cache are reused across each endpoint batch. The ordinary
+include-all API projection supplies requests for authored methods and
+accessors. If a selected token is absent only because it is compiler-generated,
+the CLI lazily projects the compiler-generated API surface and SourceHouse
+repeats its bounded target-surface check with compiler-generated rows enabled.
+Ordinary targets retain the original bounded surface, and decompiled fallback
+remains disabled for this PDB Source lane.
+
+The completed House result is projected back into the existing
+`FindingInspection<string>` comparison input with the Research subject rebound
+as the presentation association. Complete findings retain their descriptor,
+key, payload, ordinal, and detail. Absent, failed, rejected, and incomplete
+states remain typed; existing user-visible text for no PDB mapping and for a
+PDB range that does not identify one declaration is preserved. Indexing
+failures remain distinct from genuine endpoint absence. Resolved package and
+platform `AssemblySetEntry` provenance wins over requested version-range text.
+
+Research currently gives the two fixture methods
+`NestedGenericOuter<T>.Inner<TInner>.M` and
+`NestedGenericOuter<T1,T2>.Inner<TInner>.M` the same subject identity even
+though each endpoint retains two distinct MethodDefs. The CLI logs that
+association ambiguity and projects it as a failed endpoint inspection instead
+of choosing a token or reporting subject absence. Before this diagnostic
+correction, the `net11.0` `DiffFixtures.V1` to `DiffFixtures.V2` gate emitted
+`change=unavailable` with `old: The member is unavailable in the old endpoint.;
+new: The member is unavailable in the new endpoint.` The corrected row emits
+`change=failed`, identifies old MethodDefs `0x06000052` and `0x06000054` plus
+new MethodDefs `0x06000050` and `0x06000052`, and states that they share
+Research subject `M~00afb421db`. Changing that Research-owned identity contract
+remains outside this SourceHouse consumer slice.
+
+The motivating production gate compares
+`System.Text.Json@9.0.0..10.0.0`
+`JsonSerializerOptions` with the general Implementation Diff selection. It
+preserves all 97 PDB Source rows, including accessor, non-public, nested, and
+compiler-generated local-function targets plus the five unavailable rows. The
+diagnostic correction intentionally changes two additional rows that previously
+showed added source text: `EqualityComparer.Equals` and `GetHashCode` now expose
+their old/new generated-method identity collisions as failed evidence. All
+other production rows remain byte-identical. Focused Release CLI cases gate
+changed source, a missing endpoint, accessor and non-public bodies,
+compiler-generated local functions, explicit implementations, removed and
+bodyless methods, disabled PDB Source retrieval, and the diagnosed
+nested-generic ambiguity. The exact selected-member pair route and its
+neighboring output remain unchanged.
+
 ## Authority and exact claim
 
 **SourceHouse Composition** owns:
