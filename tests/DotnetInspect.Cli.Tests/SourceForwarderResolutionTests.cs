@@ -3001,18 +3001,21 @@ public class SourceForwarderResolutionTests
 
     // PR-fast: embedded symbols and a bounded, substituted source transport.
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, true)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, true)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, true, true, false)]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, true, true, true)]
     public async Task SourceDocumentAcquisition_UsesSelectedOpener(
         bool isForwarded,
         bool print,
-        bool member)
+        bool member,
+        bool parts)
     {
         int opens = 0;
         string original = typeof(EmbeddedSourceFixture).Assembly.Location;
@@ -3050,6 +3053,7 @@ public class SourceForwarderResolutionTests
                             DocsExplicitlySet = true,
                             ShowDocs = false,
                             Print = print,
+                            SourcePart = parts ? MemberSourcePartKind.Signature : null,
                             PrintRow = print ? RowSelector.First : null,
                             Bare = print,
                         },
@@ -3073,7 +3077,9 @@ public class SourceForwarderResolutionTests
             {
                 Assert.Equal(1, exit);
                 Assert.Empty(output);
-                Assert.Contains("failed to fetch verified source for row 1", error);
+                Assert.Contains(parts
+                    ? "Could not acquire verified member parts"
+                    : "failed to fetch verified source for row 1", error);
                 Assert.EndsWith("EmbeddedSourceFixture.cs", Assert.Single(handler.RequestUris).AbsolutePath);
                 Assert.True(opens > (member ? 0 : 1));
             }

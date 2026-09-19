@@ -515,32 +515,43 @@ public partial class PackageCommand
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
     {
+        List<PackageFile> scopedFiles =
+            HasTargetFrameworkFileFilter(options)
+                ? PackageFileLister.FilterByTargetFramework(
+                    files,
+                    options.Tfm!)
+                : files;
         var selectors = PathSelectors(options);
         if (selectors.Length == 0)
-            return files;
+            return scopedFiles;
 
         if (options.PathMatchMode.Equals("first", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var selector in selectors)
             {
-                var matches = PackageFileLister.Filter(files, selector);
+                var matches = PackageFileLister.Filter(
+                    scopedFiles,
+                    selector);
                 if (matches.Count > 0)
                     return [matches[0]];
             }
             return [];
         }
 
-        var selected = new List<PackageFile>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectedPaths = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var selector in selectors)
         {
-            foreach (var match in PackageFileLister.Filter(files, selector))
+            foreach (var match in PackageFileLister.Filter(
+                scopedFiles,
+                selector))
             {
-                if (seen.Add(match.Path))
-                    selected.Add(match);
+                selectedPaths.Add(match.Path);
             }
         }
-        return selected;
+        return scopedFiles
+            .Where(file => selectedPaths.Contains(file.Path))
+            .ToList();
     }
 
     private static string[] PathSelectors(InspectionOptions options)
@@ -549,6 +560,25 @@ public partial class PackageCommand
             : [];
 
     private static bool HasPathFilter(InspectionOptions options) => PathSelectors(options).Length > 0;
+
+    private static bool HasTargetFrameworkFileFilter(
+        InspectionOptions options)
+        => options.Tfm is not null
+            && !options.Tfm.Equals(
+                "all",
+                StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasPackageFileFilter(InspectionOptions options)
+        => HasPathFilter(options)
+            || HasTargetFrameworkFileFilter(options);
+
+    private static bool RequestsPackageFileRows(InspectionOptions options)
+        => HasPathFilter(options)
+            || options.IncludeSections?.Any(IsPackageFileSection) == true
+            || SelectResolver.IsActiveAllSelector(
+                options.Select,
+                options.IncludeSections)
+            || options.Discover != null;
 
     private static bool TryGetSingleFileSection(InspectionOptions options, out string section)
     {
@@ -819,10 +849,7 @@ public partial class PackageCommand
 
     private static void PopulatePackageFileSections(InspectionResult result, string extractPath, InspectionOptions options)
     {
-        bool wantsPackageFileRows = HasPathFilter(options)
-            || options.IncludeSections?.Any(IsPackageFileSection) == true
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            || options.Discover != null;
+        bool wantsPackageFileRows = RequestsPackageFileRows(options);
 
         var packageReadme = result.PackageReadmeFile
             ?? PackageFileLister.ResolvePackageReadme(extractPath, result.ReadmeFile);
@@ -840,7 +867,7 @@ public partial class PackageCommand
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
             || options.Discover != null))
         {
-            result.Files = HasPathFilter(options)
+            result.Files = HasPackageFileFilter(options)
                 ? FilterPackageFiles(files, options)
                 : files;
         }
