@@ -47,6 +47,7 @@ import {
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
+import { selectLibrary } from "./library-hierarchy.support.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
 
@@ -2174,8 +2175,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     await page.goto(
       `/index.html?package=${references.packageId}&version=${version}`
         + `&framework=${fixtureFramework}#pkg`);
-    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
-    await expect(libraryRow.or(page.locator(".load-error")))
+    const librarySubject = page.locator('[data-subject-tab][data-scope="library"]');
+    await expect(librarySubject.or(page.locator(".load-error")))
       .toBeVisible({ timeout: 180_000 });
     if (await page.locator(".load-error").isVisible()) {
       const details = page.locator("#toggle-error-detail");
@@ -2185,7 +2186,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
           await page.locator(".load-error-detail").textContent() ?? "No details."}`
           + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`);
     }
-    await libraryRow.click();
+    await selectLibrary(page, healthyAssemblyName);
     await chooseInspector(page, "data-library-lens", "references");
 
     const panel = page.locator("#inspector-panel");
@@ -2219,8 +2220,8 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
         + `&version=${libraryDiffV2.version}`
         + `&framework=${fixtureFramework}#pkg`,
     );
-    const libraryRow = page.locator(".library-list [data-lib-scope]").first();
-    await expect(libraryRow.or(page.locator(".load-error")))
+    const librarySubject = page.locator('[data-subject-tab][data-scope="library"]');
+    await expect(librarySubject.or(page.locator(".load-error")))
       .toBeVisible({ timeout: 180_000 });
     if (await page.locator(".load-error").isVisible()) {
       throw new Error(
@@ -2229,7 +2230,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
           + `\nBrowser errors: ${browserErrors.join("\n") || "none"}`,
       );
     }
-    await libraryRow.click();
+    await selectLibrary(page, "LibraryApiDiffFixture");
     await chooseInspector(page, "data-library-lens", "compare");
 
     const panel = page.locator("#inspector-panel");
@@ -2259,7 +2260,7 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     const target = page.locator("#package-diff-target");
     await expect(target).toBeVisible();
     await target.selectOption("exact:2.0.0");
-    await page.locator(".library-list [data-lib-scope]").first().click();
+    await selectLibrary(page, "LibraryApiDiffFixture");
     await chooseInspector(page, "data-library-lens", "compare");
     await expect(panel.locator(".library-api-diff-status"))
       .toContainText("No changed Types", { timeout: 60_000 });

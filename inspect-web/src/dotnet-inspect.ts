@@ -148,6 +148,10 @@ import {
   type PackageViewBindingActions,
 } from "./package-view.ts";
 import {
+  bindLibrarySubjectNav,
+  renderLibrarySubjectNav,
+} from "./library-subject-nav.ts";
+import {
   bindLibraryControls,
   type LibraryControlBindingActions,
   type PlatformLibraryLens,
@@ -3390,8 +3394,19 @@ function selectedLibraryName() {
   return selectedLibrary()?.name ?? "";
 }
 
+function aggregateLibrarySubjectIsActive() {
+  return state.rootKind !== "platform" && state.libraryScope === null;
+}
+
+function activeLibrarySubjectName() {
+  return aggregateLibrarySubjectIsActive()
+    ? "All libraries"
+    : selectedLibraryName();
+}
+
 function selectedLibrary() {
   const libraries = packageLibraries();
+  if (state.atLibraryRoot && aggregateLibrarySubjectIsActive()) return null;
   const key = state.libraryScope?.size === 1
     ? state.libraryScope.values().next().value
     : selectedType()?.assemblyId;
@@ -3414,6 +3429,7 @@ function platformLibraryForRequest(pkg: AppPackage, key: string) {
 
 function selectedLibraryShareKey() {
   if (state.atPackageRoot) return "";
+  if (state.rootKind !== "platform" && state.libraryScope === null) return "";
   const library = selectedLibrary();
   if (state.rootKind !== "platform") return library?.id ?? "";
   if (!library) return "";
@@ -3430,7 +3446,7 @@ function selectDefaultPackageSubject(pkg: AppPackage) {
   state.workspaceSubjectOpen = false;
   state.atLibraryRoot = Boolean(pkg.assemblyId);
   state.atPackageRoot = !state.atLibraryRoot;
-  state.libraryScope = pkg.assemblyId ? new Set([pkg.assemblyId]) : null;
+  state.libraryScope = null;
   state.packageLens = "overview";
   state.libraryLens = "overview";
 }
@@ -3466,13 +3482,38 @@ function selectLibrarySubject(key: string, options: { preserveView?: boolean } =
   return true;
 }
 
+function selectAggregateLibrarySubject(
+  options: { preserveView?: boolean } = {},
+) {
+  if (state.rootKind === "platform") return false;
+  state.workspaceSubjectOpen = false;
+  state.atPackageRoot = false;
+  state.atLibraryRoot = true;
+  state.libraryScope = null;
+  if (options.preserveView) {
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+  } else {
+    state.libraryLens = "overview";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.typeFilter = "";
+    normalizeLibrarySelection();
+  }
+  return true;
+}
+
 function enterTypeSubject(type: AppTypeSurface | null | undefined) {
   if (!type) return false;
+  const preserveAggregate =
+    aggregateLibrarySubjectIsActive();
   revealTypeInFilters(type);
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
-  state.libraryScope = new Set([libraryKey(type)]);
+  if (!preserveAggregate)
+    state.libraryScope = new Set([libraryKey(type)]);
   state.selectedTypeId = type.id;
   return true;
 }
@@ -4620,6 +4661,12 @@ function drillIn() {
     return;
   }
   if (state.atPackageRoot) {
+    if (state.rootKind !== "platform") {
+      if (!selectAggregateLibrarySubject()) return;
+      showContentDetailAfterRender();
+      render();
+      return;
+    }
     const library = selectedLibrary()?.id;
     if (!library || !selectLibrarySubject(library)) return;
     showContentDetailAfterRender();
@@ -5109,6 +5156,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationLabel =
     activeScope === "package"
       ? "Frameworks"
+      : activeScope === "library" && state.rootKind !== "platform"
+        ? "Libraries"
       : navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
     apiWorkingSurface
@@ -5433,6 +5482,15 @@ function renderNavPane(
       escapeHtml,
     });
   }
+  if (scope() === "library" && state.rootKind !== "platform") {
+    return renderLibrarySubjectNav({
+      libraries: packageLibraries(),
+      selectedLibraryId: state.libraryScope?.size === 1
+        ? state.libraryScope.values().next().value ?? null
+        : null,
+      escapeHtml,
+    });
+  }
   return navMode() === "member" && current
     ? renderMemberNavPane(current)
     : renderTypeNavPane(current, visible);
@@ -5580,7 +5638,7 @@ function renderTypeNavPane(
     namespaceOptionsHtml: namespaceOptions(),
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
-    library: selectedLibraryName(),
+    library: activeLibrarySubjectName(),
     parentSubject: state.atLibraryRoot
       ? state.rootKind === "platform" && !currentViewHasPlatformRootParent()
         ? null
@@ -5622,9 +5680,12 @@ function renderScopeBar(
       && !currentViewHasPlatformRootParent()
       ? []
       : [state.rootKind];
+  const libraryScopeAvailable = state.rootKind !== "platform"
+    ? packageLibraries().length > 0
+    : Boolean(selectedLibrary());
   availableScopes ??= [
     ...rootScopes,
-    ...(selectedLibrary() ? ["library" as const] : []),
+    ...(libraryScopeAvailable ? ["library" as const] : []),
     ...(selected ? ["type" as const] : []),
     ...(selected && memberGroups(selected).length ? ["member" as const] : []),
   ];
@@ -5709,21 +5770,6 @@ function packageVersionField() {
       ${versionOptionsHtml(pkg)}
     </select>
   </label>`;
-}
-
-function packageFrameworkField() {
-  if (state.rootKind === "platform") return "";
-  const pkg = currentPackage();
-  return `<label class="framework-select">
-    <span>Framework</span>
-    <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-      ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-    </select>
-  </label>`;
-}
-
-function packageCoordinateFields() {
-  return `${packageVersionField()}${packageFrameworkField()}`;
 }
 
 function renderPackageView() {
@@ -5822,6 +5868,16 @@ function packageLensBody() {
 }
 
 function libraryLensBody() {
+  if (aggregateLibrarySubjectIsActive()
+    && state.libraryLens !== "overview") {
+    const label = libraryLenses.find(([id]) => id === state.libraryLens)?.[1]
+      ?? "This inspector";
+    return `<section class="document-section empty-document">
+      <span class="large-glyph">◇</span>
+      <h2>${escapeHtml(label)} requires one Library</h2>
+      <p>Choose an exact Library from the Libraries navigation to use this inspector.</p>
+    </section>`;
+  }
   switch (state.libraryLens) {
     case "overview": return renderLibraryOverview();
     case "compare": return renderLibraryApiDiff(state.libraryApiDiff, escapeHtml);
@@ -6328,6 +6384,7 @@ function maybeAutoLoadPackageDependencies() {
   const libraryReferences =
     state.atLibraryRoot && state.libraryLens === "references";
   if (!packageDependencies && !libraryReferences) return;
+  if (libraryReferences && aggregateLibrarySubjectIsActive()) return;
   if (state.packageDependenciesKey === packageDependenciesSignature()) {
     if (packageDependencies && state.packageDependencies) {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
@@ -6399,6 +6456,7 @@ async function loadPackageIntegrations() {
 
 function maybeAutoLoadPackageIntegrations() {
   if (!state.atLibraryRoot || state.libraryLens !== "integrations") return;
+  if (aggregateLibrarySubjectIsActive()) return;
   if (state.integrationMode !== "integrations") return;
   if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
@@ -6443,6 +6501,7 @@ async function loadPackageOpportunities() {
 
 function maybeAutoLoadPackageOpportunities() {
   if (!state.atLibraryRoot || state.libraryLens !== "integrations") return;
+  if (aggregateLibrarySubjectIsActive()) return;
   if (state.integrationMode !== "opportunities") return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageOpportunitiesKey === packageScopeSignature()) return;
@@ -6485,6 +6544,7 @@ async function loadPackagePerformance() {
 
 function maybeAutoLoadPackagePerformance() {
   if (!state.atLibraryRoot || state.libraryLens !== "analysis") return;
+  if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packagePerformanceKey === packageScopeSignature()) return;
   observeAsync(loadPackagePerformance(), "Loading package analysis");
@@ -6517,12 +6577,11 @@ function renderPackageMetadata() {
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
-    controlsHtml: `<section class="package-metadata-controls" aria-label="Metadata coordinate">
-      <div class="package-coordinate-fields">
-        ${packageCoordinateFields()}
-        ${metadataLibraryControl}
-      </div>
-    </section>`,
+    controlsHtml: metadataLibraryControl
+      ? `<section class="package-metadata-controls" aria-label="Metadata library">
+          <div class="package-coordinate-fields">${metadataLibraryControl}</div>
+        </section>`
+      : "",
     fresh,
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
@@ -6544,6 +6603,7 @@ async function loadPackageMetadata() {
 
 function maybeAutoLoadPackageMetadata() {
   if (!state.atLibraryRoot || state.libraryLens !== "metadata") return;
+  if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
   if (state.packageMetadataKey === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
@@ -7029,33 +7089,20 @@ function maybeAutoLoadLibraryApi() {
 
 function renderPackageOverview() {
   const pkg = currentPackage();
-  const libraries = packageLibraries();
-  const libraryRows = libraries.map(library => `
-    <button class="library-row as-button" data-lib-scope="${escapeHtml(library.id)}" title="Inspect ${escapeHtml(library.name)}">
-      <span class="library-row-head">
-        <span class="library-name">${escapeHtml(library.name)}</span>
-        <span class="library-metric">${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members</span>
-      </span>
-      <span class="library-asset">${escapeHtml(library.asset)}</span>
-    </button>`).join("");
   const documentsSection =
     renderPackageDocuments(pkg.documents || [], escapeHtml);
 
-  const inventoryHtml = `
-    <section class="document-section">
-      <div class="section-title"><h2>Libraries</h2><span>${libraries.length} admitted</span></div>
-      ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
-      <div class="library-list">${libraryRows || '<div class="empty-list">No managed libraries were admitted for this package coordinate.</div>'}</div>
-    </section>`;
   const comparisonHtml = `
     <section id="package-comparison-targets" class="document-section">
       ${packageComparisonControlsHtml(pkg)}
     </section>`;
   const contentHtml = renderPackageOverviewContent({
-    inventoryHtml,
     packageInfoHtml: pkg.packageInfo
       ? renderPackageInfo(pkg.packageInfo, escapeHtml)
-      : "",
+      : `<section class="document-section">
+          <div class="section-title"><h2>Package info</h2></div>
+          <p class="empty-list">Package metadata is unavailable for this coordinate.</p>
+        </section>`,
     comparisonHtml,
     documentsHtml: documentsSection,
   });
@@ -7076,10 +7123,11 @@ function renderPackageOverview() {
   });
 }
 
-function renderPlatformLibraryOverview(
+function renderLibraryCompositionOverview(
   pkg: AppPackage,
-  library: ReturnType<typeof packageLibraries>[number],
+  library: ReturnType<typeof packageLibraries>[number] | null,
 ) {
+  const libraries = packageLibraries();
   const kindPlural: Record<TypeKind, string> = {
     class: "classes",
     struct: "structs",
@@ -7091,7 +7139,7 @@ function renderPlatformLibraryOverview(
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)
-      || libraryKey(type) !== library.id) {
+      || (library && libraryKey(type) !== library.id)) {
       continue;
     }
     const kind = typeKind(type.kind);
@@ -7127,14 +7175,20 @@ function renderPlatformLibraryOverview(
   return renderOverviewSurface({
     subject: "library",
     subjectLabel: "Library",
-    displayName: library.name,
+    displayName: library?.name ?? "All libraries",
     iconHtml: renderInspectedSubjectIcon(pkg),
-    details: [library.asset || "Managed library", libraryIdentity(library)],
+    details: library
+      ? [library.asset || "Managed library", libraryIdentity(library)]
+      : [`${libraries.length} managed ${libraries.length === 1 ? "library" : "libraries"}`, pkg.activeFramework],
     packageId: pkg.id,
     packageVersion: pkg.version,
     activeFramework: pkg.activeFramework,
-    totalTypes: library.types,
-    totalMembers: library.members,
+    totalTypes: library
+      ? library.types
+      : libraries.reduce((sum, candidate) => sum + candidate.types, 0),
+    totalMembers: library
+      ? library.members
+      : libraries.reduce((sum, candidate) => sum + candidate.members, 0),
     contentHtml,
     escapeHtml,
   });
@@ -7143,11 +7197,14 @@ function renderPlatformLibraryOverview(
 function renderLibraryOverview() {
   const library = selectedLibrary();
   if (!library) {
-    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No library selected</h2><p>Choose a library from the package inventory.</p></section>`;
+    if (aggregateLibrarySubjectIsActive()) {
+      return renderLibraryCompositionOverview(currentPackage(), null);
+    }
+    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No library selected</h2><p>Choose an exact Library from the Libraries navigation.</p></section>`;
   }
   const pkg = currentPackage();
   if (pkg.isRuntimePack) {
-    return renderPlatformLibraryOverview(pkg, library);
+    return renderLibraryCompositionOverview(pkg, library);
   }
   const key = libraryApiSignature(pkg, library);
   const inspection = currentLibraryApiInspection();
@@ -7965,6 +8022,21 @@ function bindPackageDependencyListEvents() {
   bindPackageDependencyList(document, packageViewActions);
 }
 
+function bindLibrarySubjectNavEvents() {
+  bindLibrarySubjectNav(document, {
+    onSelect: (id: string | null) => {
+      const selected = id === null
+        ? selectAggregateLibrarySubject()
+        : selectLibrarySubject(id);
+      if (!selected) return;
+      showContentDetailAfterRender();
+      render();
+      if (!contentFrameMedia.matches)
+        document.querySelector<HTMLElement>(".library-subject-list")?.focus();
+    },
+  });
+}
+
 function bindLibraryControlsEvents() {
   bindLibraryControls(document, libraryControlActions);
 }
@@ -8223,7 +8295,10 @@ function bindTypePanelEvents() {
       state.atPackageRoot = false;
       state.atLibraryRoot = false;
       const type = state.package?.types.find(candidate => candidate.id === typeId);
-      if (type) state.libraryScope = new Set([libraryKey(type)]);
+      if (type
+        && (state.rootKind === "platform" || state.libraryScope !== null)) {
+        state.libraryScope = new Set([libraryKey(type)]);
+      }
       state.selectedTypeId = typeId;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -8284,7 +8359,11 @@ function bindScopeBarEvents() {
         state.atPackageRoot = true;
         state.atLibraryRoot = false;
       } else if (target === "library") {
-        if (!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })) return;
+        if (state.rootKind !== "platform" && state.libraryScope === null) {
+          if (!selectAggregateLibrarySubject({ preserveView: true })) return;
+        } else if (!selectLibrarySubject(
+          selectedLibrary()?.id ?? "",
+          { preserveView: true })) return;
       } else if (target === "type") {
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the
@@ -8732,6 +8811,7 @@ function bindEvents() {
   bindMemberFactsEvents();
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
+  bindLibrarySubjectNavEvents();
   bindPackageComparisonControls();
   bindLibraryApiDiffEvents();
   bindLibraryControlsEvents();
@@ -9783,7 +9863,9 @@ function capturePackageCoordinateView(): Pick<
     packageLens: state.atPackageRoot ? state.packageLens : "overview",
     ...(state.atLibraryRoot ? {
       librarySelection: {
-        selector: selectedLibraryName(),
+        selector: aggregateLibrarySubjectIsActive()
+          ? null
+          : selectedLibraryName(),
         lens: state.libraryLens,
       },
     } : {}),
@@ -10853,7 +10935,12 @@ function canonicalViewRestorationFailure(
     if (!libraryLensesFor(pkg).some(([id]) => id === requestedLibraryLens)) {
       return `The shared Library '${requestedLibraryLens}' inspector is not available for ${pkg.id}.`;
     }
-    if (state.libraryScope?.size !== 1 || !selectedLibrary()) {
+    const aggregateOverview =
+      requestedLibraryLens === "overview"
+      && state.rootKind !== "platform"
+      && state.libraryScope === null;
+    if (!aggregateOverview
+      && (state.libraryScope?.size !== 1 || !selectedLibrary())) {
       return "The shared Library view requires one available library.";
     }
     if (deep.type || deep.memberAnchor || deep.memberSignature || deep.section) {
@@ -10965,13 +11052,15 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   // platform's library scope (e.g. an internal type reached via a shared link, or a history
   // entry for a type in a library the session had since scoped away from). Reconcile both
   // filters against the actual selected type so the type list and the displayed type stay
-  // aligned, instead of showing an unrelated first type -- or an empty list -- while the pane
-  // renders the restored one.
+  // aligned, while preserving the package-backed aggregate Library scope.
   const selected = pkg.types.find(item => item.id === state.selectedTypeId);
   if (selected) {
     reconcileAccessibilityFilter(selected);
-    if (!state.atPackageRoot && !state.atLibraryRoot)
+    if (!state.atPackageRoot
+      && !state.atLibraryRoot
+      && (state.rootKind === "platform" || state.libraryScope !== null)) {
       state.libraryScope = new Set([libraryKey(selected)]);
+    }
   }
 
   state.selectedMemberKey = "";
@@ -15468,7 +15557,7 @@ interface LoadPackageOptions {
   queryNotice?: string;
   replacePackage?: AppPackage | null;
   packageLens?: PackageLens;
-  librarySelection?: { selector: string; lens: LibraryLens };
+  librarySelection?: { selector: string | null; lens: LibraryLens };
   location?: ParsedLocation;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
@@ -15565,8 +15654,15 @@ async function loadPackage(
       state.packageLens = options.packageLens ?? "overview";
       if (options.librarySelection) {
         const { selector, lens } = options.librarySelection;
-        const library = resolvePackageLibrary(packageModel.assemblies, selector);
-        if (library) {
+        const library = selector
+          ? resolvePackageLibrary(packageModel.assemblies, selector)
+          : null;
+        if (!selector && !packageModel.isRuntimePack) {
+          state.libraryScope = null;
+          state.atPackageRoot = false;
+          state.atLibraryRoot = true;
+          state.libraryLens = lens;
+        } else if (library) {
           state.libraryScope = new Set([library.id]);
           state.atPackageRoot = false;
           state.atLibraryRoot = true;

@@ -652,7 +652,7 @@ test("package-root Open and selected-Type activation preserve local frame state"
 
   assert.match(
     drillInSource,
-    /if \(state\.atPackageRoot\) \{\s*const library = selectedLibrary\(\)\?\.id;\s*if \(!library \|\| !selectLibrarySubject\(library\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+    /if \(state\.atPackageRoot\) \{\s*if \(state\.rootKind !== "platform"\) \{\s*if \(!selectAggregateLibrarySubject\(\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);\s*return;\s*}\s*const library = selectedLibrary\(\)\?\.id;\s*if \(!library \|\| !selectLibrarySubject\(library\)\) return;/);
   assert.match(
     drillInSource,
     /if \(state\.atLibraryRoot\) \{\s*if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);

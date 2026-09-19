@@ -401,10 +401,10 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateFields\(\) \{\s*return `\$\{packageVersionField\(\)\}\$\{packageFrameworkField\(\)\}`;\s*\}/);
-  assert.match(
+    /function packageVersionField\(\)[\s\S]*id="package-version"/);
+  assert.doesNotMatch(
     appSource,
-    /function packageVersionField\(\)[\s\S]*id="package-version"[\s\S]*function packageFrameworkField\(\)[\s\S]*id="framework"/);
+    /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -1230,9 +1230,21 @@ test("typed scope bar owns its rendered control bindings", () => {
                 if: 'target === "library"',
                 whenTrue: [
                   {
-                    if: '!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })',
-                    whenTrue: ["statement:ReturnStatement:return;"],
-                    whenFalse: [],
+                    if: 'state.rootKind !== "platform" && state.libraryScope === null',
+                    whenTrue: [
+                      {
+                        if: "!selectAggregateLibrarySubject({ preserveView: true })",
+                        whenTrue: ["statement:ReturnStatement:return;"],
+                        whenFalse: [],
+                      },
+                    ],
+                    whenFalse: [
+                      {
+                        if: '!selectLibrarySubject( selectedLibrary()?.id ?? "", { preserveView: true })',
+                        whenTrue: ["statement:ReturnStatement:return;"],
+                        whenFalse: [],
+                      },
+                    ],
                   },
                 ],
                 whenFalse: [
