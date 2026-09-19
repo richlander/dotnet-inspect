@@ -444,7 +444,7 @@ public static class LibrarySections
     {
         TopLeverageResult result = ExecuteTopLeverageQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex);
+            () => context.BodyAnalysis().Leverage);
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
@@ -566,16 +566,17 @@ public static class LibrarySections
 
     internal static TopLeverageResult ExecuteTopLeverageQuery(
         bool hasMetadata,
-        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+        Func<ILInspector.Analysis.LibraryLeverageAnalysisResult>
+            acquireAnalysis)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new TopLeverageResult.NoMetadata();
 
         try
         {
-            return TopLeverageQuery.Execute(acquireIndex());
+            return TopLeverageQuery.Execute(acquireAnalysis());
         }
         catch (CostDeclarationException)
         {

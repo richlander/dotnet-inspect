@@ -237,8 +237,12 @@ public class CatalogCallGraphScopeTests
             calls,
             call =>
             {
-                Assert.Same(caller, call.Source.Index);
-                Assert.Same(target, call.Target.Index);
+                Assert.Same(
+                    caller.CallGraphAnalysis,
+                    call.Source.CallGraph);
+                Assert.Same(
+                    target.CallGraphAnalysis,
+                    call.Target.CallGraph);
                 Assert.Equal(
                     call.SourceMethod.MetadataToken,
                     call.Call.Caller.MetadataToken);

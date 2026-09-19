@@ -10,7 +10,9 @@ focused prerequisite of the platform-first tracker
 Versionless target defaults are tracked by the composition map
 [#7742](https://github.com/richlander/dotnet-inspect/issues/7742); the focused
 PlatformHouse contract slice is
-[#7743](https://github.com/richlander/dotnet-inspect/issues/7743).
+[#7743](https://github.com/richlander/dotnet-inspect/issues/7743), and staged
+target-selection execution is tracked by
+[#7778](https://github.com/richlander/dotnet-inspect/issues/7778).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.

@@ -26,22 +26,30 @@ public abstract record TopLeverageResult
     public sealed record Failed(Exception Error) : TopLeverageResult;
 }
 
-/// <summary>Ranks leverage from an already-acquired whole-assembly body index.</summary>
+/// <summary>Reads leverage from an already-produced focused Analysis result.</summary>
 public static class TopLeverageQuery
 {
     public static InspectionQuery<TopLeverageResult> Definition { get; } =
         new("Top leverage", InspectionCost.Unbounded);
 
-    public static TopLeverageResult Execute(LibraryBodyIndex index)
+    public static TopLeverageResult Execute(
+        LibraryLeverageAnalysisResult analysis)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         try
         {
+            if (!analysis.WasRequested)
+            {
+                throw new InvalidOperationException(
+                    "Leverage analysis was not requested for this Analysis "
+                    + "execution.");
+            }
+
             return new TopLeverageResult.Available(
-                index.TopLeverage(int.MaxValue),
-                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
-                index.Diagnostics);
+                analysis.Top(int.MaxValue),
+                analysis.GeneratedFrameworkTypes,
+                analysis.Receipt.Diagnostics);
         }
         catch (Exception ex)
         {
