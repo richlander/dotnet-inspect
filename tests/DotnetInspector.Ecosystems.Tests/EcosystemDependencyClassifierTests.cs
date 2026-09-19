@@ -81,6 +81,22 @@ public sealed class EcosystemDependencyClassifierTests
             ecosystem => ecosystem.Id == EcosystemPackIds.AI);
     }
 
+    [Theory]
+    [InlineData("Microsoft.Extensions.AI.")]
+    [InlineData("Microsoft.Extensions.AI..Abstractions")]
+    public void FamilyMatchingRequiresANonemptyDescendantSegment(
+        string packageId)
+    {
+        EcosystemDependencyClassification classification =
+            EcosystemDependencyClassifier.Classify(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                [PackageObservation(1, 1, packageId)]);
+
+        Assert.DoesNotContain(
+            classification.RecognizedEcosystems,
+            ecosystem => ecosystem.Id == EcosystemPackIds.AI);
+    }
+
     [Fact]
     public void AspireAzureDependencyRetainsIntentionalCrossPackOverlap()
     {

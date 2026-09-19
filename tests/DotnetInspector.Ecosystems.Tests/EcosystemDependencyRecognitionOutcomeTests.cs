@@ -122,9 +122,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             new EcosystemDependencyInputComponent<
                 PackageManifestFacts>.Unavailable(issue.Identity),
             new EcosystemDependencyInputComponent<
-                EcosystemDependencyGroupSelection>.NotAttempted(issue.Identity),
+                PackageDependencyGroups>.NotAttempted(issue.Identity),
             new EcosystemDependencyInputComponent<
-                PackageCompileAssetSelectionReceipt>.NotAttempted(
+                EcosystemDependencyPackageCompileSelection>.NotAttempted(
                     issue.Identity));
         var batch = new EcosystemDependencyObservationBatch.Unavailable(
             new EcosystemDependencySubject.Package(coordinate),
@@ -148,21 +148,21 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     [Fact]
     public void CompletePackageDocumentRetainsSelectionContextAndOverlap()
     {
-        RealizedMemberCoordinate.Package coordinate = PackageSource();
-        EcosystemDependencyInputContext.Package context =
-            CompletePackageContext("net10.0");
-        var subject = new EcosystemDependencySubject.Package(coordinate);
+        PackageFixture fixture = CompletePackageFixture(
+            "net10.0",
+            "net10.0",
+            "Microsoft.Extensions.AI.Abstractions");
+        var subject =
+            new EcosystemDependencySubject.Package(fixture.Coordinate);
         var batch = new EcosystemDependencyObservationBatch.Available(
             subject,
-            context,
+            fixture.Context,
             [
                 new EcosystemDependencyObservation.PackageDeclaration(
                     new(1),
                     1,
-                    new DeclaredPackageDependency(
-                        "Microsoft.Extensions.AI.Abstractions",
-                        "[10.0.0,)"),
-                    coordinate),
+                    fixture.Dependency!,
+                    fixture.Coordinate),
             ]);
 
         var outcome =
@@ -171,7 +171,7 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
                     EcosystemPackCatalog.DependencyRecognitionProfile,
                     batch));
 
-        Assert.Same(context, outcome.Document.InputContext);
+        Assert.Same(fixture.Context, outcome.Document.InputContext);
         Assert.Equal(subject, outcome.Document.Subject);
         Assert.Equal(
             [
@@ -183,18 +183,229 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     }
 
     [Fact]
-    public void PackageContextRejectsMismatchedSelectionSlices()
+    public void SelectedAssetCorrespondenceUsesMetadataIdentityNotDllFileName()
     {
-        RealizedMemberCoordinate.Package coordinate = PackageSource();
-        EcosystemDependencyInputContext.Package context =
-            CompletePackageContext(
-                dependencyTargetFramework: "net8.0",
-                compileTargetFramework: "net10.0");
+        PackageFixture fixture = CompletePackageFixture(
+            "net10.0",
+            "net10.0");
+        var observation =
+            new EcosystemDependencyObservation.AssemblyReference(
+                new(1),
+                1,
+                new AssemblyReferenceIdentity(
+                    "System.Net.Http",
+                    new Version(10, 0, 0, 0),
+                    null,
+                    null),
+                fixture.SelectedLibrary);
+
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(fixture.Coordinate),
+            fixture.Context,
+            [observation]);
+
+        var outcome =
+            Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+                EcosystemDependencyRecognizer.Recognize(
+                    EcosystemPackCatalog.DependencyRecognitionProfile,
+                    batch));
+
+        Assert.Equal(
+            "Sample.Package.dll",
+            Assert.Single(fixture.Compile.Receipt.Selection.Assets)
+                .AssemblyName);
+        Assert.Equal(
+            "Sample.Package",
+            fixture.SelectedLibrary.Name);
+        Assert.Equal(
+            EcosystemPackIds.Runtime,
+            Assert.Single(outcome.Document.Classification.Recognized)
+                .Ecosystem.Id);
+    }
+
+    [Fact]
+    public void EquivalentTargetFrameworkSpellingsCorrespond()
+    {
+        PackageFixture fixture = CompletePackageFixture(
+            "netstandard2.0",
+            ".NETStandard2.0");
+
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(fixture.Coordinate),
+            fixture.Context);
+
+        Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch));
+    }
+
+    [Fact]
+    public void UniversalDependencyGroupCorrespondsToConcreteCompileSlice()
+    {
+        PackageFixture fixture = CompletePackageFixture(
+            "net10.0",
+            "any",
+            universalGroup: true);
+
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(fixture.Coordinate),
+            fixture.Context);
+
+        Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch));
+    }
+
+    [Fact]
+    public void PackageContextRejectsMismatchedEffectiveTargetRequests()
+    {
+        PackageFixture fixture = CompletePackageFixture(
+            "net10.0",
+            "net8.0",
+            dependencyRequestedTarget: "net8.0");
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencyObservationBatch.Available(
+                new EcosystemDependencySubject.Package(fixture.Coordinate),
+                fixture.Context));
+    }
+
+    [Fact]
+    public void FailedDependencySelectionCannotAppearAvailable()
+    {
+        RealizedMemberCoordinate.Package coordinate = PackageSource("net10.0");
+        PackageManifestFacts manifest = Manifest(
+            new DeclaredPackageDependencyGroup(
+                "net8.0",
+                ImmutableArray<DeclaredPackageDependency>.Empty));
+        var dependencyGroups = new PackageDependencyGroups(
+            manifest.DependencyGroups,
+            "net10.0",
+            SelectedTargetFramework: null,
+            SelectedGroupIndex: null,
+            PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework);
+        EcosystemDependencyPackageCompileSelection compile =
+            CompileSelection("net10.0").Selection;
+        var context = new EcosystemDependencyInputContext.Package(
+            new EcosystemDependencyInputComponent<
+                PackageManifestFacts>.Available(manifest),
+            new EcosystemDependencyInputComponent<
+                PackageDependencyGroups>.Available(dependencyGroups),
+            new EcosystemDependencyInputComponent<
+                EcosystemDependencyPackageCompileSelection>.Available(compile));
 
         Assert.Throws<ArgumentException>(() =>
             new EcosystemDependencyObservationBatch.Available(
                 new EcosystemDependencySubject.Package(coordinate),
                 context));
+    }
+
+    [Fact]
+    public void FailedCompileSelectionCannotAppearAvailable()
+    {
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                PackageContent("ref/net8.0/Sample.Package.dll"),
+                "sample.package",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                "net10.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            receipt.Selection.Status);
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencyPackageCompileSelection(receipt));
+    }
+
+    [Fact]
+    public void NoDependencyGroupsAndNoCompileAssetsAreCompleteEmptyInputs()
+    {
+        RealizedMemberCoordinate.Package coordinate = PackageSource("net10.0");
+        PackageManifestFacts manifest = Manifest();
+        var dependencies = new PackageDependencyGroups(
+            manifest.DependencyGroups,
+            "net10.0",
+            SelectedTargetFramework: null,
+            SelectedGroupIndex: null,
+            PackageDependencyGroupSelectionStatus.NoDependencyGroups);
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                PackageContent(),
+                "sample.package",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                "net10.0");
+        var compile =
+            new EcosystemDependencyPackageCompileSelection(receipt);
+        var context = new EcosystemDependencyInputContext.Package(
+            new EcosystemDependencyInputComponent<
+                PackageManifestFacts>.Available(manifest),
+            new EcosystemDependencyInputComponent<
+                PackageDependencyGroups>.Available(dependencies),
+            new EcosystemDependencyInputComponent<
+                EcosystemDependencyPackageCompileSelection>.Available(compile));
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            new EcosystemDependencySubject.Package(coordinate),
+            context);
+
+        var outcome =
+            Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
+                EcosystemDependencyRecognizer.Recognize(
+                    EcosystemPackCatalog.DependencyRecognitionProfile,
+                    batch));
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            receipt.Selection.Status);
+        Assert.Equal(0, outcome.Document.Classification.Summary.ObservationCount);
+    }
+
+    [Fact]
+    public void PackageDeclarationsMustBelongToSelectedLogicalGroup()
+    {
+        var net8Dependency =
+            new DeclaredPackageDependency("Contoso.Net8", "1.0.0");
+        var net10Dependency =
+            new DeclaredPackageDependency("Contoso.Net10", "1.0.0");
+        var net8 = new DeclaredPackageDependencyGroup(
+            "net8.0",
+            [net8Dependency]);
+        var net10 = new DeclaredPackageDependencyGroup(
+            "net10.0",
+            [net10Dependency]);
+        PackageManifestFacts manifest = Manifest(net8, net10);
+        var dependencies = new PackageDependencyGroups(
+            manifest.DependencyGroups,
+            "net10.0",
+            "net10.0",
+            SelectedGroupIndex: 1,
+            PackageDependencyGroupSelectionStatus.Selected)
+        {
+            SelectedGroup = net10,
+        };
+        CompileFixture compile = CompileSelection("net10.0");
+        var context = new EcosystemDependencyInputContext.Package(
+            new EcosystemDependencyInputComponent<
+                PackageManifestFacts>.Available(manifest),
+            new EcosystemDependencyInputComponent<
+                PackageDependencyGroups>.Available(dependencies),
+            new EcosystemDependencyInputComponent<
+                EcosystemDependencyPackageCompileSelection>.Available(
+                    compile.Selection));
+        RealizedMemberCoordinate.Package coordinate = PackageSource("net10.0");
+        var observation =
+            new EcosystemDependencyObservation.PackageDeclaration(
+                new(1),
+                1,
+                net8Dependency,
+                coordinate);
+
+        Assert.Throws<ArgumentException>(() =>
+            new EcosystemDependencyObservationBatch.Available(
+                new EcosystemDependencySubject.Package(coordinate),
+                context,
+                [observation]));
     }
 
     [Fact]
@@ -235,9 +446,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             new EcosystemDependencyInputComponent<
                 PackageManifestFacts>.Unavailable(issue.Identity),
             new EcosystemDependencyInputComponent<
-                EcosystemDependencyGroupSelection>.NotAttempted(issue.Identity),
+                PackageDependencyGroups>.NotAttempted(issue.Identity),
             new EcosystemDependencyInputComponent<
-                PackageCompileAssetSelectionReceipt>.NotAttempted(
+                EcosystemDependencyPackageCompileSelection>.NotAttempted(
                     issue.Identity));
 
         Assert.Throws<ArgumentException>(() =>
@@ -250,9 +461,9 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
     [Fact]
     public void PackageAssemblyObservationsJoinSelectedCompileLibraries()
     {
-        RealizedMemberCoordinate.Package coordinate = PackageSource();
-        EcosystemDependencyInputContext.Package context =
-            CompletePackageContext("net10.0");
+        PackageFixture fixture = CompletePackageFixture(
+            "net10.0",
+            "net10.0");
         var observation =
             new EcosystemDependencyObservation.AssemblyReference(
                 new(1),
@@ -266,17 +477,19 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
 
         Assert.Throws<ArgumentException>(() =>
             new EcosystemDependencyObservationBatch.Available(
-                new EcosystemDependencySubject.Package(coordinate),
-                context,
+                new EcosystemDependencySubject.Package(fixture.Coordinate),
+                fixture.Context,
                 [observation]));
     }
 
     [Fact]
-    public void EnvelopePreservesContentShareAndDiagnostics()
+    public void EnvelopePreservesSubjectBoundShareAndDiagnostics()
     {
         PortableLibraryIdentity library = Library("Envelope.Library");
+        var subject =
+            new EcosystemDependencySubject.Library(PackageSource(), library);
         var batch = new EcosystemDependencyObservationBatch.Available(
-            new EcosystemDependencySubject.Library(PackageSource(), library),
+            subject,
             new EcosystemDependencyInputContext.Library(
                 new EcosystemDependencyReferenceInput.Available()));
         var share = new InspectionShare.Available(
@@ -291,13 +504,39 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             EcosystemDependencyRecognizer.Recognize(
                 EcosystemPackCatalog.DependencyRecognitionProfile,
                 batch,
-                share,
+                new EcosystemDependencyRecognitionShare(subject, share),
                 [diagnostic]);
 
         Assert.IsType<EcosystemDependencyRecognitionOutcome.Complete>(
             envelope.Content);
         Assert.Same(share, envelope.Share);
         Assert.Same(diagnostic, Assert.Single(envelope.Diagnostics));
+    }
+
+    [Fact]
+    public void EnvelopeRejectsShareForAnotherSemanticSubject()
+    {
+        PortableLibraryIdentity library = Library("Envelope.Library");
+        var subject =
+            new EcosystemDependencySubject.Library(PackageSource(), library);
+        var batch = new EcosystemDependencyObservationBatch.Available(
+            subject,
+            new EcosystemDependencyInputContext.Library(
+                new EcosystemDependencyReferenceInput.Available()));
+        var otherSubject = new EcosystemDependencySubject.Library(
+            PackageSource(),
+            Library("Other.Library"));
+        var share = new EcosystemDependencyRecognitionShare(
+            otherSubject,
+            new InspectionShare.NonProjectable(
+                "ecosystem-dependencies/share",
+                "Test."));
+
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemDependencyRecognizer.Recognize(
+                EcosystemPackCatalog.DependencyRecognitionProfile,
+                batch,
+                share));
     }
 
     private static EcosystemDependencyRecognitionOutcome RecognizeEmptyLibrary(
@@ -313,34 +552,66 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             batch);
     }
 
-    private static EcosystemDependencyInputContext.Package CompletePackageContext(
-        string dependencyTargetFramework,
-        string? compileTargetFramework = null)
+    private static PackageFixture CompletePackageFixture(
+        string compileTarget,
+        string dependencyGroupTarget,
+        string? dependencyId = null,
+        string? dependencyRequestedTarget = null,
+        bool universalGroup = false)
     {
-        compileTargetFramework ??= dependencyTargetFramework;
-        PackageManifestFacts manifest = Manifest();
-        PackageCompileAssetSelectionReceipt compile =
-            PackageCompileAssetSelector.Evaluate(
-                PackageContent(
-                    $"ref/{compileTargetFramework}/Sample.Package.dll"),
-                "sample.package",
-                PackageCompileAssetSelectionPolicy.ExactTarget,
-                compileTargetFramework);
-        return new EcosystemDependencyInputContext.Package(
+        DeclaredPackageDependency? dependency = dependencyId is null
+            ? null
+            : new DeclaredPackageDependency(dependencyId, "[1.0.0,)");
+        var group = new DeclaredPackageDependencyGroup(
+            dependencyGroupTarget,
+            dependency is null ? [] : [dependency],
+            universalGroup);
+        PackageManifestFacts manifest = Manifest(group);
+        var dependencyGroups = new PackageDependencyGroups(
+            manifest.DependencyGroups,
+            dependencyRequestedTarget ?? compileTarget,
+            dependencyGroupTarget,
+            SelectedGroupIndex: 0,
+            PackageDependencyGroupSelectionStatus.Selected)
+        {
+            SelectedGroup = group,
+        };
+        CompileFixture compile = CompileSelection(compileTarget);
+        var context = new EcosystemDependencyInputContext.Package(
             new EcosystemDependencyInputComponent<
                 PackageManifestFacts>.Available(manifest),
             new EcosystemDependencyInputComponent<
-                EcosystemDependencyGroupSelection>.Available(
-                    new EcosystemDependencyGroupSelection(
-                        dependencyTargetFramework,
-                        PackageDependencyGroupSelectionStatus.Selected,
-                        dependencyTargetFramework,
-                        selectedGroupIndex: 0)),
+                PackageDependencyGroups>.Available(dependencyGroups),
             new EcosystemDependencyInputComponent<
-                PackageCompileAssetSelectionReceipt>.Available(compile));
+                EcosystemDependencyPackageCompileSelection>.Available(
+                    compile.Selection));
+        return new(
+            PackageSource(compileTarget),
+            context,
+            dependency,
+            compile.Library,
+            compile.Selection);
     }
 
-    private static PackageManifestFacts Manifest() =>
+    private static CompileFixture CompileSelection(string targetFramework)
+    {
+        PackageCompileAssetSelectionReceipt receipt =
+            PackageCompileAssetSelector.Evaluate(
+                PackageContent(
+                    $"ref/{targetFramework}/Sample.Package.dll"),
+                "sample.package",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                targetFramework);
+        PackageCompileAsset asset = Assert.Single(receipt.Selection.Assets);
+        PortableLibraryIdentity library = Library("Sample.Package");
+        var selection = new EcosystemDependencyPackageCompileSelection(
+            receipt,
+            [new EcosystemDependencySelectedLibrary(asset, library)]);
+        return new(selection, library);
+    }
+
+    private static PackageManifestFacts Manifest(
+        params DeclaredPackageDependencyGroup[] groups) =>
         new(
             PackageSourceCoordinate.Create("sample.package", "1.0.0"),
             "1.0.0",
@@ -354,12 +625,7 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             PackageTypes: [],
             IsToolPackage: false,
             ReadmeFile: null,
-            DependencyGroups:
-            [
-                new DeclaredPackageDependencyGroup(
-                    "net10.0",
-                    ImmutableArray<DeclaredPackageDependency>.Empty),
-            ]);
+            DependencyGroups: [.. groups]);
 
     private static InMemoryPackageContent PackageContent(params string[] entries)
     {
@@ -383,14 +649,26 @@ public sealed class EcosystemDependencyRecognitionOutcomeTests
             producerKey: "tests");
     }
 
-    private static RealizedMemberCoordinate.Package PackageSource() =>
+    private static RealizedMemberCoordinate.Package PackageSource(
+        string targetFramework = "net10.0") =>
         new(
             "sample.package",
             "1.0.0",
             PackageProducerIdentity.NuGetOrg.PortableKey,
-            "net10.0",
+            targetFramework,
             runtimeIdentifier: null);
 
     private static PortableLibraryIdentity Library(string name) =>
         new(name, "1.0.0.0", culture: null, publicKeyToken: null);
+
+    private sealed record CompileFixture(
+        EcosystemDependencyPackageCompileSelection Selection,
+        PortableLibraryIdentity Library);
+
+    private sealed record PackageFixture(
+        RealizedMemberCoordinate.Package Coordinate,
+        EcosystemDependencyInputContext.Package Context,
+        DeclaredPackageDependency? Dependency,
+        PortableLibraryIdentity SelectedLibrary,
+        EcosystemDependencyPackageCompileSelection Compile);
 }

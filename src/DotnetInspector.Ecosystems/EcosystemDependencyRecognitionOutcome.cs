@@ -3,6 +3,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -156,60 +157,102 @@ public abstract record EcosystemDependencyReferenceInput
 }
 
 /// <summary>
-/// Owner-issued target-framework selection retained for Package recognition.
+/// One selected compile asset and the exact portable Library realized from it.
 /// </summary>
-public sealed record EcosystemDependencyGroupSelection
+public sealed record EcosystemDependencySelectedLibrary
 {
-    public EcosystemDependencyGroupSelection(
-        string? requestedTargetFramework,
-        PackageDependencyGroupSelectionStatus status,
-        string? selectedTargetFramework,
-        int? selectedGroupIndex)
+    public EcosystemDependencySelectedLibrary(
+        PackageCompileAsset asset,
+        PortableLibraryIdentity identity)
     {
-        if (requestedTargetFramework is not null
-            && string.IsNullOrWhiteSpace(requestedTargetFramework))
-        {
-            throw new ArgumentException(
-                "A requested target framework cannot be blank.",
-                nameof(requestedTargetFramework));
-        }
-        if (selectedTargetFramework is not null
-            && string.IsNullOrWhiteSpace(selectedTargetFramework))
-        {
-            throw new ArgumentException(
-                "A selected target framework cannot be blank.",
-                nameof(selectedTargetFramework));
-        }
-        if (!Enum.IsDefined(status))
-            throw new ArgumentOutOfRangeException(nameof(status), status, null);
-        if (status == PackageDependencyGroupSelectionStatus.Selected
-            && (string.IsNullOrWhiteSpace(selectedTargetFramework)
-                || selectedGroupIndex is null or < 0))
-        {
-            throw new ArgumentException(
-                "A selected dependency group requires a selected target framework and nonnegative group index.");
-        }
-        if (status != PackageDependencyGroupSelectionStatus.Selected
-            && (selectedTargetFramework is not null
-                || selectedGroupIndex is not null))
-        {
-            throw new ArgumentException(
-                "A non-selected dependency-group outcome cannot retain selected group identity.");
-        }
-
-        RequestedTargetFramework = requestedTargetFramework;
-        Status = status;
-        SelectedTargetFramework = selectedTargetFramework;
-        SelectedGroupIndex = selectedGroupIndex;
+        Asset = asset ?? throw new ArgumentNullException(nameof(asset));
+        Identity = identity ?? throw new ArgumentNullException(nameof(identity));
     }
 
-    public string? RequestedTargetFramework { get; }
+    public PackageCompileAsset Asset { get; }
 
-    public PackageDependencyGroupSelectionStatus Status { get; }
+    public PortableLibraryIdentity Identity { get; }
+}
 
-    public string? SelectedTargetFramework { get; }
+/// <summary>
+/// Compile selection plus explicit selected-asset-to-Library correspondence.
+/// </summary>
+public sealed class EcosystemDependencyPackageCompileSelection
+{
+    public EcosystemDependencyPackageCompileSelection(
+        PackageCompileAssetSelectionReceipt receipt,
+        IEnumerable<EcosystemDependencySelectedLibrary>? selectedLibraries = null)
+    {
+        Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        SelectedLibraries = [.. selectedLibraries ?? []];
+        Validate();
+    }
 
-    public int? SelectedGroupIndex { get; }
+    public PackageCompileAssetSelectionReceipt Receipt { get; }
+
+    public ImmutableArray<EcosystemDependencySelectedLibrary> SelectedLibraries
+        { get; }
+
+    internal bool HasCompleteLibraryCorrespondence =>
+        Receipt.Selection.Status switch
+        {
+            PackageCompileAssetSelectionStatus.Selected =>
+                SelectedLibraries.Length == Receipt.Selection.Assets.Count,
+            PackageCompileAssetSelectionStatus.NoCompileAssets
+                or PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                SelectedLibraries.IsEmpty,
+            _ => false,
+        };
+
+    private void Validate()
+    {
+        if (SelectedLibraries.Any(static library => library is null))
+        {
+            throw new ArgumentException(
+                "Selected compile Libraries cannot contain null entries.",
+                nameof(SelectedLibraries));
+        }
+
+        PackageCompileAssetSelection selection = Receipt.Selection;
+        if (selection.Status is not (
+                PackageCompileAssetSelectionStatus.Selected
+                or PackageCompileAssetSelectionStatus.NoCompileAssets
+                or PackageCompileAssetSelectionStatus.EmptyCompileGroup))
+        {
+            throw new ArgumentException(
+                "A failed compile-asset selection cannot be retained as available recognition input.",
+                nameof(Receipt));
+        }
+        if (selection.Status != PackageCompileAssetSelectionStatus.Selected
+            && !SelectedLibraries.IsEmpty)
+        {
+            throw new ArgumentException(
+                "An empty compile selection cannot retain selected Libraries.",
+                nameof(SelectedLibraries));
+        }
+
+        var assets = new HashSet<PackageCompileAsset>(
+            selection.Assets,
+            ReferenceEqualityComparer.Instance);
+        var selectedAssets = new HashSet<PackageCompileAsset>(
+            ReferenceEqualityComparer.Instance);
+        foreach (EcosystemDependencySelectedLibrary library
+                 in SelectedLibraries)
+        {
+            if (!assets.Contains(library.Asset))
+            {
+                throw new ArgumentException(
+                    "A selected Library must retain an asset from the compile selection receipt.",
+                    nameof(SelectedLibraries));
+            }
+            if (!selectedAssets.Add(library.Asset))
+            {
+                throw new ArgumentException(
+                    "A compile asset cannot correspond to more than one selected Library.",
+                    nameof(SelectedLibraries));
+            }
+        }
+    }
 }
 
 /// <summary>Typed recognition inputs retained beside the semantic subject.</summary>
@@ -223,10 +266,10 @@ public abstract record EcosystemDependencyInputContext
     {
         public Package(
             EcosystemDependencyInputComponent<PackageManifestFacts> manifest,
-            EcosystemDependencyInputComponent<EcosystemDependencyGroupSelection>
+            EcosystemDependencyInputComponent<PackageDependencyGroups>
                 dependencyGroup,
             EcosystemDependencyInputComponent<
-                PackageCompileAssetSelectionReceipt> compileAssets)
+                EcosystemDependencyPackageCompileSelection> compileAssets)
         {
             Manifest = manifest
                 ?? throw new ArgumentNullException(nameof(manifest));
@@ -240,10 +283,10 @@ public abstract record EcosystemDependencyInputContext
             { get; }
 
         public EcosystemDependencyInputComponent<
-            EcosystemDependencyGroupSelection> DependencyGroup { get; }
+            PackageDependencyGroups> DependencyGroup { get; }
 
         public EcosystemDependencyInputComponent<
-            PackageCompileAssetSelectionReceipt> CompileAssets { get; }
+            EcosystemDependencyPackageCompileSelection> CompileAssets { get; }
     }
 
     public sealed record Library : EcosystemDependencyInputContext
@@ -402,10 +445,12 @@ public abstract record EcosystemDependencyObservationBatch
                         PackageManifestFacts>.Available
                 && package.DependencyGroup is
                     EcosystemDependencyInputComponent<
-                        EcosystemDependencyGroupSelection>.Available
+                        PackageDependencyGroups>.Available
                 && package.CompileAssets is
                     EcosystemDependencyInputComponent<
-                        PackageCompileAssetSelectionReceipt>.Available,
+                        EcosystemDependencyPackageCompileSelection>.Available
+                        compile
+                && compile.Value.HasCompleteLibraryCorrespondence,
             EcosystemDependencyInputContext.Library library =>
                 library.DirectReferences is
                     EcosystemDependencyReferenceInput.Available,
@@ -445,10 +490,16 @@ public abstract record EcosystemDependencyObservationBatch
                                         PackageManifestFacts>.Available
                                 || packageContext.DependencyGroup
                                     is not EcosystemDependencyInputComponent<
-                                        EcosystemDependencyGroupSelection>.Available)
+                                        PackageDependencyGroups>.Available
+                                        dependency
+                                || dependency.Value.SelectedGroup is null
+                                || !dependency.Value.SelectedGroup.Dependencies
+                                    .Any(candidate => ReferenceEquals(
+                                        candidate,
+                                        packageObservation.Dependency)))
                             {
                                 throw new ArgumentException(
-                                    "A Package declaration requires available manifest and dependency-group input.",
+                                    "A Package declaration must retain one exact declaration from the selected logical dependency group.",
                                     nameof(Observations));
                             }
                             break;
@@ -457,12 +508,12 @@ public abstract record EcosystemDependencyObservationBatch
                             assemblyObservation:
                             if (packageContext.CompileAssets
                                     is not EcosystemDependencyInputComponent<
-                                        PackageCompileAssetSelectionReceipt>.Available
+                                        EcosystemDependencyPackageCompileSelection>.Available
                                         compile
-                                || !compile.Value.Selection.Assets.Any(asset =>
-                                    asset.AssemblyName.Equals(
-                                        assemblyObservation.DeclaringLibrary.Name,
-                                        StringComparison.OrdinalIgnoreCase)))
+                                || !compile.Value.SelectedLibraries.Any(
+                                    library =>
+                                        library.Identity
+                                        == assemblyObservation.DeclaringLibrary))
                             {
                                 throw new ArgumentException(
                                     "A Package assembly-reference observation must join to one selected compile Library.",
@@ -514,8 +565,8 @@ public abstract record EcosystemDependencyObservationBatch
         }
         if (context.CompileAssets
                 is EcosystemDependencyInputComponent<
-                    PackageCompileAssetSelectionReceipt>.Available compile
-            && !compile.Value.PackageId.Equals(
+                    EcosystemDependencyPackageCompileSelection>.Available compile
+            && !compile.Value.Receipt.PackageId.Equals(
                 subject.Coordinate.PackageId,
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -523,23 +574,158 @@ public abstract record EcosystemDependencyObservationBatch
                 "The compile-asset selection does not correspond to the semantic subject.",
                 nameof(context));
         }
+        if (context.Manifest
+                is EcosystemDependencyInputComponent<
+                    PackageManifestFacts>.Available availableManifest
+            && context.DependencyGroup
+                is EcosystemDependencyInputComponent<
+                    PackageDependencyGroups>.Available dependency)
+        {
+            ValidateDependencySelection(
+                availableManifest.Value,
+                dependency.Value);
+        }
         if (context.DependencyGroup
                 is EcosystemDependencyInputComponent<
-                    EcosystemDependencyGroupSelection>.Available dependency
+                    PackageDependencyGroups>.Available availableDependency
             && context.CompileAssets
                 is EcosystemDependencyInputComponent<
-                    PackageCompileAssetSelectionReceipt>.Available assets
-            && dependency.Value.SelectedTargetFramework is { } dependencyTarget
-            && assets.Value.Selection.TargetFramework is { } compileTarget
-            && !dependencyTarget.Equals(
-                compileTarget,
-                StringComparison.OrdinalIgnoreCase))
+                    EcosystemDependencyPackageCompileSelection>.Available assets)
         {
-            throw new ArgumentException(
-                "Dependency-group and compile-asset selection must describe one target-framework slice.",
-                nameof(context));
+            ValidateTargetFrameworkCorrespondence(
+                subject,
+                availableDependency.Value,
+                assets.Value.Receipt);
         }
     }
+
+    private static void ValidateDependencySelection(
+        PackageManifestFacts manifest,
+        PackageDependencyGroups selection)
+    {
+        if (!manifest.DependencyGroups
+                .Zip(selection.Groups)
+                .All(static pair => GroupsEqual(pair.First, pair.Second))
+            || manifest.DependencyGroups.Length != selection.Groups.Length)
+        {
+            throw new ArgumentException(
+                "The dependency-group selection does not belong to the available Package manifest.",
+                nameof(selection));
+        }
+
+        switch (selection.SelectionStatus)
+        {
+            case PackageDependencyGroupSelectionStatus.Selected:
+                if (selection.SelectedGroup is null
+                    || string.IsNullOrWhiteSpace(
+                        selection.SelectedTargetFramework)
+                    || selection.SelectedGroupIndex is not int selectedIndex
+                    || selectedIndex < 0
+                    || selectedIndex >= selection.Groups.Length
+                    || !SelectedGroupCorresponds(selection, selectedIndex))
+                {
+                    throw new ArgumentException(
+                        "The selected logical dependency group does not correspond to the Package manifest.",
+                        nameof(selection));
+                }
+                break;
+
+            case PackageDependencyGroupSelectionStatus.NoDependencyGroups:
+                if (!selection.Groups.IsEmpty
+                    || selection.SelectedGroup is not null
+                    || selection.SelectedGroupIndex is not null
+                    || selection.SelectedTargetFramework is not null)
+                {
+                    throw new ArgumentException(
+                        "A no-dependency-groups selection cannot retain a selected logical group.",
+                        nameof(selection));
+                }
+                break;
+
+            case PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework:
+                throw new ArgumentException(
+                    "A failed dependency-group selection cannot be retained as available recognition input.",
+                    nameof(selection));
+
+            default:
+                throw new InvalidOperationException(
+                    "Unknown dependency-group selection status.");
+        }
+    }
+
+    private static bool SelectedGroupCorresponds(
+        PackageDependencyGroups selection,
+        int selectedIndex)
+    {
+        DeclaredPackageDependencyGroup selected = selection.SelectedGroup!;
+        if (!selected.IsImplicitManifestGroup)
+            return GroupsEqual(selected, selection.Groups[selectedIndex]);
+
+        if (!selection.Groups[selectedIndex].IsImplicitManifestGroup
+            || !selected.TargetFramework.Equals(
+                "any",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return selected.Dependencies.SequenceEqual(
+            selection.Groups
+                .Where(static group => group.IsImplicitManifestGroup)
+                .SelectMany(static group => group.Dependencies));
+    }
+
+    private static void ValidateTargetFrameworkCorrespondence(
+        EcosystemDependencySubject.Package subject,
+        PackageDependencyGroups dependencies,
+        PackageCompileAssetSelectionReceipt compile)
+    {
+        string? dependencyBasis = dependencies.RequestedTargetFramework
+            ?? (dependencies.SelectedGroup is { } selectedGroup
+                && !IsUniversalGroup(selectedGroup)
+                    ? dependencies.SelectedTargetFramework
+                    : null);
+        string? compileBasis = compile.RequestedTargetFramework
+            ?? compile.Selection.TargetFramework;
+        string? canonical = null;
+        foreach (string target in new[]
+                 {
+                     subject.Coordinate.Framework,
+                     dependencyBasis,
+                     compileBasis,
+                 }.Where(static target => !string.IsNullOrWhiteSpace(target))!)
+        {
+            string current = TfmSelector.NormalizeTfm(target);
+            if (canonical is null)
+            {
+                canonical = current;
+            }
+            else if (!canonical.Equals(
+                         current,
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Dependency-group and compile-asset selection must describe one effective target-framework request.");
+            }
+        }
+
+    }
+
+    private static bool IsUniversalGroup(
+        DeclaredPackageDependencyGroup group) =>
+        string.IsNullOrWhiteSpace(group.TargetFramework)
+        || group.TargetFramework.Equals(
+            "any",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static bool GroupsEqual(
+        DeclaredPackageDependencyGroup left,
+        DeclaredPackageDependencyGroup right) =>
+        left.TargetFramework.Equals(
+            right.TargetFramework,
+            StringComparison.OrdinalIgnoreCase)
+        && left.IsImplicitManifestGroup == right.IsImplicitManifestGroup
+        && left.Dependencies.SequenceEqual(right.Dependencies);
 
     private static void ValidateContextIssueReferences(
         EcosystemDependencyInputContext context,
@@ -753,6 +939,24 @@ public abstract record EcosystemDependencyRecognitionOutcome
 }
 
 /// <summary>
+/// Share outcome bound to the semantic subject of one recognition plan.
+/// </summary>
+public sealed record EcosystemDependencyRecognitionShare
+{
+    public EcosystemDependencyRecognitionShare(
+        EcosystemDependencySubject subject,
+        InspectionShare share)
+    {
+        Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+        Share = share ?? throw new ArgumentNullException(nameof(share));
+    }
+
+    public EcosystemDependencySubject Subject { get; }
+
+    public InspectionShare Share { get; }
+}
+
+/// <summary>
 /// Completes Package or Library recognition over one already-issued input
 /// batch.
 /// </summary>
@@ -796,10 +1000,21 @@ public static class EcosystemDependencyRecognizer
         Recognize(
             EcosystemDependencyRecognitionProfile profile,
             EcosystemDependencyObservationBatch batch,
-            InspectionShare share,
-            IEnumerable<InspectionDiagnostic>? diagnostics = null) =>
-        new(
+            EcosystemDependencyRecognitionShare share,
+            IEnumerable<InspectionDiagnostic>? diagnostics = null)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(share);
+        if (share.Subject != batch.Subject)
+        {
+            throw new ArgumentException(
+                "The Share outcome does not correspond to the recognition subject.",
+                nameof(share));
+        }
+
+        return new(
             Recognize(profile, batch),
-            share,
+            share.Share,
             diagnostics);
+    }
 }

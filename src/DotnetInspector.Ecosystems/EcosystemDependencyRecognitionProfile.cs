@@ -79,8 +79,9 @@ public sealed record EcosystemDependencyAssociation
                 candidate.Equals(Value, comparison),
             EcosystemDependencyAssociationKind.Family =>
                 candidate.Equals(Value, comparison)
-                || candidate.Length > Value.Length
+                || candidate.Length > Value.Length + 1
                     && candidate[Value.Length] == '.'
+                    && candidate[Value.Length + 1] != '.'
                     && candidate.StartsWith(Value, comparison),
             _ => throw new InvalidOperationException(
                 "Unknown ecosystem dependency association kind."),
