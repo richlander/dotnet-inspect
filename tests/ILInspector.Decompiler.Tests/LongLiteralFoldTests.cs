@@ -84,7 +84,7 @@ public sealed class LongLiteralFoldTests
 
     public static TheoryData<string, string> DefaultRenders() => new()
     {
-        { nameof(LongLiteralFoldFixture.TernaryArms), "public static long TernaryArms(bool c, long tail) => (c ? ((long)10) : ((long)20)) + tail;" },
+        { nameof(LongLiteralFoldFixture.TernaryArms), "public static long TernaryArms(bool c, long tail) => (c ? (long)10 : (long)20) + tail;" },
         { nameof(LongLiteralFoldFixture.SmallReturn), "public static long SmallReturn() => (long)42;" },
         { nameof(LongLiteralFoldFixture.SmallArgument), "public static long SmallArgument() => Consume((long)7);" },
         { nameof(LongLiteralFoldFixture.BinaryOperand), "public static long BinaryOperand(long x) => x * (long)3;" },
@@ -114,7 +114,7 @@ public sealed class LongLiteralFoldTests
     {
         Assert.Equal(
             "public static long InlineArraySpanTernaryConditionValue(object a, object b) "
-            + "=> (AnyObjectSpan([a, b]) ? ((long)10) : ((long)20)) + Environment.TickCount64;",
+            + "=> (AnyObjectSpan([a, b]) ? (long)10 : (long)20) + Environment.TickCount64;",
             Render(typeof(CfgSampleClass), nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue)));
     }
 
