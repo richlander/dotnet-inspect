@@ -98,7 +98,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, markdown.Exit);
             Assert.StartsWith(
-                "# Test.LibraryFiles\n\n"
+                "# Test.LibraryFiles 1.0.0\n\n"
                 + "## Library Info: lib/net10.0/Latest.One.dll (net10.0)\n",
                 markdown.Output);
             Assert.DoesNotContain("## Libraries", markdown.Output);

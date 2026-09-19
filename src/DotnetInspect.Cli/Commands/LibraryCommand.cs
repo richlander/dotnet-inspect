@@ -1330,13 +1330,24 @@ public class LibraryCommand
                             options,
                             aggregatePackageSelection))
                         return 1;
-                    string documentTitle =
-                        aggregatePackageSelection
-                            ? packageName
-                                ?? throw new InvalidOperationException(
-                                    "Package identity was not resolved.")
-                            : Path.GetFileNameWithoutExtension(
+                    string documentTitle;
+                    if (aggregatePackageSelection)
+                    {
+                        string aggregatePackageName =
+                            packageName
+                            ?? throw new InvalidOperationException(
+                                "Package identity was not resolved.");
+                        documentTitle =
+                            string.IsNullOrWhiteSpace(packageVersion)
+                                ? aggregatePackageName
+                                : $"{aggregatePackageName} {packageVersion}";
+                    }
+                    else
+                    {
+                        documentTitle =
+                            Path.GetFileNameWithoutExtension(
                                 inspections[0].FileName);
+                    }
                     bool rendered = aggregatePackageSelection
                         ? OutputFormatter.WritePackageAggregateResults(
                             inspections,
