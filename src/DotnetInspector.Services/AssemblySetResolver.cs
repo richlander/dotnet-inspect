@@ -313,7 +313,13 @@ public static class AssemblySetResolver
                 }
 
                 var frameworkAssemblies = PlatformResolver.GetAssemblies(refPath!);
-                log?.Invoke($"Scanning {frameworkAssemblies.Count} libraries in {framework}@{resolvedVersion}");
+                int versionSeparator = framework.LastIndexOf('@');
+                string frameworkName = versionSeparator > 0
+                    ? framework[..versionSeparator]
+                    : framework;
+                log?.Invoke(
+                    $"Scanning {frameworkAssemblies.Count} libraries in "
+                        + $"{frameworkName}@{resolvedVersion}");
 
                 foreach (var asmInfo in frameworkAssemblies)
                 {

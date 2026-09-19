@@ -34,8 +34,10 @@ separately owned portable terminal outcome as the source-generated JSON
 contract. Inspect Web package and platform member documentation now consume
 those House-backed query paths through generated TypeScript declarations.
 PlatformHouse's superseded subject-level documentation contracts are removed.
-CLI platform adoption, the source adapter, the authored channel, field
-settlement, and remaining legacy retirement remain staged.
+The CLI now composes package, direct-Library, and platform reference-pack
+compiled documentation through the same House-backed Queries paths. The source
+adapter, authored channel, field settlement, and remaining legacy retirement
+remain staged.
 
 This is one focused new-owner effort under
 [Design Scope](../design-scope.md). It transfers one cohesive responsibility:
@@ -172,13 +174,39 @@ No adjacent owner should decide the product result:
 - hosts choose authorization and presentation but should not reproduce
   companion selection, channel interpretation, or conflict handling.
 
-The CLI package and direct-Library paths and the Inspect Web package and
-platform-member paths compose compiled documentation through
-DocumentationHouse. The remaining CLI `SourceEnricher` path combines platform
-reference-pack XML selection, source acquisition, comment search, parsing,
-field merging, and warnings; platform reference-pack documentation remains on
-that previous CLI host path until slice 12. DocumentationHouse replaces it
-with one source-neutral product boundary.
+The CLI package, direct-Library, and platform paths and the Inspect Web package
+and platform-member paths compose compiled documentation through
+DocumentationHouse. The CLI runtime and ASP.NET Core paths realize the exact
+reference Library through PlatformHouse before issuing the shared platform
+query. Canonical SDK-pack paths use the installed source; application
+`packs-v2` paths use the package-backed source so the realized provenance
+matches the selected reference pack. The CLI queries the IDs represented by
+that exact reference surface and leaves implementation-only members
+undocumented rather than failing otherwise valid reference subjects. Deferred
+type/member discovery preserves an explicitly selected framework family and
+version by resolving the type and owning assembly from that exact catalog, so
+reopening cannot combine a requested target with the current catalog's Library.
+Mixed reference and implementation search results may acquire the requested
+pack, but they do not issue the selected Library: versioned deferred routing
+projects the exact `PlatformTypeCatalog` definition or forwarder candidate
+after acquisition.
+Direct type and member source selection uses that same requested catalog
+before applying current-runtime core-library heuristics; when the requested
+catalog is not local, source selection defers to acquisition rather than
+substituting a current-runtime Library. Best-effort type-prefix browsing is
+likewise constrained to an explicit target, so an exact miss cannot become a
+success-shaped browse result from the current runtime. A target-scoped browse
+derives its reported version and TFM from the realized reference assets rather
+than reconstructing either identity from search display text.
+The resolved platform source retains the actual reference-pack TFM, including
+legacy `netcoreapp*` directory identities, rather than reconstructing it from
+the display version. The netstandard path, for which PlatformHouse defines no
+family, constructs the monolithic `netstandard.dll` direct Library with its
+`netstandard.xml` companion, queries only IDs represented by that contract
+surface, and applies a bounded 32-MiB allowance for the XML document. The
+remaining CLI `SourceEnricher` path retains PDB and authored-source acquisition,
+comment search, parsing, field merging, and warnings until the authored channel
+transfers those responsibilities in slice 21.
 
 ## Relationship to adjacent owners
 
@@ -937,7 +965,8 @@ assembly and XML companion in the .NET 11 reference pack.
 10. **Completed.** Remove PlatformHouse's superseded documentation contracts;
 11. **Completed.** Adopt platform reference-pack compiled documentation in
     Inspect Web;
-12. adopt platform reference-pack compiled documentation in the CLI;
+12. **Completed.** Adopt platform reference-pack compiled documentation in the
+    CLI;
 13. lock the focused SourceHouse physical-declaration correspondence contract
     under #6584;
 14. implement one production SourceHouse path that issues that trusted
