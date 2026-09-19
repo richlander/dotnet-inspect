@@ -51,11 +51,17 @@ public abstract class PlatformSourceContribution
         ArgumentNullException.ThrowIfNull(generation);
         if (facet == PlatformSourceFacet.TargetDiscovery)
         {
-            if (request.Target is not PlatformTargetDemand.Selecting)
+            if (!request.Target.RequiresDiscovery)
             {
                 throw new ArgumentException(
                     "Target discovery requires a selecting target demand.",
                     nameof(request));
+            }
+            if (!request.Target.AuthorizesDiscoveryCapability(capability))
+            {
+                throw new ArgumentException(
+                    "The target-discovery capability is not authorized by the demand.",
+                    nameof(capability));
             }
             if (exactTarget is not null)
             {
@@ -111,17 +117,20 @@ public abstract class PlatformSourceContribution
                 exactTarget: null)
         {
             ArgumentNullException.ThrowIfNull(candidates);
-            var selecting = (PlatformTargetDemand.Selecting)request.Target;
             PlatformFamilyTarget[] snapshot = [.. candidates];
             var seen = new HashSet<PlatformFamilyTarget>();
             for (int index = 0; index < snapshot.Length; index++)
             {
                 PlatformFamilyTarget candidate = snapshot[index];
                 ArgumentNullException.ThrowIfNull(candidate, nameof(candidates));
-                ValidateCorrespondence(
-                    candidate,
-                    selecting,
-                    nameof(candidates));
+                if (!request.Target.CorrespondsToDiscoveryCandidate(
+                    capability,
+                    candidate))
+                {
+                    throw new ArgumentException(
+                        "A discovered target does not correspond to its demand stage.",
+                        nameof(candidates));
+                }
                 if (!seen.Add(candidate))
                 {
                     throw new ArgumentException(
@@ -280,8 +289,7 @@ public abstract class PlatformSourceContribution
         PlatformTargetDemand demand,
         string parameterName)
     {
-        if (target.Family != demand.Family
-            || target.TargetFramework != demand.TargetFramework)
+        if (!demand.CorrespondsToTarget(target))
         {
             throw new ArgumentException(
                 "The source target does not correspond to the requested target demand.",

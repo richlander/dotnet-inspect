@@ -58,11 +58,17 @@ public abstract class PlatformTargetSettlement
     public sealed class Selected : PlatformTargetSettlement
     {
         internal Selected(
-            PlatformTargetDemand.Selecting demand,
+            PlatformTargetDemand demand,
             PlatformFamilyTarget target,
             IEnumerable<PlatformSourceContribution> discoveries)
             : base(demand, target)
         {
+            if (!demand.RequiresDiscovery)
+            {
+                throw new ArgumentException(
+                    "Target selection requires a selecting target demand.",
+                    nameof(demand));
+            }
             ArgumentNullException.ThrowIfNull(discoveries);
             PlatformSourceContribution[] snapshot = [.. discoveries];
             if (snapshot.Length == 0)
@@ -91,12 +97,23 @@ public abstract class PlatformTargetSettlement
                         nameof(discoveries));
                 }
             }
-            if (!snapshot.Any(
+            PlatformSourceContribution[] offeringDiscoveries =
+                [.. snapshot.Where(
                     discovery =>
-                        discovery.DiscoveredCandidates.Contains(target)))
+                        discovery.DiscoveredCandidates.Contains(target))];
+            if (offeringDiscoveries.Length == 0)
             {
                 throw new ArgumentException(
                     "The selected target must occur in retained discovery evidence.",
+                    nameof(target));
+            }
+            if (offeringDiscoveries.Any(
+                discovery => !demand.IsEligibleSelection(
+                    discovery.Capability,
+                    target)))
+            {
+                throw new ArgumentException(
+                    "The selected target is not eligible under its demand stage.",
                     nameof(target));
             }
 
@@ -122,8 +139,7 @@ public abstract class PlatformTargetSettlement
         PlatformTargetDemand demand,
         string parameterName)
     {
-        if (target.Family != demand.Family
-            || target.TargetFramework != demand.TargetFramework)
+        if (!demand.CorrespondsToTarget(target))
         {
             throw new ArgumentException(
                 "Target settlement evidence does not correspond to the retained demand.",
@@ -729,11 +745,8 @@ public sealed class PlatformHouseReceipt
                     nameof(sourceSettlements));
             }
             if (contribution.Facet == PlatformSourceFacet.TargetDiscovery
-                && request.Target is PlatformTargetDemand.Selecting selecting
-                && !selecting.DiscoveryCapabilities.Any(
-                    capability => ReferenceEquals(
-                        capability,
-                        contribution.Capability)))
+                && !request.Target.AuthorizesDiscoveryCapability(
+                    contribution.Capability))
             {
                 throw new ArgumentException(
                     "A target-discovery contribution is not authorized by the selecting demand.",
@@ -832,11 +845,13 @@ public sealed class PlatformHouseReceipt
             || consumed.Bytes > budget.MaxBytes
             || consumed.ForwardingHops > budget.MaxForwardingHops
             || consumed.Elapsed > budget.MaxDuration;
+        PlatformTargetDiscoveryBudget? targetBudget =
+            request.Target.DiscoveryWork;
         bool exceedsTargetBudget =
-            request.Target is PlatformTargetDemand.Selecting selecting
-            && (consumed.TargetCandidates > selecting.Work.MaxCandidates
+            targetBudget is not null
+            && (consumed.TargetCandidates > targetBudget.MaxCandidates
                 || consumed.TargetComparisons
-                    > selecting.Work.MaxComparisons);
+                    > targetBudget.MaxComparisons);
 
         if (settlementKind is not PlatformHouseSettlementKind.Incomplete
                 and not PlatformHouseSettlementKind.Failed

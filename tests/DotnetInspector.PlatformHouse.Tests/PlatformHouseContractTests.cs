@@ -31,6 +31,312 @@ public class PlatformHouseContractTests
     }
 
     [Fact]
+    public void FamilyDefaultPolicy_RetainsDesktopAndBrowserStages()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetSelectionPolicyIdentity identity =
+            PlatformTargetSelectionPolicyIdentity.Create(
+                "versionless-runtime-default");
+        PlatformTargetSelectionPolicyGeneration generation =
+            PlatformTargetSelectionPolicyGeneration.Create("generation-1");
+        PlatformTargetDiscoveryStage preferred = new(
+            new PlatformTargetDiscoveryScope.AllFrameworks(),
+            [installed]);
+        PlatformTargetDiscoveryStage fallback = new(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                PlatformTargetFramework.Parse("net10.0")),
+            [package]);
+        var policy = new PlatformVersionlessRuntimeTargetPolicy(
+            identity,
+            generation,
+            PlatformVersion.Parse("10.0.1"),
+            preferred,
+            fallback);
+        var demand = new PlatformTargetDemand.FamilyDefault(
+            PlatformFamily.DotNetRuntime,
+            policy,
+            new PlatformTargetDiscoveryBudget(32, 64));
+        var browserPolicy = new PlatformVersionlessRuntimeTargetPolicy(
+            identity,
+            generation,
+            PlatformVersion.Parse("10.0.1"),
+            preferred: null,
+            fallback);
+        var browserDemand = new PlatformTargetDemand.FamilyDefault(
+            PlatformFamily.DotNetRuntime,
+            browserPolicy,
+            new PlatformTargetDiscoveryBudget(32, 64));
+
+        Assert.Same(identity, demand.Policy.Identity);
+        Assert.Same(generation, demand.Policy.Generation);
+        Assert.Equal(
+            PlatformVersion.Parse("10.0.1"),
+            demand.Policy.MinimumPreferredVersion);
+        Assert.Same(preferred, demand.Policy.Preferred);
+        Assert.Same(fallback, demand.Policy.Fallback);
+        Assert.Equal([installed, package], demand.Policy.DiscoveryCapabilities);
+        Assert.Null(browserPolicy.Preferred);
+        Assert.Same(
+            package,
+            Assert.Single(browserPolicy.DiscoveryCapabilities));
+        Assert.IsType<PlatformHouseRequestValidation.Accepted>(
+            PlatformHouseRequestValidation.Validate(
+                Request(browserDemand, TargetDiscoveryPlan(package))));
+        Assert.Equal(32, demand.Work.MaxCandidates);
+        Assert.Equal(64, demand.Work.MaxComparisons);
+    }
+
+    [Fact]
+    public void FamilyDefaultPolicy_RejectsInvalidStageMembership()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformTargetDiscoveryStage preferred = new(
+            new PlatformTargetDiscoveryScope.AllFrameworks(),
+            [installed]);
+        PlatformTargetDiscoveryStage duplicateFallback = new(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                PlatformTargetFramework.Parse("net10.0")),
+            [installed]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformTargetDiscoveryStage(
+                new PlatformTargetDiscoveryScope.AllFrameworks(),
+                [installed, installed]));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformVersionlessRuntimeTargetPolicy(
+                PlatformTargetSelectionPolicyIdentity.Create("default"),
+                PlatformTargetSelectionPolicyGeneration.Create("generation"),
+                PlatformVersion.Parse("10.0.1"),
+                preferred,
+                duplicateFallback));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformVersionlessRuntimeTargetPolicy(
+                PlatformTargetSelectionPolicyIdentity.Create("default"),
+                PlatformTargetSelectionPolicyGeneration.Create("generation"),
+                PlatformVersion.Parse("10.0.1-rc.2"),
+                preferred: null,
+                new PlatformTargetDiscoveryStage(
+                    new PlatformTargetDiscoveryScope.ExactFramework(
+                        PlatformTargetFramework.Parse("net10.0")),
+                    [PlatformSourceCapabilityIdentity.Create("package")])));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformVersionlessRuntimeTargetPolicy(
+                PlatformTargetSelectionPolicyIdentity.Create("default"),
+                PlatformTargetSelectionPolicyGeneration.Create("generation"),
+                PlatformVersion.Parse("10.0.1"),
+                preferred: null,
+                new PlatformTargetDiscoveryStage(
+                    new PlatformTargetDiscoveryScope.ExactFramework(
+                        Framework()),
+                    [PlatformSourceCapabilityIdentity.Create("package")])));
+    }
+
+    [Fact]
+    public void FamilyDefaultRequest_RequiresExactlyStagedCapabilities()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformSourceCapabilityIdentity extra =
+            PlatformSourceCapabilityIdentity.Create("extra-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        PlatformHouseRequest missing = Request(
+            demand,
+            TargetDiscoveryPlan(installed));
+        PlatformHouseRequest complete = Request(
+            demand,
+            TargetDiscoveryPlan(installed, package));
+        PlatformHouseRequest withExtra = Request(
+            demand,
+            TargetDiscoveryPlan(installed, package, extra));
+
+        var missingRejection = Assert.IsType<
+            PlatformHouseRequestValidation.Rejected>(
+                PlatformHouseRequestValidation.Validate(missing));
+        Assert.Same(
+            package,
+            Assert.IsType<
+                PlatformHouseRejection
+                    .TargetDiscoveryCapabilityNotAuthorized>(
+                        missingRejection.Rejection).Capability);
+        Assert.IsType<PlatformHouseRequestValidation.Accepted>(
+            PlatformHouseRequestValidation.Validate(complete));
+        var extraRejection = Assert.IsType<
+            PlatformHouseRequestValidation.Rejected>(
+                PlatformHouseRequestValidation.Validate(withExtra));
+        Assert.Same(
+            extra,
+            Assert.IsType<
+                PlatformHouseRejection
+                    .TargetDiscoveryCapabilityNotStaged>(
+                        extraRejection.Rejection).Capability);
+    }
+
+    [Fact]
+    public void FamilyDefaultCandidates_CorrespondToTheirTypedStage()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        PlatformHouseRequest request = Request(
+            demand,
+            TargetDiscoveryPlan(installed, package));
+        var installedTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            Framework(),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        var packageTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.12"));
+
+        var preferred = new PlatformSourceContribution.TargetDiscovery(
+            installed,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("installed-generation"),
+            [installedTarget]);
+        var fallback = new PlatformSourceContribution.TargetDiscovery(
+            package,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("package-generation"),
+            [packageTarget]);
+
+        Assert.Same(installedTarget, Assert.Single(preferred.Candidates));
+        Assert.Same(packageTarget, Assert.Single(fallback.Candidates));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformSourceContribution.TargetDiscovery(
+                package,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("wrong-band"),
+                [installedTarget]));
+    }
+
+    [Fact]
+    public void FamilyDefaultSelection_AppliesFloorAndStableFallback()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        PlatformHouseRequest request = Request(
+            demand,
+            TargetDiscoveryPlan(installed, package));
+        var belowFloor = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.0-rc.2"));
+        var fallbackPreview = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.12-rc.1"));
+        var fallbackStable = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.12"));
+        var preferredDiscovery =
+            new PlatformSourceContribution.TargetDiscovery(
+                installed,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("installed-generation"),
+                [belowFloor]);
+        var fallbackDiscovery =
+            new PlatformSourceContribution.TargetDiscovery(
+                package,
+                request.Snapshot,
+                PlatformSourceGeneration.Create("package-generation"),
+                [fallbackPreview, fallbackStable]);
+
+        Assert.Throws<ArgumentException>(
+            () => new PlatformTargetSettlement.Selected(
+                demand,
+                belowFloor,
+                [preferredDiscovery]));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformTargetSettlement.Selected(
+                demand,
+                fallbackPreview,
+                [fallbackDiscovery]));
+        var selected = new PlatformTargetSettlement.Selected(
+            demand,
+            fallbackStable,
+            [fallbackDiscovery]);
+
+        Assert.Same(fallbackStable, selected.SettledTarget);
+        Assert.Same(fallbackDiscovery, Assert.Single(selected.Discoveries));
+    }
+
+    [Fact]
+    public void FamilyDefaultReceipt_RetainsPolicyAndFiniteWork()
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-targets");
+        PlatformSourceCapabilityIdentity package =
+            PlatformSourceCapabilityIdentity.Create("package-targets");
+        PlatformTargetDemand.FamilyDefault demand =
+            FamilyDefaultDemand(installed, package);
+        PlatformHouseRequest request = Request(
+            demand,
+            TargetDiscoveryPlan(installed, package));
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            Framework(),
+            PlatformVersion.Parse("11.0.0-rc.1.26425.128"));
+        var discovery = new PlatformSourceContribution.TargetDiscovery(
+            installed,
+            request.Snapshot,
+            PlatformSourceGeneration.Create("installed-generation"),
+            [target]);
+        var targetSettlement = new PlatformTargetSettlement.Selected(
+            demand,
+            target,
+            [discovery]);
+        var sourceSettlement = new PlatformSourceSettlement(
+            discovery,
+            PlatformSourceSettlementDisposition.Selected);
+        var receipt = new PlatformHouseReceipt(
+            request.Snapshot,
+            targetSettlement,
+            [sourceSettlement],
+            Consumed(targetCandidates: 4, targetComparisons: 8),
+            termination: new PlatformHouseTermination.Unavailable(
+                PlatformHouseTerminalEvidenceIdentity.Create("unavailable")));
+
+        Assert.Same(demand.Policy, Assert.IsType<
+            PlatformTargetDemand.FamilyDefault>(
+                receipt.Request.Target).Policy);
+        Assert.Same(target, receipt.TargetSettlement.SettledTarget);
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                request.Snapshot,
+                targetSettlement,
+                [sourceSettlement],
+                Consumed(targetCandidates: 5, targetComparisons: 8),
+                termination: new PlatformHouseTermination.Unavailable(
+                    PlatformHouseTerminalEvidenceIdentity.Create(
+                        "candidate-budget"))));
+        Assert.Throws<ArgumentException>(
+            () => new PlatformHouseReceipt(
+                request.Snapshot,
+                targetSettlement,
+                [sourceSettlement],
+                Consumed(targetCandidates: 4, targetComparisons: 9),
+                termination: new PlatformHouseTermination.Unavailable(
+                    PlatformHouseTerminalEvidenceIdentity.Create(
+                        "comparison-budget"))));
+    }
+
+    [Fact]
     public void SourcePlan_SnapshotsExplicitFacetPolicy()
     {
         PlatformSourceCapabilityIdentity first =
@@ -1371,6 +1677,30 @@ public class PlatformHouseContractTests
             [capability],
             new PlatformTargetDiscoveryBudget(4, 8));
 
+    static PlatformTargetDemand.FamilyDefault FamilyDefaultDemand(
+        PlatformSourceCapabilityIdentity installed,
+        PlatformSourceCapabilityIdentity package)
+    {
+        var preferred = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.AllFrameworks(),
+            [installed]);
+        var fallback = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                PlatformTargetFramework.Parse("net10.0")),
+            [package]);
+        var policy = new PlatformVersionlessRuntimeTargetPolicy(
+            PlatformTargetSelectionPolicyIdentity.Create(
+                "versionless-runtime-default"),
+            PlatformTargetSelectionPolicyGeneration.Create("generation-1"),
+            PlatformVersion.Parse("10.0.1"),
+            preferred,
+            fallback);
+        return new PlatformTargetDemand.FamilyDefault(
+            PlatformFamily.DotNetRuntime,
+            policy,
+            new PlatformTargetDiscoveryBudget(4, 8));
+    }
+
     static PlatformHouseRequest Request(
         PlatformTargetDemand demand,
         PlatformSourcePlan sources,
@@ -1407,6 +1737,18 @@ public class PlatformHouseContractTests
                     PlatformSourceSelectionMode.Precedence,
                     [value.Capability])));
 
+    static PlatformSourcePlan TargetDiscoveryPlan(
+        params PlatformSourceCapabilityIdentity[] capabilities) =>
+        new(
+            PlatformSourcePlanIdentity.Create("target-discovery-plan"),
+            PlatformSourcePolicyGeneration.Create("generation"),
+            [
+                new PlatformSourceSelection(
+                    PlatformSourceFacet.TargetDiscovery,
+                    PlatformSourceSelectionMode.Precedence,
+                    capabilities),
+            ]);
+
     static PlatformHouseReceipt TerminalReceipt(
         PlatformHouseRequest request,
         PlatformTargetSettlement targetSettlement,
@@ -1433,17 +1775,19 @@ public class PlatformHouseContractTests
 
     static PlatformHouseConsumedWork Consumed(
         int sourceOperations = 0,
+        int targetCandidates = 0,
+        int targetComparisons = 0,
         TimeSpan? elapsed = null) =>
         new(
             sourceOperations,
-            targetCandidates: 0,
+            targetCandidates,
             assemblies: 0,
             xmlDocuments: 0,
             portablePdbs: 0,
             sourceDocuments: 0,
             bytes: 0,
             forwardingHops: 0,
-            targetComparisons: 0,
+            targetComparisons,
             elapsed: elapsed ?? TimeSpan.Zero);
 
     static TypeResolutionRequest TypeRequest()
