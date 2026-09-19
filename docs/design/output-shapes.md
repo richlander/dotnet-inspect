@@ -413,6 +413,13 @@ Serialization never recaptures evidence or projects Share.
 | `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
 
+During Package Dependencies' documented scalar-only migration window, an
+explicit Share cannot also select paired baseline `--envelope` or Debug
+`--out`; admission rejects either combination before acquisition. The scalar
+fast path cannot honor a second stdout envelope or ordinary destination, and
+evidence transport does not silently drop either modifier or partially perform
+the broader #6725 migration.
+
 When both explicit destinations are present, their normalized absolute paths
 must be distinct using ordinal-ignore-case comparison on every host. This
 portable, conservative rule deliberately rejects case-only path pairs even on

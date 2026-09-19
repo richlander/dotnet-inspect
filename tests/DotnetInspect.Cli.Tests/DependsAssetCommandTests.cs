@@ -580,6 +580,86 @@ public sealed class DependsAssetCommandTests
         Assert.False(File.Exists(sidecar));
     }
 
+    [Theory]
+    [InlineData("--envelope")]
+    [InlineData("--out")]
+    public async Task EvidenceEnvelopeRejectsUnrepresentableShareOutput(
+        string outputOption)
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-output-");
+        string primary = Path.Combine(
+            directory.FullName,
+            "ordinary.json");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+        var arguments = new List<string>
+        {
+            "depends",
+            "--package",
+            "No.Such.Package@1.0.0",
+            "--tfm",
+            "net10.0",
+            "--share",
+            "packet",
+            outputOption,
+        };
+        if (outputOption == "--out")
+            arguments.Add(primary);
+        arguments.AddRange(["--evidence-envelope", sidecar]);
+
+        var result = await RunCapturedAsync([.. arguments]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--share cannot be combined with --envelope or --out",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No.Such.Package",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(primary));
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopeCountUsesOrdinaryOutputDestination()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-count-");
+        string primary = Path.Combine(directory.FullName, "count.txt");
+        string sidecar = Path.Combine(directory.FullName, "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--project",
+            AssetsFixture,
+            "-S",
+            DependsAssetSections.Roots,
+            "--count",
+            "--out",
+            primary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            result.Error);
+        Assert.Equal(
+            "1\n",
+            await File.ReadAllTextAsync(
+                primary,
+                TestContext.Current.CancellationToken));
+        Assert.True(File.Exists(sidecar));
+    }
+
     [Fact]
     public async Task EvidenceEnvelopeLocatorPrecedesFinalShareRefusal()
     {
@@ -599,7 +679,7 @@ public sealed class DependsAssetCommandTests
             directory.FullName,
             "evidence.json");
 
-        var result = await RunCapturedAsync(
+        string[] ordinaryArguments =
         [
             "depends",
             "--package",
@@ -608,10 +688,17 @@ public sealed class DependsAssetCommandTests
             "net8.0",
             "--share",
             "packet",
+        ];
+        var ordinary = await RunCapturedAsync(ordinaryArguments);
+        var result = await RunCapturedAsync(
+        [
+            .. ordinaryArguments,
             "--evidence-envelope",
             sidecar,
         ]);
 
+        Assert.Equal(1, ordinary.ExitCode);
+        Assert.Empty(ordinary.Output);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.True(File.Exists(sidecar));
@@ -621,10 +708,9 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(
             $"Evidence envelope: {sidecar}",
             errorLines[^2]);
-        Assert.Contains(
-            "--share is not projectable",
-            errorLines[^1],
-            StringComparison.Ordinal);
+        Assert.Equal(
+            ordinary.Error.Trim(),
+            errorLines[^1]);
     }
 #endif
 

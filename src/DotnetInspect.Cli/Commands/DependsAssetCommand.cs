@@ -292,7 +292,7 @@ public partial class DependsCommand
             {
                 exitCode = Math.Max(
                     exitCode,
-                    WorkspaceShareOutput.WriteScalar(
+                    DependsShareProjection.WriteAsset(
                         projection.Inspection.Share,
                         shareFormat));
             }
@@ -1811,7 +1811,8 @@ public partial class DependsCommand
                 projection,
                 options,
                 includeSections,
-                schema);
+                schema,
+                output);
 
         IReadOnlyList<DependencyHierarchyOccurrenceRow> hierarchyRows =
             Window(projection.HierarchyRows, options.Rows);
@@ -2197,7 +2198,8 @@ public partial class DependsCommand
         DependsAssetProjection projection,
         DependsOptions options,
         HashSet<string> includeSections,
-        DocumentSchema schema)
+        DocumentSchema schema,
+        TextWriter output)
     {
         string[] ordered =
         [
@@ -2247,8 +2249,7 @@ public partial class DependsCommand
                 : options.Tabular ? OutputFormat.Table
                 : OutputFormat.Markdown,
             options.NoHeader,
-            options.OutputPath,
-            options.Rows);
+            output);
         return true;
     }
 

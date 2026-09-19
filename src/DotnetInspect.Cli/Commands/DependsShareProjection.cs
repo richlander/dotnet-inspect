@@ -19,6 +19,12 @@ internal static class DependsShareProjection
         if (options.ShareFormat is null)
             return null;
 
+        if (options.EnvelopeOutput || options.OutputPath is not null)
+        {
+            return "--share cannot be combined with --envelope or --out while "
+                + "Package Dependencies uses scalar-only Share output.";
+        }
+
         if (options.OutputFormatExplicitlySet
             || options.LineWindowExplicitlySet
             || options.CompactJson
@@ -56,15 +62,20 @@ internal static class DependsShareProjection
             httpClient,
             logger,
             cancellationToken).ConfigureAwait(false);
+        return WriteAsset(share, options.ShareFormat!.Value);
+    }
+
+    internal static int WriteAsset(
+        InspectionShare share,
+        WorkspaceShareFormat format)
+    {
         if (share is InspectionShare.NonProjectable nonProjectable)
         {
             CommandError.Write(nonProjectable.Reason.ToString());
             return 1;
         }
 
-        return WorkspaceShareOutput.WriteScalar(
-            share,
-            options.ShareFormat!.Value);
+        return WorkspaceShareOutput.WriteScalar(share, format);
     }
 
     internal static async Task<InspectionShare> ProjectAssetAsync(
