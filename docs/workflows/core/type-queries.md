@@ -297,10 +297,10 @@ Tips:
 
 > Goal: See inheritance, interfaces, and member signatures in a tree view.
 
-### 5a. Using `--shape` flag
+### 5a. Using `--tree`
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command --shape --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command --tree --tips q
 ```
 
 ```expect
@@ -325,7 +325,7 @@ grep -E '(Inherits|Implements|Properties|Methods)'
 ### 5b. Shape for a struct
 
 ```bash
-dotnet-inspect type System.Text.Json JsonElement --shape --tips q
+dotnet-inspect type System.Text.Json JsonElement --tree --tips q
 ```
 
 ```expect
