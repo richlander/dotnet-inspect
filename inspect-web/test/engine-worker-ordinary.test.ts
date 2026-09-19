@@ -23,10 +23,15 @@ import {
   WorkerRuntimeHost,
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
+import { inertStringFixture } from "./inert-string-fixture.ts";
 import type {
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
+import type {
+  BrowserMemberSource,
+  BrowserSource,
+} from "../src/facades/inspect-web-source.d.ts";
 
 type FacadeOverrides = {
   readonly [TGroup in keyof EngineWorkerOrdinaryFacades]?:
@@ -68,6 +73,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
       unexpected("queryMemberDocumentation"),
+    queryPlatformMemberDocumentation: () =>
+      unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
     queryPackagePruning: () =>
@@ -286,6 +293,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   let pruningArguments: readonly unknown[] = [];
   let libraryDiffArguments: readonly unknown[] = [];
   let libraryDiffCancelArguments: readonly unknown[] = [];
+  let platformDocumentationArguments: readonly unknown[] = [];
   const state = fixture({
     package: {
       classifyPackageGraphIdentities: (...args) => {
@@ -299,6 +307,10 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
       },
       queryMemberDocumentation: async () =>
         contractViolation(null),
+      queryPlatformMemberDocumentation: (...args) => {
+        platformDocumentationArguments = args;
+        return Promise.resolve(contractViolation(null));
+      },
       matchPackageDependencyCoordinate: (...args) => {
         matchArguments = args;
         return { outcome: "Unique", candidateKey: "candidate" };
@@ -357,6 +369,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "Example.dll",
     "M:Example.Api.Run",
   );
+  const platformDocumentation =
+    state.client.package.queryPlatformMemberDocumentation(
+      "net11.0",
+      "11.0.0",
+      "System.Runtime.dll",
+      "netcore.app",
+      "M:System.String.Clone",
+    );
   const classified = state.client.package.classifyPackageGraphIdentities(
     "Example.Root",
     ["Example.Root", "Other"],
@@ -393,6 +413,14 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
   assert.deepEqual(await asyncDto, activation);
   assert.equal(await voidResult, undefined);
   assert.equal(await nullResult, null);
+  assert.equal(await platformDocumentation, null);
+  assert.deepEqual(platformDocumentationArguments, [
+    "net11.0",
+    "11.0.0",
+    "System.Runtime.dll",
+    "netcore.app",
+    "M:System.String.Clone",
+  ]);
   assert.deepEqual(await classified, ["Inspected", "External"]);
   assert.deepEqual(classificationArguments, [
     "Example.Root",
@@ -508,7 +536,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
         packageVersion: "8.0.5",
         compressedPackageBytes: 2048,
         selectedTargetFramework: "net10.0",
-        availableTargetFrameworkCount: 1,
+        availableTargetFrameworks: ["net10.0"],
         selectedTargetFrameworkFolders: ["lib"],
         selectedLibraryPayloadBytes: 1024,
         selectedLibraryCount: 1,
@@ -588,6 +616,74 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   assert.deepEqual(await notSettledResult, notSettled);
   assert.equal((await notSettledResult).surface, null);
   assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
+test("ordinary source transport preserves member parts and flat graph source", async () => {
+  const flat = {
+    provider: "pdb",
+    provenance: inertStringFixture("SourceLink"),
+    url: "https://example.test/source.cs",
+    pdbSourceLimitation: null,
+    text: "public void M() { }",
+  } satisfies BrowserSource;
+  const member = {
+    source: flat,
+    parts: [{
+      kind: "Member",
+      spans: [{
+        start: 0,
+        length: flat.text.length,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: flat.text.length,
+      }],
+    }, {
+      kind: "Body",
+      spans: [{
+        start: 16,
+        length: 3,
+        startLine: 1,
+        endLine: 1,
+        leadingIndentation: "",
+        end: 19,
+      }],
+    }],
+  } satisfies BrowserMemberSource;
+  const state = fixture({
+    source: {
+      queryMemberSource: async () => member,
+      queryTypeMemberSource: async () => flat,
+    },
+  });
+
+  const memberResult = state.client.source.queryMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  const graphResult = state.client.source.queryTypeMemberSource(
+    "Example",
+    "1.0.0",
+    "net11.0",
+    "Example.dll",
+    "Example.C",
+    "M",
+    "selector",
+    0x06000001,
+    "[]",
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await memberResult, member);
+  assert.deepEqual(await graphResult, flat);
   state.host.dispose();
 });
 
@@ -915,6 +1011,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "prefetchPlatformPacks",
       "queryLibraryApi",
       "queryMemberDocumentation",
+      "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
       "queryPackagePruning",
@@ -985,7 +1082,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 59);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 60);
 
   const state = fixture();
   const groups = [

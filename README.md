@@ -144,7 +144,7 @@ stderr rather than mixed into structured output.
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
@@ -161,7 +161,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
-| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical packet or its exact Inspect Web URL. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
+| Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
 | Package Queries | `package query ID --library-literal TEXT --tfm TFM`, `workspace --root-request TOKEN` | Qualify exact package IDs or bounded package-ID prefixes by an ordinal decoded-`ldstr` substring in each selected primary implementation library. Results remain package-grain and carry typed occurrence evidence plus exact Root reopening tokens. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
@@ -321,7 +321,11 @@ recursive relationship shows its exact direct or mutual cycle witness and
 whether the bounded focus-graph census was complete. Selecting a framework
 `Task.Wait`, `Task<T>.Result`, or task-awaiter `GetResult` relationship also
 shows the exact synchronous-completion structure without claiming that runtime
-blocking was measured.
+blocking was measured. Selecting a proven classic `await` explains its inline
+and suspension/resume paths, while selecting an exception-related allocation
+distinguishes a thrown value from an allocation inside a catch, filter, or
+fault handler. Both are compiled-structure evidence and make no runtime path or
+frequency claim.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -380,7 +384,7 @@ transport.
 | Project columns/fields | `--columns`, `--fields` |
 | Limit semantic rows or rendered lines | `--rows`, `-n`, `--head`, `--tail`, `--lines`, `--tail-lines` |
 | Count results | `--count` |
-| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, `--urls`, `--json-array` |
+| Materialize one payload | `--print`, `--row`, `--value`, `--bare`, `--paths`, package-file `--roots`, `--urls`, `--json-array` |
 | Prefer browser views over fetchable URLs | `--prefer-rendered-urls` (keeps the original URL when no mapping is available) |
 | Control document verbosity | `-v:q`, `-v:m`, `-v:n`, `-v:d` |
 | Control tip verbosity | `-T q`, `-T m`, `-T d` |
@@ -434,11 +438,17 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions --envelope
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --count --envelope
+dotnet-inspect package Newtonsoft.Json@13.0.4 \
+  --tfms -n 1 --tail --json
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package Markout@0.35.2 \
   --path "skills/*/SKILL.md" -n 1 --tail --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --paths
+dotnet-inspect package Microsoft.Data.SqlClient@6.1.0 \
+  --tfm net8.0 -S "Package files" --roots
 dotnet-inspect package Newtonsoft.Json@13.0.3 \
   -S "SourceLink: Files" -t JsonReader -n 1 --tail --urls
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
@@ -446,9 +456,15 @@ dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 
 For one package with exactly `Package files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
-enumeration, and optional `--path` filtering. Count, table, TSV, JSONL, JSON,
-`--value`, and `--paths` observe the same selected rows; add `--lines` only to
-clip rendered text.
+enumeration, optional exact directory-segment `--tfm` filtering, and optional
+`--path` filtering. Count, table, TSV, JSONL, JSON, `--value`, and `--paths`
+observe the same selected rows; `--roots` instead emits their ordered distinct
+top-level package roots. Add `--lines` only to clip rendered text.
+
+For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
+complete target-framework rows after archive extraction, framework
+de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
+observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete library/type/URL rows after SourceLink collection
@@ -701,19 +717,18 @@ dotnet-inspect workspace \
   --share packet
 ```
 
-The transformation also accepts `--packet` or the exact Inspect Web URL as its
-input. Existing members retain their order; new members use owner-issued
+The transformation also accepts a canonical Base64URL packet string through
+`--packet`. Existing members retain their order; new members use owner-issued
 dependency order and are deduplicated only within each context. The command
 emits no packet unless every selected Package root completes and the complete
 derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.
 
-`--packet` accepts either canonical packet text or the exact
-`https://dotnet-inspect.net/?w=<packet>` URL. With `--share`, it validates and
-re-emits the canonical packet or selected URL without complete restoration.
-The `--share` selection governs this scalar; inventory output formats apply
-only when `--share` is absent.
+`--packet` accepts canonical Base64URL packet text. With `--share`, it validates
+the input and emits the canonical packet or selected URL without complete
+restoration. The `--share` selection governs this output scalar; inventory
+output formats apply only when `--share` is absent.
 Durable definition output cannot be combined with `--kind`, inventory row
 controls, `--root-request`, or Package Navigation selectors. Explicit NuGet
 source policy is accepted only for dependency enrichment or coordinate
@@ -777,8 +792,8 @@ details. `--verbose` adds each Package producer,
 requested/selected/effective target, runtime identifier, and asset-selection
 status to human output.
 
-Restore one current-format canonical Workspace packet or exact Inspect Web URL
-for inventory instead of supplying direct construction options:
+Restore one current-format canonical Base64URL Workspace packet string for
+inventory instead of supplying direct construction options:
 
 ```bash
 dotnet-inspect workspace --packet PACKET
@@ -874,7 +889,7 @@ fallback.
 ### Types, members, and source
 
 ```bash
-dotnet-inspect type string --shape
+dotnet-inspect type string --tree
 dotnet-inspect type --platform System.Text.Json -n 1 --tail --json
 dotnet-inspect find JsonSerializer --platform System.Text.Json
 dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize
@@ -883,6 +898,8 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --source-parts --json
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 --print --part xml-docs
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array -T q
 dotnet-inspect library coordinate 0x060002EA+0x0 \
   --package System.Text.Json --library System.Text.Json.dll
@@ -896,6 +913,48 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 `--lines` only to clip rendered text. Exact-type, selected-section, discovery,
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
+
+Focused member `-S "Source Locations" --json` reports `member`, `document`, and
+`pdb_span` without fetching source text or adding generic section/row wrappers.
+PDB spans describe executable source, not the entire declaration.
+Opt in with `--source-parts` to acquire checksum-verified source and discover
+lexical ranges. `--print --part member|xml-docs|attributes|signature|body`
+prints the selected part; both gestures imply Source Locations when `-S` is
+omitted. The full member includes attached XML documentation and attributes;
+the body includes its delimiters. Missing parts fail visibly, and unqualified
+`--print` still prints the whole source document. These are lexical source
+parts, not parsed documentation or stronger physical-authorship evidence.
+Human-readable part output restores the original first-line indentation;
+structured JSON content remains the exact token-selected text.
+
+Use a Workspace packet as reusable aggregate context when the Type may be
+defined by any Library in its selected context:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 \
+  --tfm net10.0 \
+  --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$packet"
+
+# Given a schema-4 packet from a Type-capable producer:
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$schema4_packet" \
+  --share packet
+```
+
+`type --workspace` requires one exact Type and one canonical Base64URL
+Workspace packet string; URL input is rejected. It uses the packet's selected
+context independently of its focused tab. The packet is the sole location
+source, while the receiving command still applies its own NuGet source,
+credential, cache, and offline policy. Optional `--share` keeps ordinary Type
+output on stdout and writes the derived schema-4 packet or URL as the final
+stderr line when the input is schema 4. The current `workspace --share`
+producer emits schema 3, which remains a valid inspection input but cannot
+encode the derived Type scenario; requesting Share from that input fails
+visibly without discarding the Type output.
 
 ### Compatibility and change tracking
 
@@ -970,6 +1029,12 @@ dotnet-inspect member Cases.Widget --library ./app.dll -m Value \
   -S "Clone Candidates" \
   --where "Breadth=Self" \
   --where "Discovery=All"
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 2
+dotnet-inspect package ./app.nupkg --library app.dll \
+  -S "Clone Candidates" -n 2
+dotnet-inspect type Cases.Widget --library ./app.dll \
+  -S "Clone Candidates" -n 1 --tail --count
 dotnet-inspect type -Q "Clone Candidates"
 ```
 
@@ -978,7 +1043,11 @@ dotnet-inspect type -Q "Clone Candidates"
 selected exact library as its finite Workspace participant snapshot and
 discloses that scope in tabular diagnostics and structured coverage. It does
 not infer registered-ecosystem membership or silently narrow the requested
-breadth.
+breadth. `-n`, `--tail`, and strict `--rows` windows select complete ranked
+candidate pairs consistently across Markdown, tables, TSV, JSONL, projected
+JSON, complete JSON, and `--count`. Coverage and the work receipt remain
+complete evidence, so structured `receipt.returned_pairs` can exceed the
+selected `rows` length.
 
 Rows are retrieval candidates, not checked clone relations. They retain rank,
 both exact method endpoints, the 0-10,000 total and component scores, and the
@@ -1016,13 +1085,17 @@ and no authorship or copying claim. Within one image, confirm a candidate by
 re-running the pairwise form on the selected pair.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
-opts into whole-assembly retrieval, which costs materially more. `--top` bounds
-rendered rows only; `--json` retains every candidate, per-method outcome,
-blocker, and receipt regardless. `--max-results` and `--max-methods` move the
-product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, the
-ranked candidates are the only row shape; the seed, scope, disposition, receipt,
-blockers, and disclosure are written to stderr so stdout stays single-shaped and
-parseable.
+opts into whole-assembly retrieval, which costs materially more. `-n`,
+`--tail`, strict `--rows` windows, and `--top` select complete ranked candidate
+rows after retrieval; `--top` uses the structural-similarity ranking already
+issued by Analysis. Markdown, table, TSV, JSONL, JSON, and `--count` consume the
+same selected candidate sequence. JSON retains the complete per-method
+outcomes, blockers, and query receipt, with `row_selection` counts that
+distinguish returned candidates from selected rows. `--max-results` and
+`--max-methods` move the product retrieval limits themselves. In `--table`,
+`--tsv`, and `--jsonl`, the ranked candidates are the only row shape; the seed,
+scope, disposition, receipt, blockers, and disclosure are written to stderr so
+stdout stays single-shaped and parseable.
 
 Every ranked row prints a `Token` column holding the candidate's metadata token,
 which the pairwise form accepts directly as the second operand. That keeps every
@@ -1053,6 +1126,10 @@ inspect each side on its own.
 ### Relationships and graphs
 
 ```bash
+dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
+  -S Dependencies
+dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
+  -S "Dependency Hierarchy" --tree
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect depends NpgsqlOptionsExtension \
@@ -1121,7 +1198,11 @@ dotnet-inspect graph libraries \
 For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
 shared targets reached through different parents remain separate occurrences,
 and tables, JSON, JSONL, row windows, and Count use that same occurrence
-currency. `Dependencies` remains the direct declaration evidence section.
+currency. On `package`, selecting this section invokes the same host-neutral
+Depends operation; `--tree` only chooses its projection. `Dependencies`
+remains the direct declaration evidence section and does not acquire transitive
+packages. The removed package `--dependencies` spelling reports replacement
+guidance rather than acting as a second hierarchy selector.
 Positional `depends <type>` retains its existing `Dependency Graph` section
 until Type relationships move to the general Graph operation.
 

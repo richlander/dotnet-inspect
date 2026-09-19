@@ -3001,11 +3001,21 @@ public class SourceForwarderResolutionTests
 
     // PR-fast: embedded symbols and a bounded, substituted source transport.
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task TypeSourceAcquisition_SourceFilesUsesSelectedOpener(bool isForwarded, bool print)
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, true, true, false)]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, true, true, true)]
+    public async Task SourceDocumentAcquisition_UsesSelectedOpener(
+        bool isForwarded,
+        bool print,
+        bool member,
+        bool parts)
     {
         int opens = 0;
         string original = typeof(EmbeddedSourceFixture).Assembly.Location;
@@ -3033,34 +3043,53 @@ public class SourceForwarderResolutionTests
             };
 
             var (exit, output, error) = await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteResolvedAsync(
-                    new TypeOptions
-                    {
-                        TypeName = fixture.Type.FullName,
-                        Select = [SectionNames.SourceFiles],
-                        DocsExplicitlySet = true,
-                        ShowDocs = false,
-                        Print = print,
-                        PrintRow = print ? RowSelector.First : null,
-                        Bare = print,
-                    },
-                    source,
-                    fixture.Loaded));
+                () => member
+                    ? MemberCommand.ExecuteResolvedAsync(
+                        new MemberOptions
+                        {
+                            TypeName = fixture.Type.FullName,
+                            Select = [SectionNames.SourceLocations],
+                            MemberFilter = [nameof(EmbeddedSourceFixture.Echo)],
+                            DocsExplicitlySet = true,
+                            ShowDocs = false,
+                            Print = print,
+                            SourcePart = parts ? MemberSourcePartKind.Signature : null,
+                            PrintRow = print ? RowSelector.First : null,
+                            Bare = print,
+                        },
+                        source,
+                        fixture.Loaded)
+                    : TypeCommand.ExecuteResolvedAsync(
+                        new TypeOptions
+                        {
+                            TypeName = fixture.Type.FullName,
+                            Select = [SectionNames.SourceFiles],
+                            DocsExplicitlySet = true,
+                            ShowDocs = false,
+                            Print = print,
+                            PrintRow = print ? RowSelector.First : null,
+                            Bare = print,
+                        },
+                        source,
+                        fixture.Loaded));
 
             if (print)
             {
                 Assert.Equal(1, exit);
                 Assert.Empty(output);
-                Assert.Contains("failed to fetch verified source for row 1", error);
+                Assert.Contains(parts
+                    ? "Could not acquire verified member parts"
+                    : "failed to fetch verified source for row 1", error);
                 Assert.EndsWith("EmbeddedSourceFixture.cs", Assert.Single(handler.RequestUris).AbsolutePath);
-                Assert.True(opens > 1);
+                Assert.True(opens > (member ? 0 : 1));
             }
             else
             {
                 Assert.Equal(0, exit);
                 Assert.DoesNotContain("Error:", error);
                 Assert.Contains("EmbeddedSourceFixture.cs", output);
-                Assert.Equal(1, opens);
+                if (!member)
+                    Assert.Equal(1, opens);
                 Assert.Empty(handler.RequestUris);
             }
         }

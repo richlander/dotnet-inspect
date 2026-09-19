@@ -38,7 +38,11 @@ public static partial class AssemblyContextSourceQuery
             "member", request.Member.Format(MemberAnchorFormat.Qualified));
         AuthoredPdbInspection authored = await InspectAuthoredPdbAsync(
             group, participant, context, retained, version,
-            new SourceHouseTarget.MemberTarget(request.Type, request.Member, request.MetadataToken),
+            new SourceHouseTarget.MemberTarget(
+                request.Type, request.Member, request.MetadataToken,
+                request.IncludeAuthoredParts
+                    ? SourceHouseMemberSourceForm.DocumentParts
+                    : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
             retainSymbols).ConfigureAwait(false);
         PdbMemberSourceInspection inspection = authored switch

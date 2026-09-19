@@ -57,6 +57,17 @@ public static class MemberCommand
                 nameof(plan));
         ResolvedMemberInspectionPlan executionPlan = plan;
         MemberInspectionTerminalPlan? terminalPlan = null;
+        if ((options.SourceParts || options.SourcePart is not null)
+            && options.Select is null && options.IncludeSections is null)
+        {
+            options = options with { Select = [SectionNames.SourceLocations] };
+            executionPlan = ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        }
+        if (MemberSourcePartsOutput.ValidateOptions(options) is { } partsError)
+        {
+            CommandError.Write(partsError);
+            return 1;
+        }
 
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
@@ -124,7 +135,7 @@ public static class MemberCommand
         {
             // Shared preamble: section validation, discovery, verbosity promotion
             var (preamble, error) =
-                ApiCommand.RunPreamble(options, plan);
+                ApiCommand.RunPreamble(options, executionPlan);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
         }
@@ -209,6 +220,12 @@ public static class MemberCommand
             }
 
             var apiType = lookupResult.Type!;
+            if ((options.SourceParts || options.SourcePart is not null)
+                && options.MemberFilter.Count == 0 && lookupResult.ImpliedMember is null)
+            {
+                CommandError.Write("Authored member parts require a member selection, such as Method:1.");
+                return 1;
+            }
             ResolvedAssemblyReference? sourceAssembly =
                 loaded.TryGetSourceAssembly(apiType);
             if (options.RouterDeferredTypeOrMember
@@ -295,13 +312,6 @@ public static class MemberCommand
                 || catalogNeedsTargetResolution
                 || memberGestureChanged)
             {
-                if (options.RouterDeferredTypeOrMember
-                    && options.ShapeExplicitlySet)
-                {
-                    CommandError.Write("--shape is only valid for type targets.");
-                    return 1;
-                }
-
                 MemberOptions planningOptions =
                     options.RouterDeferredTypeOrMember
                         ? unresolvedOptions
@@ -661,6 +671,13 @@ public static class MemberCommand
                 apiType.Members = arityCandidates;
             }
 
+            if ((effectiveOptions.SourceParts || effectiveOptions.SourcePart is not null)
+                && MemberSourcePartsOutput.ValidateSections(effectiveOptions) is { } sectionError)
+            {
+                CommandError.Write(sectionError);
+                return 1;
+            }
+
             if (!CloneCandidatesCommand.ValidatePredicateSelection(
                     effectiveOptions.CloneCandidateQuery,
                     effectiveOptions.IncludeSections))
@@ -751,7 +768,7 @@ public static class MemberCommand
                 && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
-                var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
+                var locations = await MemberSourceLocationCollector.EnrichAsync(
                     apiType,
                     locationDllPath,
                     sourceAssembly,
@@ -760,8 +777,11 @@ public static class MemberCommand
                     effectiveOptions,
                     context.HttpClient,
                     logger);
-                if (pdbPath != null)
-                    effectiveOptions = effectiveOptions with { PdbPath = pdbPath };
+                effectiveOptions = effectiveOptions with
+                {
+                    PdbPath = locations.PdbPath ?? effectiveOptions.PdbPath,
+                    SourceLocationMappings = locations.Mappings,
+                };
             }
 
             // Resolve PDB/source only when selected detail sections need them.
@@ -1105,7 +1125,7 @@ public static class MemberCommand
                 if (overloadGroups.Any(g => g.Count() > 1))
                     tips.Add(new(Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
 
-                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
+                tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --tree", "view type tree"));
                 tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
 
                 if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))

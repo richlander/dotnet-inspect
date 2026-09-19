@@ -514,6 +514,14 @@ internal static class CSharpLexer
         return i - start;
     }
 
+    internal static bool IsSingleLineDocumentationComment(ReadOnlySpan<char> text) =>
+        text.StartsWith("///", StringComparison.Ordinal)
+        && (text.Length == 3 || text[3] != '/');
+
+    internal static bool IsDelimitedDocumentationComment(ReadOnlySpan<char> text) =>
+        text.StartsWith("/**", StringComparison.Ordinal)
+        && (text.Length == 3 || text[3] is not '*' and not '/');
+
     /// <summary>
     /// Scans <paramref name="lines"/> as one continuous stretch of C# and returns every token on
     /// them, in order.

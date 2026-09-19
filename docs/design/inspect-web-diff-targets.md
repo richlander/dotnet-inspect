@@ -138,8 +138,9 @@ implementation that the shared Clone Browser adoption will remove; they do not
 define the replacement breadth or candidate-discovery contract. The
 production-root case
 `Package comparison targets survive Library, Type, and Member navigation` in
-`browser/library-hierarchy.spec.ts` exercises the actual navigation and controls
-with deterministic facade responses, including retained keyboard focus.
+`browser/library-hierarchy.workspace.spec.ts` exercises the actual navigation
+and controls with deterministic facade responses, including retained keyboard
+focus.
 `saved-workspace-navigation.test.ts` composes the real target and inventory
 coordinators with the production snapshot functions to gate successful
 retirement and rollback after acquisition or view-selection failure.

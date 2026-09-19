@@ -157,7 +157,8 @@ public sealed class InstalledPlatformHouseAdapter
             ownerOutcome = _referenceSource.Discover(
                 new InstalledReferenceDiscoveryRequest(
                     MapFamily(selecting.Family),
-                    selecting.TargetFramework,
+                    new InstalledReferenceDiscoveryScope.ExactFramework(
+                        selecting.TargetFramework),
                     Math.Min(
                         selecting.Work.MaxCandidates,
                         request.Work.MaxTargetCandidates)),

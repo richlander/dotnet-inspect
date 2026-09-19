@@ -137,6 +137,79 @@ public class PrintedBodyMapTests
         Assert.False(AnnotatedSourceNodeKinds.IsKnown(Assert.Single(map.Nodes).Kind));
     }
 
+    [Fact]
+    public void ClassicAwaitCompletionPathProofStaysBoundToItsExactNode()
+    {
+        var taskType = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var provenAwait = new AwaitExpression(
+            new LoadArgument(0, "proven", taskType),
+            resultType: null,
+            provesClassicCompletionPaths: true);
+        var unprovenAwait = new AwaitExpression(
+            new LoadArgument(1, "unproven", taskType),
+            resultType: null);
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(provenAwait));
+        block.Add(new ExpressionStatement(unprovenAwait));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [
+                    new Parameter("proven", taskType),
+                    new Parameter("unproven", taskType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        CSharpPrinter.Print(function, out var ranges);
+        var map = PrintedBodyMap.Create(ranges);
+        var awaitNodes = map.Nodes
+            .Where(node => node.Kind == AnnotatedSourceNodeKinds.AwaitExpression)
+            .ToArray();
+
+        Assert.Equal(2, awaitNodes.Length);
+        Assert.Single(
+            awaitNodes,
+            static node => node.ProvesClassicAwaitCompletionPaths);
+        Assert.Single(
+            awaitNodes,
+            static node => !node.ProvesClassicAwaitCompletionPaths);
+    }
+
+    [Fact]
+    public void MergedAwaitNodeWithMixedProofFailsClosed()
+    {
+        var taskType = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var provenAwait = new AwaitExpression(
+            new LoadArgument(0, "task", taskType),
+            resultType: null,
+            provesClassicCompletionPaths: true);
+        var unprovenAwait = new AwaitExpression(
+            new LoadArgument(0, "task", taskType),
+            resultType: null);
+        var ranges = new PrintedRangeMap();
+        ranges.Record(provenAwait, 0, 5);
+        ranges.Record(unprovenAwait, 0, 5);
+        ranges.SetNodeKind(
+            provenAwait,
+            AnnotatedSourceNodeKinds.AwaitExpression);
+        ranges.SetNodeKind(
+            unprovenAwait,
+            AnnotatedSourceNodeKinds.AwaitExpression);
+        ranges.Complete("await");
+
+        PrintedNodeSpan node = Assert.Single(
+            PrintedBodyMap.Create(ranges).Nodes);
+
+        Assert.False(node.ProvesClassicAwaitCompletionPaths);
+    }
+
     [Theory]
     [MemberData(nameof(UnsupportedCommentPlaceholders))]
     public void UnsupportedCommentPlaceholdersRecordUnsupportedKind(
@@ -1554,6 +1627,7 @@ public class PrintedBodyMapTests
             Assert.True(
                 property.PropertyType == typeof(string)
                     || property.PropertyType == typeof(int)
+                    || property.PropertyType == typeof(bool)
                     || property.PropertyType == typeof(PrintedExtent)
                     || property.PropertyType == typeof(AnnotatedSourceNodeProvenance));
 

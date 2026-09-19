@@ -30,7 +30,7 @@ public sealed partial class WorkspaceCommandTests
         var result = await ConsoleCapture.RunAsync(
             () => WorkspaceCommand.ExecuteAsync(new WorkspaceOptions
             {
-                Packet = "https://dotnet-inspect.net/?w=" + packet,
+                Packet = packet,
                 ReplacePackage = 1,
                 ReplacementVersion = "12.1.2",
                 Format = OutputFormat.Json,
@@ -104,6 +104,30 @@ public sealed partial class WorkspaceCommandTests
         Assert.Equal(framework ?? "net8.0", portable.RootElement.GetProperty("t")[0][2].GetString());
         if (version == "11.3.14")
             Assert.Equal(input, output);
+    }
+
+    [Fact]
+    public async Task Replacement_RejectsUrlInput()
+    {
+        using var client = new HttpClient(new FailingHandler());
+        var result = await ConsoleCapture.RunAsync(
+            () => WorkspaceCommand.ExecuteAsync(
+                new WorkspaceOptions
+                {
+                    Packet = "https://dotnet-inspect.net/?w=packet",
+                    ReplacePackage = 1,
+                    ReplacementVersion = "12.1.2",
+                    ShareFormat = WorkspaceShareFormat.Packet,
+                },
+                LoadOptions(client, new FailOnAccessPackageStore()),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "URLs are not supported",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

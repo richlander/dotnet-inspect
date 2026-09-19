@@ -417,7 +417,7 @@ public static class ApiOutputFormatter
         && !SectionRequested(options.IncludeSections, SectionNames.Methods)
         && !DiscoveryRequests(options, SectionNames.Methods);
 
-    // ===== Shape Output (--shape) =====
+    // ===== Type tree output =====
 
     public static void WriteShapeOutput(
         ApiType type,
@@ -907,8 +907,8 @@ public static class ApiOutputFormatter
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
-        // Flatten sorted for --limit application. This ordering must match the per-kind
-        // display ordering below so that -m N selects the same members that are shown.
+        // Flatten sorted for limit application. This ordering must match the per-kind
+        // display ordering below so selected members are the members that are shown.
         var allMembers = grouped
             .SelectMany(g => g.Value)
             .OrderBy(m => GetMemberSortOrder(m.Kind))
@@ -1117,20 +1117,7 @@ public static class ApiOutputFormatter
 
     internal static void PopulateMemberSourceLocations(TypeView view, ApiType type, ApiOptions options)
     {
-        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
-        var members = grouped
-            .SelectMany(g => g.Value)
-            // A property/event is located through its accessor's sequence points, so it
-            // carries a source location like a method does (issue #3278).
-            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
-            .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name, StringComparer.Ordinal)
-            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
-            .ToList();
-
-        if (options.Limit.HasValue && options.Limit.Value < members.Count)
-            members = members.Take(options.Limit.Value).ToList();
-
+        var members = GetSourceLocationMembers(type, options);
         bool detail = options is MemberOptions { OverloadIndex: not null } && type.Members.Count == 1;
         List<MemberIndexRow> indexRows = detail ? [] : BuildMemberIndexRows(type, members);
         List<MemberSourceLocationRow> rows = [];
@@ -1159,6 +1146,25 @@ public static class ApiOutputFormatter
         }
 
         view.SourceLocationRows = rows;
+    }
+
+    internal static List<ApiMember> GetSourceLocationMembers(ApiType type, ApiOptions options)
+    {
+        var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
+        var members = grouped
+            .SelectMany(g => g.Value)
+            // A property/event is located through its accessor's sequence points, so it
+            // carries a source location like a method does (issue #3278).
+            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
+            .OrderBy(m => GetMemberSortOrder(m.Kind))
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+            .ToList();
+
+        if (options.Limit.HasValue && options.Limit.Value < members.Count)
+            members = members.Take(options.Limit.Value).ToList();
+
+        return members;
     }
 
     private static string? SelectSourceUrl(string? url, bool preferRenderedUrls)

@@ -25,6 +25,7 @@ namespace DotnetInspect.Cli;
 [JsonSerializable(typeof(LibraryIntegrationSummaryJson))]
 [JsonSerializable(typeof(List<LibraryIntegrationSummaryJson>))]
 [JsonSerializable(typeof(List<VersionJson>))]
+[JsonSerializable(typeof(List<PackageTfmJson>))]
 [JsonSerializable(typeof(List<VersionListingJson>))]
 [JsonSerializable(typeof(List<VersionFeedJson>))]
 [JsonSerializable(typeof(LibraryIntegrationSignalJson))]
@@ -71,7 +72,8 @@ public partial class JsonContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(PackageInspectionJson))]
 [JsonSerializable(typeof(PackageInspectionJson[]))]
 internal partial class PackageInspectionJsonContext : JsonSerializerContext

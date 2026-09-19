@@ -641,7 +641,7 @@ export interface BrowserPackageInfoMeasurements {
   readonly packageVersion: string;
   readonly compressedPackageBytes: number | null;
   readonly selectedTargetFramework: string | null;
-  readonly availableTargetFrameworkCount: number | null;
+  readonly availableTargetFrameworks: ReadonlyArray<string> | null;
   readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
   readonly selectedLibraryPayloadBytes: number | null;
   readonly selectedLibraryCount: number | null;
@@ -1200,6 +1200,7 @@ type $ManagedExports = {
             readonly "QueryPackagePruning.1579276339": (packageId: string, version: string, targetFramework: string, requestJson: string) => Promise<string>;
             readonly "QueryPackageRoot.976702342": (rootRequest: string) => Promise<string>;
             readonly "QueryPackageVersions.451505237": (packageId: string, currentVersion: string) => Promise<string>;
+            readonly "QueryPlatformMemberDocumentation.1330709314": (framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string) => Promise<string>;
             readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
             readonly "RequestPackageQueryMatches.146925470": (operationId: string, additionalMatchCredit: number) => string;
             readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
@@ -1527,6 +1528,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "QueryPlatformMemberDocumentation.1330709314");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPlatformMemberDocumentation.1330709314\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
@@ -1777,6 +1790,12 @@ export async function queryPackageVersions(packageId: string, currentVersion: st
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageVersions.451505237"](packageId, currentVersion);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageVersions;
+}
+
+export async function queryPlatformMemberDocumentation(framework: string, platformVersion: string, assemblyName: string, platformPack: string, documentationId: string): Promise<CompiledDocumentationOutcome> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPlatformMemberDocumentation.1330709314"](framework, platformVersion, assemblyName, platformPack, documentationId);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as CompiledDocumentationOutcome;
 }
 
 export async function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView> {

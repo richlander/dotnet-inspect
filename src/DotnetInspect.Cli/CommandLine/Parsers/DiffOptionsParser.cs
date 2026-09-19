@@ -184,7 +184,7 @@ public static class DiffOptionsParser
                 var pkgName = versionRange[..atIdx];
                 var toVersion = versionRange[(dotDotIdx + 2)..];
                 if (!options.Tabular && !options.NameOnly)
-                    tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --shape", "view current type shape"));
+                    tips.Add(new(TypeCommand.Name, $"<TypeName> {sourceFlag} {pkgName}@{toVersion} --tree", "view current type tree"));
                 if (!options.Tabular)
                     tips.Add(new(DiffCommand.Name, $"{sourceFlag} {versionRange} --table", "summary statistics"));
             }

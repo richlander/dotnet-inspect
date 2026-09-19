@@ -15,6 +15,11 @@
     "purpose": "Declared package dependencies for the selected target framework."
   },
   {
+    "id": "package.dependency-hierarchy",
+    "kind": "Package",
+    "purpose": "Rooted transitive package dependencies for the selected target framework."
+  },
+  {
     "id": "library.references",
     "kind": "Library",
     "purpose": "Direct assembly references for the active Library."

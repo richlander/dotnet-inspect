@@ -59,8 +59,8 @@ Definitions-owned transposer and codec then emit a canonical format-3 packet or
 URL as the command's stdout scalar. This deliberately differs from noun-command
 Share, which is additive stderr output beside inspection content: the portable
 definition is the `workspace` command's primary result. With `--share`,
-canonical packet or exact Inspect Web URL input follows the same resource-free
-decode, transposition, and projection path. No
+canonical Base64URL packet-string input follows the same resource-free decode,
+transposition, and projection path. No
 `WorkspacePlan`, Package-store access, complete-restoration host, or live
 Workspace exists on this path. Inventory filters, Root reopening, and
 Navigation selectors are rejected rather than ignored because they request

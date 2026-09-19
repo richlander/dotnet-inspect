@@ -461,16 +461,17 @@ public static class LibrarySections
         ExecuteOptimizationOpportunitiesQuery(InspectionQueryContext context)
         => ExecuteOptimizationOpportunitiesQuery(
             context.MetadataContext?.HasMetadata != false,
-            context.BodyIndex,
+            () => context.BodyAnalysis().Optimization,
             context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
 
     internal static OptimizationOpportunitiesResult
         ExecuteOptimizationOpportunitiesQuery(
             bool hasMetadata,
-            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+            Func<ILInspector.Analysis.LibraryOptimizationAnalysisResult>
+                acquireAnalysis,
             bool includeAllocationFanout)
     {
-        ArgumentNullException.ThrowIfNull(acquireIndex);
+        ArgumentNullException.ThrowIfNull(acquireAnalysis);
 
         if (!hasMetadata)
             return new OptimizationOpportunitiesResult.NoMetadata();
@@ -478,7 +479,7 @@ public static class LibrarySections
         try
         {
             return OptimizationOpportunitiesQuery.Execute(
-                acquireIndex(),
+                acquireAnalysis(),
                 includeAllocationFanout);
         }
         catch (CostDeclarationException)

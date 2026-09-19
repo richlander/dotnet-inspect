@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using InertText;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -46,10 +47,15 @@ public class InspectionResultView
                     TextPolicy.Field,
                     folders).ToString()
                 : null),
-        new("TFM Count", static view =>
-            view.PackageMeasurements?.AvailableTargetFrameworkCount
-                is { } count
-                ? count.ToString()
+        new("TFMs", static view =>
+            view.PackageMeasurements?.AvailableTargetFrameworks
+                is { } frameworks
+                ? frameworks.Count == 0
+                    ? "None"
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        frameworks).ToString()
                 : null),
         new("Selected-TFM Size", static view =>
             view.PackageMeasurements?.SelectedLibraryPayloadBytes
@@ -166,7 +172,9 @@ public class InspectionResultView
         return null;
     }
 
-    public InspectionResultView(InspectionResult data, bool includeTitleVersion = true)
+    public InspectionResultView(
+        InspectionResult data,
+        bool includeTitleVersion = true)
     {
         _data = data;
         _includeTitleVersion = includeTitleVersion;
@@ -215,6 +223,25 @@ public class InspectionResultView
             dependency.Id,
             dependency.Version))
         .ToList();
+
+    [MarkoutSection(
+        Name = PackageSections.DependencyHierarchy,
+        EmptyText = "No dependency relationships.")]
+    public Markout.Graph? DependencyHierarchy
+    {
+        get
+        {
+            DependsAssetProjection? projection =
+                _data.DependencyHierarchyProjection;
+            if (projection is null)
+                return null;
+
+            return DependencyHierarchyOutputAdapter.ToGraph(
+                projection.Hierarchy,
+                projection.HierarchyRows,
+                markWindowedFragments: true);
+        }
+    }
 
     [MarkoutSection(Name = PackageSections.Manifest)]
     public List<ManifestRow>? Manifest => !HasManifest ? null : GetManifestRows();
@@ -689,10 +716,17 @@ public class InspectionResultView
         {
             fields.Add(new("Selected TFM", selectedTfm));
         }
-        if (PackageMeasurements?.AvailableTargetFrameworkCount
-            is { } targetFrameworkCount)
+        if (PackageMeasurements?.AvailableTargetFrameworks
+            is { } targetFrameworks)
         {
-            fields.Add(new("TFM Count", targetFrameworkCount.ToString()));
+            fields.Add(new(
+                "TFMs",
+                targetFrameworks.Count == 0
+                    ? "None"
+                    : InertString.Join(
+                        ", ",
+                        TextPolicy.Field,
+                        targetFrameworks).ToString()));
         }
         if (_data.BuiltDate.HasValue)
             fields.Add(new("Built", _data.BuiltDate.Value.ToString("yyyy-MM-dd")));
@@ -1173,7 +1207,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(ILOffsetReturnAddressContextSection))]
 [MarkoutContext(typeof(ManifestRow))]
 [MarkoutContext(typeof(RidPackageReferenceView))]
-[MarkoutContext(typeof(EmptyDepsView))]
 [MarkoutContext(typeof(AggregatedSectionDocument))]
 public partial class InspectionContext : MarkoutSerializerContext
 {

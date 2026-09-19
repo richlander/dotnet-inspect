@@ -53,19 +53,34 @@ public partial class CommandExecutionTests
         Assert.Contains("JsonSerializer.Write.String.cs", output);
     }
 
-    [Fact]
-    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints(bool print)
     {
         // A property has no MethodDef of its own; its PDB source is located through its
         // accessor's PDB sequence points, reported against the owning property (#3278).
         var (exit, output, error) = await RunAppAsync(
-            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth", "-S", "Source Locations", "--tips", "q");
+            [
+                "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+                "MaxDepth", "-S", "Source Locations", "--tips", "q",
+                .. print ? new[] { "--print", "--row", "first", "--json" } : [],
+            ]);
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Locations", output);
-        Assert.Contains("public int MaxDepth { get; set; }", output);
+        if (print)
+        {
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("Source Locations", document.RootElement.GetProperty("section").GetString());
+            Assert.Contains("class JsonSerializerOptions", document.RootElement.GetProperty("content").GetString());
+            Assert.Contains("MaxDepth", document.RootElement.GetProperty("content").GetString());
+        }
+        else
+        {
+            Assert.Contains("## Source Locations", output);
+            Assert.Contains("public int MaxDepth { get; set; }", output);
+        }
         Assert.Contains("JsonSerializerOptions.cs", output);
         Assert.Contains("raw.githubusercontent.com", output);
     }
@@ -179,6 +194,50 @@ public partial class CommandExecutionTests
             Assert.Empty(jsonError);
             Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, jsonOutput);
             Assert.DoesNotContain("value + 1", jsonOutput);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    // Inherits Speed=Slow; run explicitly in the focused member-parts gate.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_SourceParts_LocalPdbNeedsNoMapAndRejectsMismatchedText(bool mismatch)
+    {
+        var (assemblyPath, sourcePath, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            if (mismatch)
+                File.AppendAllText(sourcePath, "\n// Different checkout.\n");
+
+            var locations = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "-S", "Source Locations", "--json", "--tips", "q");
+            Assert.Equal(0, locations.Exit);
+            Assert.Empty(locations.Error);
+            using var json = JsonDocument.Parse(locations.Output);
+            Assert.Equal(sourcePath, json.RootElement.GetProperty("document").GetProperty("path").GetString());
+            Assert.False(json.RootElement.GetProperty("document").TryGetProperty("url", out _));
+            Assert.False(json.RootElement.TryGetProperty("parts", out _));
+
+            var part = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath, "--print", "--part", "signature", "--tips", "q");
+            if (mismatch)
+            {
+                Assert.Equal(1, part.Exit);
+                Assert.Empty(part.Output);
+                Assert.Contains("Could not acquire verified member parts", part.Error);
+            }
+            else
+            {
+                Assert.True(part.Exit == 0, part.Error);
+                Assert.Empty(part.Error);
+                Assert.Equal("    public static int Overloaded(int value)", part.Output);
+            }
         }
         finally
         {

@@ -31,6 +31,8 @@ public static class TypeOptionsParser
         plan = null;
         error = null;
         targetFree = false;
+        if (parseResult.GetValue(args.WorkspaceOption) is not null)
+            return false;
         if (!options.IsDiscoveryMode(parseResult)
             || !options.ParseSchema(parseResult))
         {
@@ -138,12 +140,13 @@ public static class TypeOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<bool> ShapeOption,
         Option<bool> UnsafeOption,
         Option<string[]> RepoOption,
         Option<string[]> MemberOption,
         Option<string[]> KindOption,
-        Option<string?> AtOption);
+        Option<string?> AtOption,
+        Option<string?> WorkspaceOption,
+        Option<string?> ShareOption);
 
     internal static bool IsTypeListingRowSelection(
         ParseResult parseResult,
@@ -154,7 +157,6 @@ public static class TypeOptionsParser
             || parseResult.GetResult(opts.QueryHelp) is { Implicit: false }
             || opts.ParseSelect(parseResult) is { Length: > 0 }
             || opts.ParseSelectDefault(parseResult)
-            || parseResult.GetValue(args.ShapeOption)
             || string.Equals(
                 parseResult.GetValue(args.TfmOption),
                 "all",
@@ -260,9 +262,16 @@ public static class TypeOptionsParser
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        string? workspacePacket =
+            parseResult.GetValue(args.WorkspaceOption);
+        WorkspaceShareFormat? shareFormat =
+            WorkspaceShareOption.Parse(parseResult, args.ShareOption);
 
         // Handle projection discovery or help
-        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && !hasProjectSource)
+        if (sourceInputs.Args.Length == 0
+            && !sourceInputs.HasExplicitSource
+            && !hasProjectSource
+            && workspacePacket is null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
@@ -271,19 +280,66 @@ public static class TypeOptionsParser
 
         if (hasProjectSource && hasNonProjectSource)
             return new VersionError("--project cannot be combined with --package, --library, or --platform.");
+        if (shareFormat is not null && workspacePacket is null)
+        {
+            return new VersionError(
+                "--share on type requires --workspace.");
+        }
+        if (workspacePacket is not null)
+        {
+            if (Uri.TryCreate(
+                    workspacePacket,
+                    UriKind.Absolute,
+                    out _))
+            {
+                return new VersionError(
+                    "--workspace accepts a canonical Base64URL Workspace "
+                        + "packet string; URLs are not supported.");
+            }
+            if (hasProjectSource
+                || hasNonProjectSource
+                || parseResult.GetValue(args.FrameworkOption) is not null
+                || parseResult.GetValue(args.TfmOption) is not null
+                || parseResult.GetValue(args.AtOption) is not null)
+            {
+                return new VersionError(
+                    "--workspace is the sole location source and cannot be "
+                        + "combined with --package, --library, --platform, "
+                        + "--project, --framework, --tfm, or --at.");
+            }
+            if (sourceInputs.Args.Length != 1)
+            {
+                return new VersionError(
+                    "--workspace requires exactly one explicit Type selector.");
+            }
+            if (parseResult.GetValue(args.TypeFilterOption) is not null
+                || TypeMatcher.IsTypeGlobPattern(sourceInputs.Args[0]))
+            {
+                return new VersionError(
+                    "--workspace requires one exact Type selector; Type "
+                        + "listing and glob selection are not supported.");
+            }
+        }
 
+        bool selectsCloneCandidateRows =
+            CloneCandidateRowSelectionAdoption.IsActive(
+                parseResult,
+                opts);
         bool selectsTypeListingRows =
-            IsTypeListingRowSelection(
+            !selectsCloneCandidateRows
+            && IsTypeListingRowSelection(
                 parseResult,
                 opts,
                 args);
-        RowSelectionIntent<string>? typeListingRowSelection = null;
-        if (selectsTypeListingRows
+        RowSelectionIntent<string>? semanticRowSelection = null;
+        if ((selectsCloneCandidateRows || selectsTypeListingRows)
             && !CliRowSelectionCommandRegistry
                 .TryGetPreparedSemanticIntent(
                     parseResult,
-                    "Type",
-                    out typeListingRowSelection,
+                    selectsCloneCandidateRows
+                        ? "Clone Candidates"
+                        : "Type",
+                    out semanticRowSelection,
                     out string? rowSelectionError))
         {
             return new VersionError(rowSelectionError!);
@@ -297,7 +353,24 @@ public static class TypeOptionsParser
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
-        if (hasProjectSource)
+        if (workspacePacket is not null)
+        {
+            source = new SourceResolver.ResolvedSource(
+                PackagePath: null,
+                AssemblyPath: null,
+                PlatformAssembly: null,
+                FrameworkOverride: null,
+                TypeName: sourceInputs.Args[0]);
+            sourceSelection = new SharedParsers.SourceSelection(
+                sourceInputs.Args,
+                ExplicitPackage: null,
+                ExplicitAssembly: null,
+                ExplicitPlatform: null,
+                IsLibrarySelector: false,
+                HasExplicitSource: true,
+                source);
+        }
+        else if (hasProjectSource)
         {
             source = new SourceResolver.ResolvedSource(
                 PackagePath: null,
@@ -338,7 +411,7 @@ public static class TypeOptionsParser
             return new VersionError(
                 "The type command's -m filter does not support generic arity selectors; use the member command.");
         }
-        var (memberFilter, memberLimit) = SharedParsers.ParseMemberFilter(memberValues);
+        var memberFilter = SharedParsers.ParseMemberFilter(memberValues);
 
         var kindValues = parseResult.GetValue(args.KindOption) ?? [];
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
@@ -371,9 +444,19 @@ public static class TypeOptionsParser
             select = [.. select ?? [], SectionNames.CloneCandidates];
         }
 
+        bool tree = parseResult.GetValue(opts.Tree);
+        bool treeOwnsFormat =
+            tree && !opts.IsFormatFlagExplicitlySet(parseResult);
+        OutputFormat outputFormat =
+            treeOwnsFormat
+                ? OutputFormat.Markdown
+                : opts.ResolveFormat(parseResult);
+
         var options = routePolicy.ApplyTo(new TypeOptions
         {
             TypeName = source.TypeName,
+            WorkspacePacket = workspacePacket,
+            ShareFormat = shareFormat,
             PackagePath = source.PackagePath,
             PackageRangeAddress = parseResult.GetValue(args.AtOption),
             AssemblyPath = source.AssemblyPath,
@@ -383,22 +466,31 @@ public static class TypeOptionsParser
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             TypeFilter = typeFilter,
-            TypeListingRowSelection = typeListingRowSelection,
+            TypeListingRowSelection = selectsTypeListingRows
+                ? semanticRowSelection
+                : null,
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
-            Limit = memberLimit,
-            MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             PreferRenderedUrls = parseResult.GetValue(opts.PreferRenderedUrls),
-            JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            JsonOutput = outputFormat == OutputFormat.Json,
             CompactJson = parseResult.GetValue(args.CompactOption),
-            Tabular = opts.ResolveTabular(parseResult),
-            Tsv = opts.ResolveTsv(parseResult),
-            Jsonl = opts.ResolveJsonl(parseResult),
-            TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
-            FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
-            Format = opts.ResolveFormat(parseResult),
+            Tabular =
+                outputFormat is
+                    OutputFormat.Table or
+                    OutputFormat.Tsv or
+                    OutputFormat.Jsonl,
+            Tsv = outputFormat == OutputFormat.Tsv,
+            Jsonl = outputFormat == OutputFormat.Jsonl,
+            TabularExplicitlySet =
+                !treeOwnsFormat
+                && opts.IsTableExplicitlySet(parseResult),
+            FormatExplicitlySet =
+                tree || opts.IsFormatExplicitlySet(parseResult),
+            FormatFlagExplicitlySet =
+                tree || opts.IsFormatFlagExplicitlySet(parseResult),
+            Format = outputFormat,
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
@@ -411,12 +503,10 @@ public static class TypeOptionsParser
             Paths = parseResult.GetValue(opts.Paths),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
-            ShapeOutput = parseResult.GetValue(args.ShapeOption),
-            ShapeExplicitlySet = parseResult.GetResult(args.ShapeOption) is { Implicit: false },
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
-            Tree = parseResult.GetValue(opts.Tree),
+            Tree = tree,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -425,8 +515,13 @@ public static class TypeOptionsParser
                 parseResult.GetResult(opts.Fields) is { Implicit: false },
             Count = parseResult.GetValue(opts.Count),
             Rows = selectsTypeListingRows
+                || semanticRowSelection is not null
                 ? null
                 : opts.ParseRows(parseResult),
+            CloneCandidateRowSelection =
+                selectsCloneCandidateRows
+                    ? semanticRowSelection
+                    : null,
             PerformanceTriage = performanceTriage,
             BodyKindQuery = bodyKindQuery,
             CloneCandidateQuery = cloneCandidateQuery,

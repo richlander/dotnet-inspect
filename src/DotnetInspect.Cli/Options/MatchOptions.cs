@@ -1,3 +1,5 @@
+using DotnetInspector.Sections;
+
 namespace DotnetInspect.Cli.Options;
 
 /// <summary>
@@ -33,15 +35,21 @@ public record MatchOptions : ApiOptions
     public bool AssemblyWide { get; init; }
 
     /// <summary>
-    /// Discovery mode: the number of ranked rows rendered as text. This bounds presentation only;
-    /// it never changes <see cref="MaximumResults"/> and never truncates JSON evidence.
+    /// Discovery mode: semantic selection over the completed ranked candidate sequence.
+    /// Retrieval limits and per-method evidence remain unchanged.
+    /// </summary>
+    public RowSelectionIntent<string>? RowSelection { get; init; }
+
+    /// <summary>
+    /// The raw discovery-only <c>--top</c> value, retained so pairwise mode can reject the option.
+    /// Discovery mode consumes its lowered operation through <see cref="RowSelection"/>.
     /// </summary>
     public int? Top { get; init; }
 
     /// <summary>
     /// Discovery mode: the product retrieval limit
     /// (<see cref="ILInspector.Analysis.StructuralCloneRetrievalLimits.MaximumResults"/>). This is
-    /// orthogonal to <see cref="Top"/> and is always reported in the rendered output.
+    /// orthogonal to <see cref="RowSelection"/> and is always reported in the rendered output.
     /// </summary>
     public int? MaximumResults { get; init; }
 

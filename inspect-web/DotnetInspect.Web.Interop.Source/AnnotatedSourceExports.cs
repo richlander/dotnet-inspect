@@ -72,7 +72,15 @@ public static partial class SourceExports
             synchronousCompletions:
                 source.SynchronousCompletions,
             synchronousCompletionsUnavailableReason:
-                source.SynchronousCompletionsUnavailableReason);
+                source.SynchronousCompletionsUnavailableReason,
+            awaitCompletionPaths:
+                source.AwaitCompletionPaths,
+            awaitCompletionPathsUnavailableReason:
+                source.AwaitCompletionPathsUnavailableReason,
+            allocationExceptionPaths:
+                source.AllocationExceptionPaths,
+            allocationExceptionPathsUnavailableReason:
+                source.AllocationExceptionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             annotated,
             BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
@@ -126,7 +134,11 @@ public static partial class SourceExports
             source.CallCycles,
             source.CallCyclesUnavailableReason,
             source.SynchronousCompletions,
-            source.SynchronousCompletionsUnavailableReason);
+            source.SynchronousCompletionsUnavailableReason,
+            source.AwaitCompletionPaths,
+            source.AwaitCompletionPathsUnavailableReason,
+            source.AllocationExceptionPaths,
+            source.AllocationExceptionPathsUnavailableReason);
         return JsonSerializer.Serialize(
             census,
             BrowserSourceJsonContext.Default.BrowserMemberFindingCensus);
@@ -178,7 +190,9 @@ public static partial class SourceExports
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson),
                         CallRelationships: factRows,
                         CallCycles: factRows,
-                        SynchronousCompletions: factRows))),
+                        SynchronousCompletions: factRows,
+                        AwaitCompletionPaths: factRows,
+                        AllocationExceptionPaths: factRows))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
 
         if (projection.Projection.SourceDocument is not { } document)
@@ -322,6 +336,32 @@ public static partial class SourceExports
                         SynchronousCompletionKind(observation.Kind))),
             ];
         }
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            awaitCompletionPaths = null;
+        if (projection.AwaitCompletionPaths
+            is { } projectedAwaitCompletionPaths)
+        {
+            awaitCompletionPaths =
+            [
+                .. projectedAwaitCompletionPaths.Select(observation =>
+                    new BrowserAnnotatedSourceAwaitCompletionPath(
+                        observation.NodeId)),
+            ];
+        }
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            allocationExceptionPaths = null;
+        if (projection.AllocationExceptionPaths
+            is { } projectedAllocationExceptionPaths)
+        {
+            allocationExceptionPaths =
+            [
+                .. projectedAllocationExceptionPaths.Select(observation =>
+                    new BrowserAnnotatedSourceAllocationExceptionPath(
+                        observation.FactId,
+                        AllocationExceptionPathKind(
+                            observation.Kind))),
+            ];
+        }
 
         return new MemberSourceProjection(
             projection.Projection,
@@ -355,6 +395,14 @@ public static partial class SourceExports
                 : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
             synchronousCompletions,
             synchronousCompletions is null
+                ? projection.ContextLimitation is null
+                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
+                    : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            awaitCompletionPaths,
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected,
+            allocationExceptionPaths,
+            allocationExceptionPaths is null
                 ? projection.ContextLimitation is null
                     ? BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected
                     : BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
@@ -448,6 +496,17 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
+    static BrowserAllocationExceptionPathKind AllocationExceptionPathKind(
+        ResearchViews.AllocationExceptionPathKind kind) =>
+        kind switch
+        {
+            ResearchViews.AllocationExceptionPathKind.ThrownValue =>
+                BrowserAllocationExceptionPathKind.ThrownValue,
+            ResearchViews.AllocationExceptionPathKind.ExceptionHandler =>
+                BrowserAllocationExceptionPathKind.ExceptionHandler,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
     static IEnumerable<BrowserAnnotatedSourceCallCycleLimit> CycleLimits(
         AnnotatedCallGraphCycleLimit limits)
     {
@@ -504,5 +563,13 @@ public static partial class SourceExports
         BrowserAnnotatedSourceSynchronousCompletion[]?
             SynchronousCompletions,
         BrowserAnnotatedSourceCapabilityUnavailableReason
-            SynchronousCompletionsUnavailableReason);
+            SynchronousCompletionsUnavailableReason,
+        BrowserAnnotatedSourceAwaitCompletionPath[]?
+            AwaitCompletionPaths,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            AwaitCompletionPathsUnavailableReason,
+        BrowserAnnotatedSourceAllocationExceptionPath[]?
+            AllocationExceptionPaths,
+        BrowserAnnotatedSourceCapabilityUnavailableReason
+            AllocationExceptionPathsUnavailableReason);
 }

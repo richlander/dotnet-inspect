@@ -22,7 +22,8 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
-    /// Legacy alias for selecting the package Dependencies section as a tree.
+    /// Legacy dependency-tree input. The Package route rejects it with focused
+    /// replacement guidance; Library routes retain their existing handling.
     /// </summary>
     public bool ShowDependencies { get; init; }
 
@@ -141,6 +142,12 @@ public record InspectionOptions : IProjectionOptions
 
     public bool Paths { get; init; }
 
+    /// <summary>
+    /// Project top-level package roots represented by selected
+    /// <c>Package files</c> rows.
+    /// </summary>
+    public bool Roots { get; init; }
+
     public bool JsonArray { get; init; }
 
     /// <summary>
@@ -181,6 +188,16 @@ public record InspectionOptions : IProjectionOptions
     /// Semantic row selection for one single-package file-list section.
     /// </summary>
     public RowSelectionIntent<string>? PackageFileRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for one package's target-framework listing.
+    /// </summary>
+    public RowSelectionIntent<string>? PackageTfmRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for Clone Candidates on a delegated Library route.
+    /// </summary>
+    public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.
@@ -335,7 +352,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => EnvelopeOutput || Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || Roots || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

@@ -1,7 +1,5 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
-using DotnetInspect.Cli.Views;
-using DotnetInspect.Cli.Sections;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -12,58 +10,32 @@ using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Commands;
 
-internal static class TypeSourceDocumentPrinter
+internal static class AuthoredSourceDocumentPrinter
 {
     internal static async Task<int> PrintAsync(
         ApiType type,
-        TypeSourceFileRow selected,
-        int row,
+        PrintableRow selected,
+        string? originalDocumentPath,
         ApiOptions options,
         ResolvedAssemblyReference? sourceAssembly,
         string? packageName,
         string? packageVersion,
         HttpClient symbolClient)
     {
+        string? assemblyPath = sourceAssembly?.Path
+            ?? options.DllPath
+            ?? type.SourceAssemblyPath;
         if (type.DefinitionName is not { } definitionName
-            || selected.FilePath is not { Length: > 0 } originalPath
-            || options.DllPath is not { } assemblyPath)
+            || originalDocumentPath is not { Length: > 0 } originalPath
+            || assemblyPath is null)
         {
             CommandError.Write(
-                $"row {row} has no exact type-document acquisition identity.");
+                $"row {selected.Row} has no exact type-document acquisition identity.");
             return 1;
         }
 
-        ResolvedAssemblyReference assembly =
-            sourceAssembly ?? ResolvedAssemblyReference.CreateFromPath(
-                assemblyPath,
-                AssemblyResolutionProvenance.Local("type source document"));
-        var bindingPolicy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                ProjectAssetsPath = options.ProjectAssetsPath,
-                TargetFramework = options.Tfm,
-                IncludeDepsJsonAssets = false,
-                IncludeAspNetCoreSharedFramework = false,
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
-        var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
-        var logger = new VerboseLogger(options.Verbose);
-        var context = new AssemblyContextSourceQueryContext(
-            symbolClient,
-            FileSystemPdbStore.CreateDefault(),
-            new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
-            new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
-        {
-            RepositoryPaths = options.SourceRepositories,
-            NuGetSourceOptions = options.SourceOptions,
-            PdbFallbackPackage = packageName is not null && packageVersion is not null
-                ? new(packageName, packageVersion)
-                : null,
-            AllowLocalSourceReads = true,
-            AllowAdjacentPdbReads = true,
-            Log = logger.Log,
-        };
+        var (participant, context) = CreateContext(
+            assemblyPath, options, sourceAssembly, packageName, packageVersion, symbolClient);
         InspectionEnvelope<AssemblyTypeSourceEntry> inspection;
         await using (var workspace = new InspectionWorkspace())
         {
@@ -100,12 +72,12 @@ internal static class TypeSourceDocumentPrinter
                 AssemblyTypeSourceEntry.Rejected rejected => rejected.Failure.ToString(),
                 _ => throw new InvalidOperationException("Unexpected authored type-document result."),
             };
-            CommandError.Write($"failed to fetch verified source for row {row}: {detail}");
+            CommandError.Write($"failed to fetch verified source for row {selected.Row}: {detail}");
             return 1;
         }
 
         var document = new PrintableDocument(
-            row, SectionNames.SourceFiles, selected.Url, null, selected.Url, source.Text);
+            selected.Row, selected.Section, selected.Label, selected.Path, selected.Url, source.Text);
         return PrintProjectionOutput.Write(
             [document],
             new PrintProjectionOptions(
@@ -115,5 +87,48 @@ internal static class TypeSourceDocumentPrinter
                 options.JsonArray,
                 options.Bare,
                 new ProjectionDestination(null, options.Rows)));
+    }
+
+    internal static (AssemblyContextParticipant Participant, AssemblyContextSourceQueryContext Context)
+        CreateContext(
+            string assemblyPath,
+            ApiOptions options,
+            ResolvedAssemblyReference? sourceAssembly,
+            string? packageName,
+            string? packageVersion,
+            HttpClient symbolClient)
+    {
+        ResolvedAssemblyReference assembly =
+            sourceAssembly ?? ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("authored source document"));
+        var bindingPolicy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ProjectAssetsPath = options.ProjectAssetsPath,
+                TargetFramework = options.Tfm,
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+        var participant = new AssemblyContextParticipant(assembly, bindingPolicy);
+        var logger = new VerboseLogger(options.Verbose);
+        var context = new AssemblyContextSourceQueryContext(
+            symbolClient,
+            FileSystemPdbStore.CreateDefault(),
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
+            new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
+        {
+            RepositoryPaths = options.SourceRepositories,
+            NuGetSourceOptions = options.SourceOptions,
+            PdbFallbackPackage = packageName is not null && packageVersion is not null
+                ? new(packageName, packageVersion)
+                : null,
+            AllowLocalSourceReads = true,
+            AllowAdjacentPdbReads = true,
+            Log = logger.Log,
+        };
+        return (participant, context);
     }
 }

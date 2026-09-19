@@ -42,6 +42,8 @@ public class MemberOptionsParserTests
         var compactOption = new Option<bool>("--compact");
         var unsafeOption = new Option<bool>("--unsafe");
         var indexOption = new Option<int?>("--index");
+        var sourcePartsOption = new Option<bool>("--source-parts");
+        var sourcePartOption = new Option<string?>("--part");
         var shareOption = new Option<string?>("--share");
         var kindOption = new Option<string[]>("-k") { AllowMultipleArgumentsPerToken = true };
         kindOption.Aliases.Add("--kind");
@@ -50,7 +52,6 @@ public class MemberOptionsParserTests
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = true };
-        var shapeOption = new Option<bool>("--shape") { Hidden = true };
         var routerDeferredTargetOption =
             new Option<string?>(
                 RouterCommandDefinition.DeferredTypeOrMemberOptionName)
@@ -74,13 +75,15 @@ public class MemberOptionsParserTests
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
+        memberCommand.Options.Add(sourcePartsOption);
+        memberCommand.Options.Add(sourcePartOption);
+        opts.AddPrintOptionTo(memberCommand);
         memberCommand.Options.Add(shareOption);
         memberCommand.Options.Add(kindOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
-        memberCommand.Options.Add(shapeOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
@@ -99,7 +102,7 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            shapeOption, routerDeferredTargetOption);
+            routerDeferredTargetOption, sourcePartsOption, sourcePartOption);
 
         return (root, opts, args);
     }
@@ -114,6 +117,37 @@ public class MemberOptionsParserTests
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
         var success = Assert.IsType<MemberOptionsParser.Success>(result);
         return success.Options;
+    }
+
+    [Fact]
+    public async Task SourceParts_SelectsSourceLocationsExplicitly()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "Counter", "Add:1", "--package", "Example", "--source-parts", "--json");
+        Assert.True(options.SourceParts);
+        Assert.Contains("Source Locations", options.Select!);
+        Assert.Null(options.SourcePart);
+    }
+
+    [Fact]
+    public async Task SourcePartPrint_SelectsTheRequestedPartWithoutAnotherFlag()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "Counter", "Add:1", "--package", "Example", "--print", "--part", "xml-docs");
+        Assert.Equal(DotnetInspector.Sections.MemberSourcePartKind.XmlDocs, options.SourcePart);
+        Assert.False(options.SourceParts);
+        Assert.Contains("Source Locations", options.Select!);
+    }
+
+    [Theory]
+    [InlineData("--part", "unknown")]
+    [InlineData("--part", "body")]
+    public async Task InvalidPartRequestFailsBeforeAcquisition(string flag, string value)
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var result = await MemberOptionsParser.ParseAsync(
+            root.Parse(["member", "Counter", "Add:1", "--package", "Example", flag, value]), opts, cmdArgs);
+        Assert.IsType<MemberOptionsParser.VersionError>(result);
     }
 
     // ── Explicit --package with type ─────────────────────────────────────
@@ -944,15 +978,16 @@ public class MemberOptionsParserTests
         Assert.Contains(".ctor", options.MemberFilter);
     }
 
-    // ── Numeric member means limit ───────────────────────────────────────
+    // ── Numeric member selectors ─────────────────────────────────────────
 
     [Fact]
-    public async Task NumericPositionalMember_SetsLimit()
+    public async Task NumericPositionalMember_IsOrdinaryFilterInput()
     {
         var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "5");
 
         Assert.Equal("JsonSerializer", options.TypeName);
-        Assert.Equal(5, options.Limit);
+        Assert.Contains("5", options.MemberFilter);
+        Assert.Null(options.Limit);
     }
 
     // ── Kind filter ──────────────────────────────────────────────────────

@@ -46,6 +46,7 @@ public static class PackageOptionsParser
         Option<string?> OutOption,
         Option<string?> PathMatchOption,
         Option<bool> SkipEmptyOption,
+        Option<bool> RootsOption,
         Option<bool> NoHeaderOption);
 
     /// <summary>
@@ -90,6 +91,7 @@ public static class PackageOptionsParser
             Value = result.GetValue(opts.Value),
             Urls = result.GetValue(opts.Urls),
             Paths = result.GetValue(opts.Paths),
+            Roots = result.GetValue(args.RootsOption),
             ShowDependencies = result.GetValue(args.DependenciesOption),
             Tree = result.GetValue(opts.Tree),
             Discover = opts.ParseDiscover(result),
@@ -179,6 +181,16 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        bool selectsPackageTfms =
+            IsPackageTfmRowSelection(
+                parseResult,
+                opts,
+                args);
+        bool selectsCloneCandidateRows =
+            IsCloneCandidateRowSelection(
+                parseResult,
+                opts,
+                args);
         RowSelectionIntent<string>? versionRowSelection = null;
         if (selectsVersionPopulation
             && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
@@ -213,6 +225,30 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageFileRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? packageTfmRowSelection = null;
+        if (selectsPackageTfms
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Package TFM",
+                out packageTfmRowSelection,
+                out string? packageTfmRowSelectionError))
+        {
+            return new InvalidArguments(
+                packageTfmRowSelectionError!);
+        }
+
+        RowSelectionIntent<string>? cloneCandidateRowSelection = null;
+        if (selectsCloneCandidateRows
+            && !CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                parseResult,
+                "Clone Candidates",
+                out cloneCandidateRowSelection,
+                out string? cloneCandidateRowSelectionError))
+        {
+            return new InvalidArguments(
+                cloneCandidateRowSelectionError!);
         }
 
         var verbosity = opts.ParseVerbosity(parseResult);
@@ -278,6 +314,7 @@ public static class PackageOptionsParser
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
             Paths = parseResult.GetValue(opts.Paths),
+            Roots = parseResult.GetValue(args.RootsOption),
             JsonArray = parseResult.GetValue(opts.JsonArray),
             ShowContent = parseResult.GetValue(args.ContentOption),
             ContentScope = contentScope,
@@ -288,6 +325,8 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            PackageTfmRowSelection = packageTfmRowSelection,
+            CloneCandidateRowSelection = cloneCandidateRowSelection,
             Format = outputFormat,
             JsonOutput = outputFormat == OutputFormat.Json,
             Bare = bareOutput,
@@ -314,6 +353,8 @@ public static class PackageOptionsParser
             Rows = selectsVersionPopulation
                 || selectsSourceLinkFiles
                 || selectsPackageFiles
+                || selectsPackageTfms
+                || selectsCloneCandidateRows
                 ? null
                 : opts.ParseRows(parseResult),
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
@@ -493,6 +534,117 @@ public static class PackageOptionsParser
         return selected.Contains(
             Views.PackageSections.Files);
     }
+
+    internal static bool IsPackageTfmRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsPackageTfmRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsPackageTfmRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || !result.GetValue(args.TfmsOption)
+            || HasCompetingPackageTfmIntent(result, opts, args))
+        {
+            return false;
+        }
+
+        string packageReference = packageArgs[0];
+        if (!File.Exists(packageReference))
+        {
+            bool isRange = PackageVersionRange.TryParse(
+                packageReference,
+                out _,
+                out string? rangeError);
+            if (isRange || rangeError is not null)
+                return false;
+        }
+
+        return true;
+    }
+
+    internal static bool IsCloneCandidateRowSelection(
+        ParseResult parseResult,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => IsCloneCandidateRowSelection(
+            parseResult.CommandResult,
+            opts,
+            args);
+
+    internal static bool IsCloneCandidateRowSelection(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        string[] packageArgs =
+            result.GetValue(args.PackageNameArg) ?? [];
+        if (packageArgs.Length != 1
+            || result.GetResult(args.LibraryOption)
+                is not { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetResult(opts.Discover)
+                is { Implicit: false })
+        {
+            return false;
+        }
+
+        string[]? selectors =
+            ParseSelectors(result.GetValue(opts.Select));
+        return selectors is [var selector]
+            && selector.Equals(
+                SectionNames.CloneCandidates,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasCompetingPackageTfmIntent(
+        CommandResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+        => result.GetResult(opts.Discover) is { Implicit: false }
+            || result.GetResult(opts.Select) is { Implicit: false }
+            || result.GetValue(opts.Tree)
+            || result.GetValue(opts.Schema)
+            || result.GetValue(opts.Envelope)
+            || result.GetValue(opts.Print)
+            || result.GetResult(opts.Row) is { Implicit: false }
+            || result.GetValue(opts.Value)
+            || result.GetValue(opts.Urls)
+            || result.GetValue(opts.Paths)
+            || result.GetValue(args.RootsOption)
+            || result.GetValue(opts.JsonArray)
+            || result.GetValue(opts.PreferRenderedUrls)
+            || (!result.GetValue(opts.Count)
+                && (result.GetResult(opts.Columns) is { Implicit: false }
+                    || result.GetResult(opts.Fields) is { Implicit: false }))
+            || result.GetValue(args.DependenciesOption)
+            || result.GetValue(args.LayoutOption)
+            || result.GetValue(args.LibOption)
+            || result.GetValue(args.ToolsOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
+            || result.GetResult(args.PathMatchOption) is { Implicit: false }
+            || result.GetValue(args.SkipEmptyOption)
+            || result.GetResult(args.TfmOption) is { Implicit: false }
+            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
+            || result.GetResult(args.LibraryOption) is { Implicit: false }
+            || result.GetValue(args.AllLibrariesOption)
+            || result.GetValue(args.VersionsOption)
+            || result.GetValue(args.VersionsWithFeedOption)
+            || result.GetValue(args.IncludeUnlistedOption)
+            || result.GetValue(args.ContentOption)
+            || result.GetValue(args.FrontmatterOption)
+            || result.GetValue(args.BodyOption)
+            || (result.GetResult(args.VersionOption) is { Implicit: false }
+                && result.GetValue(args.VersionOption) is null);
 
     private static string[]? ParseSelectors(string? value)
         => string.IsNullOrWhiteSpace(value)

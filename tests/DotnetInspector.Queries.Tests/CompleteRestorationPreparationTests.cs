@@ -6,6 +6,104 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompleteRestorationPreparationTests
 {
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void PinnedPlatformPacket_PreservesDeclaredPackageOrder(int version)
+    {
+        string registrations = version >= 3 ? "\"r\":[]," : "";
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            $$$"""
+            {"f":{{{version}}},"t":[[":Platform","10.0.10","net10.0","linux-x64"],["System.Text.Json","9.0.4","net10.0","linux-x64"],["Newtonsoft.Json","13.0.3","net10.0","linux-x64"]],"g":[[0,2,1]],{{{registrations}}}"a":1,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0},{"t":1,"r":{"k":"package"},"u":{"k":"package"}},{"t":2,"r":{"k":"package"},"u":{"k":"package"}}]}
+            """,
+            TestContext.Current.CancellationToken);
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                WorkspaceSharePacketCodec.Encode(packet),
+                new TestIntentAuthority()));
+
+        WorkspaceContextInput context =
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Equal("net10.0", context.Framework);
+        Assert.Equal("linux-x64", context.RuntimeIdentifier);
+        Assert.Collection(
+            context.Members,
+            member => Assert.Equal(
+                "Newtonsoft.Json",
+                Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(member)
+                    .PackageId),
+            member => Assert.Equal(
+                "System.Text.Json",
+                Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(member)
+                    .PackageId),
+            member =>
+            {
+                var platform =
+                    Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                        member);
+                Assert.Equal("runtime", platform.Family);
+                Assert.Equal("10.0.10", platform.Version);
+                Assert.Equal("net10.0", platform.Framework);
+            });
+    }
+
+    [Fact]
+    public void PinnedPlatformDefinition_InheritsTargetWithoutChangingMembers()
+    {
+        var package = new DefinitionMemberCoordinate.PackageCoordinate(
+            "System.Text.Json", "9.0.4", "net10.0", "linux-x64");
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version3,
+            "workspace",
+            [new WorkspaceContextDefinition(
+                "context", subscribe: ":Platform@10.0.10", members: [package])]));
+        registry.Add(new CommittedNavigationDefinition(
+            InspectionDefinitionSchema.Version3,
+            "navigation",
+            [
+                new NavigationTabDefinition(
+                    "platform", subscribe: ":Platform@10.0.10"),
+                new NavigationTabDefinition("package", coordinate: package),
+            ],
+            focus: "package"));
+        registry.Add(new CommittedViewDefinition(
+            InspectionDefinitionSchema.Version3,
+            "view",
+            [
+                new CommittedViewStateDefinition(
+                    null, new PortableSubjectRequest.Workspace()),
+                new CommittedViewStateDefinition("platform"),
+                new CommittedViewStateDefinition(
+                    "package",
+                    new PortableSubjectRequest.Package(),
+                    new PortableRetainedSubjectContext.Package()),
+            ]));
+        registry.Add(new ScenarioDefinition(
+            InspectionDefinitionSchema.Version3,
+            "scenario",
+            workspace: "workspace",
+            context: "context",
+            navigation: "navigation",
+            view: "view"));
+
+        var ready = Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                registry, "scenario", new TestIntentAuthority()));
+        WorkspaceContextInput context =
+            Assert.Single(ready.Plan.WorkspacePlan.Contexts);
+        Assert.Equal("net10.0", context.Framework);
+        Assert.Equal("linux-x64", context.RuntimeIdentifier);
+        Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
+            context.Members[0]);
+        Assert.Equal(
+            "net10.0",
+            Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+                context.Members[1]).Framework);
+    }
+
     [Fact]
     public void Version3Definition_PreparesRegistrationOnlyWorkspacePlan()
     {
@@ -22,6 +120,44 @@ public sealed class CompleteRestorationPreparationTests
         Assert.Empty(ready.Plan.WorkspacePlan.Contexts);
         Assert.IsType<WorkspaceRegistration.PackagePrefix>(
             Assert.Single(ready.Plan.WorkspacePlan.Registrations));
+    }
+
+    [Theory]
+    [InlineData(":Platform", null, "net10.0")]
+    [InlineData(":Platform", "10.0.10", null)]
+    [InlineData(":Platform+Custom", "10.0.10", "net10.0")]
+    public void UnsupportedCompleteRestorationGroup_ReturnsTypedFailure(
+        string source,
+        string? version,
+        string? framework)
+    {
+        var packet = new WorkspaceSharePacket(
+            [new WorkspaceShareTab(
+                WorkspaceShareSourceKind.Group,
+                source,
+                version,
+                framework,
+                runtimeIdentifier: null)],
+            [new WorkspaceShareContext([0])],
+            focusedTabIndex: null,
+            selectedContextIndex: 0,
+            [
+                new WorkspaceShareViewState(
+                    null, new PortableSubjectRequest.Workspace(), null, null),
+                new WorkspaceShareViewState(0, null, null, null),
+            ]);
+
+        var failed = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            WorkspaceDefinitionConsumer.PrepareRestoration(
+                WorkspaceSharePacketCodec.Encode(packet),
+                new TestIntentAuthority()));
+
+        Assert.IsType<CompleteRestorationFailure.InvalidDefinitionSet>(
+            failed.Failure);
+        Assert.Contains(
+            "unsupported complete-restoration group",
+            failed.Failure.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
