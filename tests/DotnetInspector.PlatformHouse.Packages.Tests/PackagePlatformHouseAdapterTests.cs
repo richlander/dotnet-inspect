@@ -56,6 +56,67 @@ public sealed class PackagePlatformHouseAdapterTests
     }
 
     [Fact]
+    public async Task
+        FamilyDefaultDiscoveryUsesFallbackFrameworkAndPreparesAssociations()
+    {
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.Create(
+                    PackagePlatformTestEnvironment.RuntimePackageId,
+                    versions:
+                    [
+                        "10.0.12",
+                        "10.0.13-preview.1",
+                        "11.0.0",
+                    ]),
+            ]);
+        PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
+        PlatformHouseRequest request = FamilyDefaultRequest(
+            adapter,
+            TestContext.Current.CancellationToken);
+
+        var succeeded = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackagePlatformTargetInventory>.Succeeded>(
+                    await adapter.DiscoverTargetsAsync(
+                        request,
+                        environment.IssueOperation(
+                            TestContext.Current.CancellationToken,
+                            operationTimeout:
+                                request.Work.MaxDuration)));
+        var attempt =
+            Assert.IsType<PlatformTargetDiscoveryAttempt.Succeeded>(
+                PackagePlatformTargetDiscovery.PrepareAttempt(
+                    succeeded));
+
+        Assert.Equal(
+            ["10.0.12", "10.0.13-preview.1"],
+            attempt.Candidates.Select(
+                candidate => candidate.Target.Version.Value));
+        Assert.All(
+            attempt.Candidates,
+            candidate => Assert.IsType<
+                PlatformTargetDiscoveryCandidate<
+                    PackagePlatformTargetDiscoveryAssociation>>(
+                        candidate));
+        bool operationIssued = false;
+        PlatformTargetDiscoverySource source =
+            PackagePlatformTargetDiscovery.CreateSource(
+                adapter,
+                current =>
+                {
+                    operationIssued = true;
+                    return environment.IssueOperation(
+                        current.CancellationToken,
+                        current.Work.MaxDuration);
+                });
+        Assert.Same(adapter.TargetDiscovery, source.Capability);
+        Assert.False(operationIssued);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
     public async Task DiscoveryRejectsUnauthorizedCapabilityWithoutSourceWork()
     {
         await using PackagePlatformTestEnvironment environment =
@@ -923,6 +984,60 @@ public sealed class PackagePlatformHouseAdapterTests
                 maxForwardingHops: 0,
                 maxDuration ?? TimeSpan.FromSeconds(30)),
             cancellationToken);
+
+    private static PlatformHouseRequest FamilyDefaultRequest(
+        PackagePlatformHouseAdapter adapter,
+        CancellationToken cancellationToken)
+    {
+        PlatformSourceCapabilityIdentity installed =
+            PlatformSourceCapabilityIdentity.Create("installed-preferred");
+        var preferred = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.AllFrameworks(),
+            [installed]);
+        var fallback = new PlatformTargetDiscoveryStage(
+            new PlatformTargetDiscoveryScope.ExactFramework(
+                PlatformTargetFramework.Parse("net10.0")),
+            [adapter.TargetDiscovery]);
+        return new(
+            PlatformHouseRequestIdentity.Create(
+                "package-family-default-discovery"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred,
+                    fallback),
+                new PlatformTargetDiscoveryBudget(8, 16)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create("package-test")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.CompletePopulation(),
+                PlatformViewDemand.Reference),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create("package-plan"),
+                PlatformSourcePolicyGeneration.Create("package-policy"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.TargetDiscovery,
+                        PlatformSourceSelectionMode.Precedence,
+                        [installed, adapter.TargetDiscovery]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 2,
+                maxTargetCandidates: 8,
+                maxAssemblies: 8,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 16 * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+    }
 
     private static PlatformHouseRequest ExactRequest(
         PackagePlatformHouseAdapter adapter,
