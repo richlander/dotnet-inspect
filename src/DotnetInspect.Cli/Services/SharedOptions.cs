@@ -513,25 +513,30 @@ public class SharedOptions
         command.Validators.Add(result =>
         {
             string? value = GetOutputSelectionValue(result);
-            if (!TryParseOutputSelection(
-                    value,
-                    out CliOutputSelection selection))
+            CliOutputSelection? selection = null;
+            if (result.GetResult(Output) is { Implicit: false })
             {
-                return;
+                if (!TryParseOutputSelection(
+                        value,
+                        out CliOutputSelection parsedSelection))
+                {
+                    return;
+                }
+
+                selection = parsedSelection;
+                if (!SupportsOutput(
+                        command,
+                        parsedSelection,
+                        declaredSelections))
+                {
+                    result.AddError(
+                        $"{command.Name} does not support '-o "
+                        + $"{OutputSelectionName(parsedSelection)}'.");
+                    return;
+                }
             }
 
-            if (!SupportsOutput(
-                    command,
-                    selection,
-                    declaredSelections))
-            {
-                result.AddError(
-                    $"{command.Name} does not support '-o "
-                    + $"{OutputSelectionName(selection)}'.");
-                return;
-            }
-
-            ValidateOutputSelectionAliases(
+            ValidateExplicitOutputIntents(
                 result,
                 selection);
         });
@@ -1114,10 +1119,18 @@ public class SharedOptions
                 option.Name == alias
                 || option.Aliases.Contains(alias));
 
-    private void ValidateOutputSelectionAliases(
+    private void ValidateExplicitOutputIntents(
         CommandResult result,
-        CliOutputSelection selection)
+        CliOutputSelection? selectedOutput)
     {
+        var intents =
+            new List<(CliOutputSelection Selection, string Spelling)>();
+        if (selectedOutput is { } selection)
+        {
+            intents.Add(
+                (selection, $"-o {OutputSelectionName(selection)}"));
+        }
+
         (CliOutputSelection Selection, Option<bool> Option)[] aliases =
         [
             (CliOutputSelection.Json, Json),
@@ -1133,25 +1146,47 @@ public class SharedOptions
         foreach ((CliOutputSelection aliasSelection, Option<bool> option) in aliases)
         {
             if (!IsExplicitTrue(result, option)
-                || aliasSelection == selection
-                || IsEmbeddedMermaidPair(
-                    selection,
-                    aliasSelection))
+                || intents.Any(intent =>
+                    intent.Selection == aliasSelection))
             {
                 continue;
             }
 
-            result.AddError(
-                $"-o {OutputSelectionName(selection)} cannot be combined with "
-                + $"{option.Name}.");
-            return;
+            foreach (var intent in intents)
+            {
+                if (IsEmbeddedMermaidPair(
+                        intent.Selection,
+                        aliasSelection))
+                {
+                    continue;
+                }
+
+                result.AddError(
+                    $"{intent.Spelling} cannot be combined with "
+                    + $"{option.Name}.");
+                return;
+            }
+
+            intents.Add((aliasSelection, option.Name));
         }
 
-        if (selection != CliOutputSelection.Markdown
-            && result.GetResult(Verbosity) is { Implicit: false })
+        if (result.GetResult(Verbosity) is not { Implicit: false })
+            return;
+
+        bool embeddedMermaid =
+            intents.Any(intent =>
+                intent.Selection == CliOutputSelection.Markdown)
+            && intents.Any(intent =>
+                intent.Selection == CliOutputSelection.Mermaid);
+        var incompatible = intents.FirstOrDefault(intent =>
+            intent.Selection != CliOutputSelection.Markdown
+            && intent.Selection != CliOutputSelection.Envelope
+            && !(embeddedMermaid
+                && intent.Selection == CliOutputSelection.Mermaid));
+        if (incompatible.Spelling is not null)
         {
             result.AddError(
-                $"-o {OutputSelectionName(selection)} cannot be combined with -v.");
+                $"{incompatible.Spelling} cannot be combined with -v.");
         }
     }
 

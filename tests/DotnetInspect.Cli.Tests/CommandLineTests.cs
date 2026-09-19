@@ -724,6 +724,39 @@ public class CommandLineTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void OutputSelector_RejectsCompetingReadableAliases()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", "--json", "--markdown"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains(
+            "--json cannot be combined with --markdown",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OutputSelector_RejectsJsonWithVerbosityRegardlessOfSpelling(
+        bool selector)
+    {
+        string[] output =
+            selector
+                ? ["-o", "json"]
+                : ["--json"];
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "System.Int128", .. output, "-v:q"]);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Contains(
+            "cannot be combined with -v",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("markdown", "--mermaid")]
     [InlineData("mermaid", "--markdown")]

@@ -254,6 +254,10 @@ public partial class CommandExecutionTests
             [.. window, "-o", "markdown", "--mermaid"]);
         var embeddedMermaidAlias = await RunAppAsync(
             [.. window, "--markdown", "--mermaid"]);
+        var embeddedMermaidVerbose = await RunAppAsync(
+            [.. window, "--markdown", "--mermaid", "-v:q"]);
+        var embeddedMermaidSelectorVerbose = await RunAppAsync(
+            [.. window, "-o", "mermaid", "--markdown", "-v:q"]);
 
         foreach (var result in new[]
                  {
@@ -268,12 +272,17 @@ public partial class CommandExecutionTests
                      mermaid,
                      embeddedMermaid,
                      embeddedMermaidAlias,
+                     embeddedMermaidVerbose,
+                     embeddedMermaidSelectorVerbose,
                  })
         {
             Assert.Equal(0, result.Exit);
             Assert.Empty(result.Error);
         }
         Assert.Equal(embeddedMermaidAlias, embeddedMermaid);
+        Assert.Equal(
+            embeddedMermaidVerbose,
+            embeddedMermaidSelectorVerbose);
 
         Assert.Equal("2", count.Output.Trim());
         Assert.Equal(3, NonEmptyLineCount(table.Output));

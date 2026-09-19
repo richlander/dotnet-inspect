@@ -1154,6 +1154,46 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task OutputConflictsRejectRegardlessOfSpellingBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[][] conflicts =
+        [
+            ["--json", "--markdown"],
+            ["-o", "json", "--markdown"],
+            ["--json", "-v:q"],
+            ["-o", "json", "-v:q"],
+        ];
+
+        foreach (string[] conflict in conflicts)
+        {
+            var result = await RunAppAsync(
+            [
+                "type",
+                "Missing.Type",
+                "--library",
+                missingAssembly,
+                .. conflict,
+                "--tips",
+                "q",
+            ]);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "cannot be combined",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "File not found",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Router_DottedOverloadStaticDiscoveryUsesDetailPipeline()
     {
         string[] arguments =
