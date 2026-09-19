@@ -359,16 +359,27 @@ public static class WorkspaceSharePacketTransposer
                 "Complete Workspace capture requires the Workspace root view.");
         }
 
-        foreach ((NavigationTabDefinition tab, int index) in
-            resolvedDefinitions.Navigation.Tabs.Select(
-                static (tab, index) => (tab, index)))
+        WorkspaceSharePacketProjectionResult effectiveTopology =
+            ToPacket(
+                resolvedDefinitions,
+                cancellationToken,
+                canonicalizeFormat1: false);
+        if (!effectiveTopology.Succeeded)
+            return effectiveTopology;
+        WorkspaceSharePacket effectivePacket =
+            effectiveTopology.Packet ?? throw new UnreachableException();
+        WorkspaceSharePacketDefinitionSet effectiveDefinitions =
+            ToDefinitions(effectivePacket, cancellationToken);
+
+        for (int index = 0; index < effectivePacket.Tabs.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string path = $"navigation.tabs[{index}]";
-            if (tab.Coordinate
-                is DefinitionMemberCoordinate.PackageCoordinate package)
+            WorkspaceShareTab effectiveTab = effectivePacket.Tabs[index];
+            if (effectiveTab.SourceKind == WorkspaceShareSourceKind.Package)
             {
-                if (package.Version is null || package.Framework is null)
+                if (effectiveTab.Version is null
+                    || effectiveTab.Framework is null)
                 {
                     return NonProjectable(
                         path + ".coordinate",
@@ -377,20 +388,13 @@ public static class WorkspaceSharePacketTransposer
                 continue;
             }
 
-            if (tab.Subscribe is null
-                || tab.Framework is null
-                || !TryParseSubscription(
-                    tab.Subscribe,
-                    path + ".subscribe",
-                    out ParsedGroupSubscription parsed,
-                    out failure))
+            if (effectiveTab.Framework is null)
             {
-                return failure
-                    ?? NonProjectable(
-                        path,
-                        "Complete Workspace capture requires an exact group pin and framework.");
+                return NonProjectable(
+                    path,
+                    "Complete Workspace capture requires an exact group pin and framework.");
             }
-            if (parsed.Pins.Count == 0)
+            if (effectiveTab.Version is null)
             {
                 return NonProjectable(
                     path + ".subscribe",
@@ -398,10 +402,10 @@ public static class WorkspaceSharePacketTransposer
             }
         }
 
-        WorkspaceDefinition legacyWorkspace = resolvedDefinitions.Workspace;
+        WorkspaceDefinition legacyWorkspace = effectiveDefinitions.Workspace;
         NavigationDefinition legacyNavigation =
-            resolvedDefinitions.Navigation;
-        ScenarioDefinition legacyScenario = resolvedDefinitions.Scenario;
+            effectiveDefinitions.Navigation;
+        ScenarioDefinition legacyScenario = effectiveDefinitions.Scenario;
         NavigationTabDefinition focusedTab = legacyNavigation.Tabs.Single(
             tab => string.Equals(
                 tab.Id,

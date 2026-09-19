@@ -75,6 +75,68 @@ public sealed class WorkspaceSharePacketV3TransposerTests
         Assert.Equal([2], packet.Contexts[2].TabIndexes);
     }
 
+    [Fact]
+    public void CompleteWorkspaceCapture_PreservesContextInheritedPackageTargets()
+    {
+        AssertInheritedPackageTargets(inheritFromContext: true);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_PreservesMemberInheritedPackageTargets()
+    {
+        AssertInheritedPackageTargets(inheritFromContext: false);
+    }
+
+    [Fact]
+    public void CompleteWorkspaceCapture_PreservesInactiveGroupInheritedTargets()
+    {
+        var package =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                "10.0.0",
+                "net10.0",
+                "linux-x64");
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                DefinitionSet(
+                    [
+                        new WorkspaceContextDefinition(
+                            "g0",
+                            "net10.0",
+                            "linux-x64",
+                            subscribe: ":Platform@10.0.10"),
+                        new WorkspaceContextDefinition(
+                            "g1",
+                            "net10.0",
+                            "linux-x64",
+                            members: [package]),
+                    ],
+                    [
+                        new NavigationTabDefinition(
+                            "t0",
+                            subscribe: ":Platform@10.0.10"),
+                        new NavigationTabDefinition(
+                            "t1",
+                            coordinate: package),
+                    ],
+                    focus: "t1",
+                    context: "g1"),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+        Assert.Equal(1, packet.FocusedTabIndex);
+        Assert.Equal(1, packet.SelectedContextIndex);
+        WorkspaceShareTab group = packet.Tabs[0];
+        Assert.Equal(WorkspaceShareSourceKind.Group, group.SourceKind);
+        Assert.Equal(":Platform", group.Source);
+        Assert.Equal("10.0.10", group.Version);
+        Assert.Equal("net10.0", group.Framework);
+        Assert.Equal("linux-x64", group.RuntimeIdentifier);
+        Assert.Null(packet.ViewStates[1].Subject);
+    }
+
     [Theory]
     [InlineData(null, "net10.0")]
     [InlineData("10.0.0", null)]
@@ -492,6 +554,81 @@ public sealed class WorkspaceSharePacketV3TransposerTests
                     InspectionDefinitionSchema.Version1,
                     WorkspaceSharePacketTransposer.ViewId),
             scenario);
+    }
+
+    private static void AssertInheritedPackageTargets(
+        bool inheritFromContext)
+    {
+        var member =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                "10.0.0",
+                inheritFromContext ? null : "net10.0",
+                inheritFromContext ? null : "linux-x64");
+        var navigationCoordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                "10.0.0");
+        WorkspaceSharePacketProjectionResult projection =
+            WorkspaceSharePacketTransposer.ToCompleteWorkspacePacket(
+                DefinitionSet(
+                    [
+                        new WorkspaceContextDefinition(
+                            "g0",
+                            inheritFromContext ? "net10.0" : null,
+                            inheritFromContext ? "linux-x64" : null,
+                            members: [member]),
+                    ],
+                    [
+                        new NavigationTabDefinition(
+                            "t0",
+                            coordinate: navigationCoordinate),
+                    ],
+                    focus: "t0",
+                    context: "g0"),
+                TestContext.Current.CancellationToken);
+
+        Assert.True(projection.Succeeded);
+        WorkspaceSharePacket packet =
+            Assert.IsType<WorkspaceSharePacket>(projection.Packet);
+        WorkspaceShareTab tab = Assert.Single(packet.Tabs);
+        Assert.Equal("System.Text.Json", tab.Source);
+        Assert.Equal("10.0.0", tab.Version);
+        Assert.Equal("net10.0", tab.Framework);
+        Assert.Equal("linux-x64", tab.RuntimeIdentifier);
+        Assert.Equal(0, packet.FocusedTabIndex);
+        Assert.Equal(0, packet.SelectedContextIndex);
+        Assert.IsType<PortableSubjectRequest.Workspace>(
+            packet.ViewStates[1].Subject);
+        Assert.Null(packet.ViewStates[1].Context);
+    }
+
+    private static WorkspaceSharePacketDefinitionSet DefinitionSet(
+        IReadOnlyList<WorkspaceContextDefinition> contexts,
+        IReadOnlyList<NavigationTabDefinition> tabs,
+        string focus,
+        string context)
+    {
+        var workspace = new WorkspaceDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            contexts);
+        var navigation = new NavigationDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.NavigationId,
+            tabs,
+            focus);
+        var view = new ViewDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.ViewId);
+        var scenario = new ScenarioDefinition(
+            InspectionDefinitionSchema.Version1,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: context,
+            view: view.Id,
+            navigation: navigation.Id);
+        return new(workspace, navigation, view, scenario);
     }
 
     private static ManagedMetadataIdentity.Assembly Library(string name) =>

@@ -3443,12 +3443,17 @@ Definition records and product demos (this slice):
   the selected context, preserves effective targets including RID, and emits
   the required leading Workspace state. A focused direct-Package row requests
   the Workspace subject with canonical omitted Package-only context; inactive
-  Package rows retain their ordinary Package state. Floating Package
-  coordinates, unpinned groups, a non-root view, and non-Package focus return
-  the existing typed projection refusal. It does not canonicalize or
+  Package rows retain their ordinary Package state. Exactness is evaluated
+  against the existing unique effective-target projection, so a navigation row
+  may inherit framework and RID from its matched context or member. Floating
+  Package coordinates, unpinned groups, a non-root view, and non-Package focus
+  return the existing typed projection refusal. It does not canonicalize or
   automatically upgrade an existing packet, and its pure Definitions
   transposition is not a completed host-orchestration API.
   `CompleteWorkspaceCapture_AuthorsFormat3FromExactResolvedState`,
+  `CompleteWorkspaceCapture_PreservesContextInheritedPackageTargets`,
+  `CompleteWorkspaceCapture_PreservesMemberInheritedPackageTargets`,
+  `CompleteWorkspaceCapture_PreservesInactiveGroupInheritedTargets`,
   `CompleteWorkspaceCapture_RejectsFloatingCoordinates`,
   `CompleteWorkspaceCapture_RejectsFloatingGroup`,
   `CompleteWorkspaceCapture_RejectsNonRootView`, and
