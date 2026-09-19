@@ -338,15 +338,18 @@ public sealed class QueryOperationDefinition<TPredicate, TPlan>
     {
         foreach (string value in binding.Description.Values)
         {
-            if (!operators.Any(@operator =>
-                declaration.Bind(
-                    @operator,
-                    value).IsBound))
+            foreach (PortableQueryOperator @operator in operators)
             {
-                throw new ArgumentException(
-                    $"Query term binding '{binding.Identity}' advertises "
-                    + $"value '{value}', which its binder rejects.",
-                    parameterName);
+                if (!declaration.Bind(
+                        @operator,
+                        value).IsBound)
+                {
+                    throw new ArgumentException(
+                        $"Query term binding '{binding.Identity}' advertises "
+                        + $"value '{value}', which its binder rejects for "
+                        + $"operator '{@operator}'.",
+                        parameterName);
+                }
             }
         }
     }

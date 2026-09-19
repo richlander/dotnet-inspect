@@ -217,6 +217,45 @@ public sealed class QueryOperationInfrastructureGateTests
     }
 
     [Fact]
+    public void AdvertisedValuesMustBindForEveryOperator()
+    {
+        var vocabulary = new TestVocabulary();
+        QueryOperationApplicability applicability =
+            PackageApplicability();
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => QueryOperationDefinition<TestPredicate, TestPlan>.Create(
+                "test.operation",
+                vocabulary,
+                [PopulationRole],
+                [PackageGrain],
+                [ResultsRowSet],
+                [
+                    new(
+                        "term.mode",
+                        TestVocabulary.ModeKey,
+                        QueryOperationTermRole.SubjectQualification,
+                        applicability,
+                        new(
+                            "Mode",
+                            "mode",
+                            ["fast"],
+                            "Select a mode."),
+                        []),
+                ],
+                [],
+                [
+                    new(
+                        "default",
+                        ["term.mode"],
+                        []),
+                ]));
+
+        Assert.Contains("operator 'NotEqual'", failure.Message);
+        Assert.Equal(0, vocabulary.PlansCreated);
+    }
+
+    [Fact]
     public void RouteBindingsRejectInapplicableCapabilities()
     {
         var vocabulary = new TestVocabulary();
