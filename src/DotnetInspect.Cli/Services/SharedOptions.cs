@@ -785,6 +785,21 @@ public class SharedOptions
     public bool IsTableFlagExplicitlySet(ParseResult parseResult) =>
         IsExplicit(parseResult, Table) || IsExplicit(parseResult, Tsv) || IsExplicit(parseResult, Jsonl);
 
+    internal bool IsTableOrTsvOutput(CommandResult result)
+    {
+        if (IsExplicit(result, Table) || IsExplicit(result, Tsv))
+            return true;
+
+        if (IsExplicit(result, Jsonl)
+            || IsNonTabularFormatExplicitlySet(result))
+        {
+            return false;
+        }
+
+        return OutputFormatResolver.GetEnvironmentOverride()
+            is OutputFormat.Table or OutputFormat.Tsv;
+    }
+
     /// <summary>
     /// Parses select list from parse result.
     /// Returns null if not specified or if bare (see <see cref="ParseSelectDefault"/>), otherwise
@@ -889,6 +904,9 @@ public class SharedOptions
     private static bool IsExplicit(ParseResult parseResult, Option<bool> option) =>
         parseResult.GetResult(option) is { Implicit: false };
 
+    private static bool IsExplicit(CommandResult result, Option<bool> option) =>
+        result.GetResult(option) is { Implicit: false };
+
     private static bool IsExplicitTrue(ParseResult parseResult, Option<bool> option) =>
         IsExplicit(parseResult, option) && parseResult.GetValue(option);
 
@@ -899,6 +917,14 @@ public class SharedOptions
         || IsExplicit(parseResult, Mermaid)
         || IsExplicit(parseResult, Bare)
         || parseResult.GetResult(Verbosity) is { Implicit: false };
+
+    private bool IsNonTabularFormatExplicitlySet(CommandResult result) =>
+        IsExplicit(result, Json)
+        || IsExplicit(result, Markdown)
+        || IsExplicit(result, PlainText)
+        || IsExplicit(result, Mermaid)
+        || IsExplicit(result, Bare)
+        || result.GetResult(Verbosity) is { Implicit: false };
 
     private bool ShouldSuppressEnvironmentTabularFormat(
         ParseResult parseResult,

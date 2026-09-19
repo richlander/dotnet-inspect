@@ -608,8 +608,7 @@ public static class PackageOptionsParser
             || result.GetValue(args.RootsOption)
             || result.GetValue(opts.JsonArray)
             || result.GetValue(opts.PreferRenderedUrls)
-            || result.GetValue(opts.Table)
-            || result.GetValue(opts.Tsv)
+            || opts.IsTableOrTsvOutput(result)
             || result.GetValue(args.NoHeaderOption)
             || result.GetResult(opts.Fields) is { Implicit: false }
             || result.GetResult(opts.Columns) is { Implicit: false }

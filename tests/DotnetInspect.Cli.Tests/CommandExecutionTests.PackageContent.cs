@@ -484,6 +484,109 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("table")]
+    [InlineData("tsv")]
+    public async Task Layout_EnvironmentTabularFormatRetainsRenderedLineFallback(
+        string format)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                format);
+
+            var fallback = await RunAppAsync(
+                "package",
+                packagePath,
+                "--layout",
+                "-n",
+                "1",
+                "--tips",
+                "q");
+            var legacyRows = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, fallback.Exit);
+            Assert.Empty(fallback.Error);
+            Assert.Single(
+                fallback.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            Assert.Equal(1, legacyRows.Exit);
+            Assert.Empty(legacyRows.Output);
+            Assert.Contains(
+                "Package 'package.that.must.not.resolve'",
+                legacyRows.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                legacyRows.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--markdown")]
+    [InlineData("--plaintext")]
+    [InlineData("--bare")]
+    public async Task Layout_ExplicitNonTabularFormatOverridesEnvironmentTable(
+        string formatOption)
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "table");
+
+            var (exit, output, error) = await RunAppAsync(
+                "--offline",
+                "package",
+                "Package.That.Must.Not.Resolve",
+                "--layout",
+                formatOption,
+                "--rows",
+                "1");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--rows requires N..M, N.., or ..M with positive positions.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Package.That.Must.Not.Resolve",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
     [Fact]
     public async Task Package_UnselectedModeRetainsRenderedLineFallback()
     {
