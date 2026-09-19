@@ -106,7 +106,7 @@ function renderReturns(model: MemberContractModel) {
 
 function renderExceptions(model: MemberContractModel) {
   const status = model.documentationStatus === "loading"
-    ? "package documentation"
+    ? "compiled documentation"
     : model.documentationStatus === "error"
       ? "unavailable"
       : `${model.exceptions.length} documented`;

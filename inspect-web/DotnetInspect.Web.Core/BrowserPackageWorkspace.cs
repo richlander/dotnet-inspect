@@ -184,8 +184,6 @@ internal static class BrowserPackageWorkspace
     static readonly ConditionalWeakTable<
         IPackageSourceClient,
         IPackageSourceAuthorization> SourceAuthorizations = new();
-    static readonly UniformPackageSourceAuthorization SourceAuthorization =
-        new([PackageSource.NuGetOrg]);
     internal static readonly IPackageSourceClient Gallery =
         CreateGallerySource(
             new NuGetFetchOptions
@@ -244,7 +242,7 @@ internal static class BrowserPackageWorkspace
         AdvisoryPublicEvidenceProxyHandler.Configure(origin);
     }
     internal static IPackageSourceAuthorization PackageSourceAuthorization =>
-        SourceAuthorization;
+        SourceAuthorizationFor(Gallery);
     internal static IPackageStore SessionPackageStore => Store;
     internal static IPackagePayloadTransferPolicy PackageTransferPolicy =>
         Store;
@@ -813,7 +811,8 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    static TimeSpan SourceSettlementOperationTimeout(TimeSpan remaining)
+    internal static TimeSpan SourceSettlementOperationTimeout(
+        TimeSpan remaining)
     {
         TimeSpan margin = PackageOperationTimeout - GalleryOperationTimeout;
         return remaining > margin

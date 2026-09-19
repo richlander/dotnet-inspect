@@ -75,26 +75,52 @@ public sealed record InstalledReferencePackCoordinate
 public sealed record InstalledReferenceTarget(
     InstalledReferencePackCoordinate Coordinate);
 
+/// <summary>Framework range observed by one installed discovery attempt.</summary>
+public abstract class InstalledReferenceDiscoveryScope
+{
+    private protected InstalledReferenceDiscoveryScope()
+    {
+    }
+
+    public sealed class ExactFramework : InstalledReferenceDiscoveryScope
+    {
+        public ExactFramework(PlatformTargetFramework targetFramework)
+        {
+            ArgumentNullException.ThrowIfNull(targetFramework);
+            TargetFramework = targetFramework;
+        }
+
+        public PlatformTargetFramework TargetFramework { get; }
+    }
+
+    public sealed class AllFrameworks : InstalledReferenceDiscoveryScope
+    {
+        public AllFrameworks()
+        {
+        }
+    }
+}
+
 /// <summary>Bounded discovery request for one installed reference-pack family.</summary>
 public sealed record InstalledReferenceDiscoveryRequest
 {
     public InstalledReferenceDiscoveryRequest(
         InstalledPlatformFamily family,
-        PlatformTargetFramework targetFramework,
+        InstalledReferenceDiscoveryScope scope,
         int maxCandidates)
     {
         if (!Enum.IsDefined(family))
             throw new ArgumentOutOfRangeException(nameof(family));
-        ArgumentNullException.ThrowIfNull(targetFramework);
+        ArgumentNullException.ThrowIfNull(scope);
         ArgumentOutOfRangeException.ThrowIfNegative(maxCandidates);
 
         Family = family;
-        TargetFramework = targetFramework;
+        Scope = scope;
         MaxCandidates = maxCandidates;
     }
 
     public InstalledPlatformFamily Family { get; }
-    public PlatformTargetFramework TargetFramework { get; }
+    public InstalledReferenceDiscoveryScope Scope { get; }
     public int MaxCandidates { get; }
 }
 

@@ -45,6 +45,10 @@ public sealed record AssemblyContextTypeProjectionRequest(
 /// Includes Decompiler-proven inline and suspension/resume paths for each
 /// reconstructed classic <c>await</c>.
 /// </param>
+/// <param name="AllocationExceptionPaths">
+/// Includes Analysis-classified thrown-value and exception-handler paths for
+/// exact allocation Findings.
+/// </param>
 public sealed record AssemblyContextMemberProjectionRequest(
     string Type,
     string Member,
@@ -62,7 +66,8 @@ public sealed record AssemblyContextMemberProjectionRequest(
     bool CallRelationships = false,
     bool CallCycles = false,
     bool SynchronousCompletions = false,
-    bool AwaitCompletionPaths = false);
+    bool AwaitCompletionPaths = false,
+    bool AllocationExceptionPaths = false);
 
 /// <summary>Why a member projection's whole-assembly fact context is narrower than a complete one.</summary>
 public enum MemberProjectionContextLimitationKind
@@ -161,6 +166,14 @@ public sealed record AssemblyMemberSynchronousCompletion(
 /// </summary>
 public sealed record AssemblyMemberAwaitCompletionPath(int NodeId);
 
+/// <summary>
+/// One exact allocation Finding Analysis placed on exception-related control
+/// flow.
+/// </summary>
+public sealed record AssemblyMemberAllocationExceptionPath(
+    int FactId,
+    ResearchViews.AllocationExceptionPathKind Kind);
+
 /// <summary>One participant's member projection and any narrowing of its fact context.</summary>
 public sealed record AssemblyMemberProjection(
     ResearchViews.MemberProjectionResult Projection,
@@ -172,7 +185,9 @@ public sealed record AssemblyMemberProjection(
     IReadOnlyList<AssemblyMemberSynchronousCompletion>?
         SynchronousCompletions = null,
     IReadOnlyList<AssemblyMemberAwaitCompletionPath>?
-        AwaitCompletionPaths = null);
+        AwaitCompletionPaths = null,
+    IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+        AllocationExceptionPaths = null);
 
 /// <summary>
 /// Projects the Research type view from participants of one binding-consistent assembly context
@@ -319,6 +334,15 @@ public static class AssemblyContextMemberProjectionQuery
         {
             throw new ArgumentException(
                 "Await completion paths require a source document and an exact MethodDef token.",
+                nameof(request));
+        }
+        if (request.AllocationExceptionPaths
+            && (!request.SourceDocument
+                || !request.AnalysisFeatures.HasFlag(
+                    LibraryBodyAnalysisFeatures.Allocations)))
+        {
+            throw new ArgumentException(
+                "Allocation exception paths require a source document and allocation analysis.",
                 nameof(request));
         }
         if (request.FindingEvidence
@@ -476,6 +500,14 @@ public static class AssemblyContextMemberProjectionQuery
                             projection,
                             awaitDocument)
                         : null;
+            IReadOnlyList<AssemblyMemberAllocationExceptionPath>?
+                allocationExceptionPaths =
+                    request.AllocationExceptionPaths
+                        && assembly is not null
+                        && projection.SourceDocument is not null
+                        ? ProjectAllocationExceptionPaths(
+                            projection)
+                        : null;
             var result = new AssemblyMemberProjection(
                 projection,
                 limitation,
@@ -484,7 +516,8 @@ public static class AssemblyContextMemberProjectionQuery
                 relationshipOverlay,
                 cycleInspection,
                 synchronousCompletions,
-                awaitCompletionPaths);
+                awaitCompletionPaths,
+                allocationExceptionPaths);
             resolver.ValidateForPublication();
             return result;
         }
@@ -1109,6 +1142,18 @@ public static class AssemblyContextMemberProjectionQuery
                 }),
         ];
     }
+
+    static IReadOnlyList<AssemblyMemberAllocationExceptionPath>
+        ProjectAllocationExceptionPaths(
+            ResearchViews.MemberProjectionResult projection)
+        =>
+        [
+            .. (projection.AllocationExceptionPaths ?? [])
+                .Select(static path =>
+                    new AssemblyMemberAllocationExceptionPath(
+                        path.FactId,
+                        path.Kind)),
+        ];
 
     static CallGraphNode? FindCallee(
         CallGraphProjection graph,
