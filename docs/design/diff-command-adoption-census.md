@@ -95,6 +95,7 @@ through those owners.
 | Table, TSV, JSONL | `DiffTableView` for Type summaries or `DiffDetailedChangesView` for detailed Changes through `MarkoutSerializer` | Markout applies the semantic window to data rows while retaining headers; no Diff-owned rendered-line fallback is used | No Diff Count or envelope integration. Non-success emits an error rather than a success-shaped empty table. |
 | Name-only | Direct ordered Type-name list from selected comparison subjects | The lowerer receives no `RowWindow`; name-only windowing is **unverified** | No Count or envelope integration; non-success emits the typed reason. |
 | Implementation Diff | `ImplementationDiffView` built by `DiffOutputFormatter` from general or Workspace comparison evidence and optional selected PDB-source content | General comparison emits C#, IL, normal-flow complexity, and optional PDB Source rows; each row carries human-readable fields and a machine-readable `Kind` descriptor when wired. The focused Workspace route emits C#, IL, endpoint, and type-forwarder rows. Table, TSV, and JSONL serialize the view through Markout with `RowWindow`; Markdown uses `RenderImplementationDiffView`, while mixed sections compose the same view into `DiffDocumentView`. | No public envelope or Count adapter. Failure evidence remains visible. Endpoint inspection failure and incomplete Workspace comparison produce nonzero exit; failed rows in the general Implementation view do not independently change the exit code. End-to-end `Kind` serialization is **unverified**. |
+| Post-success legend | `Hints.WriteDiffLegend` runs after the selected Diff route returns zero and `--legend` was explicit | Writes four fixed interpretation rows to stderr: added type, modified non-breaking, modified breaking, and removed type | Not a section, semantic row projection, Count input, or part of the selected result carrier. Non-success writes no legend. Successful legend output has no named Release gate. |
 | Timeline Markdown and structured formats | `TimelineDocumentView` with Evaluation and Transition semantic rows; typed JSON preserves the same selected identities | Head, Tail, and Window compose in argument order before Markdown, table, TSV, JSONL, typed JSON, or Count. Explicit Lines clips rendered output and cannot reduce authorized payload-cell acquisition. | Count observes post-selection rows per selected section. Multi-section Count is an ordered map. Failure, subject absence, missing, and unevaluated remain distinct. No public envelope is adopted. |
 
 No Diff-owned tree model or tree lowerer is present in the current renderers.
@@ -154,6 +155,7 @@ gate in this census:
 - Diff discovery TSV, JSONL, and tree output;
 - end-to-end JSON, JSONL, and TSV serialization of Implementation `Kind`;
 - the command-layer disposition of tree output outside discovery;
+- successful Diff `--legend` stderr output;
 - Timeline public envelope and Share behavior, which are not yet adopted;
 - Timeline source-evidence behavior;
 - Timeline structured or tabular output after real package acquisition; and
@@ -204,6 +206,9 @@ acquisition.
 The Round 6 production probe confirmed that Implementation schema currently
 advertises the five recorded display fields and omits `Kind`; no field-level
 Release gate is claimed.
+
+The Round 7 production probe confirmed that `--legend` emits the four recorded
+stderr rows after successful Diff output; no Release gate is claimed.
 
 ## Non-goals
 
