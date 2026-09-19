@@ -61,7 +61,7 @@ public static class TypeCommand
     internal static TypeOptions FromDeferredMemberOptions(
         MemberOptions options)
     {
-        var (memberFilter, memberLimit) =
+        var memberFilter =
             SharedParsers.ParseMemberFilter(
                 options.RouterDeferredTypeMemberValues);
         return new()
@@ -88,7 +88,7 @@ public static class TypeCommand
             MermaidOutput = options.MermaidOutput,
             EmbeddedMermaid = options.EmbeddedMermaid,
             Bare = options.Bare,
-            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
+            NoHeader = options.NoHeader,
             MemberFilter = memberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,

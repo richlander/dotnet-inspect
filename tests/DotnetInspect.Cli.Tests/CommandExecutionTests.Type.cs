@@ -1229,7 +1229,6 @@ public partial class CommandExecutionTests
     // the filtered slice, so its field set must not move when a filter is active.
     [InlineData("System.String", "-m", "Contains")]
     [InlineData("System.String", "--all")]
-    [InlineData("System.String", "-m", "5")]
     [InlineData("System.String", "-k", "property")]
     [InlineData("System.Span`1", "--unsafe")]
     public async Task Type_TypeInfoSection_EffectiveDiscovery_ListsTheFieldsItRenders(
