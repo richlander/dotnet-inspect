@@ -196,33 +196,30 @@ test("package view binding tolerates an inactive surface", () => {
     recordingActions([])));
 });
 
-test("package navigation exposes every admitted library", () => {
+test("package navigation exposes every target framework", () => {
   const html = renderPackageNav({
-    libraries: [
-      { id: "asset:core", name: "Example.Core", types: 12, members: 240 },
-      { id: "asset:empty", name: "Example.Empty", types: 0, members: 0 },
-    ],
-    selectedLibrary: "asset:core",
+    frameworks: ["net10.0", "net9.0"],
+    activeFramework: "net10.0",
     escapeHtml: value => String(value),
   });
 
-  assert.match(html, /aria-label="Libraries"/);
+  assert.match(html, /aria-label="Frameworks"/);
   assert.match(html, /id="content-navigation-close"/);
-  assert.match(html, /data-lib-scope="asset:core"/);
-  assert.match(html, /data-lib-scope="asset:empty"/);
-  assert.match(html, /title="Inspect Example\.Core"/);
-  assert.match(html, /title="Inspect Example\.Empty"/);
-  assert.match(html, /12 types · 240 members/);
-  assert.match(html, /0 types · 0 members/);
+  assert.match(html, /data-package-framework="net10\.0"/);
+  assert.match(html, /data-package-framework="net9\.0"/);
+  assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
+  assert.match(html, /title="Use net9\.0"/);
+  assert.match(html, />current</);
+  assert.match(html, />available</);
 });
 
 test("empty package navigation retains its detail-return action", () => {
   const html = renderPackageNav({
-    libraries: [],
-    selectedLibrary: "",
+    frameworks: [],
+    activeFramework: "",
     escapeHtml: value => String(value),
   });
 
-  assert.match(html, /No managed libraries were selected/);
+  assert.match(html, /No target frameworks are available/);
   assert.match(html, /id="content-navigation-close"/);
 });

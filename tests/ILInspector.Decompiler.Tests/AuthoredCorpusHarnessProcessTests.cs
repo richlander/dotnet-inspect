@@ -129,7 +129,7 @@ public partial class AuthoredCorpusHarnessProcessTests
         int token = MetadataTokens.GetToken(method);
 
         AnnotatedSourceDocument Project(PrinterOptions? options)
-            => ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            => ResearchViews.ProjectMember(new MemberProjectionRequest(
                 source,
                 typeof(CfgSampleClass).FullName!,
                 nameof(CfgSampleClass.CallsKeywordInstanceMethod),
