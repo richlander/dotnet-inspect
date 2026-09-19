@@ -1543,7 +1543,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    public async Task Router_DeferredExactTypePreservesNumericMemberFilter()
     {
         const string target =
             "System.Collections.Immutable.ImmutableArray<T>.Builder";
@@ -1563,8 +1563,11 @@ public partial class CommandExecutionTests
         var deferred = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, deferred);
-        Assert.Equal(0, deferred.Exit);
-        Assert.Equal("1", deferred.Output.Trim());
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "No members matched filter '1'",
+            deferred.Error);
     }
 
     [Theory]

@@ -397,6 +397,8 @@ internal static class WorkspaceTypeResolutionProjectionManifest
         new(nameof(Failure),
             FailureArm<TypeResolutionFailure.DeclarationRejected, E.Failure.DeclarationRejected>(
                 static (c, v) => new(NameFailure.Project(c, v.Rejection)), Project("Rejection", nameof(NameFailure))),
+            FailureArm<TypeResolutionFailure.DeclarationBudgetExceeded, E.Failure.DeclarationBudgetExceeded>(
+                static (_, v) => new(v.Budget, Inert(v.Detail)), Copy("Budget"), Text("Detail")),
             FailureArm<TypeResolutionFailure.ForwarderCycle, E.Failure.ForwarderCycle>(static (_, _) => new()),
             FailureArm<TypeResolutionFailure.HopBudgetExceeded, E.Failure.HopBudgetExceeded>(
                 static (_, v) => new(v.Budget), Copy("Budget")),
