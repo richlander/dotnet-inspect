@@ -7,6 +7,10 @@ composition boundary. It is tracked by
 [#6301](https://github.com/richlander/dotnet-inspect/issues/6301) and is a
 focused prerequisite of the platform-first tracker
 [#6228](https://github.com/richlander/dotnet-inspect/issues/6228).
+Versionless target defaults are tracked by the composition map
+[#7742](https://github.com/richlander/dotnet-inspect/issues/7742); the focused
+PlatformHouse contract slice is
+[#7743](https://github.com/richlander/dotnet-inspect/issues/7743).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
@@ -359,7 +363,7 @@ algorithm. It is a clearing house over focused owners, not a renamed
 | Term | Meaning |
 | --- | --- |
 | **House target** | One exact owner-issued `PlatformFamilyTarget` against which the operation is settled. |
-| **Target demand** | Either one exact `PlatformFamilyTarget` or one typed family/TFM/version-selection request with explicit host policy and authorized target-discovery capabilities. |
+| **Target demand** | One exact `PlatformFamilyTarget`, one framework-scoped version-selection request, or one family-scoped named host default, each with explicit policy and authorized target-discovery capabilities where selection is required. |
 | **Source plan** | An immutable host-authorized set of platform source capabilities and their explicit selection policy. |
 | **Source capability** | A bounded adapter entry point for one source-specific operation. It is not source authority by display name. |
 | **Source contribution** | One source's typed candidate, non-match, failure, or incomplete evidence, retaining exact target correspondence. |
@@ -430,20 +434,23 @@ Every operation carries:
 - owner-issued prerequisite correspondence; and
 - caller cancellation.
 
-The exact numeric defaults remain host policy. The House owns validation,
+The exact numeric work defaults remain host policy. The House owns validation,
 checked charging, and the rule that a broad source plan or population demand
 is never unbounded work.
 
 ### Target and version settlement
 
-An exact target demand carries an existing `PlatformFamilyTarget` unchanged.
-A selecting target demand carries:
+Target demand has three distinct typed forms:
 
-- one `PlatformFamily`;
-- one target framework;
-- one explicit version requirement or named host-default selection policy;
-- the authorized target-discovery capabilities; and
-- finite discovery and comparison work.
+- an **exact demand** carries one existing `PlatformFamilyTarget` unchanged;
+- a **framework-scoped demand** carries one `PlatformFamily`, one exact target
+  framework, one explicit version requirement, authorized target-discovery
+  capabilities, and finite discovery and comparison work; and
+- a **family-default demand** carries one `PlatformFamily`, one named immutable
+  policy generation, its typed preferred and fallback discovery stages,
+  authorized target-discovery capabilities, and finite discovery and
+  comparison work. It does not manufacture a target framework before
+  discovery.
 
 The House asks only those capabilities for owner-issued exact target
 candidates and composes the version-selection owner's result. It does not
@@ -456,6 +463,105 @@ retains the original target demand and any candidate, policy, or failure
 evidence used to settle it. An omitted CLI version is therefore not an
 implicit target inside the House: the command supplies a named default policy
 that remains visible in the request and receipt.
+
+#### Versionless runtime host default
+
+> Given one versionless runtime-family demand, one staged authorized discovery
+> policy, and finite work, select the greatest eligible installed exact target
+> at or above `10.0.1`; only after authoritative preferred absence, select the
+> greatest stable `net10.0` servicing target from complete fallback discovery.
+> Freeze that exact target before realization while retaining no live discovery
+> or acquisition authority in the terminal outcome.
+
+The versionless `DotNetRuntime` policy is named and immutable by policy
+generation. The `10.0.1` floor is policy data; changing it creates another
+generation rather than reinterpreting an existing request or cache entry. The
+policy has two ordered stages:
+
+1. **Preferred available target.** Aggregate every authorized preferred
+   discovery contribution. Eligible candidates have SemVer precedence greater
+   than or equal to `10.0.1`; installed previews and release candidates are
+   eligible when they meet that floor. Select the eligible exact target with
+   greatest SemVer precedence, breaking equal precedence by greatest ordinal
+   exact canonical version identity. An exact target already joins its TFM and
+   version, so selection does not infer a TFM from display text.
+2. **Stable baseline fallback.** Invoke the authorized fallback discovery
+   capabilities only when every required preferred contribution
+   authoritatively establishes no eligible target. Retain only stable
+   candidates in the `net10.0` release band at or above `10.0.1`, then select
+   the greatest SemVer precedence with the same exact-identity tie-break.
+
+The ordinary desktop plan assigns installed discovery to the preferred stage
+and package-backed discovery to the fallback stage. Consequently an installed
+`10.0.1`, `11.0.0-rc.1`, or later eligible preview prevents network work; an
+installed `10.0.0`, `10.0.0-rc.2`, or `9.0.x` does not. With no eligible
+installed target, the fallback's complete package-version discovery determines
+the current stable `10.0.x` servicing target rather than using a hard-coded
+patch. Browser/Wasm may omit the preferred stage and authorize only the
+package-backed fallback.
+
+Fallback always performs current complete version discovery through the
+authorized package source. A previously downloaded pack, cached payload, prior
+House receipt, or installed `10.0` pack does not prove the latest stable
+servicing version. Package Source retains ownership of configured-authority
+aggregation and version-evidence freshness; when it cannot establish a current
+complete inventory, the House does not guess from cached content.
+
+The transitional `PlatformResolver.LookupType` behavior is supporting evidence:
+it already chooses the greatest installed runtime reference-pack version and
+does not query the network when that catalog exists. The named default
+deliberately adds the `10.0.1` floor, cross-feature-band typed target selection,
+and package-backed stable fallback rather than wrapping its path-based result.
+
+Preferred `Unavailable(Absent)` or authoritative completed discovery with no
+eligible candidate permits the fallback stage. Non-authoritative
+`Unavailable(Unavailable)`, rejected, incomplete, or failed preferred evidence
+does not prove absence and is terminal; cancellation remains cancellation.
+Fallback partial or failed version discovery likewise cannot select from a
+shortened inventory. These rules keep network access capability-gated and
+prevent a source failure from becoming an apparently successful default.
+
+The request binds each discovery capability to exactly one stage. Stage
+membership is typed policy data, not inferred from capability names, source
+enumeration order, paths, or whether a capability happens to use the network.
+The same capability cannot occur in both stages. The source plan must authorize
+every staged capability and may not authorize an unstaged target-discovery
+capability for that demand.
+
+An exact demand such as `runtime@9.0.11` bypasses the host default, including
+its floor and fallback band. A framework-scoped demand applies its own explicit
+version requirement. Neither form silently widens into the versionless policy.
+
+Every completed default settlement retains the original demand, policy identity
+and generation, selected exact target, and every discovery contribution needed
+to justify preferred selection or fallback. Terminal outcomes retain bounded
+resource-free evidence under the same correspondence rules. No source
+operation, package candidate, payload, opener, callback, stream, or other live
+authority enters the settlement or receipt.
+
+Target settlement is an internal phase of the same closed House operation that
+performs realization. When the selected discovery source issued an exact
+source-specific candidate association needed for realization, the executor
+keeps that association ephemeral and passes it only to that source's
+realization adapter. Another authorized realization source receives the frozen
+external exact target under its own contract. The association never enters the
+House value, receipt, contribution, cache, or a separately returned
+target-selection result.
+
+The target-selection reducer consumes source results; it does not define their
+inventories. Cross-feature-band installed discovery remains owned by
+[Installed reference-pack realization](installed-reference-pack-realization.md),
+and complete package-version discovery remains owned by
+[Package-backed Platform realization](package-backed-platform-realization.md).
+Those focused successors decide how their source contracts produce the exact
+candidates required here.
+
+The five-slice production path in #7742 is: lock this contract, add installed
+cross-feature-band discovery, adapt package-backed stable fallback, implement
+the source-neutral reducer, then adopt the same requests and outcomes in the
+CLI and Browser/Wasm before retiring direct router selection. Rendering is not
+part of target settlement; hosts project the retained typed evidence through
+their existing output boundaries.
 
 ### Closed operations
 
@@ -595,6 +701,19 @@ Settlement obeys these rules:
 - a reference assembly does not prove an implementation body;
 - equal names or versions do not merge different families, targets, sources,
   generations, or physical suppliers.
+
+For ordered Reference-source settlement, `Precedence` and `Fallback` differ
+only at source failure. Both may continue after an unavailable contribution.
+`Precedence` makes a failed higher-priority capability terminal; `Fallback`
+may retain that failure as `OutcomeRelevant` and select a later capability.
+Rejected or incomplete evidence is terminal in either mode. After selection,
+supplied later contributions are `Shadowed`.
+
+`Aggregation` requires one contribution from every authorized capability. One
+authoritative realization plus authoritative absence from every peer selects
+that realization. Multiple authoritative realizations are ambiguous, while
+missing or incomplete evidence cannot complete aggregation. A required source
+failure remains failed, and rejected owner evidence remains rejected.
 
 ASP.NET Core source realizations may retain a .NET runtime support closure.
 The source owner establishes that closure and its version behavior. The House
@@ -988,14 +1107,13 @@ rejection, or incomplete work retain their existing terminal meaning.
 
 ### Exact source-neutral binding execution
 
-The first executable assembly-reference boundary starts after one authorized
-Platform source has prepared an immutable reference snapshot for an explicit
-Metadata assembly-reference target. It accepts an exact-target
+The source-neutral binding kernel starts after source policy selects one
+authorized immutable reference snapshot for an explicit Metadata
+assembly-reference target. It accepts an exact-target
 `ResolveAssemblyReference` request with global binding origin, Reference view,
 one authoritative reference realization for that same request and identity,
-and finite work. Source discovery, target selection, source fallback or
-aggregation, and source-relative ladder continuation remain outside this
-boundary.
+and finite work. Source discovery, target selection, and source-relative
+ladder continuation remain outside this boundary.
 
 PlatformHouse owns the snapshot from acceptance onward. A completed operation
 has these ordered obligations:
@@ -1045,6 +1163,96 @@ gates terminal cancellation after owned cleanup in Release.
 gates Artifact publication cleanup failure as primary over cancellation in
 Release.
 
+### Multi-source assembly-reference policy execution
+
+The multi-source resolver accepts a finite set of source-prepared attempts for
+the exact Reference selection captured by the request. An attempt is ephemeral
+execution input, not House evidence. A successful attempt carries an
+owner-issued candidate identity and the existing materialization item,
+including its immutable opener. A terminal attempt carries only the exact
+resource-free source contribution and, for rejection, its mapped House
+classification. Attempts, openers, source diagnostics, and live source values
+never enter an outcome or receipt.
+
+The resolver indexes attempts by capability identity, rejects duplicate
+capabilities or candidate identities, and traverses the source plan's
+capability order rather than caller enumeration order. Missing required
+attempts remain incomplete. An in-budget ledger records at least one source
+operation for every supplied attempt, while assembly and byte work apply to
+successful materializations. Exhausted work with an under-reported ledger
+closes as `Incomplete` without retaining source settlements that ledger cannot
+support. The policy modes execute as follows:
+
+- `Precedence` selects the first authoritative realization after unavailable
+  predecessors. A higher-priority failure is terminal.
+- `Fallback` also selects the first authoritative realization, but may
+  continue after an unavailable or failed predecessor. Every predecessor that
+  permits continuation remains `OutcomeRelevant`.
+- `Aggregation` requires every capability. Exactly one realization plus
+  authoritative absence from every peer selects; multiple realizations return
+  owner-identity ambiguity without opening either item; zero realizations
+  returns unavailable only after every supplied capability settles without a
+  stronger terminal result.
+
+Rejected or incomplete ordered evidence prevents later selection. Supplied
+evidence after an ordered terminal or selected attempt is `Shadowed`.
+Aggregation evidence is `OutcomeRelevant`; a selected aggregate realization
+is `Selected`. Once policy selects a realization, the shared binding kernel
+owns publication, Metadata projection, Library borrowing, cleanup, and final
+receipt construction unchanged.
+
+Terminal precedence is:
+
+1. observe cancellation before and throughout attempt acceptance, including
+   once after enumeration completes;
+2. validate the request before enumerating attempts, using `Incomplete`
+   without settlement when work is already exhausted and `Rejected` otherwise;
+3. validate attempt correspondence under the same exhausted-work precedence
+   without retaining foreign evidence;
+4. select the source-policy decision;
+5. reject an in-budget consumed-work ledger that cannot cover the supplied
+   attempts;
+6. preserve a corresponding policy-terminal source failure as
+   `Failed(Source)` when the ledger covers the supplied attempts;
+7. otherwise make exhausted work `Incomplete`, retaining policy evidence only
+   when the ledger covers it;
+8. make required missing/incomplete evidence `Incomplete`; and
+9. apply the remaining selection, ambiguity, rejection, or unavailability
+   decision.
+
+No terminal, shadowed, or ambiguous path opens source content.
+
+`PlatformAssemblyReferenceResolverTests.ResolveAsync_FallbackUsesPlanOrderAndRetainsPriorAbsence`
+gates plan-order execution independent of input enumeration.
+`ResolveAsync_PrecedenceFailureStopsBeforeLaterSuccess`,
+`ResolveAsync_FallbackSupersedesPriorFailure`, and
+`ResolveAsync_FallbackTerminalPreventsLaterSelection` gate the ordered-mode
+distinctions.
+`ResolveAsync_AggregationSelectsAfterAuthoritativePeerAbsence`,
+`ResolveAsync_AggregationAmbiguityOpensNoSourceContent`, and
+`ResolveAsync_AggregationRetainsPeerTerminalOutcome` gate aggregate
+settlement. `ResolveAsync_AggregationFailurePrecedesPeerTerminal` and
+`ResolveAsync_AggregationFailurePrecedesMissingCapability` gate source-failure
+precedence over weaker aggregate terminals.
+`ResolveAsync_MissingCapabilityIsIncompleteWithoutOpeningSuccess`,
+`ResolveAsync_RejectsDuplicateCapabilityAttemptsWithoutOpening`, and
+`ResolveAsync_RejectsDuplicateCandidateIdentityWithoutOpening` gate complete
+and unique attempt correspondence.
+`ResolveAsync_RejectsForeignAttemptBeforeSourceAccess` and
+`ResolveAsync_BudgetExhaustionPrecedesForeignAttempt` gate foreign-evidence
+and finite-work precedence.
+`ResolveAsync_RejectsUnderreportedTerminalSourceWork` gates consumed-work
+coverage for failure and shadowed attempts.
+`ResolveAsync_InvalidRequestDoesNotEnumerateAttempts` gates request rejection
+before attempt production.
+`ResolveAsync_ObservesCancellationDuringAttemptEnumeration` gates typed
+cancellation from a lazy attempt producer before policy settlement.
+`ResolveAsync_ExhaustedInvalidRequestIsIncompleteWithoutEnumeration` and
+`ResolveAsync_ExhaustedUnderreportedWorkIsIncompleteWithoutSettlement` gate
+receipt-compatible exhausted-work closure without unsupported settlement.
+`ResolveAsync_ExhaustedUnderreportedFailureIsIncompleteWithoutSettlement`
+gates the same closure when policy also observes source failure.
+
 ### Installed successful-result binding adoption
 
 The installed adapter admits the exact one-assembly Reference population
@@ -1062,8 +1270,8 @@ Metadata projection, terminal precedence, cleanup, or receipt construction.
 The returned decision therefore remains detached terminal data: the shared
 executor settles the exact installed contribution once and retires every
 temporary Library and Artifact authority before publication. Installed
-source-terminal orchestration, source fallback, source-relative lineage, and
-ladder or host composition remain later owner-adoption slices.
+source-specific invocation orchestration, source-relative lineage, and ladder
+or host composition remain later owner-adoption slices.
 
 `InstalledPlatformHouseAdapterTests.RealizeReference_BindingProducesExactAssemblyContribution`
 gates the authoritative one-assembly installed contribution in Release.
@@ -1098,8 +1306,8 @@ Metadata projection, terminal precedence, cleanup, or receipt construction.
 The returned decision therefore remains detached terminal data: the shared
 executor settles the exact package contribution once and retires every
 temporary Library and Artifact authority before publication. Package
-source-terminal orchestration, fallback or aggregation, source-relative
-lineage, and ladder or host composition remain later owner-adoption slices.
+source-specific invocation orchestration, source-relative lineage, and ladder
+or host composition remain later owner-adoption slices.
 
 `PackagePlatformAssemblyReferenceResolverTests.AdapterProducesExactBindingContributionAfterPackageSettlement`
 gates the authoritative one-assembly package contribution after Package Source
@@ -1138,9 +1346,12 @@ mismatched-target, successful, or otherwise unusable contributions produce
 `Rejected(InvalidOwnerResult)` with no source settlement. Cancellation remains
 `OperationCanceledException`.
 
-This is single-source terminal projection, not source selection. It does not
-add installed projection, target discovery, precedence, fallback, aggregation,
-source-relative lineage, ladder composition, or host adoption.
+The direct projection remains a single-source terminal operation. The package
+bridge also prepares the same terminal result as a common ephemeral attempt
+for the source-neutral policy executor while retaining its diagnostic on the
+caller-owned package result. The bridge itself does not select sources. Target
+discovery, source-relative lineage, ladder composition, and host adoption
+remain later work.
 
 `PackagePlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsPackageSourceTerminalOutcomes`
 gates the four package terminal arms, exact outcome-relevant settlement, source
@@ -1173,9 +1384,11 @@ source-owned layout, member, assembly, or other evidence as
 `InvalidOwnerResult`. The installed diagnostic remains on the caller-owned
 adapter result beside the host-neutral House outcome.
 
-This closes the installed single-source terminal algebra. It does not add
-target discovery, source precedence, fallback, aggregation, source-relative
-lineage, ladder composition, or host adoption.
+This closes the installed single-source terminal algebra. The installed bridge
+also prepares success or terminal results as common ephemeral attempts without
+moving its diagnostic into House evidence. Target discovery, source-specific
+invocation orchestration, source-relative lineage, ladder composition, and
+host adoption remain later work.
 
 `InstalledPlatformAssemblyReferenceResolverTests.ResolveAsync_ProjectsInstalledSourceTerminalOutcomes`
 gates the four installed terminal arms, exact outcome-relevant settlement,
@@ -1850,22 +2063,30 @@ completed
   package receipt remains associated but separate
 ```
 
-### Direct platform realization constructs the shared Library
+### Versionless routing selects an exact target before realization
 
 ```text
 request
   target demand:
     family: DotNetRuntime
-    framework: net11.0
-    version policy: highest authorized installed stable in the net11.0 band
+    policy: versionless runtime default
+    minimum preferred version: 10.0.1
+    fallback band: stable net10.0 servicing
   operation: realize
   library: owner-issued System.Text.Json assembly identity
   demand: reference + implementation
-  sources: host-authorized platform plan
+  discovery:
+    preferred: installed Platform
+    fallback: authorized package-backed Platform
 
 House composition
-  version selection:
-    exact target: DotNetRuntime / net11.0 / 11.0.3
+  installed target discovery:
+    9.0.11
+    10.0.0
+    11.0.0-rc.1
+  selection:
+    exact target: DotNetRuntime / net11.0 / 11.0.0-rc.1
+    package discovery: not invoked
     owner-issued candidate and policy evidence retained
   realizes reference and implementation contributions
   verifies view correspondence
@@ -1885,8 +2106,15 @@ completed
 ```
 
 What to notice: the owner and the receipt answer different questions. The
-caller-owned `LibraryContentOwner` keeps the selected Platform contents alive
-and can issue later operation authority. The `LibraryReference`, content
+versionless input does not erase version identity: the policy first selects
+the exact `net11.0` release-candidate target and the owning realization then
+reports it. If the installed inventory instead ended at `10.0.0`, preferred
+discovery would authoritatively establish no eligible target; only then would
+the package-backed stage discover the current stable `10.0.x` inventory and
+select its highest servicing target.
+
+The caller-owned `LibraryContentOwner` keeps the selected Platform contents
+alive and can issue later operation authority. The `LibraryReference`, content
 references, and House receipt explain exactly which Platform target, source,
 and views were selected without keeping those contents alive. A NuGet
 `System.Text.Json` assembly with equal Metadata identity has a different exact
@@ -1938,7 +2166,11 @@ The implementation and adoption slices own these Release gates:
 
 | Property | Required gate |
 | --- | --- |
-| Target settlement | An exact demand is retained unchanged; a selecting demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
+| Target settlement | An exact demand is retained unchanged; a framework-scoped or family-default demand freezes one owner-issued exact `PlatformFamilyTarget` before acquisition, and every outcome retains the demand and selection evidence. |
+| Versionless installed default | Installed `9.0.11`, `10.0.0`, and `11.0.0-rc.1` candidates under the named policy select exact `DotNetRuntime / net11.0 / 11.0.0-rc.1`; package discovery is never invoked, and the receipt retains the floor, policy generation, selected target, and preferred discovery evidence. |
+| Versionless stable fallback | Preferred discovery containing only versions below `10.0.1` permits one authorized fallback discovery; a complete inventory containing stable `10.0.1` and `10.0.12` plus a later `10.0` preview selects exact stable `10.0.12` and retains both stages' outcome-relevant evidence. |
+| Versionless failure visibility | Non-authoritative `Unavailable(Unavailable)`, rejected, incomplete, or failed preferred discovery invokes no fallback and remains visibly terminal; only typed `Unavailable(Absent)` or a completed inventory with no eligible candidate proves preferred absence, and partial or failed fallback discovery cannot select from its observed prefix. |
+| Exact-version independence | Exact `runtime@9.0.11` remains exact and bypasses the versionless floor, preferred stage, and stable fallback. |
 | Workspace population correspondence | The operation association retains the owner-issued Workspace revision identity and ecosystem registration; the House request and receipt retain that identity, `PlatformLibraryPopulationDeclaration`, family-preserving target demand, and settled target. |
 | Workspace family mismatch | An `AspNetCore` population declaration paired with a `DotNetRuntime` target demand rejects before target or source work, remains associated with the selected registration, triggers no retry or relabeling, and prevents complete population coverage. |
 | Curated realization | Selecting the current three curated ecosystem registrations issues independent `DotNetRuntime` and `AspNetCore` House requests plus the two authored package-prefix paths; registration alone performs no source work. |

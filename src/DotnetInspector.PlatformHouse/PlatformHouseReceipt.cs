@@ -1158,20 +1158,24 @@ public sealed class PlatformHouseReceipt
             if (prior.Length != 1
                 || prior[0].Disposition
                     != PlatformSourceSettlementDisposition.OutcomeRelevant
-                || !IsPriorNonMatch(facet, prior[0].Contribution))
+                || !IsPriorNonMatch(
+                    facet,
+                    selection.Mode,
+                    prior[0].Contribution))
             {
                 throw new ArgumentException(
-                    $"Selecting a later {facet} capability requires retained unavailable or failed evidence for every earlier capability.",
+                    $"Selecting a later {facet} capability requires retained evidence permitted by the {selection.Mode} policy for every earlier capability.",
                     parameterName);
             }
         }
 
         static bool IsPriorNonMatch(
             PlatformSourceFacet facet,
+            PlatformSourceSelectionMode mode,
             PlatformSourceContribution contribution) =>
-            contribution.Kind
-                is PlatformSourceContributionKind.Unavailable
-                    or PlatformSourceContributionKind.Failed
+            contribution.Kind == PlatformSourceContributionKind.Unavailable
+            || mode == PlatformSourceSelectionMode.Fallback
+                && contribution.Kind == PlatformSourceContributionKind.Failed
             || facet == PlatformSourceFacet.TargetDiscovery
                 && contribution.Kind
                     == PlatformSourceContributionKind.TargetDiscovery

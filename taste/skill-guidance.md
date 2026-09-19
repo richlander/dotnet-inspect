@@ -27,7 +27,7 @@ invocation still happens to work.
 ## Good
 
 ```md
-For full public signature or overload inventories, start with `type Type --package Foo --shape`; it gives the clean declaration shape with parameter names, nullable annotations, defaults, and generic parameters.
+For full public signature or overload inventories, start with `type Type --package Foo --tree`; it gives the clean declaration tree with parameter names, nullable annotations, defaults, and generic parameters.
 ```
 
 Why it works:

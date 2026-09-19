@@ -602,6 +602,31 @@ uses that established structural boundary but deliberately reports evidence
 rather than a diagnostic: it does not apply source-level completion guards,
 async-context policy, or code-fix advice.
 
+Annotated Source can also expose the complementary asynchronous structure for a
+successfully reconstructed classic await. The Decompiler, not Analysis, owns
+this evidence because
+[the classic async inverse](classic-async-reconstruction.md) already requires a
+closed proof that the exact `IsCompleted` test has an inline edge to the matching
+`GetResult`, a suspension-registration edge, and a correlated resume edge to the
+same continuation before it may mark the reconstructed `AwaitExpression`.
+Re-running a second, weaker recognizer over Analysis IL would duplicate that
+proof and could disagree with the source reconstruction the viewer actually
+displays. Method-level async classification is likewise too coarse because one
+rendered body can contain other await syntax that does not carry this proof.
+Research therefore emits one typed sidecar row only for each exact printed
+`AwaitExpression` retaining the classic inverse's completion-path marker.
+If marked and unmarked contributors collapse to one rendered node, projection
+fails closed and emits no row for that node.
+Browser validation requires every row to name an existing C#
+`AwaitExpression` node and rejects duplicates; no identity is recovered from
+method classification or source text. Selecting the await explains the
+inline-completion and suspension/resume paths and states
+that this is compiled structure only. It does not claim which path ran,
+successful completion, path frequency or duration, scheduler or thread
+selection, `ExecutionContext` behavior, or allocation behavior. Runtime-async,
+async iterators, and declined classic lowerings fail closed with no observation.
+The sidecar remains outside default annotations and adds no source Finding.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -618,7 +643,10 @@ table, or reuse the separately requested full member Call Graph surface.
 framework identity, physical `call.edge` join, Browser/Wasm transport, and
 non-default detail. Compiler-generated async-body calls remain outside this
 declared-body source correspondence; their absence is not presented as a clean
-result.
+result. `MemberProjection_ProjectsClassicAwaitCompletionPaths` and
+`MemberFindingCensus_ProjectsClassicAwaitCompletionPaths` gate the authenticated
+classic kickoff, exact Decompiler-issued await-node binding, Browser/Wasm
+transport, and bounded no-runtime-claim presentation.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

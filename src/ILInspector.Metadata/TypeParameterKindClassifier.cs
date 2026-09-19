@@ -519,6 +519,10 @@ internal static class TypeParameterKindClassifier
                 TypeResolutionFailure.DeclarationRejected rejected =>
                     "A generic-constraint dependency declaration could not "
                         + $"be decoded: {rejected.Rejection.Detail}",
+                TypeResolutionFailure.DeclarationBudgetExceeded budget =>
+                    "A generic-constraint dependency declaration exceeded "
+                        + $"its work budget of {budget.Budget}: "
+                        + budget.Detail,
                 TypeResolutionFailure.DiscoveryBudgetExceeded budget =>
                     "Type-resolution dependency discovery exceeded "
                         + $"the configured candidate budget of {budget.Budget}.",

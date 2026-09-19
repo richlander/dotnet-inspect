@@ -354,18 +354,21 @@ public sealed class AwaitExpression : IrExpression
         IrExpression operand,
         TypeRef? resultType,
         MetadataFactState resultIsDynamic = MetadataFactState.Unknown,
-        ImmutableArray<MethodRef> consumedMemberRefs = default)
+        ImmutableArray<MethodRef> consumedMemberRefs = default,
+        bool provesClassicCompletionPaths = false)
     {
         AddChild(operand);
         ResultType = resultType;
         ResultIsDynamic = resultIsDynamic;
         ConsumedMemberRefs = consumedMemberRefs.IsDefault ? [] : consumedMemberRefs;
+        ProvesClassicCompletionPaths = provesClassicCompletionPaths;
     }
 
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType { get; }
     public MetadataFactState ResultIsDynamic { get; }
     public ImmutableArray<MethodRef> ConsumedMemberRefs { get; }
+    public bool ProvesClassicCompletionPaths { get; }
 
     public override string Describe() => "AwaitExpression";
 }
