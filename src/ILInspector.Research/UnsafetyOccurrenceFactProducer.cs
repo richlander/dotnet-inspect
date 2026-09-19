@@ -21,9 +21,12 @@ sealed class UnsafetyOccurrenceFactProducer : IResearchFactProducer
     public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
         var function = context.Imported;
-        if (context.Assembly is not { } assembly || function.MetadataToken == 0)
+        if (context.Analysis is not { } analysis
+            || function.MetadataToken == 0)
             return [];
-        if (!assembly.Index.GetUnsafetyOccurrences().TryGetValue(function.MetadataToken, out var occurrences)
+        if (!analysis.Safety.Occurrences.TryGetValue(
+                function.MetadataToken,
+                out var occurrences)
             || occurrences.IsEmpty)
             return [];
         var subject = ResearchMemberIdentity.SubjectFromMethod(occurrences[0].Method);

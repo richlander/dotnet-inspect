@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
@@ -78,6 +79,7 @@ public enum RequiresUnsafeAttributeEvidenceState
     Unavailable,
 }
 
+[JsonConverter(typeof(RequiresUnsafeAttributeEvidence.Converter))]
 public readonly record struct RequiresUnsafeAttributeEvidence(
     RequiresUnsafeAttributeEvidenceState State,
     int ValidRowCount,
@@ -93,6 +95,113 @@ public readonly record struct RequiresUnsafeAttributeEvidence(
 
     public static RequiresUnsafeAttributeEvidence Unavailable =>
         new(RequiresUnsafeAttributeEvidenceState.Unavailable, 0, false);
+
+    public sealed class Converter
+        : JsonConverter<RequiresUnsafeAttributeEvidence>
+    {
+        public override RequiresUnsafeAttributeEvidence Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                throw new JsonException(
+                    "Requires-unsafe attribute evidence must be an object.");
+            }
+
+            var state = default(RequiresUnsafeAttributeEvidenceState);
+            int validRowCount = 0;
+            bool hasMalformedRow = false;
+            string stateName = JsonName(options, nameof(State));
+            string countName = JsonName(options, nameof(ValidRowCount));
+            string malformedName = JsonName(options, nameof(HasMalformedRow));
+
+            while (reader.Read()
+                && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName)
+                    throw new JsonException("Expected a property name.");
+
+                string? propertyName = reader.GetString();
+                if (!reader.Read())
+                {
+                    throw new JsonException(
+                        "Incomplete requires-unsafe attribute evidence value.");
+                }
+
+                if (string.Equals(
+                    propertyName,
+                    stateName,
+                    StringComparison.Ordinal))
+                {
+                    state = (RequiresUnsafeAttributeEvidenceState)
+                        reader.GetInt32();
+                }
+                else if (string.Equals(
+                    propertyName,
+                    countName,
+                    StringComparison.Ordinal))
+                {
+                    validRowCount = reader.GetInt32();
+                }
+                else if (string.Equals(
+                    propertyName,
+                    malformedName,
+                    StringComparison.Ordinal))
+                {
+                    hasMalformedRow = reader.GetBoolean();
+                }
+                else
+                {
+                    reader.Skip();
+                }
+            }
+
+            if (reader.TokenType != JsonTokenType.EndObject)
+            {
+                throw new JsonException(
+                    "Incomplete requires-unsafe attribute evidence object.");
+            }
+
+            return new(state, validRowCount, hasMalformedRow);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            RequiresUnsafeAttributeEvidence value,
+            JsonSerializerOptions options)
+        {
+            bool omitDefaults =
+                options.DefaultIgnoreCondition
+                    == JsonIgnoreCondition.WhenWritingDefault;
+            writer.WriteStartObject();
+            if (!omitDefaults || value.State != default)
+            {
+                writer.WriteNumber(
+                    JsonName(options, nameof(State)),
+                    (int)value.State);
+            }
+            if (!omitDefaults || value.ValidRowCount != default)
+            {
+                writer.WriteNumber(
+                    JsonName(options, nameof(ValidRowCount)),
+                    value.ValidRowCount);
+            }
+            if (!omitDefaults || value.HasMalformedRow)
+            {
+                writer.WriteBoolean(
+                    JsonName(options, nameof(HasMalformedRow)),
+                    value.HasMalformedRow);
+            }
+            writer.WriteEndObject();
+        }
+
+        static string JsonName(
+            JsonSerializerOptions options,
+            string name)
+            => options.PropertyNamingPolicy?.ConvertName(name) ?? name;
+    }
 }
 
 public sealed record MemorySafetyMemberContractEvidence(
