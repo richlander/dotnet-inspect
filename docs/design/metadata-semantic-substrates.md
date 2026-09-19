@@ -244,6 +244,20 @@ resolved-identity, external-dependency, and ordinary-kind controls are gated by
 `DeclarationIndexReusesAssemblyReferenceProjection`, and
 `Probe_MaterializesDefinitionKindAndCoreLibraryRoot`.
 
+Member unsafe-contract derivation publishes
+`MemorySafetyMemberContractFailureKind.BudgetExceeded` when a module-rule scan,
+accessor-association scan, or direct or associated `RequiresUnsafeAttribute`
+scan stops at an operation-imposed row or name-work bound. Malformed module or
+association metadata remains `MetadataUnavailable`; unreadable attribute
+metadata remains `AttributeUnavailable`; decoded invalid marker rows remain
+`MalformedRequiresUnsafeAttribute`. The module, association, direct-attribute,
+and associated-attribute budget distinctions are gated by
+`ModuleMarkerScanBudgetFailureIsTyped`,
+`AccessorAssociationBudgetFailureIsTyped`,
+`DirectAttributeRowBudgetFailureIsTyped`, and
+`AssociatedAttributeRowBudgetFailureIsTyped`, with member attribute name-work
+exhaustion gated by `DirectAttributeNameWorkBudgetFailureIsTyped`.
+
 Caching belongs to the consumer. A consumer may create a substrate per
 operation or retain one for a reader's lifetime. The substrate introduces no
 shared registry or process-wide state spanning readers.
@@ -285,7 +299,7 @@ registration row, registry service, naming convention, or maintained census.
 
 | Gap | Tracker | Relation to this contract |
 | --- | --- | --- |
-| Reachable outcome distinctions remain collapsed in member-contract and state-machine components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
+| Reachable outcome distinctions remain collapsed in state-machine relationships | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
 | Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |
 | A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
 | Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
