@@ -560,6 +560,19 @@ stable edge row, and occurrence-specific graph target. Browser validation
 requires exact coverage between those rows and the document's `call.edge`
 Findings; it never recovers identity from labels or source text.
 
+The Annotated Source modal consumes that sidecar as a **Relationships** edge
+table. It renders one row per physical call occurrence, so repeated source
+calls that share one stable logical edge remain separate rows. Each row exposes
+the typed call kind, loop state, stable edge row, the exact `call.edge`
+Finding opener, and explicitly named **Member** and **Source** actions over the
+typed target. Coordinate disclosure adds the method-relative IL offset. The
+table is independent of annotation membership: it is present whenever the
+relationship capability is available, while **All** remains the only way to
+draw relationship annotations at source locations. Available-empty means only
+that no direct relationships were projected for that exact body; unavailable
+retains its typed capability reason. The browser does not reacquire a graph,
+collapse physical occurrences, or reconstruct identity from presentation.
+
 The Finding-census operation can also request focus-cycle inspection. It keeps
 the complete depth-one focus neighborhood required by the relationship
 contract, enriches that root with a depth-three, 25-node same-assembly
@@ -659,7 +672,7 @@ Browser/Wasm transport alongside existing callee evidence.
 `MemberFindingCensus_ProjectsExactMutualCycleWitness` gate the cycle identity,
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
 This adoption does not yet transport ownership witnesses, add a relationship
-table, or reuse the separately requested full member Call Graph surface.
+diagram, or reuse the separately requested full member Call Graph surface.
 `MemberProjection_ProjectsSynchronousTaskCompletionOperations` and
 `MemberFindingCensus_ProjectsSynchronousTaskCompletionOperation` gate the
 framework identity, physical `call.edge` join, Browser/Wasm transport, and
