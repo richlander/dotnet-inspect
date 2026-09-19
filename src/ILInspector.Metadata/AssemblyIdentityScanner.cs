@@ -15,8 +15,8 @@ namespace ILInspector.Metadata;
 /// could have been the one that mattered.
 ///
 /// <see cref="AssemblyIdentityNames.HasAssemblyDefinition"/> distinguishes a metadata module from
-/// an assembly. Assemblies with an empty required name are rejected rather than represented as
-/// modules.
+/// an assembly. Images with an empty required Module or Assembly name are rejected rather than
+/// represented as valid modules.
 /// </summary>
 public sealed record AssemblyIdentityNames(
     string Name,
@@ -42,6 +42,14 @@ public static class AssemblyIdentityScanner
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+        string moduleName =
+            reader.GetString(reader.GetModuleDefinition().Name);
+        if (moduleName.Length == 0)
+        {
+            throw new BadImageFormatException(
+                "The Module definition has an empty required name.");
+        }
+
         bool hasAssemblyDefinition = reader.IsAssembly;
         string name = hasAssemblyDefinition
             ? reader.GetString(reader.GetAssemblyDefinition().Name)

@@ -2439,6 +2439,17 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_EmptyModuleDefinitionNameRemainsVisible()
+    {
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Module.dll",
+                    WithEmptyModuleDefinitionName(
+                        AssemblyReferenceModule()))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceBudgetsRejectBeforeExpansion()
     {
         byte[] caller = File.ReadAllBytes(
@@ -3507,6 +3518,20 @@ public sealed class PackageQueryTests
             + sizeof(uint)
             + (4 * sizeof(ushort))
             + sizeof(uint)
+            + sizeof(ushort);
+        malformed.AsSpan(nameOffset, sizeof(ushort)).Clear();
+        return malformed;
+    }
+
+    private static byte[] WithEmptyModuleDefinitionName(byte[] image)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        Assert.True(metadata.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int nameOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetTableMetadataOffset(TableIndex.Module)
             + sizeof(ushort);
         malformed.AsSpan(nameOffset, sizeof(ushort)).Clear();
         return malformed;
