@@ -792,11 +792,13 @@ public static partial class ApiSurfaceExtractor
         EntityHandle declaration,
         TypeNode declarationOwner,
         GenericContext bodyTypeContext,
-        Action<int>? beforeDecodeWork)
+        Action<int>? beforeDecodeWork,
+        bool forceStructuralComparison = false)
     {
         try
         {
-            if (declarationOwner is not GenericTypeNode)
+            if (!forceStructuralComparison
+                && declarationOwner is not GenericTypeNode)
             {
                 BlobHandle declarationSignatureBlob =
                     declaration.Kind switch
@@ -849,7 +851,7 @@ public static partial class ApiSurfaceExtractor
                             reader.GetMemberReference(
                                 (MemberReferenceHandle)declaration),
                             provider,
-                            bodyTypeContext,
+                            bodyContext,
                             (TypeNode)new DegradedTypeNode()),
                     _ => default,
                 };
@@ -1190,11 +1192,16 @@ public static partial class ApiSurfaceExtractor
             foreach (MethodDefinitionHandle candidate in candidates)
             {
                 beforeDecodeWork?.Invoke(4);
-                if (BlobContentsEqual(
+                MethodDefinition candidateMethod =
+                    reader.GetMethodDefinition(candidate);
+                if (MethodSignaturesCorrespond(
                         reader,
-                        reader.GetMethodDefinition(candidate).Signature,
-                        member.Signature,
-                        beforeDecodeWork))
+                        candidateMethod,
+                        implementation.MethodBody,
+                        bodyOwner.Type,
+                        typeContext,
+                        beforeDecodeWork,
+                        forceStructuralComparison: true))
                 {
                     Increment(counts, candidate);
                 }

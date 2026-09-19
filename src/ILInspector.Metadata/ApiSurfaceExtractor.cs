@@ -1017,6 +1017,11 @@ public static partial class ApiSurfaceExtractor
             var interfaces = typeDef.GetInterfaceImplementations();
             var implementedInterfaceNames =
                 new Dictionary<ExactTypeIdentity, string>();
+            var implementedInterfaceNameOwners =
+                new Dictionary<string, ExactTypeIdentity>(
+                    StringComparer.Ordinal);
+            var ambiguousImplementedInterfaceNames =
+                new HashSet<string>(StringComparer.Ordinal);
             if (interfaces.Count > 0)
             {
                 apiType.Interfaces = [];
@@ -1048,6 +1053,21 @@ public static partial class ApiSurfaceExtractor
                         implementedInterfaceNames.TryAdd(
                             interfaceEvidence.Identity,
                             ifaceName);
+                        if (implementedInterfaceNameOwners.TryGetValue(
+                                ifaceName,
+                                out ExactTypeIdentity existingIdentity)
+                            && existingIdentity
+                                != interfaceEvidence.Identity)
+                        {
+                            ambiguousImplementedInterfaceNames.Add(
+                                ifaceName);
+                        }
+                        else
+                        {
+                            implementedInterfaceNameOwners.TryAdd(
+                                ifaceName,
+                                interfaceEvidence.Identity);
+                        }
                     }
                     if (DecodeTypeDefinitionReference(
                             reader,
@@ -1149,6 +1169,8 @@ public static partial class ApiSurfaceExtractor
                     && implementedInterfaceNames.TryGetValue(
                         explicitInterface,
                         out string? interfaceName)
+                    && !ambiguousImplementedInterfaceNames.Contains(
+                        interfaceName)
                     && string.Equals(
                         methodName[..explicitSeparator],
                         interfaceName,

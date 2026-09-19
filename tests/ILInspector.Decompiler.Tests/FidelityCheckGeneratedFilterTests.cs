@@ -553,6 +553,34 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void SelectReturnToSenderTargets_RejectsAmbiguousInterfaceIdentityAndEquivalentMemberRefDuplicates()
+    {
+        string assemblyPath =
+            CreateMethodImplementationIdentityBoundaryFixture();
+        try
+        {
+            var selected = FidelityCheck.SelectReturnToSenderTargets(
+                [assemblyPath],
+                cap: int.MaxValue);
+
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "QualifierCollisionFixture"
+                    && target.Method == "N.IContract.Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
+                    target.Type == "EquivalentMemberRefDuplicateFixture"
+                    && target.Method == "IContract.Run");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void SelectReturnToSenderTargets_RejectsMalformedExplicitFinalizerBeforeSampling()
     {
         string assemblyPath = CreateExplicitFinalizerFixture();
@@ -4192,6 +4220,217 @@ public class FidelityCheckGeneratedFilterTests
 
         fixtureType.CreateType();
         assembly.Save(path);
+        return path;
+    }
+
+    static string CreateMethodImplementationIdentityBoundaryFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            "MethodImplementationIdentityBoundary.dll");
+
+        var metadata = new MetadataBuilder();
+        ModuleDefinitionHandle module = metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                "MethodImplementationIdentityBoundary.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                "MethodImplementationIdentityBoundary"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle coreLib =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x7c, 0xec, 0x85, 0xd7,
+                        0xbe, 0xa7, 0x79, 0x8e,
+                    }),
+                flags: default,
+                hashValue: default);
+        AssemblyReferenceHandle contractA =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("ContractA"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        AssemblyReferenceHandle contractB =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("ContractB"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle objectRef = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeReferenceHandle externalContractA =
+            metadata.AddTypeReference(
+                contractA,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("IContract"));
+        TypeReferenceHandle externalContractB =
+            metadata.AddTypeReference(
+                contractB,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("IContract"));
+        TypeReferenceHandle localPayloadReference =
+            metadata.AddTypeReference(
+                module,
+                default,
+                metadata.GetOrAddString("Payload"));
+        BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x20, 0x00, 0x01 });
+        BlobHandle typeDefinitionParameterSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x01, 0x01, 0x12, 0x0c });
+        BlobHandle typeReferenceParameterSignature =
+            metadata.GetOrAddBlob(
+                new byte[] { 0x20, 0x01, 0x01, 0x12, 0x11 });
+        MemberReferenceHandle externalDeclaration =
+            metadata.AddMemberReference(
+                externalContractA,
+                metadata.GetOrAddString("Run"),
+                instanceVoidSignature);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle collisionType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "QualifierCollisionFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Payload"),
+            objectRef,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle contractType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                default,
+                metadata.GetOrAddString("IContract"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(2));
+        TypeDefinitionHandle duplicateType =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(
+                    "EquivalentMemberRefDuplicateFixture"),
+                objectRef,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(3));
+        metadata.AddInterfaceImplementation(
+            collisionType,
+            externalContractA);
+        metadata.AddInterfaceImplementation(
+            collisionType,
+            externalContractB);
+        metadata.AddInterfaceImplementation(
+            duplicateType,
+            contractType);
+
+        var methodBodies = new BlobBuilder();
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(encoder, maxStack: 0);
+        const MethodAttributes explicitAttributes =
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig;
+        MethodDefinitionHandle collisionBody =
+            metadata.AddMethodDefinition(
+                explicitAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("N.IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle localDeclaration =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Run"),
+                typeDefinitionParameterSignature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle duplicateBody =
+            metadata.AddMethodDefinition(
+                explicitAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                typeDefinitionParameterSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle duplicateBodyReference =
+            metadata.AddMemberReference(
+                duplicateType,
+                metadata.GetOrAddString("IContract.Run"),
+                typeReferenceParameterSignature);
+        metadata.AddMethodImplementation(
+            collisionType,
+            collisionBody,
+            externalDeclaration);
+        metadata.AddMethodImplementation(
+            duplicateType,
+            duplicateBody,
+            localDeclaration);
+        metadata.AddMethodImplementation(
+            duplicateType,
+            duplicateBodyReference,
+            localDeclaration);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
         return path;
     }
 
