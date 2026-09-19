@@ -4,6 +4,7 @@ import {
   inspectorTab,
   chooseInspector,
   chooseSubject,
+  selectLibrary,
   expectCurrentSubjectVisible,
   core,
   other,
@@ -22,13 +23,13 @@ for (const preferred of [other, empty]) {
       await installFacades(page, { ...surface, defaultAssemblyId: preferred.id });
       await page.goto(root.replace("#pkg", ""));
       await expect(subjectTab(page, "library")).toHaveAttribute("aria-selected", "true");
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
       await page.reload();
-      await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+      await expect(page.locator(".library-overview-surface h1")).toHaveText("All libraries");
       if (width === 480) {
-        await page.getByRole("button", { name: "Types", exact: true }).click();
+        await page.getByRole("button", { name: "Libraries", exact: true }).click();
       }
-      await page.locator("[data-type-nav-back]").click();
+      await chooseSubject(page, "package", "Package");
       await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
       await page.reload();
       await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
@@ -50,8 +51,14 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
     await page.goto(root.replace("#pkg", ""));
     await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
-    await expect(page.locator(".library-list")).toContainText("No managed libraries");
+    await expect(page.locator(".package-overview-surface [data-lib-scope]"))
+      .toHaveCount(0);
     await expect(page.locator(".query-notice-text")).toContainText(status);
+    await page.locator(".package-overview-surface").focus();
+    await page.keyboard.press("Enter");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
+    await expect(subjectTab(page, "library")).toHaveCount(0);
     await page.reload();
     await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
   });
@@ -60,12 +67,11 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
 for (const incomingPackage of [surface.package, "Second.Package"]) {
   for (const destination of ["default", "Package", "Metadata"]) {
     test(`legacy history restores ${destination} in ${incomingPackage}`, async ({ page }) => {
-      const preferred = incomingPackage === surface.package ? other : empty;
       await installFacades(page, { ...surface, defaultAssemblyId: other.id }, [
         { ...surface, package: "Second.Package", defaultAssemblyId: empty.id },
       ]);
       await page.goto(root);
-      await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+      await selectLibrary(page, core.id);
       await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
 
       const target = `/?package=${incomingPackage}&version=1.0.0&framework=net10.0`
@@ -82,9 +88,11 @@ for (const incomingPackage of [surface.package, "Second.Package"]) {
       } else if (destination === "Metadata") {
         await expect(inspectorTab(page, "data-library-lens", "metadata"))
           .toHaveAttribute("aria-selected", "true");
-        await expect(page.locator("html")).toHaveAttribute("data-metadata-request", preferred.id);
+        await expect(page.locator("#inspector-panel"))
+          .toContainText("Metadata requires one Library");
       } else {
-        await expect(page.locator(".library-overview-surface h1")).toHaveText(preferred.name);
+        await expect(page.locator(".library-overview-surface h1"))
+          .toHaveText("All libraries");
       }
       await page.goBack();
       await expect(page.locator(".library-overview-surface h1")).toHaveText(core.name);
@@ -102,8 +110,9 @@ test("Package comparison targets survive Library, Type, and Member navigation", 
   await page.locator("#package-diff-target").selectOption("exact:1.0.0");
   await expect(page.locator("#package-diff-target")).toBeFocused();
   await page.locator("#package-clone-target").selectOption("package:0");
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   await expect(page.locator("#package-comparison-targets")).toHaveCount(0);
+  await chooseSubject(page, "type", "Type");
   await page.locator("#type-list [data-type]").click();
   await chooseSubject(page, "member", "Member");
   await expect(subjectTab(page, "member")).toHaveAttribute("aria-selected", "true");
@@ -133,7 +142,7 @@ for (const initialWidth of [1440, 390]) {
     await installFacades(page);
     await page.goto(root);
     await expectCurrentSubjectVisible(page, "package", "Package");
-    await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+    await selectLibrary(page, core.id);
     const libraryTab = subjectTab(page, "library");
     await expect(libraryTab).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("#inspector-panel h1")).toHaveText(core.name);
@@ -171,7 +180,7 @@ test("active subject continuity retains explicit browsing until the subject chan
   await page.setViewportSize({ width: 390, height: 844 });
   await installFacades(page);
   await page.goto(root);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   const libraryTab = subjectTab(page, "library");
   const packageTab = subjectTab(page, "package");
   const trigger = page.locator("[data-navigation-trigger='subject']");
@@ -199,17 +208,22 @@ test("active subject continuity retains explicit browsing until the subject chan
   await expectCurrentSubjectVisible(page, "library", "Library");
 
   await chooseSubject(page, "package", "Package");
-  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await selectLibrary(page, other.id);
   await expect(libraryTab).toHaveAttribute("aria-selected", "true");
   await expectCurrentSubjectVisible(page, "library", "Library");
-  await expect(page.locator("#inspector-panel h1")).toHaveText(other.name);
+  await expect(inspectorTab(page, "data-library-lens", "references"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel"))
+    .toContainText("Example.Other.Dependency");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-reference-request", other.id);
 });
 
 test("active subject continuity preserves focus without making a manual window", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 844 });
   await installFacades(page);
   await page.goto(root);
-  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await selectLibrary(page, core.id);
   const libraryTab = subjectTab(page, "library");
   const packageTab = subjectTab(page, "package");
   const typeTab = subjectTab(page, "type");

@@ -69,6 +69,21 @@ async function chooseSubject(page: Page, subject: string, label: string) {
   await expectCurrentSubjectVisible(page, subject, label);
 }
 
+async function selectLibrary(page: Page, libraryId: string) {
+  if (await subjectTab(page, "library").getAttribute("aria-selected") !== "true")
+    await chooseSubject(page, "library", "Library");
+  const row = page.locator(
+    `.library-subject-list [data-library-subject="${libraryId}"]`);
+  const navigationToggle = page.getByRole(
+    "button",
+    { name: "Libraries", exact: true });
+  await expect.poll(async () =>
+    await row.isVisible() || await navigationToggle.isVisible()).toBe(true);
+  if (!await row.isVisible()) await navigationToggle.click();
+  await row.click();
+  await expect(row).toHaveAttribute("aria-selected", "true");
+}
+
 async function expectCurrentSubjectVisible(
   page: Page,
   subject: string,
@@ -1123,6 +1138,7 @@ export {
   inspectorTab,
   chooseInspector,
   chooseSubject,
+  selectLibrary,
   expectCurrentSubjectVisible,
   library,
   run,
