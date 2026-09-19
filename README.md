@@ -528,6 +528,29 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
+Use `dependencies=cross-prefix` to find packages with a direct dependency from a
+different first dot-delimited package-ID segment. It uses the same
+`dependency-target` scope and remains nuspec-only:
+
+```bash
+dotnet-inspect package query 'Azure.*' \
+  --where "dependencies=cross-prefix"
+```
+
+Use `references=<simple-assembly-name>` to find packages whose managed `ref/`
+or `lib/` assemblies declare that `AssemblyRef` across any target-framework
+group:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
+```
+
+This package-content term matches simple names case-insensitively and reports
+the matching framework and archive path. It does not resolve or traverse the
+reference.
+
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
 without reading a license document: SPDX expressions match their exact
@@ -564,9 +587,11 @@ content is an explicit package projection and never informs license identity.
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and semantic answers. Structured evidence remains
 available in unprojected JSON and the inspection envelope. The initial CLI
-vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, skill packages, and nuspec license
-identity. Discover the admitted keys and values before constructing a query:
+vocabulary covers package metadata, direct dependencies, cross-prefix and
+ecosystem dependency classification, downloads, README presence, .NET tools
+and their CLI v1/v2 format, assembly references, skill packages, and nuspec
+license identity. Discover the admitted keys and values before constructing a
+query:
 
 ```bash
 dotnet-inspect package query -Q Packages
