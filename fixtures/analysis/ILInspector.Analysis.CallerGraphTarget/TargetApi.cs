@@ -185,7 +185,19 @@ namespace Target
             Forward(value);
         }
 
+        public static void EntryAlternatives(string value)
+        {
+            ForwardA(value);
+            ForwardB(value);
+        }
+
         static void Forward(string value) =>
+            Throw(value);
+
+        static void ForwardA(string value) =>
+            Throw(value);
+
+        static void ForwardB(string value) =>
             Throw(value);
 
         static void Throw(string value)

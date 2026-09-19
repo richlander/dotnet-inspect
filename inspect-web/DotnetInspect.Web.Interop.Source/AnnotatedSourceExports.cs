@@ -401,7 +401,7 @@ public static partial class SourceExports
                         projectedLocalThrowPaths.Receipt.SearchedEdges,
                         projectedLocalThrowPaths.Receipt
                             .ObservedReachablePairs,
-                        projectedLocalThrowPaths.Paths.Count),
+                        projectedLocalThrowPaths.Receipt.ReturnedPaths),
                     [
                         .. projectedLocalThrowPaths.Paths.Select(path =>
                             new BrowserAnnotatedSourceLocalThrowPath(

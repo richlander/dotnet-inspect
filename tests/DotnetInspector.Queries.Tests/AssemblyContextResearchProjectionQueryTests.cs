@@ -1014,6 +1014,114 @@ public sealed class AssemblyContextResearchProjectionQueryTests
         Assert.DoesNotContain(
             path.Targets,
             target => target.Member.Name == "Entry");
+        Assert.Equal(1, inspection.Receipt.RequestedDestinations);
+        Assert.Equal(1, inspection.Receipt.ObservedReachablePairs);
+        Assert.Equal(1, inspection.Receipt.ReturnedPaths);
+    }
+
+    [Fact]
+    public async Task MemberProjection_RetainsOneEqualShortestWitnessWithoutPerEdgeAbsence()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        var targetParticipant = new AssemblyContextParticipant(
+            ResolvedAssembly(image, "local-throw-alternatives"),
+            policy);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([targetParticipant]);
+
+        AssemblyMemberProjection projection =
+            Assert.IsType<
+                    AssemblyContextEntry<AssemblyMemberProjection>
+                        .Available>(
+                AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                    group,
+                    targetParticipant,
+                    LocalThrowPathRequest(
+                        image,
+                        "EntryAlternatives")))
+                .Value;
+
+        AssemblyMemberLocalThrowPathInspection inspection =
+            Assert.IsType<AssemblyMemberLocalThrowPathInspection>(
+                projection.LocalThrowPaths);
+        AssemblyMemberLocalThrowPath path =
+            Assert.Single(inspection.Paths);
+        Assert.Equal(
+            ["ForwardA", "Throw"],
+            path.Targets.Select(target => target.Member.Name));
+        AssemblyMemberCallRelationshipOverlay relationships =
+            Assert.IsType<AssemblyMemberCallRelationshipOverlay>(
+                projection.CallRelationships);
+        int alternateFactId = Assert.Single(
+                relationships.Relationships,
+                relationship =>
+                    relationship.Target.Member.Name == "ForwardB")
+            .Occurrence.FactId;
+        Assert.DoesNotContain(
+            alternateFactId,
+            path.FactIds);
+        Assert.Equal(1, inspection.Receipt.RequestedDestinations);
+        Assert.Equal(1, inspection.Receipt.ObservedReachablePairs);
+        Assert.Equal(1, inspection.Receipt.ReturnedPaths);
+    }
+
+    [Fact]
+    public async Task MemberProjection_SkipsRootPathSearchWithoutThrowDestinations()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                File.ReadAllBytes(
+                    FixtureCatalog.AnalysisCallerGraphTarget
+                        .AssemblyPath()));
+        var policy = new RecordingBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        var targetParticipant = new AssemblyContextParticipant(
+            ResolvedAssembly(image, "local-throw-empty"),
+            policy);
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([targetParticipant]);
+
+        AssemblyMemberProjection projection =
+            Assert.IsType<
+                    AssemblyContextEntry<AssemblyMemberProjection>
+                        .Available>(
+                AssemblyContextMemberProjectionQuery.ExecuteParticipant(
+                    group,
+                    targetParticipant,
+                    new AssemblyContextMemberProjectionRequest(
+                        "Target.Api",
+                        "Forward",
+                        MethodToken: MethodToken(
+                            image,
+                            "Target",
+                            "Api",
+                            "Forward"),
+                        SourceDocument: true,
+                        FactRows: true,
+                        AnalysisFeatures:
+                            LibraryBodyAnalysisFeatures.Default
+                                | LibraryBodyAnalysisFeatures.LocalThrows,
+                        CallRelationships: true,
+                        LocalThrowPaths: true)))
+                .Value;
+
+        AssemblyMemberLocalThrowPathInspection inspection =
+            Assert.IsType<AssemblyMemberLocalThrowPathInspection>(
+                projection.LocalThrowPaths);
+        Assert.Empty(inspection.Paths);
+        Assert.Equal(1, inspection.Receipt.RequestedRoots);
+        Assert.Equal(0, inspection.Receipt.RequestedDestinations);
+        Assert.Equal(0, inspection.Receipt.DestinationSearches);
+        Assert.Equal(0, inspection.Receipt.SearchNodes);
+        Assert.Equal(0, inspection.Receipt.SearchedEdges);
+        Assert.Equal(0, inspection.Receipt.ObservedReachablePairs);
+        Assert.Equal(0, inspection.Receipt.ReturnedPaths);
     }
 
     [Fact]
@@ -1589,15 +1697,16 @@ public sealed class AssemblyContextResearchProjectionQueryTests
 
     static AssemblyContextMemberProjectionRequest
         LocalThrowPathRequest(
-            ImmutableArray<byte> image) =>
+            ImmutableArray<byte> image,
+            string member = "Entry") =>
         new(
             "Target.LocalThrowPathApi",
-            "Entry",
+            member,
             MethodToken: MethodToken(
                 image,
                 "Target",
                 "LocalThrowPathApi",
-                "Entry"),
+                member),
             SourceDocument: true,
             FactRows: true,
             AnalysisFeatures:

@@ -363,6 +363,12 @@ within the available bounds; only a complete bounded result may say none was
 observed within those bounds. Path labels and exception spelling are
 presentation, never identity.
 
+The path operation retains one deterministic shortest witness per
+root/destination pair, not one witness per possible first relationship. If
+another retained witness exists but none begins with the selected relationship,
+detail says only that no retained deterministic shortest witness begins there;
+it does not make a per-relationship absence claim.
+
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the

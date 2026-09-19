@@ -981,10 +981,13 @@ function renderLocalThrowPaths(
       .map(boundary => localThrowPathBoundaryLabel(boundary.kind))
       .join(", ")}`;
   if (paths.length === 0) {
+    const empty = inspection.paths.length === 0
+      ? "No bounded path to a proven local throw was observed in the retained evidence."
+      : "No retained deterministic shortest witness begins with this relationship.";
     return `
       <section class="annotated-local-throw-paths">
         <h4>Local throw paths</h4>
-        <p>No path to a proven local throw was observed through this relationship.</p>
+        <p>${escapeHtml(empty)}</p>
         <p class="${inspection.isComplete
           ? ""
           : "annotated-unavailable"}">${escapeHtml(completeness)}</p>

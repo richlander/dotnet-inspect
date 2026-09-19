@@ -701,6 +701,19 @@ shortest path without losing their separate source occurrences. A path that
 cannot map its first edge or one of its typed methods to the retained
 projection is omitted with an explicit correspondence boundary.
 
+The root-path operation retains at most one deterministic shortest witness for
+each root/destination pair. Equal-length alternatives are therefore not a
+per-first-edge census. When the operation retains a witness elsewhere but none
+begins with the selected relationship, Finding detail says only that no
+retained deterministic shortest witness begins there; it does not claim that
+no path through that relationship exists.
+
+Research supplies only Analysis-proven local-throw destinations. When none are
+available, it does not run a synthetic root/destination search: the receipt
+reports zero destinations and zero search work while independent Analysis,
+traversal, local-throw, and correspondence boundaries still constrain empty
+use.
+
 Completeness combines the Analysis root-path boundaries with local-throw
 coverage. Positive witnesses remain valid when either operation is incomplete.
 An inspected unresolved throw site, a relevant unavailable body, exhausted

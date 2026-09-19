@@ -1229,19 +1229,59 @@ public static class AssemblyContextMemberProjectionQuery
         MetadataMethodAddress rootAddress = MethodAddress(root);
         ImmutableArray<MetadataMethodAddress> destinations =
         [
-            rootAddress,
             .. knownThrows.Keys
                 .Where(token => token != rootToken)
                 .Order()
                 .Select(token => MethodAddress(
                     methodsByToken[token])),
         ];
-        LibraryBodyRootPathResult search =
-            LibraryBodyRootPathAnalysis.FindShortestPaths(
+        IReadOnlyList<LibraryBodyRootPathWitness> witnesses;
+        LibraryBodyRootPathReceipt receipt;
+        List<AssemblyMemberLocalThrowPathBoundary> boundaries;
+        if (destinations.IsEmpty)
+        {
+            witnesses = [];
+            receipt = new LibraryBodyRootPathReceipt(
+                RequestedRoots: 1,
+                RequestedDestinations: 0,
+                DestinationSearches: 0,
+                SearchNodes: 0,
+                SearchedEdges: 0,
+                ObservedReachablePairs: 0,
+                ReturnedPaths: 0);
+            boundaries = [];
+            if (!index.HasFullMethodEvidenceScope)
+            {
+                boundaries.Add(
+                    new AssemblyMemberLocalThrowPathBoundary(
+                        AssemblyMemberLocalThrowPathBoundaryKind
+                            .PartialMethodEvidenceScope,
+                        1));
+            }
+            if (!index.Diagnostics.IsEmpty)
+            {
+                boundaries.Add(
+                    new AssemblyMemberLocalThrowPathBoundary(
+                        AssemblyMemberLocalThrowPathBoundaryKind
+                            .AnalysisIncomplete,
+                        index.Diagnostics.Length));
+            }
+        }
+        else
+        {
+            LibraryBodyRootPathResult search =
+                LibraryBodyRootPathAnalysis.FindShortestPaths(
                 index,
                 [rootAddress],
                 destinations,
                 limits);
+            witnesses = search.Witnesses;
+            receipt = search.Receipt;
+            boundaries =
+                search.Boundaries
+                    .Select(ProjectLocalThrowPathBoundary)
+                    .ToList();
+        }
         Dictionary<
             (Guid ModuleVersionId, int CallerToken, int ILOffset, int OperandToken),
             int> factsByCall =
@@ -1255,10 +1295,6 @@ public static class AssemblyContextMemberProjectionQuery
                     relationship.Occurrence.FactId);
 
         var paths = new List<AssemblyMemberLocalThrowPath>();
-        var boundaries =
-            search.Boundaries
-                .Select(ProjectLocalThrowPathBoundary)
-                .ToList();
         if (relationships.Graph.HasUnexploredTraversalBoundary)
         {
             boundaries.Add(
@@ -1287,12 +1323,10 @@ public static class AssemblyContextMemberProjectionQuery
                         .IncompleteLocalThrowEvidence,
                     incompleteThrowEvidence));
         }
-
         int incompleteCorrespondence = 0;
-        foreach (LibraryBodyRootPathWitness witness in search.Witnesses)
+        foreach (LibraryBodyRootPathWitness witness in witnesses)
         {
-            if (witness.Depth == 0
-                || !knownThrows.TryGetValue(
+            if (!knownThrows.TryGetValue(
                     witness.Destination.MetadataToken,
                     out ImmutableArray<LocalThrowSite> terminalSites))
             {
@@ -1368,7 +1402,7 @@ public static class AssemblyContextMemberProjectionQuery
             paths,
             boundaries,
             limits,
-            search.Receipt);
+            receipt with { ReturnedPaths = paths.Count });
     }
 
     static HashSet<int> OutboundNodeIds(

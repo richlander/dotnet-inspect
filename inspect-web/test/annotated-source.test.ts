@@ -1615,10 +1615,120 @@ test("Finding detail keeps empty incomplete local throw evidence bounded", () =>
 
   assert.match(
     html,
-    /No path to a proven local throw was observed through this relationship/);
+    /No bounded path to a proven local throw was observed in the retained evidence/);
   assert.match(html, /Additional paths may be unobserved/);
   assert.match(html, /callee traversal boundary/);
   assert.doesNotMatch(html, /cannot throw|does not throw/);
+});
+
+test("Finding detail does not turn one retained shortest path into per-edge absence", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const alternateFactId = source.document.facts.length;
+  const firstFact = source.document.facts[factId];
+  const firstRelationship = source.callRelationships[0];
+  assert.ok(firstFact);
+  assert.ok(firstRelationship);
+  const localThrowResult: AnnotatedSourceResult = {
+    ...source,
+    document: {
+      ...source.document,
+      facts: [
+        ...source.document.facts,
+        {
+          ...firstFact,
+          id: alternateFactId,
+          detail: "Example.Targets.ForwardB(System.String)",
+          source_offset: 1,
+        },
+      ],
+      targets: [
+        ...source.document.targets,
+        { fact_id: alternateFactId, node_id: 1 },
+      ],
+    },
+    callRelationships: [
+      ...source.callRelationships,
+      {
+        ...firstRelationship,
+        edgeRow: 2,
+        factId: alternateFactId,
+        ilOffset: 1,
+        operandToken: 0x0A000002,
+        target: {
+          ...firstRelationship.target,
+          memberName: "ForwardB",
+        },
+      },
+    ],
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      localThrowPaths: {
+        available: true,
+        unavailableReason: null,
+        isComplete: true,
+        boundaries: [],
+        limits: {
+          maximumDepth: 3,
+          maximumNodes: 25,
+          maximumEdges: 100,
+          maximumPaths: 25,
+        },
+        receipt: {
+          destinationSearches: 1,
+          searchNodes: 3,
+          searchedEdges: 4,
+          observedReachablePairs: 1,
+          returnedPaths: 1,
+        },
+        paths: [{
+          factIds: [factId],
+          targets: [
+            {
+              ...sampleInvocationTarget,
+              memberName: "ForwardA",
+            },
+            {
+              ...sampleInvocationTarget,
+              selectorKey: "method:Throw",
+              memberName: "Throw",
+            },
+          ],
+          terminalThrows: [{
+            exceptionType: "Example.LocalThrowPathException",
+            definitionModuleVersionId:
+              "11111111-1111-1111-1111-111111111111",
+            definitionToken: 0x02000002,
+            constructionOffset: 2,
+            constructorToken: 0x0A000003,
+            throwOffset: 7,
+          }],
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(localThrowResult);
+  const html = renderAnnotatedSourceModal({
+    result: localThrowResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId: alternateFactId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /No retained deterministic shortest witness begins with this relationship/);
+  assert.doesNotMatch(
+    html,
+    /No bounded path to a proven local throw was observed/);
+  assert.match(html, /Bounded path search complete/);
 });
 
 test("Finding detail renders allocation exception paths without a runtime claim", () => {
