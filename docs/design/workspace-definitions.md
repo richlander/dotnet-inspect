@@ -235,10 +235,10 @@ they do not transfer another system's schema or lifecycle.
 
 The CLI resource-free authoring path is implemented under #7427. Direct
 Package and registration inputs produce one schema-version-3 definition and
-canonical format-3 packet or URL; canonical packet and exact Inspect Web URL
-input re-emits the same durable value without realization. The default
-inventory and optional Package Navigation paths remain realization-backed
-transitional behavior when durable output is not requested.
+canonical format-3 packet or URL; canonical Base64URL packet-string input
+re-emits the same durable value without realization. The default inventory and
+optional Package Navigation paths remain realization-backed transitional
+behavior when durable output is not requested.
 
 ### Definition, plan, and realization
 
@@ -284,9 +284,9 @@ portable basis.
 The `workspace` command transforms portable Workspace state:
 
 ```text
-direct definition inputs | packet | URL
-                   |
-                   v
+direct definition inputs | packet
+                |
+                v
       validated portable definition
                    |
        +-----------+-----------+
@@ -526,8 +526,9 @@ packet.
 
 ### Noun-command consumption and derived scenarios
 
-An inspection command consumes a Workspace packet or URL as aggregate location
-context while retaining its own subject and query grammar. Conceptually:
+An inspection command consumes a canonical Base64URL Workspace packet string
+as aggregate location context while retaining its own subject and query
+grammar. Conceptually:
 
 ```console
 packet=$(dotnet-inspect workspace ... --share packet)
@@ -559,9 +560,9 @@ the existing CLI Workspace Sharing refusal contract applies.
 
 #### Type packet-context adoption
 
-The first noun-command adoption is specified by
-[#7555](https://github.com/richlander/dotnet-inspect/issues/7555) and is not yet
-implemented. Its exact CLI shape is:
+The first noun-command adoption is implemented by
+[#7555](https://github.com/richlander/dotnet-inspect/issues/7555). Its exact
+CLI shape is:
 
 ```console
 dotnet-inspect type System.Text.Json.JsonSerializer \
@@ -572,12 +573,11 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
   --share packet
 ```
 
-`--workspace` accepts one canonical packet or exact
-`https://dotnet-inspect.net/?w=<packet>` URL as the `type` command's aggregate
-location context. The Type name remains an ordinary `type` subject. The packet
-is the sole location source and cannot be combined with Package, Library,
-Platform, project, framework, range-match, or positional-Package source
-selection.
+`--workspace` accepts one canonical Base64URL Workspace packet string as the
+`type` command's aggregate location context; URL input is rejected. The Type
+name remains an ordinary `type` subject. The packet is the sole location source
+and cannot be combined with Package, Library, Platform, project, framework,
+range-match, or positional-Package source selection.
 
 The first slice requires one explicit exact Type selector. Type listing,
 glob/fuzzy selection, replay of the packet's prior subject without a new
@@ -666,8 +666,8 @@ the selected context. The command reports both defining-Library identities and
 emits no derived Share rather than selecting the first participant. Neighboring
 gates cover one unique Type, no match, incomplete inventory, registration-only
 or null-selected-context packets, schema-3 ordinary inspection and Share
-refusal, schema-4 derived Share, exact URL input, invalid and over-limit
-packets, unauthorized content, and a non-projectable Type facet that preserves
+refusal, schema-4 derived Share, URL rejection, invalid and over-limit packets,
+unauthorized content, and a non-projectable Type facet that preserves
 ordinary stdout.
 
 Implementation begins only after #7429 exposes the host-neutral
@@ -775,8 +775,9 @@ Implementation proceeds in focused slices:
    scanner-bearing Ecosystem requires the separately owned portable scanner
    contract before it becomes projectable.
 3. **Definition-first `workspace`.** Build direct inputs into one portable
-   definition, support packet/URL input, and emit packet/URL output without
-   realization when no transformation needs it. Implemented under
+   definition, support canonical Base64URL packet-string input, and emit packet
+   or URL output without realization when no transformation needs it.
+   Implemented under
    [#7427](https://github.com/richlander/dotnet-inspect/issues/7427).
 4. **Portable enrichment.** Add one real realization-backed transformation,
    “make Package dependencies explicit/top-level,” using a nuget.org package
@@ -784,8 +785,8 @@ Implementation proceeds in focused slices:
    placement, context-local duplicate handling, all-or-nothing completion, and
    that no graph result enters the packet. Implemented under
    [#7494](https://github.com/richlander/dotnet-inspect/issues/7494).
-5. **Noun-command packet context.** Adopt packet/URL input and derived Share in
-   `type` under
+5. **Noun-command packet context.** Adopt canonical Base64URL packet-string
+   input and derived packet-or-URL Share in `type` under
    [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
    `library` and `member`, one command at a time.
 6. **Transitional retirement.** Remove `workspace --active-package` and any
