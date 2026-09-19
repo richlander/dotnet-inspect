@@ -149,14 +149,52 @@ public sealed class InstalledReferencePackSource
                 if (referenceRoot is null)
                     continue;
 
-                string? referenceDirectory = FindExactChild(
-                    referenceRoot,
-                    request.TargetFramework.ToString(),
-                    InstalledEntryKind.Directory,
-                    observation,
-                    cancellationToken);
-                if (referenceDirectory is null)
-                    continue;
+                IReadOnlyList<PlatformTargetFramework> targetFrameworks;
+                if (request.Scope
+                    is InstalledReferenceDiscoveryScope.ExactFramework exact)
+                {
+                    string? referenceDirectory = FindExactChild(
+                        referenceRoot,
+                        exact.TargetFramework.ToString(),
+                        InstalledEntryKind.Directory,
+                        observation,
+                        cancellationToken);
+                    if (referenceDirectory is null)
+                        continue;
+
+                    targetFrameworks = [exact.TargetFramework];
+                }
+                else if (request.Scope
+                    is InstalledReferenceDiscoveryScope.AllFrameworks)
+                {
+                    var discoveredFrameworks =
+                        new List<PlatformTargetFramework>();
+                    foreach (string frameworkEntry in EnumerateEntriesBounded(
+                        referenceRoot,
+                        observation,
+                        cancellationToken))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!IsDirectory(frameworkEntry)
+                            || !PlatformTargetFramework.TryParse(
+                                Path.GetFileName(frameworkEntry),
+                                out PlatformTargetFramework? framework))
+                        {
+                            continue;
+                        }
+
+                        discoveredFrameworks.Add(framework);
+                    }
+
+                    if (discoveredFrameworks.Count == 0)
+                        continue;
+                    targetFrameworks = discoveredFrameworks;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "The installed reference discovery scope is unsupported.");
+                }
 
                 string versionName = Path.GetFileName(versionEntry);
                 if (!PlatformVersion.TryParse(
@@ -166,29 +204,34 @@ public sealed class InstalledReferencePackSource
                     return Rejected<InstalledReferenceTargetInventory>(
                         generation,
                         InstalledPlatformSourceDiagnosticKind.InvalidLayout,
-                        "An installed reference-pack directory with the requested target framework has a non-canonical version.");
+                        "An installed reference-pack directory with a canonical target framework has a non-canonical version.");
                 }
 
-                if (version.Major != request.TargetFramework.Major
-                    || version.Minor != request.TargetFramework.Minor)
+                foreach (PlatformTargetFramework targetFramework
+                    in targetFrameworks)
                 {
-                    continue;
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (version.Major != targetFramework.Major
+                        || version.Minor != targetFramework.Minor)
+                    {
+                        continue;
+                    }
 
-                if (targets.Count == request.MaxCandidates)
-                {
-                    return Incomplete<InstalledReferenceTargetInventory>(
-                        generation,
-                        "The installed reference-pack target inventory exceeds the request candidate limit.");
-                }
+                    if (targets.Count == request.MaxCandidates)
+                    {
+                        return Incomplete<InstalledReferenceTargetInventory>(
+                            generation,
+                            "The installed reference-pack target inventory exceeds the request candidate limit.");
+                    }
 
-                targets.Add(
-                    new InstalledReferenceTarget(
-                        new InstalledReferencePackCoordinate(
-                            Hive,
-                            request.Family,
-                            request.TargetFramework,
-                            version)));
+                    targets.Add(
+                        new InstalledReferenceTarget(
+                            new InstalledReferencePackCoordinate(
+                                Hive,
+                                request.Family,
+                                targetFramework,
+                                version)));
+                }
             }
         }
         catch (InstalledInvalidLayoutException)
@@ -223,9 +266,7 @@ public sealed class InstalledReferencePackSource
                         right.Coordinate.Version);
                 return precedence != 0
                     ? precedence
-                    : string.CompareOrdinal(
-                        left.Coordinate.Version.Value,
-                        right.Coordinate.Version.Value);
+                    : CompareExactTargetIdentity(left, right);
             });
 
         IReadOnlyList<InstalledReferenceTarget> snapshot =
@@ -235,6 +276,20 @@ public sealed class InstalledReferencePackSource
             InstalledReferenceTargetInventory>.Succeeded(
                 generation,
                 new InstalledReferenceTargetInventory(generation, snapshot));
+    }
+
+    static int CompareExactTargetIdentity(
+        InstalledReferenceTarget left,
+        InstalledReferenceTarget right)
+    {
+        int version = string.CompareOrdinal(
+            left.Coordinate.Version.Value,
+            right.Coordinate.Version.Value);
+        return version != 0
+            ? version
+            : string.CompareOrdinal(
+                left.Coordinate.TargetFramework.ToString(),
+                right.Coordinate.TargetFramework.ToString());
     }
 
     public async ValueTask<

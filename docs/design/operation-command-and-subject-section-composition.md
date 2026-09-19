@@ -244,7 +244,8 @@ The composition reaches production through focused owner adoptions:
    migrations.
 4. **Dependency:** the Dependency owner retains `depends`, distinguishes its
    direct and rooted results from Graph, and adopts subject sections without a
-   second operation.
+   second operation. Package adopted `Dependency Hierarchy` as a subject
+   section over the same Depends envelope in #7649.
 5. **Diff:** comparison owners retain top-level `diff` and adopt curated
    subject sections without subject Diff subcommands.
 6. **Relations:** Subject Relations and each producer provide replacement

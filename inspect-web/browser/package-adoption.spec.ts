@@ -20,6 +20,7 @@ import type {
   BrowserWorkspacePackageOccurrence as OccurrenceRow,
   BrowserWorkspacePackageOccurrenceActivation as OccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView as OccurrenceView,
+  CompiledDocumentationOutcome,
 } from "../src/facades/inspect-web-package.js";
 import type {
   BrowserPackageIntegrations as PackageIntegrations,
@@ -41,6 +42,8 @@ import {
   malformedAssemblyBytes,
   manifestBackedNupkg,
   manifestOnlyNupkg,
+  platformReferenceNupkg,
+  platformRuntimeNupkg,
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
@@ -150,6 +153,12 @@ const libraryDiffV1Assembly = locateFixtureAssembly(
 );
 const libraryDiffV2Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL",
+);
+const documentationAssembly = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_DLL",
+);
+const documentationXml = locateFixtureAssembly(
+  "INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_XML",
 );
 const healthyAssemblyFileName = "DiffAsmLibA.dll";
 const brokenAssemblyFileName = "DiffAsmLibB.dll";
@@ -301,6 +310,27 @@ const libraryDiffV2: FixtureCoordinate = {
   archive: healthyNupkg(
     libraryDiffV2Assembly,
     libraryDiffAssemblyFileName,
+  ),
+};
+
+const platformDocumentationVersion = "11.0.7146";
+const platformDocumentationAssemblyFileName =
+  "InspectWeb.DocumentationFixtures.dll";
+const platformRuntimeDocumentation: FixtureCoordinate = {
+  packageId: "microsoft.netcore.app.runtime.linux-x64",
+  version: platformDocumentationVersion,
+  archive: platformRuntimeNupkg(
+    documentationAssembly,
+    platformDocumentationAssemblyFileName,
+  ),
+};
+const platformReferenceDocumentation: FixtureCoordinate = {
+  packageId: "microsoft.netcore.app.ref",
+  version: platformDocumentationVersion,
+  archive: platformReferenceNupkg(
+    documentationAssembly,
+    documentationXml,
+    platformDocumentationAssemblyFileName,
   ),
 };
 
@@ -504,6 +534,13 @@ declare global {
         framework: string,
         libraryId: string,
       ): Promise<PackageIntegrations>;
+      queryPlatformDocumentation(
+        framework: string,
+        platformVersion: string,
+        assemblyName: string,
+        platformPack: string,
+        documentationId: string,
+      ): Promise<CompiledDocumentationOutcome>;
       dispose(): void;
     };
     __queryResponsiveness?: {
@@ -573,6 +610,19 @@ async function boot(page: Page): Promise<void> {
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
+      queryPlatformDocumentation: (
+        framework,
+        platformVersion,
+        assemblyName,
+        platformPack,
+        documentationId,
+      ) => client.package.queryPlatformMemberDocumentation(
+        framework,
+        platformVersion,
+        assemblyName,
+        platformPack,
+        documentationId,
+      ),
       dispose: () => production.dispose(),
     };
   }, workerClientUrl);
@@ -592,6 +642,13 @@ function driver(page: Page): {
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
   queryIntegrations(packageId: string, version: string, framework: string, libraryId: string): Promise<PackageIntegrations>;
+  queryPlatformDocumentation(
+    framework: string,
+    platformVersion: string,
+    assemblyName: string,
+    platformPack: string,
+    documentationId: string,
+  ): Promise<CompiledDocumentationOutcome>;
 } {
   const requireSurface = (result: PackageLoadResult): PackageSurface => {
     if (result.surface === null) {
@@ -648,6 +705,28 @@ function driver(page: Page): {
           window.__adoption!.queryIntegrations(id, ver, tfm, selected),
         { packageId, version: pkgVersion, framework, libraryId },
       ),
+    queryPlatformDocumentation: (
+      framework,
+      platformVersion,
+      assemblyName,
+      platformPack,
+      documentationId,
+    ) => page.evaluate(
+      coordinates => window.__adoption!.queryPlatformDocumentation(
+        coordinates.framework,
+        coordinates.platformVersion,
+        coordinates.assemblyName,
+        coordinates.platformPack,
+        coordinates.documentationId,
+      ),
+      {
+        framework,
+        platformVersion,
+        assemblyName,
+        platformPack,
+        documentationId,
+      },
+    ),
   };
 }
 
@@ -1664,6 +1743,38 @@ test.describe("Package Activity website over real Wasm", () => {
 
 test.describe("artifact-backed package scope adoption over real Wasm", () => {
   test.describe.configure({ timeout: 240_000 });
+
+  test("returns compact typed platform documentation through the production Worker", async ({
+    page,
+    context,
+  }) => {
+    const registry = new GalleryFixtureRegistry([
+      platformRuntimeDocumentation,
+      platformReferenceDocumentation,
+    ]);
+    await installGalleryRoutes(context, registry);
+    await boot(page);
+
+    const outcome = await driver(page).queryPlatformDocumentation(
+      fixtureFramework,
+      platformDocumentationVersion,
+      platformDocumentationAssemblyFileName,
+      "netcore.app",
+      "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+    );
+
+    expect(outcome.kind).toBe("available");
+    if (outcome.kind !== "available") {
+      throw new Error(`Expected available documentation, received ${outcome.kind}.`);
+    }
+    expect(outcome.source.kind).toBe("Platform");
+    expect(outcome.documentation.summary)
+      .toBe("Reads documentation from a non-public type.");
+    expect(JSON.stringify(outcome).length).toBeLessThanOrEqual(4_096);
+    expect(registry.downloadCount(platformRuntimeDocumentation)).toBe(1);
+    expect(registry.downloadCount(platformReferenceDocumentation)).toBe(1);
+    await page.evaluate(() => window.__adoption!.dispose());
+  });
 
   test("opens a search-hidden exact coordinate without fallback", async ({
     page,

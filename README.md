@@ -144,7 +144,7 @@ stderr rather than mixed into structured output.
 
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
-| Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, vulnerability data, custom feeds, and NuGet config support. |
+| Package inventory | `package` | Metadata, versions, TFMs, file layout, direct dependencies, rooted dependency hierarchy, vulnerability data, custom feeds, and NuGet config support. |
 | Project package skills and docs | `project` | Section-driven direct-dependency rows from valid `skills/**/SKILL.md` files and root `README.md` files in the restored package cache. Use `--print --row N` to emit one selected document. Skill inventory values and complete documents that require containment become `[Text omitted: required containment]`; selected documents also report bounded code-point locations on stderr. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries. |
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
@@ -1068,6 +1068,10 @@ inspect each side on its own.
 ### Relationships and graphs
 
 ```bash
+dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
+  -S Dependencies
+dotnet-inspect package Microsoft.Extensions.Logging@10.0.0 \
+  -S "Dependency Hierarchy" --tree
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect depends Int128 --table --rows 1..10
 dotnet-inspect depends NpgsqlOptionsExtension \
@@ -1136,7 +1140,11 @@ dotnet-inspect graph libraries \
 For asset roots, `Dependency Hierarchy` is the rooted explanatory result:
 shared targets reached through different parents remain separate occurrences,
 and tables, JSON, JSONL, row windows, and Count use that same occurrence
-currency. `Dependencies` remains the direct declaration evidence section.
+currency. On `package`, selecting this section invokes the same host-neutral
+Depends operation; `--tree` only chooses its projection. `Dependencies`
+remains the direct declaration evidence section and does not acquire transitive
+packages. The removed package `--dependencies` spelling reports replacement
+guidance rather than acting as a second hierarchy selector.
 Positional `depends <type>` retains its existing `Dependency Graph` section
 until Type relationships move to the general Graph operation.
 

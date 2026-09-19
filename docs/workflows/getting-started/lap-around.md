@@ -272,7 +272,8 @@ DotnetToolSettings.xml
 ### Dependencies vary by TFM
 
 ```bash
-dotnet-inspect package System.Text.Json@10.0.2 -S Dependencies --tree
+dotnet-inspect package System.Text.Json@10.0.2 \
+  -S "Dependency Hierarchy" --tree
 ```
 
 ```expect
@@ -280,7 +281,8 @@ No additional dependencies for net
 ```
 
 ```bash
-dotnet-inspect package System.Text.Json@10.0.2 --tfm net9.0 -S Dependencies --tree
+dotnet-inspect package System.Text.Json@10.0.2 --tfm net9.0 \
+  -S "Dependency Hierarchy" --tree
 ```
 
 ```expect
