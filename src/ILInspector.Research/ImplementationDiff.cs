@@ -24,16 +24,56 @@ public sealed record ImplementationDiffOptions(
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
 
+public enum ImplementationComplexityChangeKind
+{
+    Unchanged,
+    Changed,
+    Added,
+    Removed,
+    Incomplete,
+}
+
+public sealed record ImplementationComplexityChange(
+    ResearchSubjectKey Subject,
+    ImplementationComplexityChangeKind Kind,
+    int? OldValue,
+    int? NewValue,
+    int? Delta,
+    bool OldIsComplete,
+    bool NewIsComplete,
+    MethodIdentity? OldEvidenceMethod = null,
+    MethodIdentity? NewEvidenceMethod = null);
+
+public sealed record ImplementationComplexityDiff(
+    bool IsAvailable,
+    string? UnavailableReason,
+    IReadOnlyList<ImplementationComplexityChange> Changes)
+{
+    public static ImplementationComplexityDiff Unavailable { get; } =
+        new(
+            false,
+            "Normal-flow cyclomatic complexity was not requested for one or "
+                + "both implementation-diff endpoints.",
+            []);
+}
+
 public sealed record ImplementationAssemblyInput(
     ResolvedAssemblyReference Assembly,
     IAssemblyReferenceResolver Resolver,
-    LibraryBodyIndex BodyIndex);
+    LibraryBodyIndex BodyIndex,
+    LibraryImplementationProfileAnalysisResult? ProfileAnalysis = null);
 
 public sealed record ImplementationDiffResult(
     IReadOnlyList<ImplementationDiffMember> Members,
     ResearchComparison Research)
 {
-    public bool IsEmpty => Members.Count == 0;
+    public ImplementationComplexityDiff Complexity { get; init; } =
+        ImplementationComplexityDiff.Unavailable;
+
+    public bool IsEmpty => Members.Count == 0
+        && (!Complexity.IsAvailable
+            || !Complexity.Changes.Any(
+                change => change.Kind != ImplementationComplexityChangeKind.Unchanged));
 }
 
 public sealed record ImplementationDiffMember(
@@ -120,7 +160,7 @@ public static class ImplementationDiff
             var newContents = OpenAssemblyContents(newAssemblies);
             try
             {
-                return Compare(
+                var result = Compare(
                     new ResearchDiffInput([])
                     {
                         AssemblyContents = oldContents,
@@ -130,6 +170,17 @@ public static class ImplementationDiff
                         AssemblyContents = newContents,
                     },
                     options);
+                return result with
+                {
+                    Complexity = ImplementationComplexityService.Execute(
+                        new ImplementationComplexityComparisonRequest(
+                            [.. oldAssemblies.Select(
+                                static assembly => assembly.ProfileAnalysis)],
+                            [.. newAssemblies.Select(
+                                static assembly => assembly.ProfileAnalysis)],
+                            options?.TypeFilters,
+                            options?.MemberTargetIdentities)),
+                };
             }
             finally
             {
@@ -207,6 +258,8 @@ public static class ImplementationDiff
                 try
                 {
                     ValidateBodyIndex(source, assembly.BodyIndex);
+                    if (assembly.ProfileAnalysis is not null)
+                        ValidateProfileAnalysis(source, assembly.ProfileAnalysis);
                     contents.Add(new ResearchAssemblyContent(
                         source,
                         assembly.BodyIndex));
@@ -258,6 +311,30 @@ public static class ImplementationDiff
             nameof(bodyIndex));
     }
 
+    static void ValidateProfileAnalysis(
+        MetadataSource source,
+        LibraryImplementationProfileAnalysisResult profileAnalysis)
+    {
+        LibraryBodyModuleIdentity indexedModule = profileAnalysis.Receipt.ModuleIdentity;
+        AssemblyReferenceIdentity? sourceIdentity = source.Reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader)
+            : null;
+        Guid sourceMvid = source.Reader.GetGuid(
+            source.Reader.GetModuleDefinition().Mvid);
+        if (AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                sourceIdentity,
+                indexedModule.AssemblyIdentity)
+            && sourceMvid == indexedModule.ModuleVersionId)
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            $"The implementation profile analysis for '{indexedModule.AssemblyIdentity?.Name ?? "standalone module"}' "
+            + $"does not match assembly content '{source.AssemblyName}'.",
+            nameof(profileAnalysis));
+    }
+
     static ImmutableHashSet<string> RetainedComparisonDescriptorIds(
         ImplementationDiffMechanism mechanisms)
     {
@@ -299,7 +376,10 @@ public static class ImplementationDiff
             result.Research.ApiDiff,
             result.Research.ApiComparison,
             new RetainedFindingComparisonSet(retained));
-        return FromResearchComparison(research, options);
+        return FromResearchComparison(research, options) with
+        {
+            Complexity = result.Complexity,
+        };
     }
 
     public static ImmutableArray<ResearchChange> ToSourceChanges(

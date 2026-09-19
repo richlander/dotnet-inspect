@@ -2630,6 +2630,7 @@ public partial class SectionPipelineTests
             "Metadata: TypeRef",
             "Metadata: TypeSpec",
             SectionNames.IdentifierConfusion,
+            SectionNames.ReferenceHierarchy,
             SectionNames.SourceLinkAvailability,
             SectionNames.SourceLinkFiles,
             SectionNames.SourceLinkIntegrity,

@@ -15,32 +15,35 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Fact]
-    public async Task ReferenceTreeCountRejectsUndefinedLowering_WhilePackageScalarIgnoresTreePresentation()
+    public async Task ReferenceHierarchyCountUsesSemanticRows_WhilePackageScalarIgnoresTreePresentation()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
             var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
                 "library", "System.Text.Json",
-                "-S", "References", "--count", "--tree", "--depth", "2",
+                "-S", "Reference Hierarchy", "--count", "--depth", "2",
                 "--tips", "q");
             var (packageExit, packageOutput, packageError) = await RunAppAsync(
                 "package", packagePath,
-                "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+                "-S", "Target Frameworks", "--count", "--tips", "q");
             var (multiPackageExit, multiPackageOutput, multiPackageError) =
                 await RunAppAsync(
                     "package", packagePath, packagePath,
-                    "-S", "Target Frameworks", "--count", "--tree", "--tips", "q");
+                    "-S", "Target Frameworks", "--count", "--tips", "q");
             var (mapExit, mapOutput, mapError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info,Target Frameworks",
-                "--count", "--tree", "--tips", "q");
+                "--count", "--tips", "q");
 
-            Assert.Equal(1, libraryExit);
-            Assert.Empty(libraryOutput);
-            Assert.Contains(
-                "reference tree does not declare countable row semantics",
-                libraryError);
+            Assert.Equal(0, libraryExit);
+            Assert.True(
+                int.TryParse(
+                    libraryOutput.Trim(),
+                    CultureInfo.InvariantCulture,
+                    out int libraryCount));
+            Assert.True(libraryCount > 0);
+            Assert.Empty(libraryError);
 
             Assert.Equal(0, packageExit);
             Assert.Empty(packageError);
@@ -60,12 +63,10 @@ public partial class CommandExecutionTests
                     multiPackageOutput.Trim(),
                     CultureInfo.InvariantCulture));
 
-            Assert.Equal(1, mapExit);
-            Assert.Empty(mapOutput);
-            Assert.Contains(
-                "--tree requires exactly one selected shape",
-                mapError,
-                StringComparison.Ordinal);
+            Assert.Equal(0, mapExit);
+            Assert.Empty(mapError);
+            Assert.Contains("Package Info", mapOutput);
+            Assert.Contains("Target Frameworks", mapOutput);
         }
         finally
         {
@@ -1543,7 +1544,7 @@ public partial class CommandExecutionTests
                 "--count", "--rows", "1..1", "--tips", "q");
             var layout = await RunAppAsync(
                 "package", packagePath, "--layout",
-                "--count", "--rows", "1", "--tips", "q");
+                "--count", "--rows", "1..1", "--tips", "q");
             var discovery = await RunAppAsync(
                 "library", TestAssemblyPath, "-D", "",
                 "--count", "--rows", "1", "--tips", "q");

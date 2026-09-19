@@ -2991,6 +2991,7 @@ public static class ApiOutputFormatter
             profile.ConditionalBranchCount,
             profile.SwitchCount,
             profile.SwitchTargetCount,
+            profile.NormalFlowCyclomaticComplexity,
             profile.LoopCount,
             profile.CatchCount
                 + profile.FilterCount

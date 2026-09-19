@@ -327,6 +327,13 @@ public class LibraryInspection
         }
     }
 
+    [JsonIgnore]
+    internal DependsAssetProjection? ReferenceHierarchyProjection
+    {
+        get;
+        set;
+    }
+
     private FindingInspection<SourceDocumentObservation>? _sourceDocumentInspection;
     private FindingInspection<CompilationOptionInfo>? _compilationOptionInspection;
     private FindingInspection<CompilationReferenceInfo>? _compilationReferenceInspection;
@@ -1617,6 +1624,8 @@ public sealed record LibraryIntegrationSummaryJson(string Integration, int Count
 public sealed record VersionJson(string Version);
 
 public sealed record PackageTfmJson(string Tfm);
+
+public sealed record PackageLayoutFileJson(string Path);
 
 public sealed record VersionListingJson(string Version, string Listing);
 

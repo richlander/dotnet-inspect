@@ -110,7 +110,8 @@ public sealed class MethodBodyInspectionSession
         bool includeOpportunities = true,
         IReadOnlySet<int>? bodyScope = null,
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
-        bool includeAsyncSiblingOpportunities = false)
+        bool includeAsyncSiblingOpportunities = false,
+        bool includeImplementationProfiles = false)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         if (includeAllocations)
@@ -124,6 +125,11 @@ public sealed class MethodBodyInspectionSession
         {
             features |= Analysis.LibraryBodyAnalysisFeatures
                 .AsyncSiblingOpportunities;
+        }
+        if (includeImplementationProfiles)
+        {
+            features |= Analysis.LibraryBodyAnalysisFeatures
+                .ImplementationProfiles;
         }
 
         return OpenWithFeatures(
