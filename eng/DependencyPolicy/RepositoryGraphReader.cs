@@ -286,7 +286,7 @@ internal static class RepositoryGraphReader
         string candidate,
         AssemblyIdentityNames identity)
     {
-        if (identity.Name.Length == 0)
+        if (!identity.HasAssemblyDefinition)
         {
             throw new DependencyPolicyException(
                 $"Built output '{candidate}' is a module without an "

@@ -13,11 +13,18 @@ namespace ILInspector.Metadata;
 /// <c>AssemblyRef</c> table could not be read. The names that were read are still returned, but a
 /// consumer deciding reachability must treat the set as unknown rather than absent — a dropped row
 /// could have been the one that mattered.
+///
+/// <see cref="AssemblyIdentityNames.HasAssemblyDefinition"/> distinguishes a metadata module from
+/// an assembly. Assemblies with an empty required name are rejected rather than represented as
+/// modules.
 /// </summary>
 public sealed record AssemblyIdentityNames(
     string Name,
     ImmutableArray<string> ReferenceNames,
-    bool ReferencesComplete = true);
+    bool ReferencesComplete = true)
+{
+    public bool HasAssemblyDefinition { get; init; } = true;
+}
 
 /// <summary>
 /// Reads only the <c>Assembly</c> and <c>AssemblyRef</c> tables. This is the cheapest question that
@@ -35,9 +42,15 @@ public static class AssemblyIdentityScanner
     public static AssemblyIdentityNames Scan(PEReader peReader)
     {
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-        string name = reader.IsAssembly
+        bool hasAssemblyDefinition = reader.IsAssembly;
+        string name = hasAssemblyDefinition
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : string.Empty;
+        if (hasAssemblyDefinition && name.Length == 0)
+        {
+            throw new BadImageFormatException(
+                "The Assembly definition has an empty required name.");
+        }
 
         // A malformed row must not discard the identity that was read successfully. Reporting the
         // name with an incomplete reference set lets a consumer keep the assembly under
@@ -48,7 +61,15 @@ public static class AssemblyIdentityScanner
         {
             try
             {
-                references.Add(reader.GetString(reader.GetAssemblyReference(handle).Name));
+                string reference =
+                    reader.GetString(reader.GetAssemblyReference(handle).Name);
+                if (reference.Length == 0)
+                {
+                    complete = false;
+                    continue;
+                }
+
+                references.Add(reference);
             }
             catch (BadImageFormatException)
             {
@@ -56,6 +77,12 @@ public static class AssemblyIdentityScanner
             }
         }
 
-        return new AssemblyIdentityNames(name, references.ToImmutable(), complete);
+        return new AssemblyIdentityNames(
+            name,
+            references.ToImmutable(),
+            complete)
+        {
+            HasAssemblyDefinition = hasAssemblyDefinition,
+        };
     }
 }

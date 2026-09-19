@@ -1755,7 +1755,7 @@ public static partial class PackageQuery
                 throw new BadImageFormatException(
                     "An admitted assembly has an incomplete AssemblyRef table.");
             }
-            if (identities.Name.Length == 0)
+            if (!identities.HasAssemblyDefinition)
                 continue;
 
             foreach (string reference in identities.ReferenceNames)

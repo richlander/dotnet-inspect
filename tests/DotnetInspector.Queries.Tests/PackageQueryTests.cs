@@ -2415,6 +2415,30 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task
+        ExecuteAsync_EmptyAssemblyReferenceNameInMetadataModuleRemainsVisible()
+    {
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Module.dll",
+                    WithEmptyAssemblyReferenceName(
+                        AssemblyReferenceModule()))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EmptyAssemblyDefinitionNameRemainsVisible()
+    {
+        byte[] caller = File.ReadAllBytes(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Caller.dll",
+                    WithEmptyAssemblyDefinitionName(caller))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceBudgetsRejectBeforeExpansion()
     {
         byte[] caller = File.ReadAllBytes(
@@ -3446,6 +3470,45 @@ public sealed class PackageQueryTests
         BinaryPrimitives.WriteUInt16LittleEndian(
             malformed.AsSpan(nameOffset, sizeof(ushort)),
             ushort.MaxValue);
+        return malformed;
+    }
+
+    private static byte[] WithEmptyAssemblyReferenceName(byte[] image)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        Assert.NotEmpty(metadata.AssemblyReferences);
+        Assert.True(
+            metadata.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && metadata.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int nameOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetTableMetadataOffset(TableIndex.AssemblyRef)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        malformed.AsSpan(nameOffset, sizeof(ushort)).Clear();
+        return malformed;
+    }
+
+    private static byte[] WithEmptyAssemblyDefinitionName(byte[] image)
+    {
+        byte[] malformed = image.ToArray();
+        using var reader = new PEReader(
+            new MemoryStream(malformed, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        Assert.True(metadata.IsAssembly);
+        Assert.True(
+            metadata.GetHeapSize(HeapIndex.Blob) <= ushort.MaxValue
+            && metadata.GetHeapSize(HeapIndex.String) <= ushort.MaxValue);
+        int nameOffset = reader.PEHeaders.MetadataStartOffset
+            + metadata.GetTableMetadataOffset(TableIndex.Assembly)
+            + sizeof(uint)
+            + (4 * sizeof(ushort))
+            + sizeof(uint)
+            + sizeof(ushort);
+        malformed.AsSpan(nameOffset, sizeof(ushort)).Clear();
         return malformed;
     }
 
