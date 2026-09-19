@@ -27,6 +27,9 @@ public sealed class SelectedPropertyAccessorSource
 
     public IReadOnlyList<string> Attributes { get; private init; } = [];
 
+    /// <summary>Whether the complete getter and its storage permit a semicolon body.</summary>
+    public bool UsesAutomaticGetterBody => _automaticGetter;
+
     SelectedPropertyAccessorSource(
         ApiMember property, string accessorKind, IReadOnlyList<string> valueAttributes,
         bool automaticGetter = false, SelectedGetterStorage? getterStorage = null)
@@ -58,6 +61,29 @@ public sealed class SelectedPropertyAccessorSource
                 ? AttributeReader.RenderMethodAttributes(source.Reader, handle)
                 : [],
         };
+    }
+
+    internal static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
+        MethodDefinitionHandle methodHandle)
+    {
+        var reader = source.Reader;
+        var method = reader.GetMethodDefinition(methodHandle);
+        var type = reader.GetTypeDefinition(method.GetDeclaringType());
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+        bool explicitImplementation = declaration.MetadataName.Contains('.', StringComparison.Ordinal);
+        return Create(source, methodHandle, new ApiMember
+        {
+            Name = declaration.MetadataName,
+            Kind = explicitImplementation ? "explicit-interface-implementation" : "method",
+            SignatureModel = declaration.Signature,
+            Accessibility = declaration.Accessibility,
+            IsStatic = declaration.IsStatic,
+            IsVirtual = declaration.IsVirtual,
+            IsAbstract = declaration.IsAbstract,
+            IsOverride = declaration.IsOverride,
+            IsSealed = declaration.IsSealed,
+        });
     }
 
     internal static SelectedPropertyAccessorSource? Create(

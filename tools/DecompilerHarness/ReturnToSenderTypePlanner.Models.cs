@@ -398,7 +398,8 @@ public sealed record CompileBackMemberRequirement(
     int? GetterToken = null,
     int? SetterToken = null,
     int? AdderToken = null,
-    int? RemoverToken = null)
+    int? RemoverToken = null,
+    bool IsReadOnly = false)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -413,7 +414,8 @@ internal sealed record ProductTargetBody(
     string? ConstructorChain = null,
     bool RequiresAsyncModifier = false,
     bool RequiresUnsafeModifier = false,
-    DecompilationFidelity Fidelity = DecompilationFidelity.Full);
+    DecompilationFidelity Fidelity = DecompilationFidelity.Full,
+    SelectedPropertyAccessorSource? PropertySource = null);
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)

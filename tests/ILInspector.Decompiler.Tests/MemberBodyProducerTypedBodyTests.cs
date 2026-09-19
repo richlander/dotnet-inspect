@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.MetadataPrimitives;
+using DotnetInspector.Fixtures;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -106,6 +107,50 @@ public sealed class MemberBodyProducerTypedBodyTests
         Assert.NotNull(body.ConstructorInitializer);
         Assert.Equal(CSharpConstructorInitializerKind.This, body.ConstructorInitializer.Kind);
         Assert.Equal(["42"], body.ConstructorInitializer.Arguments);
+    }
+
+    [Theory]
+    [InlineData("SelectedAutoPropertySamples", "ComputedCount", false, "return field + 1;")]
+    [InlineData("SelectedAutoPropertySamples", "Count", true, "return this.Count;")]
+    [InlineData("SelectedFieldPropertySamples", "SharedCount", false, "return field + 2;")]
+    public void ProduceBody_OptsIntoProvenGetterStorageOnlyWithPropertyContext(
+        string typeName, string propertyName, bool automatic, string expectedBody)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, typeName, $"get_{propertyName}");
+        var property = Assert.IsType<SelectedPropertyAccessorSource>(
+            SelectedPropertyAccessorSource.Create(source, method));
+        Assert.Equal(automatic, property.UsesAutomaticGetterBody);
+        var address = MetadataMethodAddress.Create(source.Reader, method);
+
+        var independent = MemberBodyProducer.ProduceBody(source, address);
+        var scoped = MemberBodyProducer.ProduceBody(source, address, property);
+        var independentAgain = MemberBodyProducer.ProduceBody(source, address);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, independent.Status);
+        Assert.Equal(MemberBodyProductionStatus.Complete, scoped.Status);
+        Assert.Equal(MemberBodyProductionStatus.Complete, independentAgain.Status);
+        Assert.Equal(expectedBody, scoped.Body!.Source);
+        Assert.DoesNotContain("field", independent.Body!.Source);
+        Assert.Equal(independent.Body.Source, independentAgain.Body!.Source);
+    }
+
+    [Theory]
+    [InlineData("ChangingCount")]
+    [InlineData("LazyLabel")]
+    [InlineData("MutableCount")]
+    [InlineData("InitialCount")]
+    [InlineData("DescribedCount")]
+    [InlineData("NestedCount")]
+    [InlineData("ProtectedCount")]
+    public void ProduceBody_MetadataGetterContextKeepsStorageDeclineBoundaries(string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, "SelectedFieldPropertySamples", $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method));
     }
 
     static MethodDefinitionHandle FindMethod(

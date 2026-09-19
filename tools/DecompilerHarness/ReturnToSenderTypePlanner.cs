@@ -24,11 +24,13 @@ public static partial class CompileBackSourceComposer
         MethodDefinitionHandle methodHandle,
         string fullType,
         string methodName,
-        out IrFunction function)
+        out IrFunction function,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         var produced = MemberBodyProducer.ProduceBody(
             source,
-            MetadataMethodAddress.Create(source.Reader, methodHandle));
+            MetadataMethodAddress.Create(source.Reader, methodHandle),
+            propertySource);
         if (produced.Status != MemberBodyProductionStatus.Complete
             || produced.Body is null
             || produced.RaisedFunction is null)
@@ -58,7 +60,8 @@ public static partial class CompileBackSourceComposer
             produced.Projection.ConstructorChain,
             produced.Body.RequiresAsyncModifier,
             produced.Body.RequiresUnsafeModifier,
-            produced.Projection.Fidelity);
+            produced.Projection.Fidelity,
+            propertySource);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
@@ -95,7 +98,8 @@ public static partial class CompileBackSourceComposer
                 closure.Facts,
                 closure.MemberRequirements,
                 request.BodyPolicy,
-                request.TargetBody.RequiresUnsafeModifier),
+                request.TargetBody.RequiresUnsafeModifier,
+                request.TargetBody.PropertySource),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -618,7 +622,7 @@ public static partial class CompileBackSourceComposer
                         IncludeInCompileBackClosure: true,
                     })
                     AddMethodFact(method, evidence.EffectiveAllowTargetRoot);
-                if (evidence.Field is { } field)
+                if (evidence.Field is { } field && node is not LoadField { UsesAccessorStorage: true })
                     AddFieldFact(field);
                 if (evidence.RecordShellType is { } recordShell)
                     AddRecordShellFact(recordShell);
@@ -690,7 +694,8 @@ public static partial class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
-        bool targetBodyRequiresUnsafeModifier = false)
+        bool targetBodyRequiresUnsafeModifier = false,
+        SelectedPropertyAccessorSource? propertySource = null)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -704,7 +709,9 @@ public static partial class CompileBackSourceComposer
         string propertyName = Identifier(metadataPropertyName);
         string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
-        bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
+        bool targetIsAutoProperty = accessors.Setter.IsNil
+            ? propertySource?.UsesAutomaticGetterBody == true
+            : IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();
         var targetRoot = TopLevelRootOf(reader, targetType);
@@ -2649,6 +2656,7 @@ public static partial class CompileBackSourceComposer
                     $"Unsupported member declaration kind '{requirement.Kind}'."),
             },
             IsStatic: requirement.IsStatic,
+            IsReadOnly: requirement.IsReadOnly,
             Parameters: requirement.Parameters.Select(ToShellParameter).ToArray(),
             ReturnType: requirement.ReturnType?.DisplayName,
             TypeParameters: requirement.TypeParameters

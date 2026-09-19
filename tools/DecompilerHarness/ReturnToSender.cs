@@ -630,12 +630,13 @@ static class ReturnToSender
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         RoundTripScope scope,
-        RoundTripBodyPolicy bodyPolicy)
+        RoundTripBodyPolicy bodyPolicy,
+        bool applyCompileBackFloor = true)
         => CompileBackTargets(
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
-            applyCompileBackFloor: true,
+            applyCompileBackFloor,
             scope,
             bodyPolicy);
 
@@ -1490,7 +1491,9 @@ static class ReturnToSender
         string methodName = reader.GetString(getter.Name);
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
 
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, getterHandle, fullType, methodName, out var function);
+        var propertySource = SelectedPropertyAccessorSource.Create(source, getterHandle);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(
+            source, getterHandle, fullType, methodName, out var function, propertySource);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
