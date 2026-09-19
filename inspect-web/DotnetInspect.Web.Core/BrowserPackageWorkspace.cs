@@ -24,6 +24,11 @@ internal sealed record BrowserPackageCacheSnapshot(
     long MaxResidentBytes,
     long MaxWorkspaceRetainedImageBytes);
 
+internal sealed class BrowserPackageWorkspaceTestHooks
+{
+    internal Action? CoordinatesValidatedBeforeConstructionLease { get; init; }
+}
+
 internal sealed record BrowserPackageDocumentEntry(
     string Kind,
     string Name,
@@ -1206,7 +1211,22 @@ internal static class BrowserPackageWorkspace
     /// </remarks>
     public static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
         IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken = default) =>
+        OpenScopeAsync(coordinates, cancellationToken, testHooks: null);
+
+    internal static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        BrowserPackageWorkspaceTestHooks testHooks,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(testHooks);
+        return OpenScopeAsync(coordinates, cancellationToken, testHooks);
+    }
+
+    static Task<BrowserScopeLease<BrowserInspectionScope>> OpenScopeAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken,
+        BrowserPackageWorkspaceTestHooks? testHooks)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
         if (coordinates.Count == 0)
@@ -1217,7 +1237,7 @@ internal static class BrowserPackageWorkspace
             ? new BoundScopeDemand(binding)
             : new CompositeScopeDemand(
                 [.. exact.Select(coordinate => coordinate.Key).Order(StringComparer.Ordinal)]);
-        return OpenPackageScopeAsync(demand, exact, cancellationToken);
+        return OpenPackageScopeAsync(demand, exact, cancellationToken, testHooks: testHooks);
     }
 
     /// <summary>
@@ -1254,13 +1274,13 @@ internal static class BrowserPackageWorkspace
         ScopeDemand demand,
         ImmutableArray<BrowserPackageCoordinate> coordinates,
         CancellationToken cancellationToken,
-        bool requireExactCoordinatesOnJoin = true)
+        bool requireExactCoordinatesOnJoin = true,
+        BrowserPackageWorkspaceTestHooks? testHooks = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var construction = new PackageLeaseSet();
-        ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
-        foreach (string packageKey in packageKeys)
-            construction.Lease(packageKey);
+        ImmutableHashSet<string> packageKeys =
+            construction.RetainCoordinates(coordinates, testHooks);
 
         ScopeAdmission admission = await ReserveScopeEntryAsync(
                 PackageScopeKey(coordinates),
@@ -1913,7 +1933,7 @@ internal static class BrowserPackageWorkspace
             coordinate = new BrowserPackageCoordinate(
                 package,
                 package.CreateRootBinding(targetFramework));
-            RetainCoordinatePackages([coordinate]);
+            acquired.RetainCoordinates([coordinate]);
         }
         catch
         {
@@ -2719,43 +2739,6 @@ internal static class BrowserPackageWorkspace
             string.IsNullOrWhiteSpace(declaredRange)
                 ? "*"
                 : declaredRange);
-    static ImmutableHashSet<string> RetainCoordinatePackages(
-        IReadOnlyList<BrowserPackageCoordinate> coordinates)
-    {
-        ImmutableHashSet<string> packageKeys = coordinates
-            .Select(PackageKey)
-            .ToImmutableHashSet(StringComparer.Ordinal);
-        if (packageKeys.Count > MaxCachedPackages)
-        {
-            throw new InvalidOperationException(
-                "The requested workspace's package count exceeds the browser package-cache limit.");
-        }
-
-        lock (CacheSync)
-        {
-            foreach (BrowserPackageCoordinate coordinate in coordinates)
-            {
-                string packageKey = PackageKey(coordinate);
-                if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
-                    || !ReferenceEquals(
-                        entry.Bytes,
-                        coordinate.Package.RetainedBytes)
-                    || !ReferenceEquals(
-                        entry.Content.GenerationIdentity,
-                        coordinate.Package.Content.GenerationIdentity))
-                {
-                    throw new InvalidOperationException(
-                        "A resolved browser package escaped aggregate cache accounting before its "
-                        + "workspace opened.");
-                }
-            }
-
-            RetainPackageKeysUnsafe(packageKeys);
-        }
-
-        return packageKeys;
-    }
-
     static void RetainPackageKeys(ImmutableHashSet<string> packageKeys)
     {
         lock (CacheSync)
@@ -3087,15 +3070,18 @@ internal static class BrowserPackageWorkspace
     static void LeasePackage(string packageKey)
     {
         lock (CacheSync)
+            LeasePackageUnsafe(packageKey);
+    }
+
+    static void LeasePackageUnsafe(string packageKey)
+    {
+        if (!Cache.ContainsKey(packageKey))
         {
-            if (!Cache.ContainsKey(packageKey))
-            {
-                throw new InvalidOperationException(
-                    "A package must be cached before it can be leased.");
-            }
-            Leases[packageKey] =
-                Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
+            throw new InvalidOperationException(
+                "A package must be cached before it can be leased.");
         }
+        Leases[packageKey] =
+            Leases.TryGetValue(packageKey, out int count) ? count + 1 : 1;
     }
 
     static void ReleasePackageLease(string packageKey)
@@ -3115,6 +3101,49 @@ internal static class BrowserPackageWorkspace
     {
         HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
 
+        internal ImmutableHashSet<string> RetainCoordinates(
+            IReadOnlyList<BrowserPackageCoordinate> coordinates,
+            BrowserPackageWorkspaceTestHooks? testHooks = null)
+        {
+            ObjectDisposedException.ThrowIf(_packageKeys is null, this);
+            ImmutableHashSet<string> packageKeys = coordinates
+                .Select(PackageKey)
+                .ToImmutableHashSet(StringComparer.Ordinal);
+            if (packageKeys.Count > MaxCachedPackages)
+            {
+                throw new InvalidOperationException(
+                    "The requested workspace's package count exceeds the "
+                        + "browser package-cache limit.");
+            }
+
+            lock (CacheSync)
+            {
+                foreach (BrowserPackageCoordinate coordinate in coordinates)
+                {
+                    string packageKey = PackageKey(coordinate);
+                    if (!Cache.TryGetValue(packageKey, out CacheEntry? entry)
+                        || !ReferenceEquals(
+                            entry.Bytes,
+                            coordinate.Package.RetainedBytes)
+                        || !ReferenceEquals(
+                            entry.Content.GenerationIdentity,
+                            coordinate.Package.Content.GenerationIdentity))
+                    {
+                        throw new InvalidOperationException(
+                            "A resolved browser package escaped aggregate cache accounting before "
+                            + "its workspace opened.");
+                    }
+                }
+
+                testHooks?.CoordinatesValidatedBeforeConstructionLease?.Invoke();
+                foreach (string packageKey in packageKeys)
+                    LeaseUnsafe(packageKey);
+                RetainPackageKeysUnsafe(packageKeys);
+            }
+
+            return packageKeys;
+        }
+
         internal void Lease(BrowserPackageCoordinate coordinate)
         {
             ArgumentNullException.ThrowIfNull(coordinate);
@@ -3125,16 +3154,23 @@ internal static class BrowserPackageWorkspace
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
             ObjectDisposedException.ThrowIf(_packageKeys is null, this);
-            if (!_packageKeys.Add(packageKey))
+            lock (CacheSync)
+                LeaseUnsafe(packageKey);
+        }
+
+        private void LeaseUnsafe(string packageKey)
+        {
+            HashSet<string> packageKeys = _packageKeys!;
+            if (!packageKeys.Add(packageKey))
                 return;
 
             try
             {
-                LeasePackage(packageKey);
+                LeasePackageUnsafe(packageKey);
             }
             catch
             {
-                _packageKeys.Remove(packageKey);
+                packageKeys.Remove(packageKey);
                 throw;
             }
         }
