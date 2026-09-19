@@ -186,6 +186,30 @@ contracts.
 Add envelope fields only for demonstrated cross-host concerns with one typed
 meaning. Do not add a generic metadata, extension, or action dictionary.
 
+### Use one Document for correlated semantic parts
+
+When one completed inspection needs several independently meaningful parts to
+remain understandable, use the
+[multi-part inspection document](design/multi-part-inspection-documents.md)
+pattern. The inspection owner issues one typed, resource-free Document as
+`TContent`; it does not put omitted renderer data in an envelope-level
+`extra` property or a generic auxiliary stream.
+
+Sections may project the Document's outcome, evidence, coverage, failures, or
+other owner-defined parts independently. An authored category may compose
+several of those sections into a coherent report. The category remains a
+selection and presentation construct: it neither owns facts nor replaces the
+Document.
+
+Keep document-local joins distinct from portable identity. An interactive host
+may select a local node or row in one exact Document revision, but a follow-up
+operation resolves that selection to owner-issued identity or another portable
+request before leaving the Document.
+
+Use a multi-part Document only when the composition is the meaningful
+host-observable unit. A lightweight scalar answer or one homogeneous row
+population does not need a wrapper merely to follow the pattern.
+
 When an inspection has supplemental service facts that would help developers
 explain a plausible wrong result or validate that a claimed path actually ran,
 define a distinct evidence-enabled entry point returning

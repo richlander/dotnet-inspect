@@ -415,11 +415,13 @@ provide the phase distinction and non-retention boundary.
 `ArtifactAssemblyInspection.Project` consumes `ArtifactAdmissionContentView`.
 `ArtifactAssemblyInspection.Execute<TResult>` consumes
 `ArtifactQueryContentView`, the published projection, and a synchronous
-producer over `AssemblyInspectionSession`. Each operation pins the borrowed
-span only for its reader lifetime; query session disposal also occurs inside
-that pin. This adapts the owner's retained image without another full-image
-copy or a source reopen. The producer must return materialized results rather
-than deferred work or session-bound objects.
+producer over `AssemblyInspectionSession`. Each operation uses the view's
+zero-copy seekable-stream adapter only for its reader lifetime; query session
+disposal also occurs inside that adapter callback. The adapter disposes the
+stream and drops its image reference before returning. This adapts the owner's
+retained image without another full-image copy or a source reopen. The producer
+must return materialized results rather than deferred work or session-bound
+objects.
 
 The outer composition calls
 `ArtifactAssemblyProjectionOutcome.FromAccess` or

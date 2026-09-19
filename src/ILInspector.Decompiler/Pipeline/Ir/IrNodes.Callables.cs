@@ -114,6 +114,15 @@ public sealed class DelegateCreation : IrExpression
     public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
 
+    /// <summary>
+    /// The compiler's lazy static cache was collapsed around this creation.
+    /// A target-typed method-group conversion can therefore regenerate the
+    /// cache; an ordinary explicit construction must retain <c>new D(...)</c>.
+    /// </summary>
+    public bool HasCollapsedCompilerCache { get; private set; }
+
+    internal void MarkCollapsedCompilerCache() => HasCollapsedCompilerCache = true;
+
     /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
     internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
         => Method = Method with { LocalFunctionRaise = state };

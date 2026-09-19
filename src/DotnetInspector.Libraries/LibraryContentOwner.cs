@@ -555,7 +555,7 @@ public sealed class LibraryContentOwner : IAsyncDisposable
         return state.Callback(
             new LibraryContentView(
                 state.Content,
-                artifact.Content),
+                artifact),
             state.State,
             cancellationToken);
     }
@@ -603,10 +603,10 @@ public sealed class LibraryContentOwner : IAsyncDisposable
             new LibraryContentPairView(
                 new(
                     state.First,
-                    state.FirstArtifact.Content),
+                    state.FirstArtifact),
                 new(
                     state.Second,
-                    second.Content)),
+                    second)),
             state.State,
             cancellationToken);
     }
@@ -697,14 +697,27 @@ public readonly ref struct LibraryContentView
 {
     internal LibraryContentView(
         LibraryContentReference reference,
-        ReadOnlySpan<byte> content)
+        ArtifactContentView content)
     {
         Reference = reference;
-        Content = content;
+        _content = content;
     }
 
+    private readonly ArtifactContentView _content;
+
     public LibraryContentReference Reference { get; }
-    public ReadOnlySpan<byte> Content { get; }
+    public ReadOnlySpan<byte> Content => _content.Content;
+
+    /// <summary>
+    /// Uses a zero-copy seekable stream only for the synchronous callback.
+    /// </summary>
+    /// <remarks>
+    /// The stream is disposed and drops the retained image before this method
+    /// returns. The callback result must be detached or independently owned.
+    /// </remarks>
+    public TResult UseReadStream<TResult>(
+        Func<Stream, TResult> callback) =>
+        _content.UseReadStream(callback);
 }
 
 /// <summary>

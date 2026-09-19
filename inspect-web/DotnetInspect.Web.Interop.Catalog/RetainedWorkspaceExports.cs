@@ -56,6 +56,76 @@ public static partial class CatalogExports
             BrowserCatalogJsonContext.Default
                 .BrowserRetainedWorkspaceSettlementResult);
     }
+
+    [JSExport]
+    public static string RecordRetainedWorkspaceNavigationInstallation(
+        string realizationId,
+        double publicationOrdinal,
+        string session,
+        string revision,
+        string intent,
+        string epoch) =>
+        BrowserRetainedWorkspaceActivationService
+            .RecordConsumerInstallation(
+                realizationId,
+                RequirePublicationOrdinal(publicationOrdinal),
+                new(session, revision, intent, epoch));
+
+    [JSExport]
+    public static bool ValidateRetainedWorkspaceNavigationAuthority(
+        string realizationId,
+        double publicationOrdinal,
+        string session,
+        string revision,
+        string intent,
+        string epoch) =>
+        BrowserRetainedWorkspaceActivationService
+            .ValidateNavigationAuthority(
+                realizationId,
+                RequirePublicationOrdinal(publicationOrdinal),
+                new(session, revision, intent, epoch));
+
+    [JSExport]
+    public static string AcknowledgeRetainedWorkspaceNavigation(
+        string realizationId,
+        double publicationOrdinal,
+        string session,
+        string revision,
+        string intent,
+        string epoch) =>
+        BrowserRetainedWorkspaceActivationService.Acknowledge(
+            realizationId,
+            RequirePublicationOrdinal(publicationOrdinal),
+            new(session, revision, intent, epoch));
+
+    [JSExport]
+    public static string AbandonRetainedWorkspaceNavigation(
+        string realizationId,
+        double publicationOrdinal,
+        string session,
+        string revision,
+        string intent,
+        string epoch) =>
+        BrowserRetainedWorkspaceActivationService.Abandon(
+            realizationId,
+            RequirePublicationOrdinal(publicationOrdinal),
+            new(session, revision, intent, epoch));
+
+    static long RequirePublicationOrdinal(double value)
+    {
+        const double maximumSafeInteger = 9_007_199_254_740_991d;
+        if (!double.IsFinite(value)
+            || value < 0
+            || value > maximumSafeInteger
+            || Math.Truncate(value) != value)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                "The publication ordinal must be a non-negative safe integer.");
+        }
+
+        return checked((long)value);
+    }
 }
 
 [SupportedOSPlatform("browser")]
@@ -137,7 +207,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                 new(
                     "cleanupFailed",
                     Settlement(failed.Settlement),
-                    "The active Workspace could not be settled."),
+                    failed.NavigationFailure
+                        ?? "The active Workspace could not be settled."),
             DotnetInspect.Web.BrowserRetainedWorkspaceDeactivationResult
                     .NoEffect =>
                 new("noEffect", null, null),
@@ -149,6 +220,45 @@ internal static class BrowserRetainedWorkspaceActivationService
         };
         return result;
     }
+
+    internal static string RecordConsumerInstallation(
+        string realizationId,
+        long publicationOrdinal,
+        NavigationEffectAuthority authority) =>
+        AuthorityResult(
+            _owner.RecordConsumerInstallation(
+                realizationId,
+                publicationOrdinal,
+                authority));
+
+    internal static bool ValidateNavigationAuthority(
+        string realizationId,
+        long publicationOrdinal,
+        NavigationEffectAuthority authority) =>
+        _owner.ValidateNavigationAuthority(
+            realizationId,
+            publicationOrdinal,
+            authority);
+
+    internal static string Acknowledge(
+        string realizationId,
+        long publicationOrdinal,
+        NavigationEffectAuthority authority) =>
+        AuthorityResult(
+            _owner.Acknowledge(
+                realizationId,
+                publicationOrdinal,
+                authority));
+
+    internal static string Abandon(
+        string realizationId,
+        long publicationOrdinal,
+        NavigationEffectAuthority authority) =>
+        AuthorityResult(
+            _owner.Abandon(
+                realizationId,
+                publicationOrdinal,
+                authority));
 
     internal static async Task<BrowserRetainedWorkspaceSettlementResult>
         ObserveSettlementAsync(
@@ -191,21 +301,24 @@ internal static class BrowserRetainedWorkspaceActivationService
                     "The packet activation export cannot project a non-packet retained definition."),
             installation.RealizationId,
             installation.PublicationOrdinal,
-            new(
-                installation.Navigation.ActiveStateIndex,
-                [
-                    .. installation.Navigation.States.Select(
-                        static state =>
-                            new BrowserRetainedWorkspaceView(
-                                state.NavigationId,
-                                state.SubjectKind,
-                                state.Facet)),
-                ]),
+            BrowserCatalogWireProjection.Project(installation.Navigation),
+            [
+                .. installation.Packages.Select(
+                    static package =>
+                        new BrowserRetainedWorkspacePackage(
+                            package.NavigationId,
+                            package.ConsumerPackageSubjectId,
+                            BrowserCatalogWireProjection.Project(
+                                package.Surface))),
+            ],
             installation.Predecessor is null
                 ? null
                 : new(
                     installation.Predecessor.SettlementId,
-                    installation.Predecessor.Retirement.Reason.ToString()));
+                    installation.Predecessor.Retirement.Reason.ToString()),
+            installation.Cleanup is null
+                ? null
+                : new(installation.Cleanup.Message));
 
     static BrowserRetainedWorkspaceSettlement Settlement(
         WorkspaceRealizationSettlement settlement) =>
@@ -213,4 +326,15 @@ internal static class BrowserRetainedWorkspaceActivationService
             settlement.Succeeded,
             settlement.Reason.ToString(),
             settlement.Failure?.Message);
+
+    static string AuthorityResult(NavigationAuthorityResult result) =>
+        result switch
+        {
+            NavigationAuthorityResult.Accepted => "accepted",
+            NavigationAuthorityResult.InvalidAuthority => "invalidAuthority",
+            NavigationAuthorityResult.InstallationRequired =>
+                "installationRequired",
+            _ => throw new InvalidOperationException(
+                "Navigation authority settlement returned an unknown result."),
+        };
 }
