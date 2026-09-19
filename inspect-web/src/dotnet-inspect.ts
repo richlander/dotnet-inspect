@@ -4503,6 +4503,7 @@ function openMemberGroup(key: string) {
 function enterMemberScope() {
   const type = selectedType();
   if (!type) return false;
+  const preserveAggregate = aggregateLibrarySubjectIsActive();
   const groups = memberGroups(type);
   if (!groups.length) {
     state.memberBrowseTypeId = "";
@@ -4510,7 +4511,8 @@ function enterMemberScope() {
   }
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
-  state.libraryScope = new Set([libraryKey(type)]);
+  if (!preserveAggregate)
+    state.libraryScope = new Set([libraryKey(type)]);
   state.lens = "api";
   state.memberBrowseTypeId = type.id;
   const visible = visibleMemberGroups(type);
@@ -5210,7 +5212,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const callGraphPageContext =
     activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
-  const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
+  const subjectPathLabel = subjectPath.map(segment =>
+    segment.qualifier
+      ? `${segment.label} · ${segment.qualifier}`
+      : segment.label).join(" > ");
   const contentFrameEnabled = activeScope !== "workspace";
   const contentNavigationLabel =
     activeScope === "package"

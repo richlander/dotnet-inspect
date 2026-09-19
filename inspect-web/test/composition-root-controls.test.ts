@@ -565,6 +565,9 @@ test("typed package view owns package navigation bindings", () => {
     appSource,
     /function bindLibrarySubjectNavEvents\(\) \{[\s\S]*selectAggregateLibrarySubject\(\{ preserveLens: true \}\)[\s\S]*selectLibrarySubject\(id, \{ preserveLens: true \}\)/);
   assert.match(
+    appSource,
+    /function enterMemberScope\(\) \{[\s\S]*const preserveAggregate = aggregateLibrarySubjectIsActive\(\);[\s\S]*if \(!preserveAggregate\)\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+  assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
   for (const source of [kindJump, namespaceJump]) {

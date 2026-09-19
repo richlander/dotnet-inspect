@@ -359,6 +359,16 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
     .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator(".subject-path-segment").nth(2))
     .toHaveAccessibleName("Copy type name Example.Widget");
+  await expect(page.locator(".subject-path"))
+    .toHaveAttribute(
+      "aria-label",
+      "Example.Package > All libraries > Example.Widget · "
+      + "Example.Shared · lib/net10.0/left/Example.Shared.dll");
+  await expect(page.locator(".subject-path"))
+    .toHaveAttribute(
+      "title",
+      "Example.Package > All libraries > Example.Widget · "
+      + "Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/left/Example.Shared.dll");
   await chooseSubject(page, "library", "Library");
@@ -371,6 +381,16 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator(".subject-path-segment").nth(2))
     .toHaveAccessibleName("Copy type name Example.Widget");
+  await expect(page.locator(".subject-path"))
+    .toHaveAttribute(
+      "aria-label",
+      "Example.Package > All libraries > Example.Widget · "
+      + "Example.Shared · lib/net10.0/right/Example.Shared.dll");
+  await expect(page.locator(".subject-path"))
+    .toHaveAttribute(
+      "title",
+      "Example.Package > All libraries > Example.Widget · "
+      + "Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
 
@@ -402,6 +422,24 @@ test("aggregate Type navigation qualifies only colliding Types by defining Libra
     .toHaveText("Example.Shared · lib/net10.0/right/Example.Shared.dll");
   await expect(page.locator("#inspector-panel [data-type-library]"))
     .toHaveText("· Example.Shared · lib/net10.0/right/Example.Shared.dll");
+});
+
+test("aggregate Library remains active through Member entry and return", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await chooseSubject(page, "library", "Library");
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]').click();
+
+  await chooseSubject(page, "member", "Member");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("All libraries");
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(".subject-path-segment").nth(1))
+    .toHaveText("All libraries");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
 });
 
 for (const subject of ["Package", "Library"]) {
