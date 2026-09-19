@@ -589,6 +589,22 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(rowSelectionError!);
                 return 1;
             }
+            RowSelectionIntent<string>? referenceRowSelection = null;
+            if (LibraryReferenceRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    referencesOption,
+                    asmTfmOption)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library reference",
+                        out referenceRowSelection,
+                        out string? referenceRowSelectionError))
+            {
+                CommandError.Write(referenceRowSelectionError!);
+                return 1;
+            }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
@@ -671,10 +687,13 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
+                    && referenceRowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
+                ReferenceRowSelection =
+                    referenceRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -705,6 +724,29 @@ public static class InspectionCommandDefinitions
             result => CloneCandidateRowSelectionAdoption.IsActive(
                 result,
                 opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => LibraryReferenceRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                referencesOption,
+                asmTfmOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

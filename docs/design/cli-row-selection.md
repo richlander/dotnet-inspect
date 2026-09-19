@@ -956,6 +956,54 @@ receipt, and disclosure are companion evidence, not additional selectable row
 sets. A rejected, unsupported, limit-reached, or failed retrieval remains
 visible and nonzero rather than being replaced by a row-selection failure.
 
+## Library References adoption
+
+An exact `library -S References` request declares one semantic row per complete
+direct `AssemblyReference`. The legacy `--references` alias reaches the same
+declaration. Local-file, package-backed, and platform-library resolution,
+metadata acquisition, and the complete assembly-reference Finding census
+finish before the references are ordered by ordinal assembly name and
+Head/Tail or strict Window stages select from that vector.
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    -S References -n 1 --tail --json
+{
+  ...
+  "assembly_info": {
+    ...
+    "references": [
+      {
+        "name": "System.Threading",
+        ...
+      }
+    ]
+  }
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, complete JSON, and Count consume
+the same selected direct-reference identities. Complete JSON selects
+`assembly_info.references`; the complete Finding census and typed reference
+identities remain acquisition evidence, so selection does not claim that
+metadata inspection observed fewer references. A failed reference inspection
+remains visible and nonzero rather than becoming an empty selected vector.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Complete
+JSON rejects rendered-line selection before library resolution. One
+unavailable strict Window withholds every output shape:
+
+```console
+$ dotnet-inspect library System.Text.Json \
+    -S References --rows 999..1000 --json
+Error: Library reference row selection stage 1 requires row 1000, but only 6 direct reference rows are available.
+```
+
+`Reference Hierarchy`, mixed sections, discovery/schema, `--tfm all`,
+print and shape projections, and embedded or aggregate Package Library modes
+remain outside this declaration. Those surfaces retain their existing row
+contracts and use rendered-line fallback for bare `-n`.
+
 ## Clone Candidates adoption
 
 An exact `Clone Candidates` section on `library`, including the delegated
@@ -1362,6 +1410,14 @@ The Match candidate adoption is enforced by:
 | `MatchDiscoveryTests.Similar_TopSelectsCandidateRowsAcrossJsonAndMarkdown`, `Similar_SemanticTailSelectsTheSameCandidateAcrossFormats`, and `Similar_CliTopUsesSharedSemanticSelection` | The completed Analysis-ranked candidate vector receives semantic Top or Tail once before Markdown, table, TSV, JSONL, or JSON lowering, and the real CLI routes `--top` through the shared row-selection grammar. |
 | `MatchDiscoveryTests.Similar_CountObservesTheSelectedCandidateSequence`, `Similar_CliCountObservesSemanticTail`, `Similar_UnavailableSemanticWindowWithholdsOutput`, `Similar_CliUnavailableSemanticWindowWithholdsOutput`, `Similar_SemanticSelectionDoesNotHideRetrievalFailure`, and `Similar_JsonLineSelectionRejectsBeforeSourceResolution` | Count observes selected candidates through both the typed handoff and real CLI; one strict unavailable Window after completed retrieval emits no partial payload; a retrieval failure remains visible instead of becoming a selection failure; complete-JSON line clipping fails before source resolution. |
 | `MatchDiscoveryTests.Similar_MaximumResultsBoundsTheProductRetrievalAndIsReported`, `Similar_MethodOutcomes_AreNotBoundedByTop`, `Similar_Json_IdentifiesEveryMethodOutcomeBehindTheReceiptCounts`, `PairwiseMatch_IsUnchangedWhenSimilarIsNotRequested`, and `Pairwise_InferredLimitRetainsRenderedLineFallback` | Product retrieval limits remain distinct from candidate selection; complete method outcomes and the query receipt remain truthful companion evidence; pairwise Match stays outside the semantic candidate declaration and retains inferred rendered-line selection. |
+
+The Library References adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CommandExecutionTests.LibraryCommand_ReferenceRows_SemanticTailSelectsTheSameReferenceAcrossFormats` and `LibraryCommand_ReferenceRows_PackageBackedSelectionUsesTheCompleteReferenceVector` | One exact References section applies semantic Head/Tail after complete direct-reference acquisition and deterministic ordering; Markdown, table, TSV, JSONL, complete JSON, and Count consume the same selected identity for platform and package-backed libraries. |
+| `CommandExecutionTests.LibraryCommand_ReferenceRows_UnavailableWindowWithholdsOutput`, `LibraryCommand_ReferenceRows_ExplicitLinesClipsRenderedText`, `LibraryCommand_ReferenceRows_ExplicitLinesRejectJsonBeforeAcquisition`, and `LibraryCommand_DirectReferenceFailure_RemainsVisible` | One unavailable strict Window emits no partial payload, explicit Lines clips rendered table text, complete-JSON line selection fails before library resolution, and semantic selection does not hide a failed Finding inspection. |
+| Exact activation checks in `LibraryReferenceRowSelectionAdoption` plus existing mixed-section, Reference Hierarchy, and all-TFM Library command tests | Mixed sections, Reference Hierarchy, and all-TFM package inspection remain outside the declaration and retain their existing row contracts. |
 
 The Clone Candidates adoption is enforced by:
 

@@ -26,6 +26,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InertText;
+using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -993,6 +994,8 @@ public partial class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
+                if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1232,6 +1235,13 @@ public partial class LibraryCommand
                                 inspectedContentHash,
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
+                if (inspections.Count == 1
+                    && !TrySelectAssemblyReferences(
+                        inspections[0],
+                        options.ReferenceRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -1420,6 +1430,8 @@ public partial class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
+                if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -2223,6 +2235,46 @@ public partial class LibraryCommand
             Select = select.Count > 0 ? [.. select] : null,
             SelectDefault = select.Count > 0 ? false : options.SelectDefault,
         };
+    }
+
+    private static bool TrySelectAssemblyReferences(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null
+            || inspection.AssemblyReferenceInspection?.Value
+                is not FindingInspection<AssemblyReference>.Complete complete)
+        {
+            return true;
+        }
+
+        AssemblyReference[] references =
+        [
+            .. complete.Findings
+                .Select(static finding => finding.Payload)
+                .OrderBy(
+                    static reference => reference.Name,
+                    StringComparer.Ordinal),
+        ];
+        if (!CliSemanticRowSelection.TrySelect(
+                intent,
+                references,
+                "Library references",
+                failure =>
+                    $"Library reference row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} direct reference "
+                    + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
+                out IReadOnlyList<AssemblyReference> selected))
+        {
+            return false;
+        }
+
+        inspection.AssemblyReferenceDisplayOrder = selected;
+        if (inspection.AssemblyInfo is not null)
+            inspection.AssemblyInfo.References = [.. selected];
+        return true;
     }
 
     /// <summary>
