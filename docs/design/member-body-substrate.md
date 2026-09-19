@@ -187,11 +187,12 @@ reconstruction; this slice neither promotes accessibility nor invents a sibling.
 Public override accessors and non-overriding narrowed accessors remain supported.
 
 Genuine accessor-like methods, actual indexers, and event accessors retain their
-existing representation. A property with its own compiler backing storage
-also retains method form here: existing body projection can spell that storage
-as a property access, and changing only the envelope would introduce recursion.
-Backing-storage recovery and indexer parameter coordination require separate
-body/binding work. This slice does not rewrite body text to compensate.
+existing representation. Unsupported compiler backing storage retains method
+form: existing body projection can spell that storage as a property access, and
+changing only the envelope would introduce recursion. The getter-only
+auto-property subset below is the first independently supported storage slice;
+other backing-storage recovery and indexer parameter coordination require
+separate body/binding work. No rendered expression establishes storage identity.
 An unnamed or differently named setter parameter retains method form, rather
 than inventing an implicit `value` binding. If body projection subsequently
 changes a supported accessor's parameter bindings, composition fails visibly
@@ -224,6 +225,73 @@ the four-view real-library case is `Speed=Slow` (measured above two seconds)
 and runs in daily Deep Inspect plus this slice's focused pre-merge gate.
 `Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` also retains
 the unnamed setter control in its lowered method form.
+
+### Getter-only automatic storage
+
+The same composition owner may replace a selected, proven getter-only
+auto-property body with `get;`. The motivating runtime witness is .NET 11 RC1
+`System.Diagnostics.CodeAnalysis.NotNullIfNotNullAttribute.ParameterName`.
+Its original source is `public string ParameterName { get; }`; retaining the
+lowered `return this.ParameterName` inside a property would recurse.
+
+The proof consumes the complete getter body, not its printed spelling or the
+mere presence of a compiler-shaped field. Metadata must associate the selected
+getter with a non-indexed property without a setter and a matching private,
+readonly compiler-generated backing field. The existing whole-property
+auto-accessor proof supplies association, field-type, staticness, and
+compiler-marker checks. Complete IL must contain only the current receiver
+load (for instance storage), one exact backing-field load, and return, with
+optional no-ops but no locals or exception regions. A generic field reference
+must retain the declaring type's own ordered type arguments, not another
+instantiation's static storage. Explicit storage layout, nonstandard field
+flags, and custom field contracts are outside this subset, including an
+explicit debugger-browsing state other than the compiler's `Never` default.
+
+This consumes no external edge or sibling body: the admitted body has one
+straight-line return and no branches, handlers, temporaries, nested functions,
+or extra calls. The C# compiler recreates its private readonly storage and
+getter. Static and instance storage remain distinct. Initializer/constructor
+reconstruction is not inferred from an accessor; selected source remains a
+member projection, not a reconstructed object initialization lifecycle.
+
+The convention is ordinary C# getter-only automatic-property syntax, as
+described by the [C# auto-property guide][automatic-properties]. The repository's
+whole-property composition is the analogous implementation; selected-member
+composition deliberately does not invent a setter to make a mutable field
+look automatic. Mutable/init properties, non-trivial field-backed bodies,
+unsafe storage, and unproven shapes retain the prior method representation.
+Issue #7748 tracks those remaining storage/binding slices.
+
+The materialized decision belongs to member composition, not the body printer.
+Annotation and overlay comments remain attached to the automatic accessor;
+comment layout does not authorize the replacement. Body-only documents retain
+their existing body and therefore cannot establish the new declaration's
+correctness. The shared composer adopts this behavior in one slice for the
+CLI's four C# views and the member-source/Source Diff path consumed by
+Browser/Wasm; neither host adds a second recognition or formatting path.
+
+`SelectedPropertySourceTests.GetterOnlyAutoPropertyPreservesBackingStorage`
+compiles unchanged product-owned projections in Release and checks that each
+getter has its own readonly storage and no invented setter. Compiler-produced
+instance, static, generic, struct, virtual/override and keyword-name neighbors
+exercise that gate. `UnsupportedBackingStorageRetainsMethodForm` gates the
+mutable/init, computed-body and field-attribute boundaries.
+`AutomaticGetterRetainsAccessorAttributes` gates attribute attachment.
+`ExplicitAutomaticGetterKeepsItsInterfaceBinding` compiles the interface
+implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
+the metadata-only foreign-instantiation and mutable-storage negatives.
+The real-library case is `Speed=Slow` (measured 5.4 seconds in isolation),
+covered by focused pre-merge validation and daily Deep Inspect.
+The CLI four-view case also requires the original
+IL comments to remain visible. The shared-query gate
+`MemberSourceInspection_SelectedAutoGetterUsesSharedStorageComposition`
+exercises the completed Source operation consumed by Browser/Wasm.
+A changed getter load target, additional
+operation lost to `get;`, lost storage readonly/staticness, or newly recursive
+property is a falsifier. Native compile-back evidence is measured separately
+from these source-artifact and binding gates.
+
+[automatic-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/auto-implemented-properties
 
 ## Address: identity, not an ordinal
 

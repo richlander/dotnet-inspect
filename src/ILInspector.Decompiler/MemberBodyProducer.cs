@@ -1506,7 +1506,7 @@ public static class MemberBodyProducer
                         };
                     if (bodyShape is not null
                         && memberHandle is { } accessorHandle
-                        && SelectedPropertyAccessorSource.Create(reader, accessorHandle, member) is { } propertySource)
+                        && SelectedPropertyAccessorSource.Create(pipelineSource, accessorHandle, member) is { } propertySource)
                     {
                         sb.AppendLf(propertySource.Format(
                             type,
@@ -1828,7 +1828,7 @@ public static class MemberBodyProducer
             : body?.Trim() == $"{target} = value;";
     }
 
-    static bool IsCompilerGeneratedAutoProperty(
+    internal static bool IsCompilerGeneratedAutoProperty(
         Pipeline.MetadataSource source,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,

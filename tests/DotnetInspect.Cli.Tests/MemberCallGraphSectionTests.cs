@@ -1481,6 +1481,36 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task SelectedProperty_AutomaticGetterKeepsItsILAcrossCSharpViews()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "ILInspector.Decompiler.Fixtures.SelectedAutoPropertySamples",
+            AssemblyPath = FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath(),
+            MemberFilter = ["Count"],
+            IncludeSections =
+            [
+                SectionNames.DecompiledSource,
+                SectionNames.AnnotatedSource,
+                SectionNames.CostOverlay,
+                SectionNames.SemanticsOverlay,
+            ],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(4, result.Output.Split("public int Count", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, result.Output.Split("get;", StringSplitOptions.None).Length - 1);
+        Assert.Contains("// IL_0000: ldarg.0", result.Output);
+        Assert.Contains("// IL_0001: ldfld", result.Output);
+        Assert.Contains("// IL_0006: ret", result.Output);
+        Assert.DoesNotContain("return this.Count", result.Output);
+        Assert.DoesNotContain("get_Count(", result.Output);
+        Assert.DoesNotContain("declaration formatting failed", result.Output);
+    }
+
+    [Fact]
     public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
     {
         var result = await RunDecompiledAsync(
@@ -1532,7 +1562,7 @@ public class MemberCallGraphSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Decompiled Source", result.Output);
-        Assert.Contains("public virtual string get_Label()", result.Output);
+        Assert.Contains("public virtual string Label { get; }", result.Output);
     }
 
     [Fact]
