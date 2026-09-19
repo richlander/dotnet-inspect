@@ -34,7 +34,7 @@ public class FlagsEnumAccumulatorTests
 
         Assert.Contains(
             "return (int)(FlagCaps64.Protocol\n"
-                + "    | (interactive ? (server & FlagCaps64.Interactive) : FlagCaps64.None)\n"
+                + "    | (interactive ? server & FlagCaps64.Interactive : FlagCaps64.None)\n"
                 + "    | server & FlagCaps64.LoadLocal\n"
                 + "    | FlagCaps64.Secure\n"
                 + "    | server & FlagCaps64.MultiStatements\n"
@@ -108,6 +108,6 @@ public class FlagsEnumAccumulatorTests
         Assert.DoesNotContain("S_1", output);
         Assert.DoesNotContain("FlagCaps64 S_", output);
         // The ternary now appears inline as an operand of the OR chain.
-        Assert.Contains("interactive ? (server & FlagCaps64.Interactive) : FlagCaps64.None", output);
+        Assert.Contains("interactive ? server & FlagCaps64.Interactive : FlagCaps64.None", output);
     }
 }

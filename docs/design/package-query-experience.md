@@ -75,8 +75,8 @@ QueryOutcome       — streamed QueryResultRow[] + semantic candidate outcomes +
                      partial failures + completion state
     |
     v
-QueryResultRow     — one package's metadata/manifest/content projection + which
-                      predicate terms matched + why
+QueryResultRow     — one package's metadata/manifest/content projection +
+                      semantic answers + structured evidence
 ```
 
 This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
@@ -101,8 +101,8 @@ operator, value-kind, and example metadata.
 The Browser and CLI share the first production vocabulary:
 `dependencies=none`, `dependency-target=all|<tfm>`,
 `depends=<package-id>`, `depends-ecosystem=<ecosystem-id>`,
-`downloads=10k|100k|1m`, `readme=true`, `tool=true`,
-`tool-format=v1|v2`, and `skill=true`.
+`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
+`skill=true`.
 The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.
@@ -139,6 +139,10 @@ Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected terms, and starts
 a replacement query when the package input is runnable. Repeated
 `depends` terms remain separate active rows and AND through the product planner.
+`license` is a closed choice. `any` matches a nuspec declaration, `MIT`
+matches the exact SPDX expression, and `OSMF` matches the declared
+`OSMFEULA.*` basename. The Browser does not inspect license content or define
+these mappings in TypeScript.
 The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
 the operand, or infer a term from evidence text. Product-issued term
 attribution remains structured across the Browser engine boundary.
@@ -216,6 +220,7 @@ and
 │ Inspection facts│   1,234,567 downloads · nuget.org                           │
 │ [.NET Tool|v1|v2]                           [ Open in workspace ]              │
 │ No dependencies│  … 99 more (bounded: first 100 matches)                     │
+│ Has license    │                                                             │
 │ 1M+ downloads  │                                                             │
 │ Embedded README│                                                             │
 │ embedded SKILL.md                                                            │
@@ -276,9 +281,10 @@ and
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Query-scoped source-selection context from the
   first row appears once above the current result list. Each card is a compact
-  package summary plus only its package-scoped, product-authored evidence for
-  *why* it matched, including shared count-and-preview explanations for
-  dependencies and embedded skill documents. Metadata-only rows retain their
+  package summary plus direct semantic answers and only its package-scoped
+  structured evidence. The Browser authors compact presentation for shared
+  count-and-preview facts such as dependencies and embedded skill documents.
+  Metadata-only rows retain their
   nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
@@ -683,6 +689,9 @@ and browser-history and focus-return outcomes are proved by
    vocabulary and one Portable Query Intent path shared by CLI and Browser.
    Browser presets and free editors both cross the Worker boundary as explicit
    term triples.
+11. **#7335** adds the closed nuspec-tier `license` term. `any` tests
+    declaration presence; named values such as `MIT` and `OSMF` resolve only
+    from nuspec metadata and perform no package archive acquisition.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

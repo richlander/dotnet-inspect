@@ -536,7 +536,7 @@ export interface BrowserPackageInfoMeasurements {
     readonly packageVersion: string;
     readonly compressedPackageBytes: number | null;
     readonly selectedTargetFramework: string | null;
-    readonly availableTargetFrameworkCount: number | null;
+    readonly availableTargetFrameworks: ReadonlyArray<string> | null;
     readonly selectedTargetFrameworkFolders: ReadonlyArray<string> | null;
     readonly selectedLibraryPayloadBytes: number | null;
     readonly selectedLibraryCount: number | null;
@@ -593,6 +593,11 @@ export interface BrowserPackagePruningSupply {
     readonly package: string;
     readonly version: string;
 }
+export interface BrowserPackageQueryAnswer {
+    readonly id: string;
+    readonly value: string;
+    readonly term: BrowserPackageQueryTerm | null;
+}
 export interface BrowserPackageQueryCancellation {
     readonly kind: BrowserPackageQueryCancellationKind;
     readonly reason: string | null;
@@ -643,10 +648,15 @@ export interface BrowserPackageQueryEvent {
 }
 export interface BrowserPackageQueryEvidence {
     readonly id: string;
-    readonly text: string;
     readonly scope: BrowserPackageQueryEvidenceScope;
     readonly summary: BrowserPackageQueryEvidenceSummary | null;
+    readonly properties: ReadonlyArray<BrowserPackageQueryEvidenceProperty>;
+    readonly number: number | null;
     readonly term: BrowserPackageQueryTerm | null;
+}
+export interface BrowserPackageQueryEvidenceProperty {
+    readonly name: string;
+    readonly value: string;
 }
 export interface BrowserPackageQueryEvidenceSummary {
     readonly count: number;
@@ -721,6 +731,7 @@ export interface BrowserPackageQueryRow {
     readonly packageId: string;
     readonly version: string;
     readonly tier: BrowserPackageQueryAcquisitionTier;
+    readonly answers: ReadonlyArray<BrowserPackageQueryAnswer>;
     readonly evidence: ReadonlyArray<BrowserPackageQueryEvidence>;
     readonly totalDownloads: number | null;
     readonly verified: boolean | null;

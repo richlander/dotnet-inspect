@@ -26,7 +26,18 @@ public class PackageQueryCliTests
         return new(
             new PackageQueryPackage(text, text, [], null, null, source.Source),
             PackageQueryAcquisitionTier.Nuspec,
-            [new(PackageQuery.DependsTermKey, new InertString(TextPolicy.Field, text))]);
+            [new(PackageQuery.DependsTermKey, new InertString(TextPolicy.Field, text))],
+            [
+                new(PackageQuery.DependsTermKey)
+                {
+                    Properties =
+                    [
+                        new(
+                            "value",
+                            new InertString(TextPolicy.Field, text)),
+                    ],
+                },
+            ]);
     }
 
     [Fact]
@@ -38,6 +49,7 @@ public class PackageQueryCliTests
                 PackageQuery.DependencyTargetTermKey,
                 PackageQuery.DependsTermKey,
                 PackageQuery.DependsEcosystemTermKey,
+                PackageQuery.LicenseTermKey,
                 PackageQuery.DownloadsTermKey,
                 PackageQuery.ReadmeTermKey,
                 PackageQuery.ToolTermKey,
@@ -49,6 +61,10 @@ public class PackageQueryCliTests
             ["v1", "v2"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.ToolFormatTermKey).Values);
+        Assert.Equal(
+            ["any", "MIT", "OSMF"],
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.LicenseTermKey).Values);
     }
 
     [Fact]
@@ -139,6 +155,33 @@ public class PackageQueryCliTests
             options.Plan.Terms,
             term => term.Key == PackageQuery.DependencyTargetTermKey
                 && term.Value == value);
+    }
+
+    [Fact]
+    public void LicenseTerm_LowersToTheProductPlan()
+    {
+        Assert.Equal(
+            PackageQuery.LicenseTermKey,
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.LicenseTermKey).Name);
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["license=MIT"],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.LicenseTermKey, term.Key);
+        Assert.Equal("MIT", term.Value);
+        Assert.Equal(
+            PackageQuery.DefaultMaximumCandidates,
+            options.Plan.MaximumCandidates);
     }
 
     [Fact]
@@ -276,6 +319,7 @@ public class PackageQueryCliTests
     [InlineData(
         "depends-ecosystem=ecosystem.platform",
         "Unknown ecosystem")]
+    [InlineData("license=Apache-2.0", "term value is invalid")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
@@ -580,17 +624,101 @@ public class PackageQueryCliTests
         [
             .. match.GetProperty("evidence").EnumerateArray(),
         ];
+        string[] dependencyPreviews =
+        [
+            .. evidence
+                .Where(item =>
+                    item.GetProperty("id").GetString()
+                        == PackageQuery.DependsTermKey)
+                .SelectMany(item =>
+                    item.GetProperty("summary")
+                        .GetProperty("preview")
+                        .EnumerateArray())
+                .Select(item => item.GetString()!),
+        ];
         Assert.Contains(
-            evidence,
-            item => item.GetProperty("value").GetString()!
+            dependencyPreviews,
+            item => item
                 .Contains("Dependency.One 1.0.0", StringComparison.Ordinal));
         Assert.Contains(
-            evidence,
-            item => item.GetProperty("value").GetString()!
+            dependencyPreviews,
+            item => item
                 .Contains("Dependency.Two 2.0.0", StringComparison.Ordinal));
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task LicenseTerm_MatchesManifestWithoutPackageContent()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Contoso.*",
+                ["license=OSMF"],
+                nuspecOnly: true,
+                take: 3,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                options! with
+                {
+                    Tabular = true,
+                    Tsv = true,
+                },
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.DoesNotContain("Contoso.Third", result.Output);
+        Assert.Contains(
+            "\tOSMF\n",
+            result.Output.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain("Nuspec license", result.Output);
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+
+        using var jsonSource = Source(out var jsonFixture);
+        var jsonResult = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                options! with
+                {
+                    JsonOutput = true,
+                    Tabular = false,
+                    Tsv = false,
+                },
+                jsonSource,
+                null));
+
+        Assert.Equal(0, jsonResult.ExitCode);
+        using var json = JsonDocument.Parse(jsonResult.Output);
+        JsonElement row = Assert.Single(
+            json.RootElement.GetProperty("results").EnumerateArray());
+        JsonElement answer = Assert.Single(
+            row.GetProperty("answers").EnumerateArray());
+        Assert.Equal("OSMF", answer.GetProperty("value").GetString());
+        JsonElement licenseEvidence = Assert.Single(
+            row.GetProperty("evidence").EnumerateArray(),
+            item => item.GetProperty("id").GetString() == "license");
+        JsonElement declarationValue = Assert.Single(
+            licenseEvidence.GetProperty("properties").EnumerateArray(),
+            item =>
+                item.GetProperty("name").GetString() == "declaration-value");
+        Assert.Equal(
+            "OSMFEULA.txt",
+            declarationValue.GetProperty("value").GetString());
+        Assert.Equal(3, jsonFixture.ManifestRequests);
+        Assert.Equal(0, jsonFixture.PackageRequests);
+        Assert.Empty(jsonResult.Error);
     }
 
     [Fact]
@@ -816,6 +944,7 @@ public class PackageQueryCliTests
             "--json");
         Assert.Equal(0, query.ExitCode);
         Assert.Contains("Source", query.Output);
+        Assert.Contains("Answer", query.Output);
         Assert.DoesNotContain("Evidence", query.Output);
 
         var summary = await Run(
@@ -1014,6 +1143,9 @@ public class PackageQueryCliTests
         {
             using var json = JsonDocument.Parse(result.Output);
             Assert.Equal("1.0.0", json.RootElement.GetProperty("version").GetString());
+            Assert.Equal(
+                "Dependency.One",
+                json.RootElement.GetProperty("answer").GetString());
             Assert.False(json.RootElement.TryGetProperty("evidence", out _));
         }
     }
@@ -1062,9 +1194,9 @@ public class PackageQueryCliTests
     }
 
     [Theory]
-    [InlineData("markdown", "| Package | Version | Tier | Source |")]
-    [InlineData("table", "Package  Version  Tier  Source")]
-    [InlineData("tsv", "package\tversion\ttier\tsource")]
+    [InlineData("markdown", "| Package | Version | Tier | Source | Answer |")]
+    [InlineData("table", "Package  Version  Tier  Source  Answer")]
+    [InlineData("tsv", "package\tversion\ttier\tsource\tanswer")]
     [InlineData("jsonl", null)]
     [InlineData("json", "\"packages\": []")]
     public async Task ExplicitPackages_PreservesEmptyPackageShape(
@@ -1889,9 +2021,18 @@ public class PackageQueryCliTests
                     StringComparison.OrdinalIgnoreCase)
                     ? "<dependency id=\"Dependency.One\" version=\"1.0.0\"/>"
                     : "<dependency id=\"Dependency.One\" version=\"1.0.0\"/><dependency id=\"Dependency.Two\" version=\"2.0.0\"/>";
+            string license = id.Equals(
+                    "Contoso.First",
+                    StringComparison.OrdinalIgnoreCase)
+                ? "<license type=\"expression\">MIT</license>"
+                : id.Equals(
+                    "Contoso.Second",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "<license type=\"file\">OSMFEULA.txt</license>"
+                    : "";
             return Encoding.UTF8.GetBytes($"""
                 <package><metadata><id>{id}</id><version>1.0.0</version><authors>Contoso</authors>
-                <description>CLI query fixture</description><dependencies>{dependencies}</dependencies>
+                <description>CLI query fixture</description>{license}<dependencies>{dependencies}</dependencies>
                 </metadata></package>
                 """);
         }

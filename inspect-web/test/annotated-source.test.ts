@@ -1150,6 +1150,45 @@ test("Finding detail does not turn an incomplete empty cycle census into absence
   assert.doesNotMatch(html, /not recursive/);
 });
 
+test("Finding detail renders typed synchronous completion without a runtime claim", () => {
+  const { source, factId } = callCycleRelationshipResult({
+    available: true,
+    unavailableReason: null,
+    isComplete: true,
+    limits: [],
+    findings: [],
+  });
+  const completionResult: AnnotatedSourceResult = {
+    ...source,
+    viewerCatalog: {
+      ...source.viewerCatalog,
+      synchronousCompletions: {
+        available: true,
+        unavailableReason: null,
+        observations: [{
+          factId,
+          kind: "TaskAwaiterGetResult",
+        }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(completionResult);
+  const html = renderAnnotatedSourceModal({
+    result: completionResult,
+    session: selectFinding(
+      createEmbeddedSession(model),
+      { kind: "inspector", factId },
+    ),
+    escapeHtml,
+  });
+
+  assert.match(html, /<h4>Synchronous completion<\/h4>/);
+  assert.match(html, /Task awaiter GetResult/);
+  assert.match(html, /may block the current thread when the task is incomplete/);
+  assert.match(html, /no runtime blocking or duration was measured/);
+  assert.doesNotMatch(html, /blocks the current thread awaiting/);
+});
+
 test("Finding detail presents method-level callee evidence without an invented line", () => {
   const source = methodCostEvidenceResult();
   const model = createAnnotatedSourceViewerModel(source);
@@ -1217,6 +1256,11 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         isComplete: false,
         limits: [],
         findings: [],
+      },
+      synchronousCompletions: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
       },
     },
     findingEvidenceDocuments: [],

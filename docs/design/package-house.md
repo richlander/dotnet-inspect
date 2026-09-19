@@ -72,7 +72,11 @@ consume this detached listing, request prerelease and unlisted evidence, and
 apply their existing exact NuGet match over its rows. A matching pin remains
 usable with visible partial-source diagnostics; a missing pin is not declared
 absent when a configured authority failed, except when the failure concerns
-listing state rather than version existence. Raw listing may publish
+listing state rather than version existence. Online bare `package Package
+--version` is an authoritative at-most-one-row projection over the same
+listing, preserving stable filtering, optional prerelease and unlisted rows,
+and successful empty output. It remains a listing rather than explicit
+`@latest` coordinate settlement. Raw listing may publish
 usable partial rows because it selects no coordinate; source failures remain
 visible and cannot become authoritative absence. Inspect Web's
 `BrowserPackageVersionInventory` is the second host adopter under
@@ -371,8 +375,16 @@ requests prerelease and unlisted rows, applies the existing exact NuGet
 release-version match over detached Content, and uses typed partial authority
 failures to distinguish unavailable version evidence from incomplete listing
 state. The direct desktop version-discovery call is retired from that exact-
-pinned path. Latest selection, range vectors and cells, offline queries, and
-payload acquisition remain outside this listing operation.
+pinned path.
+
+Online bare CLI `package Package --version` is the fourth production adopter.
+It requires authoritative Content and projects at most the first ordered row
+while preserving stable filtering, optional prerelease and unlisted rows, and
+successful empty output. This remains single-version listing rather than
+explicit `@latest` coordinate selection. The direct desktop version-discovery
+call is retired from that bare path. Latest selection, range vectors and cells,
+offline queries, and payload acquisition remain outside this listing
+operation.
 
 ## Version-population settlement
 
@@ -576,7 +588,7 @@ The selected-slice measurement projection joins only evidence from that same
 acquisition generation and compile selection receipt. It reports:
 
 - the retained compressed package archive length;
-- the selected framework and available compile-slice count;
+- the selected framework and ordered available compile frameworks;
 - the ordered, distinct top-level package folders whose admitted entry paths
   contain the selected asset-folder framework as a directory segment;
 - one uncompressed payload length for every selected compile asset; and
@@ -591,7 +603,9 @@ empty-group marker is not content.
 Folder names are package-authored, sink-bound text. A host-neutral projection
 carries each name as `InertString` under `TextPolicy.Field`; structured formats
 retain the collection as an array rather than collapsing it into presentation
-text.
+text. Available framework identities originate in the same package-authored
+paths and use the same containment before crossing the Package Info inspection
+boundary.
 
 One selected compile asset represents one Library measurement. When the
 selector supplies a distinct implementation counterpart, including a
@@ -614,12 +628,13 @@ correspondence.
 
 The host-neutral Package Info inspection lowers that typed projection into one
 `InspectionEnvelope<PackageInfoMeasurements>`. Its content carries the package
-size, selected framework, available-framework count, selected-framework folder
-inventory, selected payload size, selected Library count, and typed non-success
-state. The in-process content also retains the resource-free measurement
-outcome so the acquisition generation and compile-selection receipt remain
-available without retaining package content. Hosts consume these fields rather
-than reselecting assets or deriving measurements from extracted paths.
+size, selected framework, ordered available-framework list, selected-framework
+folder inventory, selected payload size, selected Library count, and typed
+non-success state. The in-process content also retains the resource-free
+measurement outcome so the acquisition generation and compile-selection
+receipt remain available without retaining package content. Hosts consume
+these fields rather than reselecting assets or deriving measurements from
+extracted paths.
 
 CLI configured-source Package Info acquisition requests the compile realization
 as part of its existing package acquisition, so measurement does not download a

@@ -115,6 +115,34 @@ namespace Target
         }
     }
 
+    public static class SynchronousCompletionApi
+    {
+        public static void Wait(Task task) =>
+            task.Wait();
+
+        public static int Result(Task<int> task) =>
+            task.Result;
+
+        public static int AwaiterResult(Task<int> task) =>
+            task.GetAwaiter().GetResult();
+
+        public static int ConfiguredAwaiterResult(Task<int> task) =>
+            task.ConfigureAwait(false).GetAwaiter().GetResult();
+
+        public static int CustomAwaiterResult(CustomAwaitable awaitable) =>
+            awaitable.GetAwaiter().GetResult();
+    }
+
+    public readonly struct CustomAwaitable
+    {
+        public CustomAwaiter GetAwaiter() => new();
+    }
+
+    public readonly struct CustomAwaiter
+    {
+        public int GetResult() => 42;
+    }
+
     public interface IBodilessApi
     {
         void Invoke();
