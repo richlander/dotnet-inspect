@@ -105,12 +105,17 @@ dnx dotnet-inspect -y -- depends NpgsqlOptionsExtension \
 dnx dotnet-inspect -y -- depends \
   --project ./src/App/App.csproj \
   --depth 2 \
-  -S "Dependency Graph,Dependencies"
+  -S "Dependency Hierarchy,Dependencies"
 dnx dotnet-inspect -y -- depends \
   --package Microsoft.Extensions.Hosting@10.0.0 \
   --depth 1 \
   --tree
 ```
+
+For asset roots, `Dependency Hierarchy` preserves one occurrence per
+root-relative parent relationship. Use `Dependencies` for direct declaration
+evidence; use hierarchy table or JSON output when repeated targets and their
+parent context matter.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits

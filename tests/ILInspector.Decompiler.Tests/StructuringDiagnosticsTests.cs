@@ -55,12 +55,18 @@ public class StructuringDiagnosticsTests
         // It also has only one explicit transfer to the outer merge, so the
         // retained-label path does not treat fallthrough as proof of sharing.
         var function = BuildForwardBranchNotRegionExit();
+        var diagnostics = new StructuringDiagnostics();
+        var stepper = new Stepper(enabled: true);
 
-        var diag = RunWithDiagnostics(function);
+        new StructuringPass().Run(
+            function,
+            new PassContext(stepper, diagnostics));
 
-        Assert.Equal(0, diag.Structured);
-        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diag.Stops));
-        Assert.Contains("retained-merge-not-shared", diag.RetainedDeclines);
+        Assert.Equal(0, diagnostics.Structured);
+        Assert.Equal("forward-branch-not-region-exit", Assert.Single(diagnostics.Stops));
+        Assert.Contains("retained-merge-not-shared", diagnostics.RetainedDeclines);
+        Assert.Empty(stepper.Steps);
+        function.CheckInvariant();
     }
 
     [Fact]

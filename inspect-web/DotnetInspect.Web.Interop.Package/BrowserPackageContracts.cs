@@ -80,7 +80,7 @@ public sealed record BrowserPackageInfoMeasurements(
     string PackageVersion,
     long? CompressedPackageBytes,
     string? SelectedTargetFramework,
-    int? AvailableTargetFrameworkCount,
+    string[]? AvailableTargetFrameworks,
     string[]? SelectedTargetFrameworkFolders,
     long? SelectedLibraryPayloadBytes,
     int? SelectedLibraryCount,
