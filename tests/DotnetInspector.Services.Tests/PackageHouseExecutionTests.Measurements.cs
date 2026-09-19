@@ -51,7 +51,10 @@ public sealed partial class PackageHouseExecutionTests
             measurements.Status);
         Assert.Equal(archive.LongLength, measurements.CompressedPackageBytes);
         Assert.Equal("net10.0", measurements.SelectedTargetFramework);
-        Assert.Equal(2, measurements.AvailableTargetFrameworkCount);
+        Assert.Equal(
+            ["net10.0", "net8.0"],
+            measurements.AvailableTargetFrameworks!
+                .Select(static framework => framework.ToString()));
         Assert.Equal(
             [@"HOSTILE\u202EMARKER", "tools"],
             measurements.SelectedTargetFrameworkFolders!
@@ -453,11 +456,11 @@ public sealed partial class PackageHouseExecutionTests
             PackageInfoMeasurementJsonContext.Default
                 .InspectionEnvelopePackageInfoMeasurements);
         const string EmptyInventory =
-            "\"availableTargetFrameworkCount\":0";
+            "\"availableTargetFrameworks\":[]";
         Assert.Contains(EmptyInventory, json, StringComparison.Ordinal);
         string contradictory = json.Replace(
             EmptyInventory,
-            "\"availableTargetFrameworkCount\":1",
+            "\"availableTargetFrameworks\":[\"net10.0\"]",
             StringComparison.Ordinal);
 
         Assert.Throws<ArgumentException>(() =>

@@ -97,6 +97,7 @@ dotnet-inspect package dotnet-inspect.any@0.25.0 -S "Package Info"
 Type | Tool
 Selected TFM | net10.0
 Selected-TFM Folders | tools
+TFMs | net10.0
 Selected-TFM Size
 Selected-TFM Library Count
 ```

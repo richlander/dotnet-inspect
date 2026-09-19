@@ -59,7 +59,7 @@ public sealed record PackageInfoMeasurements
         PackageInfoMeasurementStatus status,
         long? compressedPackageBytes,
         string? selectedTargetFramework,
-        int? availableTargetFrameworkCount,
+        IReadOnlyList<InertString>? availableTargetFrameworks,
         IReadOnlyList<InertString>? selectedTargetFrameworkFolders,
         long? selectedLibraryPayloadBytes,
         int? selectedLibraryCount,
@@ -73,7 +73,7 @@ public sealed record PackageInfoMeasurements
             evidence.Evidence.Coordinate.Version,
             compressedPackageBytes,
             selectedTargetFramework,
-            availableTargetFrameworkCount,
+            availableTargetFrameworks,
             selectedTargetFrameworkFolders,
             selectedLibraryPayloadBytes,
             selectedLibraryCount,
@@ -228,7 +228,7 @@ public sealed record PackageInfoMeasurements
             }
         }
         else if (status == PackageInfoMeasurementStatus.NoToolSlices
-            && availableTargetFrameworkCount != 0)
+            && availableTargetFrameworks?.Count != 0)
         {
             throw new ArgumentException(
                 "A no-tool-slices outcome requires an empty target-framework inventory.");
@@ -491,7 +491,10 @@ public static class PackageInfoMeasurementInspection
                     unavailable.PackageMeasurements?.CompressedPackageBytes,
                     selectedTargetFramework: null,
                     unavailable.PackageMeasurements
-                        ?.AvailableTargetFrameworkCount,
+                        ?.AvailableTargetFrameworks
+                        .Select(static framework =>
+                            new InertString(TextPolicy.Field, framework))
+                        .ToArray(),
                     selectedTargetFrameworkFolders: null,
                     selectedLibraryPayloadBytes: null,
                     selectedLibraryCount: null,
@@ -552,7 +555,10 @@ public static class PackageInfoMeasurementInspection
             status,
             measurements.CompressedPackageBytes,
             measurements.SelectedTargetFramework,
-            measurements.AvailableTargetFrameworkCount,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
             measurements.SelectedTargetFrameworkFolders
                 .Select(static folder =>
                     new InertString(TextPolicy.Field, folder))
@@ -572,7 +578,10 @@ public static class PackageInfoMeasurementInspection
             status,
             measurements.CompressedPackageBytes,
             selectedTargetFramework: null,
-            measurements.AvailableTargetFrameworkCount,
+            measurements.AvailableTargetFrameworks
+                .Select(static framework =>
+                    new InertString(TextPolicy.Field, framework))
+                .ToArray(),
             selectedTargetFrameworkFolders: null,
             selectedLibraryPayloadBytes: null,
             selectedLibraryCount: null,

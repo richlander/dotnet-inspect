@@ -207,8 +207,11 @@ public sealed class PackageToolPackageMeasurements
 
     public PackageContentGenerationIdentity Generation => Evidence.Generation;
 
+    public ImmutableArray<string> AvailableTargetFrameworks =>
+        Evidence.AvailableTargetFrameworks;
+
     public int AvailableTargetFrameworkCount =>
-        Evidence.AvailableTargetFrameworks.Length;
+        AvailableTargetFrameworks.Length;
 
     public long CompressedPackageBytes { get; }
 }
@@ -267,8 +270,11 @@ public sealed class PackageToolSliceMeasurements
 
     public string SelectedTargetFramework { get; }
 
+    public ImmutableArray<string> AvailableTargetFrameworks =>
+        Package.AvailableTargetFrameworks;
+
     public int AvailableTargetFrameworkCount =>
-        Package.AvailableTargetFrameworkCount;
+        AvailableTargetFrameworks.Length;
 
     public long CompressedPackageBytes => Package.CompressedPackageBytes;
 

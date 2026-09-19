@@ -950,7 +950,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Contains("| Type | Tool |", output);
             Assert.Contains("| Selected TFM | net10.0 |", output);
             Assert.Contains("| Selected-TFM Folders | tools |", output);
-            Assert.Contains("| TFM Count | 2 |", output);
+            Assert.Contains("| TFMs | net10.0, net8.0 |", output);
             Assert.Contains("| Selected-TFM Size | 28 B |", output);
             Assert.Contains("| Selected-TFM Library Count | 2 |", output);
             Assert.DoesNotContain("| Selected-TFM Status |", output);
