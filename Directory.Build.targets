@@ -24,11 +24,12 @@
   </PropertyGroup>
 
   <!-- Runtime flavor is a property of the published executable, not of dynamic
-       code availability. Define it only for the compilation performed by a
-       NativeAOT publish; ordinary builds of PublishAot projects remain CoreCLR. -->
+       code availability. Define it for a NativeAOT publish compilation and for
+       the matching RID-specific self-contained build consumed by a publish
+       that skips compilation; ordinary builds remain CoreCLR. -->
   <Target Name="DefineDotnetInspectNativeAotCompilation"
           BeforeTargets="CoreCompile"
-          Condition="'$(PublishAot)' == 'true' and '$(_IsPublishing)' == 'true'">
+          Condition="'$(PublishAot)' == 'true' and ('$(_IsPublishing)' == 'true' or ('$(RuntimeIdentifier)' != '' and '$(SelfContained)' == 'true'))">
     <PropertyGroup>
       <DefineConstants>$(DefineConstants);DOTNET_INSPECT_NATIVEAOT</DefineConstants>
     </PropertyGroup>
