@@ -3398,6 +3398,10 @@ function aggregateLibrarySubjectIsActive() {
   return state.rootKind !== "platform" && state.libraryScope === null;
 }
 
+function aggregateLibrarySubjectIsAvailable() {
+  return state.rootKind !== "platform" && packageLibraries().length > 0;
+}
+
 function activeLibrarySubjectName() {
   return aggregateLibrarySubjectIsActive()
     ? "All libraries"
@@ -3488,7 +3492,7 @@ function selectLibrarySubject(
 function selectAggregateLibrarySubject(
   options: { preserveView?: boolean; preserveLens?: boolean } = {},
 ) {
-  if (state.rootKind === "platform") return false;
+  if (!aggregateLibrarySubjectIsAvailable()) return false;
   state.workspaceSubjectOpen = false;
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
@@ -5117,8 +5121,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "metadata";
   const overviewWorkingSurface =
     (activeScope === "package" && state.packageLens === "overview")
-    || (activeScope === "library" && state.libraryLens === "overview"
-      && selectedLibrary() !== null);
+    || (activeScope === "library" && state.libraryLens === "overview");
   const packageDependenciesWorkingSurface =
     activeScope === "package" && state.packageLens === "dependencies";
   const libraryMetadataWorkingSurface =
@@ -5630,6 +5633,27 @@ function renderTypeNavPane(
   current: AppTypeSurface | null | undefined,
   visible: readonly AppTypeSurface[],
 ) {
+  const definingLibraries = new Map<string, string>();
+  if (aggregateLibrarySubjectIsActive() && state.package) {
+    const firstLibraryByDefinition = new Map<string, string>();
+    const collidingDefinitions = new Set<string>();
+    for (const item of state.package.types) {
+      const definition = item.definitionId || item.id;
+      const library = libraryKey(item);
+      const firstLibrary = firstLibraryByDefinition.get(definition);
+      if (firstLibrary !== undefined && firstLibrary !== library)
+        collidingDefinitions.add(definition);
+      else
+        firstLibraryByDefinition.set(definition, library);
+    }
+    const libraryNames = new Map(
+      packageLibraries().map(library => [library.id, library.name]));
+    for (const item of state.package.types) {
+      if (!collidingDefinitions.has(item.definitionId || item.id)) continue;
+      const library = libraryNames.get(libraryKey(item));
+      if (library) definingLibraries.set(item.id, library);
+    }
+  }
   return renderTypeNav({
     current: current ?? null,
     visible,
@@ -5651,6 +5675,7 @@ function renderTypeNavPane(
     filterSummary: typeFilterSummary(),
     escapeHtml,
     typeDisplayName,
+    typeLibraryLabel: item => definingLibraries.get(item.id) ?? "",
     kindIcon,
     shortKind,
   });
@@ -5684,7 +5709,7 @@ function renderScopeBar(
       ? []
       : [state.rootKind];
   const libraryScopeAvailable = state.rootKind !== "platform"
-    ? packageLibraries().length > 0
+    ? aggregateLibrarySubjectIsAvailable()
     : Boolean(selectedLibrary());
   availableScopes ??= [
     ...rootScopes,

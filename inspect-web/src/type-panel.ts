@@ -360,6 +360,7 @@ export interface TypeNavOptions {
   filterSummary: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
+  typeLibraryLabel: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
   shortKind: (kind: string) => string;
 }
@@ -369,7 +370,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
     library, parentSubject, filtersExpanded, filterSummary, escapeHtml,
-    typeDisplayName, kindIcon, shortKind,
+    typeDisplayName, typeLibraryLabel, kindIcon, shortKind,
   } = options;
   return `
     <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
@@ -419,10 +420,11 @@ export function renderTypeNav(options: TypeNavOptions): string {
             </button>
             ${types.map(item => {
               const selected = item.id === current?.id;
+              const definingLibrary = typeLibraryLabel(item);
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${escapeHtml(shortKind(item.kind))}</small>
+                <small>${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${escapeHtml(shortKind(item.kind))}</small>
               </button>`;
             }).join("")}
           </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}

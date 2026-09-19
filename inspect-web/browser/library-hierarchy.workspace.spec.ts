@@ -54,6 +54,11 @@ for (const status of ["NoCompileAssets", "EmptyCompileGroup"] as const) {
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
     await expect(page.locator(".query-notice-text")).toContainText(status);
+    await page.locator(".package-overview-surface").focus();
+    await page.keyboard.press("Enter");
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
+    await expect(subjectTab(page, "library")).toHaveCount(0);
     await page.reload();
     await expect(page.locator(".package-overview-surface h1")).toHaveText(surface.package);
   });

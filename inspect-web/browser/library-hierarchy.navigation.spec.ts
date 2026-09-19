@@ -232,6 +232,11 @@ for (const width of [1440, 800, 390]) {
     await expect(page.locator(
       `.library-subject-list [data-library-subject="${empty.id}"]`))
       .toContainText("0 types");
+    const aggregateOverview = page.locator(".library-overview-surface");
+    expect(await aggregateOverview.boundingBox()).toEqual(
+      await page.locator("#inspector-panel").boundingBox());
+    await expect(page.locator(".detail-pane"))
+      .toHaveClass(/content-navigation-integrated/);
     await selectLibrary(page, other.id);
     await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
     const libraryOverview = page.locator(".library-overview-surface");
@@ -281,6 +286,53 @@ for (const width of [1440, 800, 390]) {
     await expect(libraryOverview.locator(".overview-surface-footer")).toBeVisible();
   });
 }
+
+test("aggregate Type navigation qualifies only colliding Types by defining Library", async ({ page }) => {
+  const collisionCore = { ...core, publicTypes: 2, publicMembers: 2 };
+  const coreWidget = {
+    ...type("Example.Widget", collisionCore),
+    name: "Widget",
+    displayName: "Widget",
+  };
+  const otherWidget = {
+    ...type("Example.Widget", other),
+    name: "Widget",
+    displayName: "Widget",
+  };
+  const neighbor = {
+    ...type("Example.Neighbor", collisionCore),
+    name: "Neighbor",
+    displayName: "Neighbor",
+  };
+  await installFacades(page, {
+    ...surface,
+    assemblies: [collisionCore, other, empty],
+    types: [coreWidget, otherWidget, neighbor],
+    accessibility: [
+      { id: "public", label: "Public", order: 0, isDefault: true, count: 3 },
+    ],
+    totalMembers: 3,
+  });
+  await page.goto(root);
+  await chooseSubject(page, "library", "Library");
+  await chooseSubject(page, "type", "Type");
+
+  await expect(page.locator(
+    `#type-list [data-type="${coreWidget.id}"] small`))
+    .toHaveText("Example.Core · class");
+  await expect(page.locator(
+    `#type-list [data-type="${otherWidget.id}"] small`))
+    .toHaveText("Example.Other · class");
+  await expect(page.locator(
+    `#type-list [data-type="${neighbor.id}"] small`))
+    .toHaveText("class");
+
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "type", "Type");
+  await expect(page.locator(
+    `#type-list [data-type="${otherWidget.id}"] small`))
+    .toHaveText("class");
+});
 
 for (const subject of ["Package", "Library"]) {
   test(`both package icons retain the existing image fallback on ${subject} Overview`, async ({ page }) => {
