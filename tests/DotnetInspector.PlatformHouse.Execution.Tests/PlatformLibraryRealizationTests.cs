@@ -529,17 +529,21 @@ public class PlatformLibraryRealizationTests
             AssemblyReferenceIdentity.FromAssemblyDefinition(
                 reader.GetMetadataReader());
         int opens = 0;
-        PlatformLibraryArtifactMaterializationItem Item() =>
+        PlatformPopulationLibraryArtifactMaterializationItem Item() =>
             new(
-                contribution,
-                new Provenance("reference"),
-                identity,
-                content.LongLength,
-                _ =>
-                {
-                    opens++;
-                    return new MemoryStream(content, writable: false);
-                });
+                new PlatformLibraryArtifactMaterializationItem(
+                    contribution,
+                    new Provenance("reference"),
+                    identity,
+                    content.LongLength,
+                    _ =>
+                    {
+                        opens++;
+                        return new MemoryStream(content, writable: false);
+                    }),
+                new PlatformPopulationMemberAttribution(
+                    Target(),
+                    PlatformPopulationMemberRole.Focus));
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: 1,
             targetCandidates: 0,
@@ -621,7 +625,13 @@ public class PlatformLibraryRealizationTests
                 await PlatformHousePopulationArtifactMaterializer
                     .MaterializeImplementationsAsync(
                         request.Request,
-                        [item],
+                        [
+                            new PlatformPopulationLibraryArtifactMaterializationItem(
+                                item,
+                                new PlatformPopulationMemberAttribution(
+                                    Target(),
+                                    PlatformPopulationMemberRole.Focus)),
+                        ],
                         consumed,
                         "test-platform-population"));
 
@@ -654,19 +664,23 @@ public class PlatformLibraryRealizationTests
             AssemblyReferenceIdentity.FromAssemblyDefinition(
                 reader.GetMetadataReader());
         int opens = 0;
-        PlatformLibraryArtifactMaterializationItem Item(
+        PlatformPopulationLibraryArtifactMaterializationItem Item(
             PlatformSourceContribution.Realization contribution,
             string provenance) =>
             new(
-                contribution,
-                new Provenance(provenance),
-                identity,
-                content.LongLength,
-                _ =>
-                {
-                    opens++;
-                    return new MemoryStream(content, writable: false);
-                });
+                new PlatformLibraryArtifactMaterializationItem(
+                    contribution,
+                    new Provenance(provenance),
+                    identity,
+                    content.LongLength,
+                    _ =>
+                    {
+                        opens++;
+                        return new MemoryStream(content, writable: false);
+                    }),
+                new PlatformPopulationMemberAttribution(
+                    Target(),
+                    PlatformPopulationMemberRole.Focus));
         var consumed = new PlatformHouseConsumedWork(
             sourceOperations: 2,
             targetCandidates: 0,
@@ -867,6 +881,95 @@ public class PlatformLibraryRealizationTests
 
     [Fact]
     public async Task
+        ImplementationPopulationRealizer_PreservesFocusAndBindingSupport()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformFamilyTarget aspNetTarget = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        var request = PopulationRequest(
+            cancellationToken,
+            PlatformViewDemand.Implementation,
+            aspNetTarget);
+        PlatformSourceContribution.Realization contribution =
+            PopulationContribution(
+                request.Request,
+                request.Implementation,
+                PlatformSourceFacet.Implementation);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    contribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    contribution,
+                    typeof(System.Net.Http.HttpClient).Assembly.Location));
+        PlatformPopulationMemberAttribution focus = new(
+            aspNetTarget,
+            PlatformPopulationMemberRole.Focus);
+        PlatformPopulationMemberAttribution support = new(
+            new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                aspNetTarget.TargetFramework,
+                PlatformVersion.Parse("11.0.1")),
+            PlatformPopulationMemberRole.BindingSupport);
+
+        var completed = Assert.IsType<
+            PlatformPopulationRealizationResult.Completed>(
+                await PlatformHousePopulationRealizer
+                    .RealizeImplementationsAsync(
+                        request.Request,
+                        [
+                            artifacts.PopulationSelection(0, focus),
+                            artifacts.PopulationSelection(1, support),
+                        ],
+                        [
+                            artifacts.IssueContentLease(0),
+                            artifacts.IssueContentLease(1),
+                        ],
+                        Consumed(
+                            sourceOperations: 1,
+                            assemblies: 2)));
+
+        Assert.Equal(
+            [
+                PlatformPopulationMemberRole.Focus,
+                PlatformPopulationMemberRole.BindingSupport,
+            ],
+            completed.Value.Members.Select(
+                static member => member.Role));
+        Assert.Equal(
+            [aspNetTarget, support.Target],
+            completed.Value.Members.Select(
+                static member => member.Target));
+        Assert.Equal(
+            [
+                PlatformFamily.AspNetCore,
+                PlatformFamily.DotNetRuntime,
+            ],
+            completed.Value.Libraries.Select(
+                static library =>
+                    Assert.IsType<
+                            ExactLibrarySourceCoordinate.Platform>(
+                            library.SourceCoordinate)
+                        .Population.Family));
+        Assert.Same(
+            completed.Value.Members[0],
+            completed.Receipt.RealizedMembers![0]);
+        Assert.Same(
+            completed.Value.Members[1],
+            completed.Receipt.RealizedMembers![1]);
+
+        Task artifactRetirement = artifacts.BeginRetirement();
+        await completed.Owners[0].DisposeAsync();
+        await completed.Owners[1].DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
         PairedPopulationRealizer_PreservesLosslessUnionAndCorrespondence()
     {
         CancellationToken cancellationToken =
@@ -969,6 +1072,67 @@ public class PlatformLibraryRealizationTests
             await completed.Owners[index].DisposeAsync();
         }
         await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Fact]
+    public async Task
+        PairedPopulationRealizer_RejectsMismatchedMemberAttribution()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformFamilyTarget aspNetTarget = new(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse("net11.0"),
+            PlatformVersion.Parse("11.0.0"));
+        var request = PopulationRequest(
+            cancellationToken,
+            PlatformViewDemand.ReferenceAndImplementation,
+            aspNetTarget);
+        PlatformSourceContribution.Realization referenceContribution =
+            PopulationContribution(
+                request.Request,
+                request.Reference);
+        PlatformSourceContribution.Realization implementationContribution =
+            PopulationContribution(
+                request.Request,
+                request.Implementation,
+                PlatformSourceFacet.Implementation);
+        await using ArtifactFixture artifacts =
+            await ArtifactFixture.CreatePopulationAsync(
+                (
+                    referenceContribution,
+                    typeof(JsonSerializer).Assembly.Location),
+                (
+                    implementationContribution,
+                    typeof(JsonSerializer).Assembly.Location));
+        PlatformPopulationMemberAttribution focus = new(
+            aspNetTarget,
+            PlatformPopulationMemberRole.Focus);
+        PlatformPopulationMemberAttribution support = new(
+            new PlatformFamilyTarget(
+                PlatformFamily.DotNetRuntime,
+                aspNetTarget.TargetFramework,
+                PlatformVersion.Parse("11.0.0")),
+            PlatformPopulationMemberRole.BindingSupport);
+
+        var terminal = Assert.IsType<
+            PlatformPopulationRealizationResult.Terminal>(
+                await PlatformHousePopulationRealizer
+                    .RealizeReferenceAndImplementationAsync(
+                        request.Request,
+                        [artifacts.PopulationSelection(0, focus)],
+                        [artifacts.IssueContentLease(0)],
+                        [artifacts.PopulationSelection(1, support)],
+                        [artifacts.IssueContentLease(1)],
+                        Consumed(
+                            sourceOperations: 2,
+                            assemblies: 2)));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformPopulationRealizationValue>.Rejected>(
+                    terminal.Outcome);
+        await artifacts.BeginRetirement().WaitAsync(cancellationToken);
     }
 
     [Fact]
@@ -1299,6 +1463,8 @@ public class PlatformLibraryRealizationTests
             typeof(PlatformLibraryRealizationValue),
             typeof(PlatformLibraryRealizationReceipt),
             typeof(PlatformPopulationLibraryContentSelection),
+            typeof(PlatformPopulationMemberAttribution),
+            typeof(PlatformPopulationMember),
             typeof(PlatformPopulationRealizationValue),
             typeof(PlatformPopulationRealizationReceipt),
             typeof(ArtifactAssemblyProjection),
@@ -1392,7 +1558,8 @@ public class PlatformLibraryRealizationTests
         PlatformSourceCapabilityIdentity Reference,
         PlatformSourceCapabilityIdentity Implementation) PopulationRequest(
             CancellationToken cancellationToken = default,
-            PlatformViewDemand view = PlatformViewDemand.Reference)
+            PlatformViewDemand view = PlatformViewDemand.Reference,
+            PlatformFamilyTarget? target = null)
     {
         PlatformSourceCapabilityIdentity reference =
             PlatformSourceCapabilityIdentity.Create("reference-pack");
@@ -1421,7 +1588,7 @@ public class PlatformLibraryRealizationTests
             new PlatformHouseRequest(
                 PlatformHouseRequestIdentity.Create(
                     "population-request"),
-                new PlatformTargetDemand.Exact(Target()),
+                new PlatformTargetDemand.Exact(target ?? Target()),
                 new PlatformHouseRequestOrigin.Standalone(
                     PlatformStandaloneOperationIdentity.Create(
                         "standalone")),
@@ -1555,8 +1722,16 @@ public class PlatformLibraryRealizationTests
             new(references[index], projections[index]);
 
         public PlatformPopulationLibraryContentSelection
-            PopulationSelection(int index) =>
-            new(references[index], projections[index]);
+            PopulationSelection(
+                int index,
+                PlatformPopulationMemberAttribution? attribution = null) =>
+            new(
+                references[index],
+                projections[index],
+                attribution
+                    ?? new PlatformPopulationMemberAttribution(
+                        Target(),
+                        PlatformPopulationMemberRole.Focus));
 
         public ArtifactContentLease IssueContentLease(int index)
         {
