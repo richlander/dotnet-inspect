@@ -517,15 +517,11 @@ public sealed class DependsAssetCommandTests
         Assert.Equal(0, ordinary.ExitCode);
         Assert.Empty(ordinary.Error);
         Assert.Equal(0, result.ExitCode);
-        Assert.Empty(result.Output);
-        string[] errorLines = result.Error.Split(
-            Environment.NewLine,
-            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(ordinary.Output, result.Output);
         Assert.Equal(
-            $"Evidence envelope: {sidecar}",
-            errorLines[^2]);
-        string packet = errorLines[^1];
-        Assert.Equal(ordinary.Output.Trim(), packet);
+            $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            result.Error);
+        string packet = result.Output.Trim();
         WorkspaceSharePacket decoded = WorkspaceSharePacketCodec.Decode(
             packet,
             TestContext.Current.CancellationToken);

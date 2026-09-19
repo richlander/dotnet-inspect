@@ -405,7 +405,7 @@ Serialization never recaptures evidence or projects Share.
 | `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
-| `--share[=url\|packet]` | Preserve its existing stderr and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. |
+| `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
 | `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
@@ -461,9 +461,12 @@ delivery succeeds.
 
 Successful attachment publication writes one contained locator line to stderr:
 `Evidence envelope: <effective-path>`. It appears after ordinary diagnostics
-but before an explicitly requested Share scalar that must remain the final
-non-empty stderr line. Failure writes a bounded contained error naming the
-effective path. Raw envelope JSON never enters stderr.
+but before an explicitly requested stderr Share scalar, which remains the final
+non-empty stderr line. During Package Dependencies' documented scalar-only
+migration window, an available Share retains that adopter's stdout channel and
+the locator is its final stderr line; a non-projectable refusal remains the
+final stderr line. Failure writes a bounded contained error naming the effective
+path. Raw envelope JSON never enters stderr.
 
 An owner-issued partial or non-success Content is still serializable content:
 write its complete envelope and retain the operation's exit-status policy.
@@ -478,7 +481,8 @@ status. Progress and host-only notices remain outside the value.
 `Share.NonProjectable` alone does not fail an otherwise successful inspection;
 an explicit `--share` request still follows
 [CLI Workspace sharing](cli-workspace-sharing.md#output-selection), including
-its nonzero refusal and final non-empty stderr line for an available scalar.
+its nonzero refusal and the documented existing-adopter exception for an
+available Package Dependencies scalar.
 
 ### Transport adoption gates
 

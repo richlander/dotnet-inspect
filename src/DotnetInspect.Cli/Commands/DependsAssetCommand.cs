@@ -270,7 +270,7 @@ public partial class DependsCommand
             {
                 exitCode = Math.Max(
                     exitCode,
-                    WorkspaceShareOutput.Write(
+                    WorkspaceShareOutput.WriteScalar(
                         projection.Inspection.Share,
                         shareFormat));
             }
