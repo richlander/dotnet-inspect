@@ -342,6 +342,62 @@ public class DemoCommandTests
             row.GetProperty("id").GetString());
     }
 
+    [Theory]
+    [InlineData("list")]
+    [InlineData(null)]
+    public async Task Cli_DemoList_CountObservesSelectedDescriptors(
+        string? subcommand)
+    {
+        string[] args =
+            subcommand is null
+                ? ["demo", "-n", "2", "--count", "--json"]
+                : ["demo", subcommand, "-n", "2", "--count", "--json"];
+        var (exitCode, output, error) =
+            await RunCliAsync(args);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("2", output.Trim());
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_LineSelectionAppliesToCountPayload()
+    {
+        var (exitCode, output, error) =
+            await RunCliWithLineWindowAsync(
+                "demo",
+                "list",
+                "-n",
+                "1",
+                "--lines",
+                "--count");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal(
+            ProductDemos.Count,
+            int.Parse(
+                output.Trim(),
+                System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenario_RejectsCount()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync(
+                "demo",
+                ProductDemoIds.StjSerializer,
+                "--count");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count is available only when listing demos.",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Cli_DemoList_ParentBoundLimitSelectsCompleteJsonRow()
     {

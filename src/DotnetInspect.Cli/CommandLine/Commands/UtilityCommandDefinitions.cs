@@ -237,6 +237,7 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.Tail);
         demoCommand.Options.Add(opts.Lines);
         demoCommand.Options.Add(opts.TailLines);
+        opts.AddCountOptionTo(demoCommand);
         opts.RegisterLineSelectionFallback(demoCommand, limitOption);
 
         var listCommand = new Command("list", "List product home demos");
@@ -250,6 +251,7 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.Tail);
         listCommand.Options.Add(opts.Lines);
         listCommand.Options.Add(opts.TailLines);
+        opts.AddCountOptionTo(listCommand);
 
         CliRowSelectionOptionBindings rowBindings =
             new(
@@ -299,6 +301,12 @@ public static class UtilityCommandDefinitions
                     "--rows is available only when listing demos.");
             }
 
+            if (result.GetValue(opts.Count))
+            {
+                result.AddError(
+                    "--count is available only when listing demos.");
+            }
+
             if (result.GetResult(limitOption)?.Tokens.Count > 1)
             {
                 result.AddError(
@@ -339,7 +347,8 @@ public static class UtilityCommandDefinitions
                 format,
                 noHeader,
                 mermaidRequested: mermaid,
-                rowSelection: rowSelection);
+                rowSelection: rowSelection,
+                count: parseResult.GetValue(opts.Count));
         });
         demoCommand.Subcommands.Add(listCommand);
 
@@ -366,7 +375,8 @@ public static class UtilityCommandDefinitions
                     format,
                     noHeader,
                     mermaidRequested: mermaid,
-                    rowSelection: rowSelection);
+                    rowSelection: rowSelection,
+                    count: parseResult.GetValue(opts.Count));
             }
 
             return await DemoCommand.ExecuteScenarioAsync(

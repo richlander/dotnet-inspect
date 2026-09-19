@@ -1060,6 +1060,11 @@ semantic row per `EcosystemDemoDescriptor` in existing product order. They
 adopt Head/Tail, Window, and Lines; scenario execution adopts only explicit
 rendered-line selection.
 
+`--count` is the terminal reduction of the selected descriptor vector. It
+emits one scalar after semantic Head/Tail and Window stages; explicit rendered-
+line selection remains a presentation operation over that scalar. Scenario
+execution does not support Count.
+
 ```console
 $ dotnet-inspect demo list -n 1 --json
 [
@@ -1195,7 +1200,7 @@ The demo-list adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON or Markout projection; every format observes the same selected demo identities; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution accepts only explicit rendered-line selection. |
+| `DemoCommandTests` | Explicit `demo list` and equivalent bare `demo` apply semantic Head/Tail and ordered Window stages to complete catalog descriptors before JSON, Markout, or Count projection; every format observes the same selected demo identities; Count emits the selected descriptor cardinality; strict Window failure emits no partial payload; JSON rejects rendered-line clipping; scenario execution accepts only explicit rendered-line selection. |
 
 The vocabulary adoption is enforced by:
 
