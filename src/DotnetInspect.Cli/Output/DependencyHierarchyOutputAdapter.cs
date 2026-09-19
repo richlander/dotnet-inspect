@@ -192,50 +192,56 @@ internal static class DependencyHierarchyOutputAdapter
         bool tree,
         bool embeddedMermaid,
         bool noHeader,
-        bool compactJson)
+        bool compactJson,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
         if (tree)
         {
             WriteGraph(
                 document,
                 rows,
                 new PlainTextFormatter(),
-                markWindowedFragments: true);
+                markWindowedFragments: true,
+                output);
             return;
         }
 
         switch (format)
         {
             case OutputFormat.Json:
-                WriteJson(document, rows, compactJson);
+                WriteJson(document, rows, compactJson, output);
                 break;
             case OutputFormat.Table:
             case OutputFormat.Tsv:
-                WriteTable(rows, format, noHeader);
+                WriteTable(rows, format, noHeader, output);
                 break;
             case OutputFormat.Jsonl:
-                WriteJsonLines(rows);
+                WriteJsonLines(rows, output);
                 break;
             case OutputFormat.Mermaid:
                 WriteGraph(
                     document,
                     rows,
                     new MermaidFormatter(),
-                    markWindowedFragments: false);
+                    markWindowedFragments: false,
+                    output);
                 break;
             case OutputFormat.Markdown when embeddedMermaid:
                 WriteGraph(
                     document,
                     rows,
                     new MarkdownFormatter(MarkdownGraphMode.Mermaid),
-                    markWindowedFragments: false);
+                    markWindowedFragments: false,
+                    output);
                 break;
             default:
                 WriteGraph(
                     document,
                     rows,
                     new PlainTextFormatter(),
-                    markWindowedFragments: true);
+                    markWindowedFragments: true,
+                    output);
                 break;
         }
     }
@@ -244,9 +250,10 @@ internal static class DependencyHierarchyOutputAdapter
         DependencyHierarchyDocument document,
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
         IMarkoutFormatter formatter,
-        bool markWindowedFragments)
+        bool markWindowedFragments,
+        TextWriter output)
     {
-        var writer = new MarkoutWriter(Console.Out, formatter);
+        var writer = new MarkoutWriter(output, formatter);
         writer.WriteGraph(
             ToGraph(document, rows, markWindowedFragments));
         writer.Flush();
@@ -255,10 +262,11 @@ internal static class DependencyHierarchyOutputAdapter
     private static void WriteTable(
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
         OutputFormat format,
-        bool noHeader)
+        bool noHeader,
+        TextWriter output)
     {
         var writer = new MarkoutWriter(
-            Console.Out,
+            output,
             new TableFormatter(!noHeader),
             OutputFormatter.CreateTableWriterOptions(
                 tsv: format == OutputFormat.Tsv,
@@ -328,11 +336,12 @@ internal static class DependencyHierarchyOutputAdapter
     }
 
     private static void WriteJsonLines(
-        IReadOnlyList<DependencyHierarchyOccurrenceRow> rows)
+        IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
+        TextWriter output)
     {
         foreach (DependencyHierarchyOccurrenceRow row in rows)
         {
-            Console.WriteLine(
+            output.WriteLine(
                 JsonSerializer.Serialize(
                     new DependencyHierarchyJsonLine(
                         row.OccurrenceId,
@@ -359,11 +368,12 @@ internal static class DependencyHierarchyOutputAdapter
     private static void WriteJson(
         DependencyHierarchyDocument document,
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
-        bool compact)
+        bool compact,
+        TextWriter output)
     {
         DependencyHierarchyJsonDocument json =
             CreateJsonDocument(document, rows);
-        Console.WriteLine(
+        output.WriteLine(
             JsonSerializer.Serialize(
                 json,
                 compact

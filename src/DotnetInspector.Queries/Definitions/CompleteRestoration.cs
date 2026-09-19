@@ -697,7 +697,7 @@ public static class CompleteRestorationPreparation
             return FailedWorkspaceFree(authority.Identity, request);
 
         WorkspacePlan workspacePlan =
-            InspectionDefinitionRegistry.CreateWorkspacePlan(
+            InspectionDefinitionRegistry.CreateCompleteRestorationWorkspacePlan(
                 definitions.Workspace);
         IReadOnlyDictionary<string, PackageNavigationSource> packageSources =
             InspectionDefinitionRegistry.ResolvePackageNavigationSources(

@@ -658,13 +658,11 @@ to expose the same coarse `SignatureDecodeRejectionKind` and detail text for
 top-level and nested TypeSpec rejection. The shared adapter may deliberately
 coarsen the new admission discriminator at that boundary.
 
-`ProviderSignatureDecodeBoundaryTests` is the existing anti-ratchet gate for
-top-level provider decodes and nested TypeSpec entry. The implementation slice
-must update that gate so its accepted Analysis/Decompiler pattern is the shared
-`TypeSpecGuard`, then mutation-prove that bypassing the guard in either decoder
-fails. `TypeRefDecoderRecursionTests` in both owner suites must cover matching
-close-negative cases at 1,025 and 4,097 bytes, active-depth exhaustion, and
-unsafe structural nesting. A co-violation matrix must pin every earlier reason
+`TypeRefDecoderRecursionTests` in both owner suites must prove the configured
+shared guard through matching close-negative cases at 1,025 and 4,097 bytes,
+active-depth exhaustion, and unsafe structural nesting. A bypass mutation must
+fail because those observable outcomes change, not because a source spelling
+or helper call disappeared. A co-violation matrix must pin every earlier reason
 against every later reason: depth with per-entry, cumulative, and structural;
 per-entry with cumulative and structural; and cumulative with structural.
 Outcome tests must pin each owner's reason text, `TypeRef` equality, and current
@@ -698,9 +696,9 @@ the consuming owner decides what rejection means.
 Metadata's string-producing boundary is exercised through hostile signature
 inputs by `SignatureDecoderSafetyTests`, including the distinct
 `GuardedSignatureText` result shapes and representative Metadata consumers.
-Gateway-specific hostile-input coverage for
-`GuardedSignatureText.MemberRefMethodText` is **unverified**. No repository-
-source census is part of the behavioral claim.
+The suite also covers the `GuardedSignatureText.MemberRefMethodText` gateway
+with hostile and valid neighboring inputs. No repository-source census or
+exhaustive future-consumer claim is part of the behavioral contract.
 
 Decompiler has three string-producing metadata gateway families:
 
@@ -798,14 +796,12 @@ types. The classification property is currently **not gated**.
 
 The current boundary is protected by:
 
-- `ProviderSignatureDecodeBoundaryTests` for guarded provider decodes and
-  bounded nested TypeSpec re-entry;
 - `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
 - `SignatureBlobGuardTests` for structural prescan and
   `SignatureDecoderSafetyTests` for malformed and adversarial signature shapes
-  through Metadata string result shapes and representative product consumers;
-  `GuardedSignatureText.MemberRefMethodText` gateway-specific coverage is
-  **unverified**;
+  through Metadata string result shapes, every `GuardedSignatureText` gateway,
+  and representative product consumers. These tests do not claim exhaustive
+  closure over repository source or future consumers;
 - `MethodSemanticsRowReaderTests` for lossless physical rows, raw bits, index
   widths, malformed bounds, independent IL-oracle parity, and retained-row
   budgeting;

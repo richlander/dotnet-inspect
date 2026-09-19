@@ -139,10 +139,11 @@ coordinate rather than reusing the previous coordinate's results. The existing
 content-local loading path keeps coordinate focus through those result renders.
 `System.Text.Json@10.0.0`, inspecting Dependencies and selecting `net9.0` or
 version `10.0.1`, motivates this bounded behavior. The production-composition
-cases in `inspect-web/browser/library-hierarchy.spec.ts` gate both inspectors,
-both controls, pending/success, immediate return, failure/retry, and narrow
-layout. Initial package selection keeps its existing behavior. This Package-view
-slice does not establish Library/Type/Member correspondence or retain filters.
+cases in `inspect-web/browser/library-hierarchy.package-loading.spec.ts` gate
+both inspectors, both controls, pending/success, immediate return,
+failure/retry, and narrow layout. Initial package selection keeps its existing
+behavior. This Package-view slice does not establish Library/Type/Member
+correspondence or retain filters.
 
 A separately user-approved interim Browser slice carries Library-selection
 intent through the same coordinate controls and retry. It requests the selected
@@ -156,8 +157,9 @@ selection and explicit links are unchanged; Type/Member and filter retention
 remain out of scope.
 `System.Text.Json@10.0.0`, inspecting its Library Metadata while selecting
 `net9.0` or version `10.0.1`, motivates this behavior; the
-`library-hierarchy.spec.ts` production-composition gate includes changed asset
-IDs, missing and ambiguous names, empty Type inventories, and failed-load retry.
+`library-hierarchy.package-loading.spec.ts` production-composition gate includes
+changed asset IDs, missing and ambiguous names, empty Type inventories, and
+failed-load retry.
 
 This is a reissued selector preference, not proof of subject identity or
 cross-Workspace correspondence. The operator chose this bounded migration
@@ -1135,8 +1137,9 @@ Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
-`inspect-web/browser/library-hierarchy.spec.ts`; root-only and failed
-selection modeling is gated by `test/package-acquisition.test.ts` in that host.
+`inspect-web/browser/library-hierarchy.package-loading.spec.ts`; root-only and
+failed selection modeling is gated by `test/package-acquisition.test.ts` in
+that host.
 This is the pre-#7318 default-entry adoption, not completion of #5510/#5511's
 broader snapshot and result-authority migration. The #7428 successor retires
 its primary-Library preference after consuming this aggregate recommendation.
