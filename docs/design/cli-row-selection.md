@@ -23,10 +23,11 @@ graph edges, a single package's layout lens, `Package files`, or
 `SourceLink: Files` section,
 one selected Project document section, explicit-source Type catalog listings,
 `match --similar` ranked candidates, and the exact `Clone Candidates` section
-for Library, Type, or Member have semantic `-n` adoption. Their supported
-Window and direction capabilities remain command-specific. These adopters also
-accept explicit rendered-line selection where their output format permits it.
-Unselected modes of a partially adopted command use the rendered-line fallback.
+for Library, Type, or Member, plus exact Member `Callers`, have semantic `-n`
+adoption. Their supported Window and direction capabilities remain
+command-specific. These adopters also accept explicit rendered-line selection
+where their output format permits it. Unselected modes of a partially adopted
+command use the rendered-line fallback.
 Commands without an active semantic row adoption, including text documents and
 structured commands whose item rows have not yet been adopted, lower bare `-n`
 to rendered-line selection. Explicit `--lines` remains accepted as redundant
@@ -1013,6 +1014,57 @@ Type-catalog and projected Member Facts adoptions retain their existing
 activation rules; all other neighboring surfaces use their existing row
 contracts or rendered-line fallback.
 
+## Member Callers adoption
+
+An exact `member -S Callers` request declares one semantic row per deduplicated
+caller-site occurrence. The request retains Member's existing requirement for
+one selected target overload. The caller scan completes across that overload
+and every explicitly authorized caller scope before selection. Occurrences are
+deduplicated by source assembly, evidence method identity, IL offset, and
+operand token, then retain the existing deterministic order by Source, Caller,
+Evidence Method, and IL Offset.
+
+```console
+$ dotnet-inspect member System.ThrowHelper \
+    --platform System.Private.CoreLib --all \
+    -m ThrowArgumentNullException:1 -S Callers \
+    -n 1 --tail --json
+{
+  "callers": [
+    {
+      "caller": "ushort.Parse(string, System.Globalization.NumberStyles, System.IFormatProvider)",
+      "il_offset": "IL_0005",
+      ...
+    }
+  ]
+}
+```
+
+What to notice: Markdown, table, TSV, JSONL, structured JSON, and Count consume
+the same selected caller-site identities. Exact Callers JSON lowers the section
+row model rather than returning the surrounding Member document. Caller-scan
+diagnostics and the optional Source and Evidence Method fields remain companion
+evidence on the selected rows; semantic selection does not reduce the caller
+scope or analysis work. When the completed caller vector contains rows from
+multiple source assemblies, Source remains visible even if selection narrows
+the result to rows from one assembly.
+
+The adoption supports Head/Tail, strict Window, and explicit Lines. Structured
+JSON rejects rendered-line selection before source resolution. One unavailable
+strict Window withholds every output shape:
+
+```console
+$ dotnet-inspect member Widget --library ./app.dll \
+    -m Run -S Callers --rows 4..4 --json
+Error: Member Callers row selection stage 1 requires caller row 4, but only 3 caller rows are available.
+```
+
+`Calls`, `Call Graph`, `@Calls`, mixed section selections, discovery, and
+scope-implied Callers without an exact selector remain outside this
+declaration. They retain their current row contracts or rendered-line fallback.
+`--bin`, `--project`, and `--caller-package` compose with the declaration when
+the explicit section selection remains exactly `Callers`.
+
 ## Package SourceLink file adoption
 
 Ordinary single-package `package` inspection declares one semantic row per
@@ -1313,6 +1365,14 @@ The Clone Candidates adoption is enforced by:
 | `CloneCandidatesSectionTests.SemanticTailSelectsTheSameCandidateAcrossFormats`, `CountObservesSemanticHeadAcrossSubjectHosts`, `PackageLibraryRouteObservesSemanticSelection`, and `QueryPredicateImplicitSelectionAdoptsSemanticRows` | The Query-issued global ranking receives semantic Head or Tail once before Markdown, table, TSV, JSONL, projected JSON, or complete JSON lowering; Count observes the selected vector across Library, delegated package-backed Library, Type, and Member hosts; Clone predicates reach the same declaration. |
 | `CloneCandidatesSectionTests.UnavailableSemanticWindowWithholdsOutput`, `SemanticSelectionFailureKeepsIncompleteCoverageVisible`, `JsonLineSelectionRejectsBeforeSourceResolution`, and `NumericLegacyRowsAreRejectedBeforeSourceResolution` | One strict unavailable Window emits no partial payload, incomplete coverage remains visible beside a selection failure, numeric legacy `--rows` is rejected, and complete-JSON line clipping fails before library resolution. |
 | `CommandExecutionTests.TypeListing_SemanticTailSelectsTheSameTypeAcrossFormats`, `Member_FactsProjectedJson_AppliesItemWindowBeforeSerialization`, and `Member_FactsDiscovery_DoesNotActivateProjectedJsonAdoption` | The adjacent Type-catalog and projected Member Facts semantic declarations retain their own activation and row identities. |
+
+The Member Callers adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `MemberCallersSectionTests.CallersSection_SemanticTailSelectsTheSameCallSiteAcrossFormats` and `CallersSection_ScansAuthorizedScopesBeforeSemanticSelection` | The completed, deduplicated, deterministically ordered caller-site vector receives semantic Head or Tail once before Markdown, table, TSV, JSONL, structured JSON, or Count lowering; authorized external caller scopes finish before selection, structured JSON exposes the selected Callers rows instead of the surrounding Member document, and a selected subset preserves Source when the completed vector contained rows from multiple source assemblies. |
+| `MemberCallersSectionTests.CallersSection_UnavailableWindowWithholdsOutput` and `CallersSection_ExplicitLinesRejectJsonBeforeAcquisition` | One unavailable strict Window emits no partial payload, while explicit rendered-line selection under structured JSON fails before source resolution. |
+| `MemberCallersSectionTests.CallersSection_MultiSectionSelectionRetainsRenderedLineFallback` | Mixed Callers/Calls and `@Calls` selection remain outside the declaration and infer rendered-line selection for bare `-n`. |
 
 The Project document row adoption is enforced by:
 

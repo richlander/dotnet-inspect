@@ -837,7 +837,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*if \(packageContentLoadingSequence !== null\s*&& innerNavigationSequence\.isCurrent\(packageContentLoadingSequence\)\) \{\s*state\.loading = false;\s*\}\s*packageContentLoadingSequence = null;\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*if \(packageContentLoadingSequence !== null\s*&& innerNavigationSequence\.isCurrent\(packageContentLoadingSequence\)\) \{\s*state\.loading = false;\s*\}\s*packageContentLoadingSequence = null;\s*packageContentLoadingFocusControl = null;\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
