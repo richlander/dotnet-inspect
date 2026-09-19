@@ -16,6 +16,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -46,6 +47,10 @@ public sealed class MatchDiscoveryTests
         => ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(options));
 
     static JsonElement Parse(string output) => JsonDocument.Parse(output).RootElement;
+
+    static RowSelectionIntent<string> Select(
+        params RowSelectionIntentOperation<string>[] operations)
+        => RowSelectionIntent<string>.Create(operations);
 
     static IEnumerable<(string Member, int Rank, int Score)> Candidates(JsonElement document)
         => document.GetProperty("candidates").EnumerateArray()
@@ -95,27 +100,239 @@ public sealed class MatchDiscoveryTests
         Assert.True(peer.Rank < negative.Rank);
     }
 
-    /// <summary>
-    /// <c>--top</c> is a presentation control. Structured output must keep every candidate the
-    /// query returned, so evidence is never silently discarded by a text-shaping flag.
-    /// </summary>
+    /// <summary>Top selects candidate rows without shortening retrieval evidence.</summary>
     [Fact]
-    public async Task Similar_TopBoundsTextRowsWithoutTruncatingJson()
+    public async Task Similar_TopSelectsCandidateRowsAcrossJsonAndMarkdown()
     {
         MatchOptions jsonOptions = Seeded(SampleSeed) with { JsonOutput = true };
         var (_, unbounded, _) = await RunAsync(jsonOptions);
-        int all = Parse(unbounded).GetProperty("candidates").GetArrayLength();
+        JsonElement complete = Parse(unbounded);
+        int all = complete.GetProperty("candidates").GetArrayLength();
+        string first = complete.GetProperty("candidates")[0]
+            .GetProperty("member").GetString()!;
         Assert.True(all > 1, "The fixture must rank more than one candidate for this gate to bind.");
 
-        var (_, bounded, _) = await RunAsync(jsonOptions with { Top = 1 });
+        RowSelectionIntent<string> top =
+            Select(RowSelectionIntentOperation<string>.Top(1));
+        var (_, bounded, _) = await RunAsync(
+            jsonOptions with { RowSelection = top });
         JsonElement document = Parse(bounded);
 
-        Assert.Equal(all, document.GetProperty("candidates").GetArrayLength());
-        Assert.Equal(1, document.GetProperty("limits").GetProperty("text_rows").GetInt32());
+        Assert.Equal(1, document.GetProperty("candidates").GetArrayLength());
+        Assert.Equal(first, document.GetProperty("candidates")[0]
+            .GetProperty("member").GetString());
+        Assert.Equal(
+            all,
+            document.GetProperty("row_selection")
+                .GetProperty("available_candidates").GetInt32());
+        Assert.Equal(
+            1,
+            document.GetProperty("row_selection")
+                .GetProperty("selected_candidates").GetInt32());
+        Assert.Equal(
+            all,
+            document.GetProperty("receipt")
+                .GetProperty("returned_candidates").GetInt32());
 
-        var (_, markdown, _) = await RunAsync(Seeded(SampleSeed) with { Top = 1 });
+        var (_, markdown, _) = await RunAsync(
+            Seeded(SampleSeed) with { RowSelection = top });
         Assert.Equal(1, CountRankedRows(markdown));
-        Assert.Contains($"1 of {all} returned candidates", markdown);
+        Assert.Contains(first, markdown);
+        Assert.Contains($"1 of {all} returned candidates selected", markdown);
+    }
+
+    [Fact]
+    public async Task Similar_SemanticTailSelectsTheSameCandidateAcrossFormats()
+    {
+        MatchOptions completeOptions = Seeded(SampleSeed) with { JsonOutput = true };
+        var (_, completeOutput, _) = await RunAsync(completeOptions);
+        string expected = Parse(completeOutput)
+            .GetProperty("candidates")
+            .EnumerateArray()
+            .Last()
+            .GetProperty("member")
+            .GetString()!;
+        RowSelectionIntent<string> tail =
+            Select(RowSelectionIntentOperation<string>.Tail(1));
+
+        foreach (MatchOptions options in new[]
+        {
+            Seeded(SampleSeed) with { RowSelection = tail },
+            Seeded(SampleSeed) with { RowSelection = tail, JsonOutput = true },
+            Seeded(SampleSeed) with { RowSelection = tail, Tabular = true },
+            Seeded(SampleSeed) with { RowSelection = tail, Tabular = true, Tsv = true },
+            Seeded(SampleSeed) with { RowSelection = tail, Tabular = true, Jsonl = true },
+        })
+        {
+            var (exitCode, output, _) = await RunAsync(options);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains(expected, output);
+        }
+    }
+
+    [Fact]
+    public async Task Similar_CountObservesTheSelectedCandidateSequence()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            Count = true,
+            JsonOutput = true,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Top(2)),
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("2", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Similar_CliCountObservesSemanticTail()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match",
+            SampleSeed,
+            "--similar",
+            "--library",
+            TestAssembly,
+            "--all",
+            "-n",
+            "1",
+            "--tail",
+            "--count",
+            "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Similar_UnavailableSemanticWindowWithholdsOutput()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            JsonOutput = true,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Window(999, 999)),
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("requires row 999", error);
+    }
+
+    [Fact]
+    public async Task Similar_CliUnavailableSemanticWindowWithholdsOutput()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match",
+            SampleSeed,
+            "--similar",
+            "--library",
+            TestAssembly,
+            "--all",
+            "--rows",
+            "999..999",
+            "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("requires row 999", error);
+    }
+
+    [Fact]
+    public async Task Similar_SemanticSelectionDoesNotHideRetrievalFailure()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            MaximumMethods = 1,
+            JsonOutput = true,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Window(999, 999)),
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Equal(
+            "LimitReached",
+            document.GetProperty("disposition").GetString());
+        Assert.NotEmpty(document.GetProperty("blockers").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Similar_CliTopUsesSharedSemanticSelection()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match",
+            SampleSeed,
+            "--similar",
+            "--library",
+            TestAssembly,
+            "--all",
+            "--top",
+            "1",
+            "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Equal(1, document.GetProperty("candidates").GetArrayLength());
+        Assert.Equal(
+            1,
+            document.GetProperty("row_selection")
+                .GetProperty("selected_candidates").GetInt32());
+    }
+
+    [Fact]
+    public async Task Similar_JsonLineSelectionRejectsBeforeSourceResolution()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match",
+            "Example.Seed",
+            "--similar",
+            "--library",
+            Path.Combine(Path.GetTempPath(), "missing-match-source.dll"),
+            "-n",
+            "1",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Pairwise_InferredLimitRetainsRenderedLineFallback()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match",
+            "Example.Left",
+            "Example.Right",
+            "--library",
+            Path.Combine(Path.GetTempPath(), "missing-pairwise-source.dll"),
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
     static int CountRankedRows(string markdown)
@@ -667,7 +884,6 @@ public sealed class MatchDiscoveryTests
 
         foreach (MatchOptions options in new[]
         {
-            seed with { Top = value },
             seed with { MaximumResults = value },
             seed with { MaximumMethods = value },
         })
@@ -677,6 +893,19 @@ public sealed class MatchDiscoveryTests
             Assert.Empty(output);
             Assert.Contains("must be greater than zero", error);
         }
+
+        var (topExit, topOutput, topError) = await RunCliAsync(
+            "match",
+            seed.LeftSelector!,
+            "--similar",
+            "--library",
+            TestAssembly,
+            "--all",
+            "--top",
+            value.ToString());
+        Assert.Equal(1, topExit);
+        Assert.Empty(topOutput);
+        Assert.Contains("requires a positive whole number", topError);
     }
 
     /// <summary>
@@ -771,7 +1000,8 @@ public sealed class MatchDiscoveryTests
             Tabular = true,
             Tsv = tsv,
             Jsonl = jsonl,
-            Top = 1,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Top(1)),
         };
 
         var (exitCode, _, error) = await RunAsync(options);
@@ -795,7 +1025,8 @@ public sealed class MatchDiscoveryTests
         {
             AssemblyWide = true,
             MaximumResults = 3,
-            Top = 1,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Top(1)),
         };
 
         var (exitCode, output, _) = await RunAsync(options);
@@ -805,7 +1036,7 @@ public sealed class MatchDiscoveryTests
         // The receipt ranks more than it returns, so "ranked" and "returned" are different
         // numbers here and naming the wrong one is observable.
         Assert.Contains("3 returned", output);
-        Assert.Contains("1 of 3 returned candidates", output);
+        Assert.Contains("1 of 3 returned candidates selected", output);
         Assert.DoesNotContain("ranked candidates", output);
     }
 
@@ -842,11 +1073,16 @@ public sealed class MatchDiscoveryTests
             outcome => Assert.NotEmpty(outcome.GetProperty("blockers").EnumerateArray()));
     }
 
-    /// <summary>--top shapes text; it must not shorten the per-method evidence.</summary>
+    /// <summary>Candidate selection must not shorten the per-method evidence.</summary>
     [Fact]
     public async Task Similar_MethodOutcomes_AreNotBoundedByTop()
     {
-        MatchOptions bounded = Seeded(SampleSeed) with { JsonOutput = true, Top = 1 };
+        MatchOptions bounded = Seeded(SampleSeed) with
+        {
+            JsonOutput = true,
+            RowSelection =
+                Select(RowSelectionIntentOperation<string>.Top(1)),
+        };
         MatchOptions unbounded = Seeded(SampleSeed) with { JsonOutput = true };
 
         var (_, boundedOutput, _) = await RunAsync(bounded);
@@ -998,6 +1234,7 @@ public sealed class MatchDiscoveryTests
     [InlineData("--top", "1")]
     [InlineData("--max-results", "1")]
     [InlineData("--max-methods", "1")]
+    [InlineData("--count")]
     public async Task Pairwise_RejectsDiscoveryOnlyOptions(params string[] option)
     {
         string[] args =
@@ -1033,7 +1270,11 @@ public sealed class MatchDiscoveryTests
         JsonElement document = Parse(output);
         Assert.Equal("Completed", document.GetProperty("disposition").GetString());
         Assert.Equal(SampleSeed, document.GetProperty("seed").GetString());
-        Assert.Equal(1, document.GetProperty("limits").GetProperty("text_rows").GetInt32());
+        Assert.Single(document.GetProperty("candidates").EnumerateArray());
+        Assert.Equal(
+            1,
+            document.GetProperty("row_selection")
+                .GetProperty("selected_candidates").GetInt32());
     }
 
     /// <summary>
@@ -1239,7 +1480,8 @@ public sealed class MatchDiscoveryTests
             CandidateAssembly = Hostile,
             Disposition = "Completed",
             Disclosure = Hostile,
-            Limits = new MatchDiscoveryLimitsDocument(1, 1, null),
+            Limits = new MatchDiscoveryLimitsDocument(1, 1),
+            RowSelection = new MatchDiscoveryRowSelectionDocument(0, 0),
         };
 
         Assert.DoesNotContain('\u202E', document.Seed);
@@ -1518,7 +1760,6 @@ public sealed class MatchDiscoveryTests
             "A.Type",
             "lib/net10.0/Target.dll",
             new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
-            null,
             CandidatePackage: "Fixture@1.0.0",
             CandidateTfm: "net10.0");
 
@@ -3193,8 +3434,7 @@ public sealed class MatchDiscoveryTests
             "A.Type.Member",
             "A.Type",
             "/images/Target.dll",
-            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
-            null);
+            new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1));
 
         string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
 
@@ -3365,7 +3605,6 @@ public sealed class MatchDiscoveryTests
             "A.Type",
             "lib/net10.0/Target's build.dll",
             new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
-            null,
             CandidatePackage: "/packages/Fixture's build.nupkg",
             CandidateTfm: "net10.0");
 
@@ -3409,7 +3648,6 @@ public sealed class MatchDiscoveryTests
             "A.Type",
             "lib/net10.0/Target.dll",
             new ILInspector.Analysis.StructuralCloneRetrievalLimits(1, 1),
-            null,
             CandidatePackage: "Fixture@1.0.0",
             CandidateTfm: "net10.0",
             ReplaySources: new PackageReplaySources(
