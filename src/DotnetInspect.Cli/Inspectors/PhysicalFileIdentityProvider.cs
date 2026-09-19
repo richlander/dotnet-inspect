@@ -8,7 +8,7 @@ internal readonly record struct PhysicalFileIdentity(
     ulong FileLow,
     ulong FileHigh);
 
-internal static partial class PhysicalFileIdentityProvider
+internal static class PhysicalFileIdentityProvider
 {
     internal static bool TryGet(
         string path,
@@ -119,19 +119,19 @@ internal static partial class PhysicalFileIdentityProvider
     }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetFileInformationByHandleEx(
+    private static safe extern bool GetFileInformationByHandleEx(
         SafeFileHandle file,
         FileInfoByHandleClass informationClass,
         out WindowsFileIdInformation information,
         uint bufferSize);
 
-    [LibraryImport(
+    [DllImport(
         "libSystem.Native",
         EntryPoint = "SystemNative_FStat",
         SetLastError = true)]
-    private static partial int UnixFStat(
+    private static safe extern int UnixFStat(
         SafeFileHandle file,
         out UnixFileStatus information);
 
