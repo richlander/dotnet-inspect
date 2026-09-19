@@ -685,9 +685,9 @@ function detailHtml() {
     const documentation = memberDocumentationMode === "summary"
       ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
       : memberDocumentationMode === "loading"
-        ? '<p class="docs-loading">Loading package documentation…</p>'
+        ? '<p class="docs-loading">Loading compiled documentation…</p>'
         : memberDocumentationMode === "error"
-          ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
+          ? '<p class="docs-unavailable">Documentation query failed: The compiled documentation could not be read.</p>'
           : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     const documentationStatus = memberDocumentationMode === "loading"
       ? "loading"

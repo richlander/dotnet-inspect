@@ -228,6 +228,68 @@ public sealed partial class BrowserEngineBoundaryTests
 
     [Fact]
     public async Task
+        QueryPlatformMemberDocumentation_UsesSharedPlatformContract()
+    {
+        CompiledDocumentationOutcome outcome =
+            await QueryPlatformMemberDocumentationAsync(
+                "11.0.7146",
+                includeDocumentation: true);
+
+        var available =
+            Assert.IsType<CompiledDocumentationOutcome.Available>(
+                outcome);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Platform,
+            available.Source.Kind);
+        Assert.Equal(
+            "Reads documentation from a non-public type.",
+            available.Documentation.Summary);
+        string json = JsonSerializer.Serialize(
+            outcome,
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Equal(
+            ["documentation", "kind", "source", "subject"],
+            document.RootElement.EnumerateObject()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.True(
+            json.Length <= 4_096,
+            $"Platform documentation JSON was {json.Length} UTF-16 code units.");
+    }
+
+    [Fact]
+    public async Task
+        QueryPlatformMemberDocumentation_MissingCompanionIsAuthoritativeAbsence()
+    {
+        CompiledDocumentationOutcome outcome =
+            await QueryPlatformMemberDocumentationAsync(
+                "11.0.7147",
+                includeDocumentation: false);
+
+        var absent =
+            Assert.IsType<CompiledDocumentationOutcome.Absent>(
+                outcome);
+        CompiledDocumentationSourceEvidence source =
+            Assert.Single(absent.Sources);
+        Assert.Equal(
+            CompiledDocumentationSourceKind.Platform,
+            source.Source.Kind);
+        Assert.Equal(
+            CompiledDocumentationSourceEvidenceKind.Absent,
+            source.Kind);
+        string json = JsonSerializer.Serialize(
+            outcome,
+            CompiledDocumentationQueryJsonContext.Default
+                .CompiledDocumentationOutcome);
+        Assert.True(
+            json.Length <= 1_024,
+            $"Platform absence JSON was {json.Length} UTF-16 code units.");
+    }
+
+    [Fact]
+    public async Task
         QueryMemberDocumentation_BrowserAdmittedLargeSurfaceReturnsAvailable()
     {
         const string packageId =
@@ -425,6 +487,79 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserPackageWorkspace.SelectDependencyVersion(
                 ["1.0.0", "2.0.0", "2.1.0", "3.0.0"],
                 declaredRange: "2.*"));
+    }
+
+    private static async Task<CompiledDocumentationOutcome>
+        QueryPlatformMemberDocumentationAsync(
+            string version,
+            bool includeDocumentation)
+    {
+        const string assembly =
+            "InspectWeb.DocumentationFixtures.dll";
+        byte[] assemblyBytes = File.ReadAllBytes(
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath());
+        var referenceEntries =
+            new List<(string Path, byte[] Content)>
+            {
+                ($"ref/net11.0/{assembly}", assemblyBytes),
+            };
+        if (includeDocumentation)
+        {
+            referenceEntries.Add(
+                (
+                    "ref/net11.0/InspectWeb.DocumentationFixtures.xml",
+                    File.ReadAllBytes(
+                        FixtureCatalog.InspectWebDocumentation.AssetPath(
+                            "documentation"))));
+        }
+        byte[] referencePackage =
+            PackageEntries([.. referenceEntries]);
+        var packages =
+            new Dictionary<string, byte[]>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] =
+                    PlatformPackage((assembly, assemblyBytes)),
+                ["microsoft.netcore.app.ref"] =
+                    referencePackage,
+            };
+        var workspaceHandler =
+            new MultiplePlatformVersionHandler(version, packages);
+        using var workspaceClient = new HttpClient(workspaceHandler);
+        PackageSourceAuthorization authorized =
+            PackageSourceAuthorization.Authorize(
+                [PackageSource.NuGetOrg]);
+        var sourceAuthorization =
+            new FixedPackageSourceAuthorization(authorized);
+        using IPackageSourceClient packageClient =
+            PackageSourceClientFactory.CreateGallery(
+                authorized.Authorities[0].Association,
+                new GalleryPackageHandler(
+                    "microsoft.netcore.app.ref",
+                    version,
+                    referencePackage));
+
+        return await BrowserPlatformWorkspace
+            .QueryMemberDocumentationAsync(
+                "net11.0",
+                version,
+                assembly,
+                "netcore.app",
+                "M:InspectWeb.DocumentationFixtures.HiddenDocumentedType.Read",
+                workspaceClient,
+                packageClient,
+                sourceAuthorization,
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+    }
+
+    private sealed class FixedPackageSourceAuthorization(
+        PackageSourceAuthorization authorization) :
+        IPackageSourceAuthorization
+    {
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId) =>
+            authorization;
     }
 
     [Fact]
