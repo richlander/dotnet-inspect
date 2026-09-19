@@ -355,6 +355,11 @@ The CLI `SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews` and
 declaration views and the independent body-document lens.
 `MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition` gates
 the completed Source operation consumed by Browser/Wasm, not a browser session.
+The Browser Source export retains the selected MethodDef when Metadata projects
+an accessor from its owning API row; it does not select a default getter or
+expand a sibling. `BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesSelectedAccessor`
+gates the actual managed export for computed and automatic getters, the still-
+lowered writing getter, and a setter-only neighbor.
 These focused cases are PR-fast; native and population comparisons remain
 separate pre-merge evidence.
 Losing a getter operation, changing the field target or flags, introducing
