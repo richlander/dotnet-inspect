@@ -60,8 +60,7 @@ public static partial class CompileBackSourceComposer
             produced.Projection.ConstructorChain,
             produced.Body.RequiresAsyncModifier,
             produced.Body.RequiresUnsafeModifier,
-            produced.Projection.Fidelity,
-            propertySource);
+            produced.Projection.Fidelity);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"
@@ -99,7 +98,7 @@ public static partial class CompileBackSourceComposer
                 closure.MemberRequirements,
                 request.BodyPolicy,
                 request.TargetBody.RequiresUnsafeModifier,
-                request.TargetBody.PropertySource),
+                request.TargetBody.UsesAutomaticGetterBody),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -695,7 +694,7 @@ public static partial class CompileBackSourceComposer
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
         RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected,
         bool targetBodyRequiresUnsafeModifier = false,
-        SelectedPropertyAccessorSource? propertySource = null)
+        bool usesAutomaticGetterBody = false)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -710,7 +709,7 @@ public static partial class CompileBackSourceComposer
         string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = accessors.Setter.IsNil
-            ? propertySource?.UsesAutomaticGetterBody == true
+            ? usesAutomaticGetterBody
             : IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
         var diagnostics = new List<CompileBackPlanningDiagnostic>();

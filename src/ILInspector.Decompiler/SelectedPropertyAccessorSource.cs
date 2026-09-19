@@ -27,9 +27,6 @@ public sealed class SelectedPropertyAccessorSource
 
     public IReadOnlyList<string> Attributes { get; private init; } = [];
 
-    /// <summary>Whether the complete getter and its storage permit a semicolon body.</summary>
-    public bool UsesAutomaticGetterBody => _automaticGetter;
-
     SelectedPropertyAccessorSource(
         ApiMember property, string accessorKind, IReadOnlyList<string> valueAttributes,
         bool automaticGetter = false, SelectedGetterStorage? getterStorage = null)
@@ -66,6 +63,12 @@ public sealed class SelectedPropertyAccessorSource
     internal static SelectedPropertyAccessorSource? Create(
         MetadataSource source,
         MethodDefinitionHandle methodHandle)
+        => Create(source, methodHandle, out _);
+
+    internal static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
+        MethodDefinitionHandle methodHandle,
+        out bool automaticGetterBody)
     {
         var reader = source.Reader;
         var method = reader.GetMethodDefinition(methodHandle);
@@ -83,14 +86,22 @@ public sealed class SelectedPropertyAccessorSource
             IsAbstract = declaration.IsAbstract,
             IsOverride = declaration.IsOverride,
             IsSealed = declaration.IsSealed,
-        });
+        }, out automaticGetterBody);
     }
 
     internal static SelectedPropertyAccessorSource? Create(
         MetadataSource source,
         MethodDefinitionHandle methodHandle,
         ApiMember method)
+        => Create(source, methodHandle, method, out _);
+
+    static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
+        MethodDefinitionHandle methodHandle,
+        ApiMember method,
+        out bool automaticGetterBody)
     {
+        automaticGetterBody = false;
         var reader = source.Reader;
         var definition = reader.GetMethodDefinition(methodHandle);
         var type = reader.GetTypeDefinition(definition.GetDeclaringType());
@@ -184,8 +195,11 @@ public sealed class SelectedPropertyAccessorSource
                     ],
                 },
             };
-            bool automaticGetter = hasBackingStorage
-                && IsAutomaticGetter(source, handle, methodHandle, selectedProperty);
+            FieldDefinitionHandle backingField = default;
+            automaticGetterBody = hasBackingStorage
+                && IsAutomaticGetter(source, handle, methodHandle, selectedProperty, out backingField);
+            bool automaticGetter = automaticGetterBody
+                && HasSupportedBackingFieldAttributes(reader, backingField);
             SelectedGetterStorage? getterStorage = null;
             if (hasBackingStorage && !automaticGetter)
             {
@@ -201,8 +215,10 @@ public sealed class SelectedPropertyAccessorSource
 
     static bool IsAutomaticGetter(
         MetadataSource source, PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle methodHandle, ApiMember property)
+        MethodDefinitionHandle methodHandle, ApiMember property,
+        out FieldDefinitionHandle backingFieldHandle)
     {
+        backingFieldHandle = default;
         var reader = source.Reader;
         var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
         if (accessors.Getter != methodHandle || !accessors.Setter.IsNil
@@ -213,7 +229,7 @@ public sealed class SelectedPropertyAccessorSource
             return false;
         var typeHandle = method.GetDeclaringType();
         if (!MemberBodyProducer.IsCompilerGeneratedAutoProperty(
-                source, reader, typeHandle, property, methodHandle, null, out var backingFieldHandle))
+                source, reader, typeHandle, property, methodHandle, null, out backingFieldHandle))
             return false;
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
@@ -256,10 +272,16 @@ public sealed class SelectedPropertyAccessorSource
 
         var expected = FieldAttributes.Private | FieldAttributes.InitOnly
             | (property.IsStatic ? FieldAttributes.Static : 0);
-        return HasSupportedBackingField(reader, backingFieldHandle, scope, expected);
+        return HasSupportedBackingFieldShape(reader, backingFieldHandle, scope, expected);
     }
 
     internal static bool HasSupportedBackingField(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle,
+        GenericScope scope, FieldAttributes expected)
+        => HasSupportedBackingFieldShape(reader, backingFieldHandle, scope, expected)
+            && HasSupportedBackingFieldAttributes(reader, backingFieldHandle);
+
+    static bool HasSupportedBackingFieldShape(
         MetadataReader reader, FieldDefinitionHandle backingFieldHandle,
         GenericScope scope, FieldAttributes expected)
     {
@@ -268,8 +290,13 @@ public sealed class SelectedPropertyAccessorSource
         if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers
             || fieldType.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(fieldType))
             return false;
-        if (definition.Attributes != expected || definition.GetOffset() >= 0)
-            return false;
+        return definition.Attributes == expected && definition.GetOffset() < 0;
+    }
+
+    static bool HasSupportedBackingFieldAttributes(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle)
+    {
+        var definition = reader.GetFieldDefinition(backingFieldHandle);
         foreach (var attributeHandle in definition.GetCustomAttributes())
         {
             var attribute = reader.GetCustomAttribute(attributeHandle);

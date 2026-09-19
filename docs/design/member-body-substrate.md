@@ -343,9 +343,12 @@ Unchanged arithmetic and branches remain the responsibility of the existing
 body pipeline. Body-only documents do not opt into this declaration-scoped
 spelling. A body consumer that constructs the owning property may explicitly
 pass its selected-property descriptor to typed body production, applying the
-same binding before raising. The descriptor also exposes the complete
-automatic-getter proof: a compiler marker alone cannot authorize discarding
-a computed body in favor of `get;`.
+same binding before raising. Selected composition separately materializes the
+complete automatic-getter body proof: a compiler marker alone cannot authorize
+discarding a computed body in favor of `get;`. Declaration attribute support
+does not change that body decision. Native reconstruction retains its existing
+automatic getter-body handling when selected-source composition declines custom
+field attributes; this is not a claim to reconstruct those attributes.
 
 Native compile-back adopts this explicit context for the selected getter under
 both Selected and Full body policies. It consumes the shared storage and

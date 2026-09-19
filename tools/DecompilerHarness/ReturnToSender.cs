@@ -1491,9 +1491,12 @@ static class ReturnToSender
         string methodName = reader.GetString(getter.Name);
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
 
-        var propertySource = SelectedPropertyAccessorSource.Create(source, getterHandle);
+        var propertySource = SelectedPropertyAccessorSource.Create(source, getterHandle, out bool automaticGetterBody);
         var targetBody = CompileBackSourceComposer.CreateTargetBody(
-            source, getterHandle, fullType, methodName, out var function, propertySource);
+            source, getterHandle, fullType, methodName, out var function, propertySource) with
+        {
+            UsesAutomaticGetterBody = automaticGetterBody,
+        };
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");

@@ -16,6 +16,8 @@ public partial class ReturnToSenderPrototypeTests
     [InlineData("SelectedAutoPropertySamples", "Count", false)]
     [InlineData("SelectedAutoPropertySamples", "Count", true)]
     [InlineData("SelectedAutoPropertySamples", "SharedCount", false)]
+    [InlineData("SelectedAutoPropertySamples", "DescribedCount", false)]
+    [InlineData("SelectedAutoPropertySamples", "DebugCount", false)]
     [InlineData("SelectedFieldPropertySamples", "Count", false)]
     [InlineData("SelectedFieldPropertySamples", "SharedCount", false)]
     [InlineData("SelectedFieldPropertySamples", "RepeatedCount", false)]

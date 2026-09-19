@@ -415,7 +415,7 @@ internal sealed record ProductTargetBody(
     bool RequiresAsyncModifier = false,
     bool RequiresUnsafeModifier = false,
     DecompilationFidelity Fidelity = DecompilationFidelity.Full,
-    SelectedPropertyAccessorSource? PropertySource = null);
+    bool UsesAutomaticGetterBody = false);
 
 internal sealed class CompileBackSourceUnavailableException(string message)
     : InvalidOperationException(message)

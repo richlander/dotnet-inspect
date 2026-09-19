@@ -120,8 +120,8 @@ public sealed class MemberBodyProducerTypedBodyTests
             FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
         var method = FindMethod(source.Reader, typeName, $"get_{propertyName}");
         var property = Assert.IsType<SelectedPropertyAccessorSource>(
-            SelectedPropertyAccessorSource.Create(source, method));
-        Assert.Equal(automatic, property.UsesAutomaticGetterBody);
+            SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.Equal(automatic, automaticGetterBody);
         var address = MetadataMethodAddress.Create(source.Reader, method);
 
         var independent = MemberBodyProducer.ProduceBody(source, address);
@@ -151,6 +151,19 @@ public sealed class MemberBodyProducerTypedBodyTests
         var method = FindMethod(source.Reader, "SelectedFieldPropertySamples", $"get_{propertyName}");
 
         Assert.Null(SelectedPropertyAccessorSource.Create(source, method));
+    }
+
+    [Theory]
+    [InlineData("DescribedCount")]
+    [InlineData("DebugCount")]
+    public void ProduceBody_TrivialGetterProofDoesNotClaimDeclarationAttributeSupport(string propertyName)
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DecompilerUnsafeLegacy.AssemblyPath());
+        var method = FindMethod(source.Reader, "SelectedAutoPropertySamples", $"get_{propertyName}");
+
+        Assert.Null(SelectedPropertyAccessorSource.Create(source, method, out bool automaticGetterBody));
+        Assert.True(automaticGetterBody);
     }
 
     static MethodDefinitionHandle FindMethod(
