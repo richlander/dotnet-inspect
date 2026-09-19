@@ -244,6 +244,22 @@ public static class IrImporter
             return null;
         if (result is TypeDeclarationResult.BudgetExceeded budget)
             throw new TypeDeclarationBudgetExceededException(budget.Detail);
+        if (result
+            is TypeDeclarationResult.DefinitionKindUnavailable unavailable)
+        {
+            throw unavailable.Failure switch
+            {
+                MetadataTypeDefinitionKindFailure.BudgetExceeded exceeded =>
+                    new TypeDeclarationBudgetExceededException(
+                        exceeded.Detail),
+                MetadataTypeDefinitionKindFailure.Malformed malformed =>
+                    new BadImageFormatException(malformed.Detail),
+                MetadataTypeDefinitionKindFailure.Unsupported unsupported =>
+                    new NotSupportedException(unsupported.Detail),
+                _ => new InvalidOperationException(
+                    "Unknown TypeDef kind failure."),
+            };
+        }
         if (result is TypeDeclarationResult.Rejected rejected)
             throw new BadImageFormatException(rejected.Rejection.Detail);
         if (result is TypeDeclarationResult.Ambiguous)

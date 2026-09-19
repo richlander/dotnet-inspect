@@ -428,6 +428,19 @@ public abstract class TypeResolutionFailure
         public string Detail { get; }
     }
 
+    /// <summary>
+    /// A TypeDef was resolved, but its definition kind could not be
+    /// classified.
+    /// </summary>
+    public sealed class DefinitionKindUnavailable : TypeResolutionFailure
+    {
+        internal DefinitionKindUnavailable(
+            MetadataTypeDefinitionKindFailure failure) =>
+            Failure = failure;
+
+        public MetadataTypeDefinitionKindFailure Failure { get; }
+    }
+
     /// <summary>A forwarding chain revisited a catalog candidate.</summary>
     public sealed class ForwarderCycle : TypeResolutionFailure;
 
@@ -957,7 +970,7 @@ public sealed class DuplicateArtifactEvidence
         Candidates = candidates;
 
     public ImmutableArray<DuplicateArtifactCandidateEvidence> Candidates
-        { get; }
+    { get; }
 }
 
 /// <summary>
@@ -1044,9 +1057,10 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeDefinitionKind Kind { get; }
     internal int GenericParameterCount { get; }
-    internal TypeResolutionFailure? KindResolutionFailure { get; }
-    internal AssemblyReferenceIdentity?
-        KindResolutionDependencyAssembly { get; }
+    public TypeResolutionFailure? KindResolutionFailure { get; }
+    public AssemblyReferenceIdentity?
+        KindResolutionDependencyAssembly
+    { get; }
     public bool IsInterface =>
         Kind == MetadataTypeDefinitionKind.Interface;
     public bool IsValueType =>
