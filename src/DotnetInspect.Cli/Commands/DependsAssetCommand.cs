@@ -396,6 +396,13 @@ public partial class DependsCommand
             && candidateSections.Contains(
                 DependsAssetSections.Failures,
                 StringComparer.OrdinalIgnoreCase);
+        if (hierarchyFailuresJsonl
+            && IsColumnProjectionRequested(options))
+        {
+            CommandError.Write(
+                "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
+            return false;
+        }
         if (!discoveryMode
             && options.Tabular
             && !options.Count
@@ -1861,12 +1868,6 @@ public partial class DependsCommand
             && failuresSelected;
         if (hierarchyFailuresJsonl)
         {
-            if (IsColumnProjectionRequested(options))
-            {
-                CommandError.Write(
-                    "Projected JSONL columns cannot represent the discriminated Dependency Hierarchy and Failures records; remove --columns/--fields.");
-                return false;
-            }
             WriteAssetHierarchyFailuresJsonLines(
                 projection,
                 options.Rows,

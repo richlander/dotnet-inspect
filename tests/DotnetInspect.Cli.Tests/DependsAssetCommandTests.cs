@@ -669,6 +669,48 @@ public sealed class DependsAssetCommandTests
     }
 
     [Fact]
+    public async Task EvidenceEnvelopeRejectsMixedJsonlProjectionBeforeAcquisition()
+    {
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-jsonl-projection-");
+        string ordinary = Path.Combine(
+            directory.FullName,
+            "ordinary.jsonl");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var result = await RunCapturedAsync(
+        [
+            "depends",
+            "--package",
+            "No.Such.Package@1.0.0",
+            "-S",
+            $"{DependsAssetSections.DependencyHierarchy},{DependsAssetSections.Failures}",
+            "--jsonl",
+            "--columns",
+            "Reason",
+            "--out",
+            ordinary,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Projected JSONL columns cannot represent",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No.Such.Package",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(ordinary));
+        Assert.False(File.Exists(sidecar));
+    }
+
+    [Fact]
     public async Task EvidenceEnvelopeCountUsesOrdinaryOutputDestination()
     {
         using var directory =
