@@ -298,6 +298,39 @@ public static class PackageExtractor
             client, packageSource, log, tempDirPrefix, sourceOptions,
             version, forceLatest, includePrerelease, authoritySession: null);
 
+    /// <summary>
+    /// Extracts the explicitly classified package target without inferring
+    /// local-archive versus package-reference intent from its spelling.
+    /// </summary>
+    public static Task<PackageExtractionOutcome> ExtractPackageAsync(
+        HttpClient client,
+        PackageReferenceTarget target,
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null,
+        bool forceLatest = false,
+        bool includePrerelease = false)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return ExtractPackageCoreAsync(
+            client,
+            target.OriginalArgument,
+            log,
+            tempDirPrefix,
+            sourceOptions,
+            target.IsLocalFile
+                || target.Version.Length == 0
+                    ? null
+                    : target.Version,
+            forceLatest,
+            includePrerelease,
+            authoritySession: null,
+            packageNameOverride: target.IsLocalFile
+                ? null
+                : target.PackageName,
+            isLocalFileOverride: target.IsLocalFile);
+    }
+
     public static Task<PackageExtractionOutcome>
         ExtractPackageWithCancellationAsync(
             HttpClient client,
@@ -417,11 +450,16 @@ public static class PackageExtractor
         bool includePrerelease,
         ConfiguredPackageExtractionSession? authoritySession,
         PackageExtractionOutcome? initialOutcome = null,
+        string? packageNameOverride = null,
+        bool? isLocalFileOverride = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        bool isLocalFile = authoritySession is null
-            && packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
+        bool isLocalFile = isLocalFileOverride
+            ?? (authoritySession is null
+                && packageSource.EndsWith(
+                    ".nupkg",
+                    StringComparison.OrdinalIgnoreCase));
 
         if (isLocalFile)
         {
@@ -439,6 +477,8 @@ public static class PackageExtractor
         List<string> redirectChain = [];
         List<ToolWrapperPackage> wrapperPackages = [];
         string currentPackageSource = packageSource;
+        string? currentPackageNameOverride =
+            packageNameOverride;
         string? currentVersion = version;
         bool currentForceLatest = forceLatest;
         bool currentIncludePrerelease = includePrerelease;
@@ -459,12 +499,17 @@ public static class PackageExtractor
                     log,
                     tempDirPrefix,
                     currentSourceOptions,
-                    currentVersion,
-                    currentForceLatest,
-                    currentIncludePrerelease,
-                    authoritySession,
-                    cancellationToken).ConfigureAwait(false);
+                    packageNameOverride:
+                        currentPackageNameOverride,
+                    explicitVersion: currentVersion,
+                    forceLatest: currentForceLatest,
+                    includePrerelease:
+                        currentIncludePrerelease,
+                    authoritySession: authoritySession,
+                    cancellationToken:
+                        cancellationToken).ConfigureAwait(false);
                 initialOutcome = null;
+                currentPackageNameOverride = null;
             }
 
             if (!outcome.IsSuccess)
@@ -584,6 +629,7 @@ public static class PackageExtractor
         Action<string>? log,
         string tempDirPrefix,
         NuGetSourceOptions? sourceOptions,
+        string? packageNameOverride = null,
         string? explicitVersion = null,
         bool forceLatest = false,
         bool includePrerelease = false,
@@ -591,9 +637,12 @@ public static class PackageExtractor
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        (string packageName, string? parsedVersion) = authoritySession is null
-            ? ParsePackageReference(packageSource)
-            : (packageSource, null);
+        (string packageName, string? parsedVersion) =
+            packageNameOverride is not null
+                ? (packageNameOverride, null)
+                : authoritySession is null
+                    ? ParsePackageReference(packageSource)
+                    : (packageSource, null);
         var version = explicitVersion ?? parsedVersion;
 
         // A legacy selector's producer restriction is not an authority receipt.
