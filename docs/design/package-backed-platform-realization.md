@@ -544,6 +544,11 @@ The source outcome is closed:
 Package-owner failures remain attached to the source outcome. The adapter
 projects a credential-safe summary to PlatformHouse without replacing or
 reclassifying the package evidence.
+The package adapter does not synthesize an exact partial-work observation when
+a content read fails after earlier work. The selected-target executor applies
+its shared conservative reservation rule to such an unmeasured failed attempt,
+so later fallback cannot reuse the delegated assembly, compiled-XML, or byte
+allowance.
 Discovery expiry retains failures from completed authorities and the package
 owner's attributed timeout rather than replacing them with an empty diagnostic.
 

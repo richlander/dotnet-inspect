@@ -72,6 +72,7 @@ public static class PackagePlatformSelectedLibraryRealization
                     target,
                     result,
                     candidate,
+                    remainingWork,
                     Stopwatch.GetElapsedTime(started));
             },
             adapter.TargetDiscovery,
@@ -125,6 +126,7 @@ public static class PackagePlatformSelectedLibraryRealization
                     target,
                     result,
                     candidate,
+                    remainingWork,
                     Stopwatch.GetElapsedTime(started));
             });
     }
@@ -134,6 +136,7 @@ public static class PackagePlatformSelectedLibraryRealization
         PlatformFamilyTarget target,
         PackagePlatformHouseResult<PackageReferenceRealization> result,
         PlatformHouseCandidateIdentity candidate,
+        PlatformHouseWorkBudget remainingWork,
         TimeSpan elapsed) =>
         result switch
         {
@@ -184,7 +187,13 @@ public static class PackagePlatformSelectedLibraryRealization
                     RejectionKind(
                         terminal.Diagnostic,
                         terminal.Contribution),
-                    WithElapsed(terminal.SourceWork, elapsed)),
+                    PlatformLibraryRealizationAttemptWork
+                        .PreserveOrReserve(
+                            terminal.SourceWork,
+                            terminal.Contribution,
+                            remainingWork,
+                            mayReadXmlDocuments: true,
+                            elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown package-backed reference result."),
         };
@@ -195,6 +204,7 @@ public static class PackagePlatformSelectedLibraryRealization
         PackagePlatformHouseResult<
             PackageImplementationRealization> result,
         PlatformHouseCandidateIdentity candidate,
+        PlatformHouseWorkBudget remainingWork,
         TimeSpan elapsed) =>
         result switch
         {
@@ -239,7 +249,13 @@ public static class PackagePlatformSelectedLibraryRealization
                     RejectionKind(
                         terminal.Diagnostic,
                         terminal.Contribution),
-                    WithElapsed(terminal.SourceWork, elapsed)),
+                    PlatformLibraryRealizationAttemptWork
+                        .PreserveOrReserve(
+                            terminal.SourceWork,
+                            terminal.Contribution,
+                            remainingWork,
+                            mayReadXmlDocuments: false,
+                            elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown package-backed implementation result."),
         };
@@ -277,15 +293,6 @@ public static class PackagePlatformSelectedLibraryRealization
             forwardingHops: 0,
             targetComparisons: 0,
             elapsed);
-
-    static PlatformHouseConsumedWork WithElapsed(
-        PlatformHouseConsumedWork? work,
-        TimeSpan elapsed) =>
-        Work(
-            work?.Assemblies ?? 0,
-            work?.XmlDocuments ?? 0,
-            work?.Bytes ?? 0,
-            elapsed + (work?.Elapsed ?? TimeSpan.Zero));
 
     static PlatformHouseRejectionKind? RejectionKind(
         PackagePlatformSourceDiagnostic diagnostic,

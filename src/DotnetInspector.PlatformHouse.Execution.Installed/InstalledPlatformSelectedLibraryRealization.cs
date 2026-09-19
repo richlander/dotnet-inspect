@@ -143,12 +143,13 @@ public static class InstalledPlatformSelectedLibraryRealization
                 new PlatformLibraryRealizationSourceAttempt.NotSucceeded(
                     terminal.Contribution,
                     RejectionKind(terminal.Diagnostic, terminal.Contribution),
-                    WithElapsed(
-                        terminal.SourceWork,
-                        terminal.Contribution,
-                        remainingWork,
-                        mayReadXmlDocuments: true,
-                        elapsed)),
+                    PlatformLibraryRealizationAttemptWork
+                        .PreserveOrReserve(
+                            terminal.SourceWork,
+                            terminal.Contribution,
+                            remainingWork,
+                            mayReadXmlDocuments: true,
+                            elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown installed reference result."),
         };
@@ -202,12 +203,13 @@ public static class InstalledPlatformSelectedLibraryRealization
                 new PlatformLibraryRealizationSourceAttempt.NotSucceeded(
                     terminal.Contribution,
                     RejectionKind(terminal.Diagnostic, terminal.Contribution),
-                    WithElapsed(
-                        terminal.SourceWork,
-                        terminal.Contribution,
-                        remainingWork,
-                        mayReadXmlDocuments: false,
-                        elapsed)),
+                    PlatformLibraryRealizationAttemptWork
+                        .PreserveOrReserve(
+                            terminal.SourceWork,
+                            terminal.Contribution,
+                            remainingWork,
+                            mayReadXmlDocuments: false,
+                            elapsed)),
             _ => throw new InvalidOperationException(
                 "Unknown installed implementation result."),
         };
@@ -245,43 +247,6 @@ public static class InstalledPlatformSelectedLibraryRealization
             forwardingHops: 0,
             targetComparisons: 0,
             elapsed);
-
-    static PlatformHouseConsumedWork WithElapsed(
-        PlatformHouseConsumedWork? work,
-        PlatformSourceContribution contribution,
-        PlatformHouseWorkBudget remainingWork,
-        bool mayReadXmlDocuments,
-        TimeSpan elapsed) =>
-        Work(
-            work?.Assemblies
-                ?? UnmeasuredFailure(
-                    contribution,
-                    remainingWork.MaxAssemblies),
-            work?.XmlDocuments
-                ?? UnmeasuredFailure(
-                    contribution,
-                    mayReadXmlDocuments
-                        ? remainingWork.MaxXmlDocuments
-                        : 0),
-            work?.Bytes
-                ?? UnmeasuredFailure(
-                    contribution,
-                    remainingWork.MaxBytes),
-            elapsed + (work?.Elapsed ?? TimeSpan.Zero));
-
-    static int UnmeasuredFailure(
-        PlatformSourceContribution contribution,
-        int delegatedMaximum) =>
-        contribution is PlatformSourceContribution.Failed
-            ? delegatedMaximum
-            : 0;
-
-    static long UnmeasuredFailure(
-        PlatformSourceContribution contribution,
-        long delegatedMaximum) =>
-        contribution is PlatformSourceContribution.Failed
-            ? delegatedMaximum
-            : 0;
 
     static PlatformHouseRejectionKind? RejectionKind(
         InstalledPlatformSourceDiagnostic diagnostic,

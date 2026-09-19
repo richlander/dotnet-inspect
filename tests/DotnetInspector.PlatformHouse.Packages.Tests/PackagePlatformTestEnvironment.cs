@@ -300,7 +300,8 @@ internal sealed class TestSourceClient(
 internal sealed class TrackingPackageContent(
     string producerKey,
     IReadOnlyList<KeyValuePair<string, byte[]>> entries,
-    IEnumerable<string>? throwOnOpen = null) : IPackageContent, IPackageContentEntryManifest
+    IEnumerable<string>? throwOnOpen = null,
+    Func<string, Exception>? openFailure = null) : IPackageContent, IPackageContentEntryManifest
 {
     private readonly byte[] _archive = PackagePlatformTestData.Archive(entries);
     private readonly HashSet<string> _throwOnOpen =
@@ -336,7 +337,11 @@ internal sealed class TrackingPackageContent(
         ThrowIfRetired();
         OpenedEntries.Add(relativePath);
         if (_throwOnOpen.Contains(relativePath))
-            throw new InvalidDataException($"Entry {relativePath} must not be opened.");
+        {
+            throw openFailure?.Invoke(relativePath)
+                ?? new InvalidDataException(
+                    $"Entry {relativePath} must not be opened.");
+        }
         KeyValuePair<string, byte[]> entry =
             entries.SingleOrDefault(pair => pair.Key == relativePath);
         if (entry.Key is null || entry.Value.LongLength > maxExpandedBytes)

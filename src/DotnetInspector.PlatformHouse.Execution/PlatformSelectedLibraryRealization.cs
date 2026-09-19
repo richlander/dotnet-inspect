@@ -145,6 +145,45 @@ public abstract class PlatformLibraryRealizationSourceAttempt :
     }
 }
 
+/// <summary>
+/// Accounts terminal work from one selected Library realization source.
+/// </summary>
+public static class PlatformLibraryRealizationAttemptWork
+{
+    public static PlatformHouseConsumedWork PreserveOrReserve(
+        PlatformHouseConsumedWork? observedWork,
+        PlatformSourceContribution contribution,
+        PlatformHouseWorkBudget delegatedWork,
+        bool mayReadXmlDocuments,
+        TimeSpan elapsed)
+    {
+        ArgumentNullException.ThrowIfNull(contribution);
+        ArgumentNullException.ThrowIfNull(delegatedWork);
+        bool reserve =
+            observedWork is null
+            && contribution is PlatformSourceContribution.Failed;
+        return new PlatformHouseConsumedWork(
+            sourceOperations: 0,
+            targetCandidates: 0,
+            assemblies:
+                observedWork?.Assemblies
+                ?? (reserve ? delegatedWork.MaxAssemblies : 0),
+            xmlDocuments:
+                observedWork?.XmlDocuments
+                ?? (reserve && mayReadXmlDocuments
+                    ? delegatedWork.MaxXmlDocuments
+                    : 0),
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes:
+                observedWork?.Bytes
+                ?? (reserve ? delegatedWork.MaxBytes : 0),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed + (observedWork?.Elapsed ?? TimeSpan.Zero));
+    }
+}
+
 public delegate ValueTask<PlatformLibraryRealizationSourceAttempt>
     PlatformLibraryRealizationSourceOperation(
         PlatformHouseRequest request,
