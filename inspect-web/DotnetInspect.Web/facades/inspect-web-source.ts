@@ -44,6 +44,16 @@ export interface BrowserAnnotatedSource {
   readonly callRelationships: ReadonlyArray<BrowserAnnotatedSourceCallRelationship>;
 }
 
+export interface BrowserAnnotatedSourceAwaitCompletionPath {
+  readonly nodeId: number;
+}
+
+export interface BrowserAnnotatedSourceAwaitCompletionPathInspection {
+  readonly available: boolean;
+  readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+  readonly observations: ReadonlyArray<BrowserAnnotatedSourceAwaitCompletionPath>;
+}
+
 export interface BrowserAnnotatedSourceCallCycle {
   readonly findingKey: string;
   readonly ordinal: number;
@@ -126,6 +136,7 @@ export interface BrowserAnnotatedSourceViewerCatalog {
   readonly callRelationships: BrowserAnnotatedSourceCapabilityAvailability;
   readonly callCycles: BrowserAnnotatedSourceCallCycleInspection;
   readonly synchronousCompletions: BrowserAnnotatedSourceSynchronousCompletionInspection;
+  readonly awaitCompletionPaths: BrowserAnnotatedSourceAwaitCompletionPathInspection;
 }
 
 export interface BrowserCSharpBodyEvidence {

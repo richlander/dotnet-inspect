@@ -541,7 +541,8 @@ grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 ### 11b. Limit member count
 
 ```bash
-dotnet-inspect type --package System.CommandLine@2.0.3 Command -m 3 --tips q
+dotnet-inspect type --package System.CommandLine@2.0.3 Command \
+  --table --no-headers -n 3 --tips q
 ```
 
 ```expect

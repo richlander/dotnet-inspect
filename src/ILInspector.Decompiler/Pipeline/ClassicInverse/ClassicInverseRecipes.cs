@@ -1824,7 +1824,8 @@ internal static class ClassicInverseRecipes
             new LoadLocal(taskIndex, taskType),
             getResult.Callee.ReturnType,
             getResult.Callee.ReturnIsDynamic,
-            shell.Protocol.AwaitMembers(getResult, operand, budget));
+            shell.Protocol.AwaitMembers(getResult, operand, budget),
+            provesClassicCompletionPaths: true);
         var accumulate = new StoreLocal(
             sumIndex,
             sumType,
