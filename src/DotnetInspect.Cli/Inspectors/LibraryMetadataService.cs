@@ -65,14 +65,19 @@ internal static class LibraryMetadataService
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures =
                 SelectBodyAnalysisFeatures(requiredQueries);
+            bool includeResourceLifecycle =
+                requiredQueries?.Contains(
+                    ResourceTriageQuery.Definition) == true;
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
-                    != Analysis.LibraryBodyAnalysisFeatures.None;
+                    != Analysis.LibraryBodyAnalysisFeatures.None
+                || includeResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
-                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true;
+                || requiredQueries?.Contains(BodyShapesQuery.Definition) == true
+                || includeResourceLifecycle;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
@@ -305,6 +310,10 @@ internal static class LibraryMetadataService
                     SourceLinkContext = sourceLinkQueryContext,
                     MetadataRoot = options.MetadataRoot,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
+                    ResourceLifecycleEffects =
+                        includeResourceLifecycle
+                            ? Analysis.ArrayPoolResourceEffectModel.Create()
+                            : null,
                     Trace = trace,
                 };
 
@@ -525,8 +534,6 @@ internal static class LibraryMetadataService
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
         }
-        if (queries?.Contains(ResourceTriageQuery.Definition) == true)
-            features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
         if (queries?.Contains(BodyShapesQuery.Definition) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;

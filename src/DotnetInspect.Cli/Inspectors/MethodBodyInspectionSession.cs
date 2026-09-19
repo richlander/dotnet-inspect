@@ -175,13 +175,15 @@ public sealed class MethodBodyInspectionSession
         PdbContext context,
         Analysis.LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
-        ResolvedAssemblyReference? assembly = null)
+        ResolvedAssemblyReference? assembly = null,
+        Analysis.ResourceEffectAdmission? resourceLifecycleEffects = null)
         => OpenWithPrefetchedImage(
             assemblyPath,
             context.GetPrefetchedImage(),
             features,
             resolver,
-            assembly);
+            assembly,
+            resourceLifecycleEffects: resourceLifecycleEffects);
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
         string assemblyPath,
@@ -190,14 +192,28 @@ public sealed class MethodBodyInspectionSession
         IAssemblyReferenceResolver? resolver = null,
         ResolvedAssemblyReference? assembly = null,
         IReadOnlySet<int>? bodyScope = null,
-        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null,
+        Analysis.ResourceEffectAdmission? resourceLifecycleEffects = null)
     {
+        if (resourceLifecycleEffects is not null
+            && (bodyScope is not null || bodyTypeScope is not null))
+        {
+            throw new ArgumentException(
+                "Resource Lifecycle Analysis requires a full assembly "
+                + "body census.",
+                nameof(resourceLifecycleEffects));
+        }
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         Analysis.LibraryBodyAnalysisRequest request =
-            Analysis.LibraryBodyAnalysisRequest.Create(
-                features,
-                bodyScope,
-                bodyTypeScope);
+            resourceLifecycleEffects is null
+                ? Analysis.LibraryBodyAnalysisRequest.Create(
+                    features,
+                    bodyScope,
+                    bodyTypeScope)
+                : Analysis.LibraryBodyAnalysisRequest
+                    .CreateResourceLifecycle(
+                        resourceLifecycleEffects,
+                        features);
         return new(
             Analysis.LibraryBodyAnalysisService.ExecuteImage(
                 assemblyPath,

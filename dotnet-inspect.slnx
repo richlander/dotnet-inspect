@@ -23,6 +23,7 @@
     <Project Path="fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures/ILInspector.Analysis.OwnershipFlowFixtures.csproj" />
+    <Project Path="fixtures/analysis/ILInspector.Analysis.ResourceLifecycleFixtures/ILInspector.Analysis.ResourceLifecycleFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
     <Project Path="fixtures/analysis/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />

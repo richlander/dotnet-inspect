@@ -9,6 +9,8 @@ using System.Runtime.CompilerServices;
 
 using ILInspector.Analysis;
 using ILInspector.AnalysisHarness;
+using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -197,6 +199,212 @@ public sealed class LeakTriageAnalyzerTests
         };
         Assert.Equal(external.Payload, clone);
         Assert.Equal(external.Payload.GetHashCode(), clone.GetHashCode());
+    }
+
+    [Fact]
+    public void FocusedResourceLifecycle_PreservesTransferredFindingCensus()
+    {
+        string path =
+            FixtureCatalog.AnalysisResourceLifecycle.AssemblyPath();
+        var subject = new FindingSubject("fixtures", "fixtures");
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+
+        var focused =
+            Assert.IsType<
+                FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                    ResourceLifecycleAnalysis.Inspect(
+                        execution.ResourceLifecycle,
+                        subject).Value);
+        var legacy =
+            Assert.IsType<
+                FindingInspection<ResourceLifecycleOccurrence>.Complete>(
+                    ResourceLifecycleAnalysis.InspectAssembly(
+                        path,
+                        subject).Value);
+
+        string[] transferredCases =
+        [
+            "ReadBeforeReturn",
+            "ReadWithTypedCatchReturn",
+            "TwoRootsReleaseOnlyFirst",
+            "ThrowAfterRent",
+        ];
+        Finding<ResourceLifecycleOccurrence>[] legacyTransferred =
+        [
+            .. legacy.Findings.Where(finding =>
+                transferredCases.Contains(
+                    finding.Payload.Method.Name,
+                    StringComparer.Ordinal)),
+        ];
+        Finding<ResourceLifecycleOccurrence>[] focusedTransferred =
+        [
+            .. focused.Findings.Where(finding =>
+                transferredCases.Contains(
+                    finding.Payload.Method.Name,
+                    StringComparer.Ordinal)),
+        ];
+        Assert.Equal(
+            legacyTransferred.Select(finding => finding.Key),
+            focusedTransferred.Select(finding => finding.Key));
+        Assert.Equal(
+            legacyTransferred.Select(finding => finding.Payload),
+            focusedTransferred.Select(finding => finding.Payload));
+        Assert.True(execution.ResourceLifecycle.WasRequested);
+        Assert.Same(
+            execution.Receipt,
+            execution.ResourceLifecycle.Receipt);
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
+
+        var pathological = Assert.Single(
+            focused.Findings,
+            finding =>
+                finding.Payload.Method.Name
+                    == "TwoRootsReleaseOnlyFirst");
+        Assert.Single(pathological.Payload.Boundaries);
+        Assert.Equal(
+            "Read",
+            pathological.Payload.Boundaries[0].Operation.Name);
+
+        Assert.DoesNotContain(
+            focused.Findings,
+            finding =>
+                finding.Payload.Method.Name
+                    == "ReleaseOnBothBranchesBeforeRead");
+        var conditionalCleanup = Assert.Single(
+            focused.Findings,
+            finding =>
+                finding.Payload.Method.Name
+                    == "ReadWithConditionalFinallyReturn");
+        Assert.Equal(
+            "Read",
+            Assert.Single(conditionalCleanup.Payload.Boundaries)
+                .Operation.Name);
+        var directThrow = Assert.Single(
+            focused.Findings,
+            finding =>
+                finding.Payload.Method.Name
+                    == "ProtectedReadOrDirectThrow");
+        Assert.Empty(directThrow.Payload.Boundaries);
+        var multipleConditionalReleases = Assert.Single(
+            focused.Findings,
+            finding =>
+                finding.Payload.Method.Name
+                    == "ThrowAfterTwoConditionalReturns");
+        Assert.Empty(multipleConditionalReleases.Payload.Boundaries);
+    }
+
+    [Fact]
+    public void FocusedResourceLifecycle_RequiresResolutionAuthority()
+    {
+        string path =
+            FixtureCatalog.AnalysisResourceLifecycle.AssemblyPath();
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()));
+
+        ResourceLifecycleLimitation limitation =
+            Assert.Single(execution.ResourceLifecycle.Limitations);
+        Assert.Equal(
+            ResourceLifecycleLimitationKind.OccurrenceAnalysis,
+            limitation.Kind);
+        Assert.Equal(
+            ResourceEffectResolutionRejectionKind
+                .OccurrencePopulationRejected,
+            limitation.OccurrenceLimitation?.EffectResolutionRejection);
+        Assert.IsType<
+            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                ResourceLifecycleAnalysis.Inspect(
+                    execution.ResourceLifecycle,
+                    new FindingSubject("fixtures", "fixtures")).Value);
+        Assert.False(execution.HasMaterializedCompatibilityIndex);
+    }
+
+    [Fact]
+    public void FocusedResourceLifecycle_UnavailableExceptionFlowIsTyped()
+    {
+        string path =
+            FixtureCatalog.AnalysisResourceLifecycle.AssemblyPath();
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.CreateResourceOccurrences(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+        ResourceOccurrenceAnalysisResult occurrences =
+            Assert.Single(
+                execution.ResourceOccurrences.Methods,
+                method => method.Method.Name == "ReadBeforeReturn");
+        MethodInstructions instructions =
+            MethodInstructions.Decode([0x2A], 1, []);
+        var context = new MethodBodyAnalysisContext(
+            occurrences.Method,
+            instructions,
+            [],
+            []);
+
+        ResourceLifecycleMethodAnalysisResult result =
+            ResourceLifecycleAnalysisService.Analyze(
+                context,
+                occurrences,
+                [],
+                new HashSet<MethodExceptionClauseId>());
+
+        ResourceLifecycleLimitation limitation =
+            Assert.Single(result.Limitations);
+        Assert.Equal(
+            ResourceLifecycleLimitationKind.ExceptionFlow,
+            limitation.Kind);
+        Assert.Contains(
+            "MissingMetadataEvidence",
+            limitation.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FocusedResourceLifecycle_MalformedCatchTypeIsTyped()
+    {
+        string path =
+            FixtureCatalog.AnalysisResourceLifecycle.AssemblyPath();
+        byte[] image = File.ReadAllBytes(path);
+        int methodToken = ReplaceCatchTypeWithMethodDefinition(
+            image,
+            nilCatchType: false,
+            methodName: "ReadWithTypedCatchReturn");
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecuteImage(
+                path,
+                ImmutableArray.Create(image),
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    ArrayPoolResourceEffectModel.Create()),
+                resolver);
+
+        ResourceLifecycleMethodAnalysisResult method =
+            Assert.Single(
+                execution.ResourceLifecycle.Methods,
+                candidate =>
+                    candidate.Method.MetadataToken == methodToken);
+        ResourceLifecycleLimitation limitation =
+            Assert.Single(method.Limitations);
+        Assert.Equal(
+            ResourceLifecycleLimitationKind.CatchTypeResolution,
+            limitation.Kind);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            limitation.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1630,7 +1838,9 @@ public sealed class LeakTriageAnalyzerTests
 
     static int ReplaceCatchTypeWithMethodDefinition(
         byte[] image,
-        bool nilCatchType)
+        bool nilCatchType,
+        string methodName =
+            nameof(ArrayPoolLeakFixtures.RentCrossCallCatchAllReturn))
     {
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
@@ -1639,8 +1849,7 @@ public sealed class LeakTriageAnalyzerTests
             reader.MethodDefinitions.Single(handle =>
                 reader.StringComparer.Equals(
                     reader.GetMethodDefinition(handle).Name,
-                    nameof(ArrayPoolLeakFixtures
-                        .RentCrossCallCatchAllReturn)));
+                    methodName));
         MethodDefinition method =
             reader.GetMethodDefinition(methodHandle);
         int methodOffset = RvaToFileOffset(

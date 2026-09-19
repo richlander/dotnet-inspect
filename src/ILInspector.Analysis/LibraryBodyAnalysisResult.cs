@@ -9,10 +9,13 @@ internal sealed record LibraryBodyAnalysisResult(
     AllocationAnalysisResult Allocations,
     OptimizationAnalysisResult Optimizations,
     OwnershipFlowAnalysisResult OwnershipFlow,
-    ResourceLifecycleAnalysisResult Resources,
+    LegacyResourceLifecycleAnalysisResult Resources,
     ImmutableArray<AnalysisDiagnostic> Diagnostics)
 {
     internal ResourceOccurrenceLibraryAnalysisResult? ResourceOccurrences
+    { get; init; }
+
+    internal ResourceLifecycleLibraryAnalysisResult? ResourceLifecycles
     { get; init; }
 }
 
@@ -47,7 +50,7 @@ internal sealed record OptimizationAnalysisResult(
     IReadOnlySet<int> ScopeExcludedMethodTokens,
     IReadOnlySet<string> ExceptionTypeNames);
 
-internal sealed record ResourceLifecycleAnalysisResult(
+internal sealed record LegacyResourceLifecycleAnalysisResult(
     LeakTriageResult? LeakTriage);
 
 internal sealed record OwnershipFlowAnalysisResult(
@@ -56,3 +59,7 @@ internal sealed record OwnershipFlowAnalysisResult(
 internal sealed record ResourceOccurrenceLibraryAnalysisResult(
     ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
     ImmutableArray<ResourceOccurrenceLimitation> Limitations);
+
+internal sealed record ResourceLifecycleLibraryAnalysisResult(
+    ImmutableArray<ResourceLifecycleMethodAnalysisResult> Methods,
+    ImmutableArray<ResourceLifecycleLimitation> Limitations);

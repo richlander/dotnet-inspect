@@ -163,15 +163,17 @@ display name, equal content, or neighboring result.
 
 The existing internal `MethodBodyAnalysisResult`, `SafetyAnalysisResult`,
 `AllocationAnalysisResult`, `OptimizationAnalysisResult`,
-`ResourceLifecycleAnalysisResult`, and `OwnershipFlowAnalysisResult` establish
-the decomposition direction, not final public API approval. A result becomes
-public only when its first production consumer fixes the smallest useful
-shape. New Resource Occurrence Analysis publishes a distinct
+and `OwnershipFlowAnalysisResult` establish the decomposition direction, not
+final public API approval. A result becomes public only when its first
+production consumer fixes the smallest useful shape. Resource Occurrence
+Analysis publishes a distinct
 `LibraryResourceOccurrenceAnalysisResult` containing root-bound
 `ResourceOccurrenceAnalysisResult` method evidence. Its explicit admitted
 effect set is carried by the request rather than by an unparameterized feature
 bit. It does not add another property or projection method to
-`LibraryBodyIndex`.
+`LibraryBodyIndex`. Resource Lifecycle Analysis composes that evidence with
+same-execution body and exception facts and publishes a separate
+`ResourceLifecycleAnalysisResult`.
 
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
@@ -205,7 +207,7 @@ shared semantic input.
 | 1 | Library Unsafe Evidence and Implementation Profiles sections | Safety evidence and implementation-profile results shaped from the existing internal producer outputs |
 | 2 | Library Optimization Opportunities section | `LibraryOptimizationAnalysisResult`, with completed opportunities, lazy allocation fanout, and generated-framework identities |
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
-| 4 | Library Resource Triage section under #6731 | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
+| 4 | Library Resource Triage section | `ResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
 
 Every slice:
@@ -265,8 +267,11 @@ release must preserve answers while retaining evidence-domain derivations.
 Their existing Release gates remain authoritative, supplemented by focused
 result parity, catalog, and cache-boundary gates.
 
-Resource Triage follows issues #6730 and #6731 so the new ownership path reaches
-a section without returning through the old index shape.
+Resource Triage consumes `ResourceLifecycleAnalysisResult` directly, so the
+root-bound occurrence and lifecycle path reaches a production section without
+returning through the old index shape. The CLI explicitly supplies the shipped
+ArrayPool effect admission while one shared Analysis execution retains the
+exact body facts needed by the focused producer.
 
 Removal of `LibraryBodyIndex.Open*` follows its final acquisition consumer.
 Removal or narrowing of `LibraryBodyIndex` itself follows its final semantic
@@ -368,6 +373,11 @@ Each result-type migration additionally gates:
   separately reviewed correction; and
 - no public result type lands without its adopting production section or
   query.
+
+Resource Lifecycle additionally gates legacy Finding parity on an independently
+compiled fixture, root-specific behavior for two same-domain acquisitions,
+typed resolution and exception-flow failure, and Resource Triage execution
+without compatibility-index materialization.
 
 The typed migrations are gated by
 `LibraryBodyAnalysisExecutionTests`,

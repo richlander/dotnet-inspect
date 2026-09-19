@@ -24,23 +24,21 @@ public abstract record ResourceTriageResult
     public sealed record Failed(InspectionError Error) : ResourceTriageResult;
 }
 
-/// <summary>Assesses resource lifecycle evidence from an already-acquired body index.</summary>
+/// <summary>Assesses focused resource lifecycle evidence.</summary>
 public static class ResourceTriageQuery
 {
     public static InspectionQuery<ResourceTriageResult> Definition { get; } =
         new("Resource triage", InspectionCost.Unbounded);
 
     public static ResourceTriageResult Execute(
-        LibraryBodyIndex index,
+        ResourceLifecycleAnalysisResult lifecycle,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(subject);
 
         FindingInspection<ResourceLifecycleOccurrence> inspection =
-            ResourceLifecycleAnalysis.InspectAssembly(
-                () => index,
-                subject);
+            ResourceLifecycleAnalysis.Inspect(lifecycle, subject);
         return inspection.Value switch
         {
             FindingInspection<ResourceLifecycleOccurrence>.Complete complete =>

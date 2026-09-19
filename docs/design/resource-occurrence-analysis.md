@@ -159,7 +159,9 @@ resource in the method. Once a method has a retained root, an unresolved
 ordinary call-boundary, storage, or return value remains method-level
 incompleteness because the value-flow substrate intentionally carries no
 partial provenance from which the producer could soundly prove that the value
-is unrelated.
+is unrelated. An unresolved call slot whose exact static type is disjoint from
+every retained root is not such a limitation; the static signature itself
+proves that slot cannot carry the obligation.
 
 Positive occurrence evidence survives unrelated limitations. Unsupported or
 incomplete evidence does not become a successful empty result. Resolution
@@ -189,10 +191,10 @@ bag.
 
 The result is not yet the compact Research ownership-path contract. That
 consumer defines its required interprocedural summary under #6732. The
-lifecycle producer in #6731 consumes occurrence evidence while the same
-operation still has access to owner-issued body, control-flow, and exception
-facts; it does not ask the detached result to reconstruct discarded path
-semantics.
+[Resource Lifecycle Analysis](resource-lifecycle-analysis.md) consumes
+occurrence evidence while the same operation still has access to owner-issued
+body, control-flow, and exception facts; it does not ask the detached result
+to reconstruct discarded path semantics.
 
 ## Pathological case
 
@@ -266,9 +268,9 @@ This owner is step 7 of the 26-step #6544 adoption plan:
 1. #6730 defines and implements additive root-bound occurrence evidence as a
    bespoke `ResourceOccurrenceAnalysisResult` published by
    `LibraryBodyAnalysisService`.
-2. #6731 consumes it with Analysis-owned control-flow and exception facts to
-   produce `ResourceLifecycleAnalysisResult` and migrate the Resource Triage
-   section directly to that type.
+2. #6731 consumes it with Analysis-owned control-flow and exception facts,
+   publishes `ResourceLifecycleAnalysisResult`, and migrates the Resource
+   Triage section directly to that type.
 3. #6732 defines the compact interprocedural summary required by the Research
    call-graph consumer.
 4. ArrayPool parity is evaluated after those consumers exist. The

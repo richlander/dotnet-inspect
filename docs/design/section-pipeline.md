@@ -120,8 +120,11 @@ and `LibraryCommand_EffectiveComposedBodyShapesDiscoveryNamesOptimizationFailure
 gate the direct and composed projections.
 `Array Pool Escapes` binds `ResourceTriageQuery`, which retains the complete
 resource-lifecycle Finding inspection and every typed triage assessment. The
-CLI owns actionable filtering, ordering, member drill coordinates,
-compatibility JSON, prose, and final presentation containment.
+query accepts `ResourceLifecycleAnalysisResult`, not `LibraryBodyIndex`; the
+shared section context supplies the explicit ArrayPool effect admission and
+acquires the focused result through one Analysis execution. The CLI owns
+actionable filtering, ordering, member drill coordinates, compatibility JSON,
+prose, and final presentation containment.
 
 The former string-keyed `ScannerRegistry` axis has been retired. Library
 sections now bind typed queries or consume baseline command facts.

@@ -11,7 +11,8 @@ internal sealed record LibraryBodyAnalysisPlan(
     IReadOnlySet<int>? RequestedMethodScope = null,
     ImmutableArray<AnalysisDiagnostic>
         ScopeExpansionDiagnostics = default,
-    ResourceEffectAdmission? ResourceEffects = null)
+    ResourceEffectAdmission? ResourceEffects = null,
+    bool IncludesResourceLifecycle = false)
 {
     internal bool IsScoped
         => MethodScope is not null || TypeScope is not null;
@@ -30,7 +31,8 @@ internal sealed record LibraryBodyAnalysisPlan(
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? methodScope,
         Func<TypeRef, bool>? typeScope,
-        ResourceEffectAdmission? resourceEffects = null)
+        ResourceEffectAdmission? resourceEffects = null,
+        bool includeResourceLifecycle = false)
     {
         if ((features & ~LibraryBodyAnalysisFeatures.All) != 0)
             throw new ArgumentOutOfRangeException(nameof(features));
@@ -60,6 +62,18 @@ internal sealed record LibraryBodyAnalysisPlan(
         }
         if (resourceEffects is not null)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        if (includeResourceLifecycle && resourceEffects is null)
+        {
+            throw new ArgumentException(
+                "Resource Lifecycle Analysis requires admitted resource effects.",
+                nameof(resourceEffects));
+        }
+        if (includeResourceLifecycle
+            && (methodScope is not null || typeScope is not null))
+        {
+            throw new ArgumentException(
+                "Resource Lifecycle Analysis requires a full assembly body census.");
+        }
         if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
             && (methodScope is not null || typeScope is not null))
         {
@@ -72,6 +86,7 @@ internal sealed record LibraryBodyAnalysisPlan(
             methodScope,
             typeScope,
             RequestedMethodScope: methodScope,
-            ResourceEffects: resourceEffects);
+            ResourceEffects: resourceEffects,
+            IncludesResourceLifecycle: includeResourceLifecycle);
     }
 }

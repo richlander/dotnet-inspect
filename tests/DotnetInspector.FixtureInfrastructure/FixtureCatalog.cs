@@ -103,6 +103,8 @@ public static class FixtureIds
     public const string AnalysisMethodCorrespondenceSurface =
         "analysis.method-correspondence.surface";
     public const string AnalysisOwnershipFlow = "analysis.ownership-flow";
+    public const string AnalysisResourceLifecycle =
+        "analysis.resource-lifecycle";
     public const string AnalysisCallOverloads = "analysis.call-overloads";
     public const string AnalysisCallGenericScope = "analysis.call-generic-scope";
     public const string AnalysisCallFunctionPointerScope = "analysis.call-function-pointer-scope";
@@ -487,6 +489,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.OwnershipFlowFixtures.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "analysis", "ownership-flow");
+
+    public static readonly FixtureDefinition AnalysisResourceLifecycle = Fixture(
+        FixtureIds.AnalysisResourceLifecycle,
+        "ILInspector.Analysis.ResourceLifecycleFixtures",
+        "ILInspector.Analysis.ResourceLifecycleFixtures.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "analysis", "resource-lifecycle");
 
     public static readonly FixtureDefinition AnalysisCallOverloads = Fixture(
         FixtureIds.AnalysisCallOverloads,
@@ -1015,6 +1024,7 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisOwnershipFlow,
+        AnalysisResourceLifecycle,
         AnalysisCallOverloads,
         AnalysisCallGenericScope,
         AnalysisCallFunctionPointerScope,
@@ -1110,6 +1120,7 @@ public static class FixtureCatalog
             AnalysisCallerGraphTargetV2,
             AnalysisCallerGraphCaller,
             AnalysisOwnershipFlow,
+            AnalysisResourceLifecycle,
             AnalysisCallOverloads,
             AnalysisCallGenericScope,
             AnalysisCallFunctionPointerScope,
@@ -1458,6 +1469,7 @@ public static class FixtureCatalog
             "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
             "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
             "ILInspector.Analysis.OwnershipFlowFixtures" => "fixtures/analysis/ILInspector.Analysis.OwnershipFlowFixtures",
+            "ILInspector.Analysis.ResourceLifecycleFixtures" => "fixtures/analysis/ILInspector.Analysis.ResourceLifecycleFixtures",
             "ILInspector.Analysis.CallOverloadFixtures" => "fixtures/analysis/ILInspector.Analysis.CallOverloadFixtures",
             "ILInspector.Analysis.CallGenericScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallGenericScopeFixtures",
             "ILInspector.Analysis.CallFunctionPointerScopeFixtures" => "fixtures/analysis/ILInspector.Analysis.CallFunctionPointerScopeFixtures",

@@ -13,7 +13,8 @@ public sealed class LibraryBodyAnalysisRequest
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? bodyScope,
         Func<TypeRef, bool>? bodyTypeScope,
-        ResourceEffectAdmission? resourceEffects)
+        ResourceEffectAdmission? resourceEffects,
+        bool includeResourceLifecycle)
     {
         ImmutableHashSet<int>? bodyScopeSnapshot =
             bodyScope?.ToImmutableHashSet();
@@ -21,11 +22,13 @@ public sealed class LibraryBodyAnalysisRequest
         BodyScope = bodyScopeSnapshot;
         BodyTypeScope = bodyTypeScope;
         ResourceEffects = resourceEffects;
+        IncludesResourceLifecycle = includeResourceLifecycle;
         Plan = LibraryBodyAnalysisPlan.Create(
             features,
             bodyScopeSnapshot,
             bodyTypeScope,
-            resourceEffects);
+            resourceEffects,
+            includeResourceLifecycle);
     }
 
     /// <summary>The features requested before prerequisite expansion.</summary>
@@ -46,13 +49,24 @@ public sealed class LibraryBodyAnalysisRequest
     /// </summary>
     public ResourceEffectAdmission? ResourceEffects { get; }
 
+    /// <summary>
+    /// Whether the execution should interpret root-bound occurrences as
+    /// exceptional-cleanup lifecycle evidence.
+    /// </summary>
+    public bool IncludesResourceLifecycle { get; }
+
     internal LibraryBodyAnalysisPlan Plan { get; }
 
     public static LibraryBodyAnalysisRequest Create(
         LibraryBodyAnalysisFeatures features,
         IReadOnlySet<int>? bodyScope = null,
         Func<TypeRef, bool>? bodyTypeScope = null) =>
-        new(features, bodyScope, bodyTypeScope, resourceEffects: null);
+        new(
+            features,
+            bodyScope,
+            bodyTypeScope,
+            resourceEffects: null,
+            includeResourceLifecycle: false);
 
     /// <summary>
     /// Selects Resource Occurrence Analysis with explicit admitted effect
@@ -71,6 +85,25 @@ public sealed class LibraryBodyAnalysisRequest
             features,
             bodyScope,
             bodyTypeScope,
-            resourceEffects);
+            resourceEffects,
+            includeResourceLifecycle: false);
+    }
+
+    /// <summary>
+    /// Selects exceptional-cleanup Resource Lifecycle Analysis and its
+    /// root-bound Resource Occurrence prerequisite.
+    /// </summary>
+    public static LibraryBodyAnalysisRequest CreateResourceLifecycle(
+        ResourceEffectAdmission resourceEffects,
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.None)
+    {
+        ArgumentNullException.ThrowIfNull(resourceEffects);
+        return new(
+            features,
+            bodyScope: null,
+            bodyTypeScope: null,
+            resourceEffects,
+            includeResourceLifecycle: true);
     }
 }

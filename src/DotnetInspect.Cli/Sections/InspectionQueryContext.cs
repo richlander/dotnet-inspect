@@ -46,6 +46,13 @@ public sealed class InspectionQueryContext : IDisposable
     public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }
         = Analysis.LibraryBodyAnalysisFeatures.Default;
 
+    /// <summary>
+    /// Explicit resource-effect admission for the Resource Lifecycle producer.
+    /// Null leaves lifecycle and its occurrence prerequisite inactive.
+    /// </summary>
+    public Analysis.ResourceEffectAdmission? ResourceLifecycleEffects
+    { get; init; }
+
     private MethodBodyInspectionSession? _bodySession;
     private bool _bodyIndexRecorded;
     private AssemblyInspectionSession? _session;
@@ -290,7 +297,8 @@ public sealed class InspectionQueryContext : IDisposable
                 GetMetadataContext(),
                 BodyAnalysisFeatures,
                 BodyReferenceResolver,
-                assembly: AssemblyReference);
+                assembly: AssemblyReference,
+                resourceLifecycleEffects: ResourceLifecycleEffects);
         }
         catch (Exception ex)
         {
@@ -306,7 +314,8 @@ public sealed class InspectionQueryContext : IDisposable
             resource,
             InertString.Format(
                 TextPolicy.Field,
-                $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})"));
+                $"built in {Elapsed(start)} (features: "
+                + $"{_bodySession.AnalysisExecution.Receipt.Features})"));
     }
 
     private static string Elapsed(long start)

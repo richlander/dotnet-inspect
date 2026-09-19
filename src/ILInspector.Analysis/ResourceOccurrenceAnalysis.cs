@@ -631,7 +631,7 @@ internal static class ResourceOccurrenceAnalysisService
                     ? [receiver]
                     : Enumerable.Empty<ResolvedValueSet>()),
         ];
-        if (values.Any(value => !value.IsResolved))
+        if (UnresolvedValueCouldCarryRoot(call, roots))
         {
             AddUnresolvedValueLimitation(
                 method,
@@ -658,6 +658,123 @@ internal static class ResourceOccurrenceAnalysisService
                 ResourceOccurrenceOperationKind.DirectCallBoundary);
         }
     }
+
+    static bool UnresolvedValueCouldCarryRoot(
+        DirectCall call,
+        IReadOnlyDictionary<
+            ResourceRootKey,
+            ResourceOccurrenceRoot> roots)
+    {
+        for (int index = 0;
+            index < call.ResolvedArgumentValues.Count;
+            index++)
+        {
+            ResolvedValueSet value =
+                call.ResolvedArgumentValues[index];
+            if (value.IsResolved)
+                continue;
+            if ((uint)index >= (uint)call.Callee.ParameterTypes.Length)
+                return true;
+            if (roots.Values.Any(root =>
+                CouldCarry(
+                    RootValueType(root),
+                    call.Callee.ParameterTypes[index])))
+            {
+                return true;
+            }
+        }
+
+        return call.ResolvedReceiverValue is
+            { IsResolved: false }
+            && roots.Values.Any(root =>
+                CouldCarry(
+                    RootValueType(root),
+                    call.Callee.DeclaringType));
+    }
+
+    static TypeRef? RootValueType(ResourceOccurrenceRoot root) =>
+        root switch
+        {
+            ResourceOccurrenceRoot.Acquisition acquisition =>
+                acquisition.Call.Callee.ReturnType,
+            ResourceOccurrenceRoot.IncomingArgument argument =>
+                IncomingArgumentType(argument),
+            _ => null,
+        };
+
+    static TypeRef? IncomingArgumentType(
+        ResourceOccurrenceRoot.IncomingArgument argument)
+    {
+        int parameterIndex = argument.Method.IsStatic
+            ? argument.ArgumentIndex
+            : argument.ArgumentIndex - 1;
+        if (parameterIndex < 0)
+            return argument.Method.DeclaringType;
+        return (uint)parameterIndex
+            < (uint)argument.Method.ParameterTypes.Length
+                ? argument.Method.ParameterTypes[parameterIndex]
+                : null;
+    }
+
+    static bool CouldCarry(
+        TypeRef? rootType,
+        TypeRef expectedType)
+    {
+        if (rootType is null)
+            return true;
+        expectedType = expectedType.Kind is
+            TypeRefKind.ByRef or TypeRefKind.Pinned
+                ? expectedType.ElementType!
+                : expectedType;
+        if (rootType.Equals(expectedType))
+            return true;
+        if (expectedType.Kind is
+            TypeRefKind.GenericParameter
+            or TypeRefKind.MethodGenericParameter
+            or TypeRefKind.Unsupported)
+        {
+            return true;
+        }
+        if (rootType.Kind is not (
+            TypeRefKind.SzArray or TypeRefKind.Array))
+        {
+            return true;
+        }
+        if (expectedType.Kind is
+            TypeRefKind.SzArray or TypeRefKind.Array)
+        {
+            return true;
+        }
+
+        TypeRef definition = expectedType.Kind
+            == TypeRefKind.GenericInstance
+                ? expectedType.ElementType!
+                : expectedType;
+        if (definition.Kind != TypeRefKind.Definition
+            || definition.Assembly != TypeRef.CoreLibrary)
+        {
+            return true;
+        }
+        return IsArrayBaseOrInterface(definition);
+    }
+
+    static bool IsArrayBaseOrInterface(TypeRef type) =>
+        type.Namespace == "System"
+            && type.Name is "Object"
+                or "Array"
+                or "ICloneable"
+        || type.Namespace == "System.Collections"
+            && type.Name is "IEnumerable"
+                or "ICollection"
+                or "IList"
+                or "IStructuralComparable"
+                or "IStructuralEquatable"
+        || type.Namespace == "System.Collections.Generic"
+            && type.Name is "IEnumerable`1"
+                or "ICollection`1"
+                or "IList`1"
+                or "IReadOnlyCollection`1"
+                or "IReadOnlyList`1";
 
     static void AddUnresolvedValueLimitation(
         MethodIdentity method,
