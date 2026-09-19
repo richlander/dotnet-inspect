@@ -1053,7 +1053,11 @@ Implementation proceeds in focused slices:
 5. **Noun-command packet context.** Adopt canonical Base64URL packet-string
    input and derived packet-or-URL Share in `type` under
    [#7555](https://github.com/richlander/dotnet-inspect/issues/7555), then
-   `library` and `member`, one command at a time.
+   `package` under
+   [#7765](https://github.com/richlander/dotnet-inspect/issues/7765),
+   `library` under
+   [#7746](https://github.com/richlander/dotnet-inspect/issues/7746), and
+   `member`, one command at a time.
 6. **Transitional retirement.** Remove `workspace --active-package` and any
    duplicate noun-inspection path only after the corresponding packet-context
    noun command is available.
