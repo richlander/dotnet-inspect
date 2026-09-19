@@ -719,7 +719,7 @@ public partial class CommandExecutionTests
         // The compact per-kind summary tables (Constructors, Properties, Fields, Method
         // Groups) also drop the empty Decode degradation column; degradation surfaces on stderr.
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializerOptions", "-m", "8", "--tips", "q");
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Constructors", output);
@@ -743,41 +743,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_JsonLimit_SelectsSameOverloadDigestAsTable()
+    public async Task Member_NumericMemberFilter_MatchesLongSelector()
     {
-        // -m N over --json applies the same display ordering as the Markdown table, so the
-        // selected overload's digest matches across the two experiences.
-        var table = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--tips", "q");
-        var json = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--json", "--tips", "q");
+        var shortSelector = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "-m", "5", "--table", "--tips", "q");
+        var longSelector = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "--member", "5", "--table", "--tips", "q");
 
-        Assert.Equal(0, table.Exit);
-        Assert.Equal(0, json.Exit);
-        var tableDigest = System.Text.RegularExpressions.Regex.Match(table.Output, "`([0-9a-f]{10})`");
-        Assert.True(tableDigest.Success, "Expected a ~digest in the Methods table Digest column.");
-        Assert.Contains($"\"digest\": \"{tableDigest.Groups[1].Value}\"", json.Output);
-    }
-
-    [Fact]
-    public async Task Member_Limit_SelectsSameOverloadInTableAndMemberIndex()
-    {
-        // The default member table and the Member Index apply -m N over the same ordering,
-        // so a one-member limit selects the same overload (same ~digest) in both views.
-        var table = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--tips", "q");
-        var index = await RunAppAsync(
-            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "-S", "Member Index", "--tips", "q");
-
-        Assert.Equal(0, table.Exit);
-        Assert.Equal(0, index.Exit);
-        Assert.Empty(table.Error);
-        Assert.Empty(index.Error);
-
-        var digest = System.Text.RegularExpressions.Regex.Match(table.Output, "`([0-9a-f]{10})`");
-        Assert.True(digest.Success, "Expected a ~digest in the Methods table Digest column.");
-        // The Member Index Stable selector for the same overload is Name~<digest>.
-        Assert.Contains($"~{digest.Groups[1].Value}", index.Output);
+        Assert.Equal(longSelector, shortSelector);
+        Assert.Equal(1, shortSelector.Exit);
+        Assert.Empty(shortSelector.Output);
+        Assert.Contains("No members matched filter '5'", shortSelector.Error);
     }
 
     [Fact]

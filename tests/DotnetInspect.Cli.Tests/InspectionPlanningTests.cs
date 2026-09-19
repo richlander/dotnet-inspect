@@ -1405,7 +1405,6 @@ public sealed class InspectionPlanningTests
     }
 
     [Theory]
-    [InlineData("member-shape", "--shape is only valid for type targets.")]
     [InlineData("member-arity", "cannot combine different generic arities")]
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("member-mermaid", "--mermaid is standalone")]
@@ -1422,8 +1421,6 @@ public sealed class InspectionPlanningTests
     {
         string[] args = scenario switch
         {
-            "member-shape" =>
-                ["member", "System.String", "--shape", "record", "-D", "--schema"],
             "member-arity" =>
                 ["member", "System.String", "-m", "Foo`1", "-m", "Bar`2", "-D", "--schema"],
             "member-kind" =>
@@ -2520,7 +2517,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task StaticMemberSchema_NumericFilterUsesNormalizedLimitIntent()
+    public async Task StaticMemberSchema_NumericFilterUsesMemberSelectionIntent()
     {
         string[] common =
         [
@@ -2528,25 +2525,38 @@ public sealed class InspectionPlanningTests
             "System.String",
             "--platform",
             "System.Private.CoreLib",
-            "-D",
-            SectionNames.TypeInfo,
-            "--schema",
-            "--count",
-            "--tips",
-            "q",
         ];
 
-        var baseline = await RunAppAsync(common);
-        var limited = await RunAppAsync(
+        var shortSelector = await RunAppAsync(
             [
-                .. common[..4],
+                .. common,
                 "-m",
                 "5",
-                .. common[4..],
+                "-D",
+                SectionNames.TypeInfo,
+                "--schema",
+                "--count",
+                "--tips",
+                "q",
+            ]);
+        var longSelector = await RunAppAsync(
+            [
+                .. common,
+                "--member",
+                "5",
+                "-D",
+                SectionNames.TypeInfo,
+                "--schema",
+                "--count",
+                "--tips",
+                "q",
             ]);
 
-        Assert.Equal(baseline, limited);
-        Assert.Equal(0, limited.Exit);
+        Assert.Equal(longSelector, shortSelector);
+        Assert.Equal(1, shortSelector.Exit);
+        Assert.Contains(
+            $"Section '{SectionNames.TypeInfo}' not found.",
+            shortSelector.Error);
     }
 
     [Fact]
@@ -3546,44 +3556,6 @@ public sealed class InspectionPlanningTests
         Assert.Contains("Unrecognized option '--bogus", result.Error);
     }
 
-    [Fact]
-    public async Task AmbiguousCommandlessSchemaPreservesCommandOwnedOptions()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type", "--shape", "-D", "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        Assert.Contains("[type/type/ApiMember]", result.Output);
-    }
-
-    [Fact]
-    public async Task AmbiguousSchemaDoesNotBorrowAnotherCommandsOptionAuthority()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type.Run", "--shape", "-D", SectionNames.Signature,
-            "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(1, result.Exit);
-        Assert.Empty(result.Output);
-        Assert.Contains("--shape", result.Error);
-        Assert.DoesNotContain("System.InvalidOperationException", result.Error);
-    }
-
-    [Fact]
-    public async Task AmbiguousSchemaPreservesValidTypeOptionInterpretation()
-    {
-        var result = await RunAppAsync(
-            "Missing.Type.Run", "--shape", "-D", SectionNames.Classes,
-            "--schema", "--table", "--tips", "q");
-
-        Assert.Equal(0, result.Exit);
-        Assert.Empty(result.Error);
-        Assert.Contains("[type/type/ApiType] Classes", result.Output);
-        Assert.Contains("[member/member-target/ApiMemberOverload] error:", result.Output);
-        Assert.DoesNotContain("[package/package/Package] Signature", result.Output);
-    }
-
     [Theory]
     [InlineData("--depth")]
     [InlineData("--top")]
@@ -4020,7 +3992,7 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task CommandlessNumericMemberLimitRetainsTypeView()
+    public async Task CommandlessNumericMemberFilterMatchesExplicitMember()
     {
         string[] projection =
         [
@@ -4028,10 +4000,7 @@ public sealed class InspectionPlanningTests
             "System.Private.CoreLib",
             "-m",
             "5",
-            "-S",
-            "-D",
-            "Method Groups",
-            "--markdown",
+            "--table",
             "--tips",
             "q",
         ];
@@ -4041,7 +4010,11 @@ public sealed class InspectionPlanningTests
             ["member", "String", .. projection]);
 
         Assert.Equal(explicitMember, commandless);
-        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(1, commandless.Exit);
+        Assert.Empty(commandless.Output);
+        Assert.Contains(
+            "No members matched filter '5'",
+            commandless.Error);
     }
 
     [Fact]

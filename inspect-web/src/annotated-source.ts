@@ -5,6 +5,7 @@ import {
 } from "./annotated-source-view.ts";
 import {
   annotationState,
+  awaitCompletionPathForNode,
   callCyclesForFact,
   capabilityReason,
   createAnnotatedSourceViewerModel,
@@ -504,6 +505,9 @@ function renderPrimary(context: SourceRenderContext): string {
   const destination = session.primary?.kind === "node"
     ? invocationDestinationForNode(model, session.primary.id)
     : null;
+  const awaitCompletionPath = session.primary?.kind === "node"
+    ? awaitCompletionPathForNode(model, session.primary.id)
+    : null;
   return `
     <section class="annotated-inspector-section">
       <p class="section-eyebrow">Selection</p>
@@ -521,12 +525,25 @@ function renderPrimary(context: SourceRenderContext): string {
                 destination.index,
                 destination.destination.target,
                 escapeHtml)
+            : ""}
+          ${awaitCompletionPath
+            ? renderAwaitCompletionPaths()
             : ""}`
         : `<div class="annotated-selection-empty">
             <strong>Nothing selected</strong>
             <span>Select addressable source or inspect a Finding.</span>
           </div>`}
     </section>`;
+}
+
+function renderAwaitCompletionPaths(): string {
+  return `
+    <div class="annotated-await-completion-paths">
+      <span>Compiled await paths</span>
+      <p><strong>Inline completion</strong> · the completed edge reaches the matching GetResult continuation</p>
+      <p><strong>Suspension and resume</strong> · the incomplete edge registers suspension and the correlated resume reaches the same continuation</p>
+      <small>Compiled structure only · no runtime path, frequency, duration, scheduler, or thread was measured</small>
+    </div>`;
 }
 
 function renderInvocationDestinations(

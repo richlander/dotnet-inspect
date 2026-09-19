@@ -1,8 +1,15 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
+using DotnetInspector.PlatformHouse;
+using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.PlatformQueries;
+using DotnetInspector.Platforms;
+using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using NuGetFetch;
 using NuGet.Versioning;
 
 namespace DotnetInspect.Web;
@@ -366,6 +373,222 @@ internal static class BrowserPlatformWorkspace
                 ProductionHost,
                 BrowserPackageWorkspace.PackageOperationTimeout,
                 cancellationToken);
+
+    internal static async Task<CompiledDocumentationOutcome>
+        QueryMemberDocumentationAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            string documentationId,
+            CancellationToken cancellationToken = default) =>
+        await QueryMemberDocumentationAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack,
+                documentationId,
+                BrowserPackageWorkspace.NetworkClient,
+                BrowserPackageWorkspace.Gallery,
+                BrowserPackageWorkspace.PackageSourceAuthorization,
+                BrowserPackageWorkspace.PackageOperationTimeout,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async Task<CompiledDocumentationOutcome>
+        QueryMemberDocumentationAsync(
+            string targetFramework,
+            string platformVersion,
+            string assemblyFileName,
+            string pack,
+            string documentationId,
+            HttpClient workspaceClient,
+            IPackageSourceClient packageClient,
+            IPackageSourceAuthorization sourceAuthorization,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken = default)
+    {
+        await using BrowserPlatformScopeResolution resolution =
+            await OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyFileName,
+                    pack,
+                    workspaceClient,
+                    sourceAuthorization,
+                    operationTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        AssemblyReferenceIdentity assemblyIdentity =
+            resolution.Participant.Participant.Assembly.Identity;
+        PlatformFamily family = resolution.Coordinate.Family switch
+        {
+            RuntimeFamily => PlatformFamily.DotNetRuntime,
+            AspNetCoreFamily => PlatformFamily.AspNetCore,
+            _ => throw new InvalidOperationException(
+                "The selected Browser Platform family is unsupported."),
+        };
+        var target = new PlatformFamilyTarget(
+            family,
+            PlatformTargetFramework.Parse(
+                resolution.Coordinate.Framework),
+            PlatformVersion.Parse(
+                resolution.Coordinate.Version));
+
+        return await BrowserPackageWorkspace.RunPackageOperationAsync(
+            deadline => QueryMemberDocumentationCoreAsync(
+                target,
+                assemblyIdentity,
+                documentationId,
+                packageClient,
+                sourceAuthorization,
+                deadline),
+            operationTimeout,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<CompiledDocumentationOutcome>
+        QueryMemberDocumentationCoreAsync(
+            PlatformFamilyTarget target,
+            AssemblyReferenceIdentity assemblyIdentity,
+            string documentationId,
+            IPackageSourceClient sourceClient,
+            IPackageSourceAuthorization sourceAuthorization,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+    {
+        await using PackageSourceSettlementLease sourceLease =
+            PackageSourceSettlementService.IssueLease(
+                authority =>
+                    ReferenceEquals(
+                        authority.Association,
+                        sourceClient.Source.Association)
+                        ? sourceClient
+                        : throw new InvalidOperationException(
+                            "The Platform documentation request selected another configured source."));
+        var source = new PackagePlatformSource(
+            sourceAuthorization,
+            new PackagePayloadAcquisitionPlan(
+                static (_, _) =>
+                    BrowserPackageWorkspace.SessionPackageStore,
+                BrowserPackageWorkspace.PackageLimits,
+                new BrowserPackageWorkspace
+                    .BrowserPackageOperationTransferPolicy(
+                        BrowserPackageWorkspace.PackageTransferPolicy,
+                        deadline)));
+        var adapter = new PackagePlatformHouseAdapter(
+            source,
+            "browser-platform-documentation");
+        TimeSpan sourceTimeout =
+            BrowserPackageWorkspace.SourceSettlementOperationTimeout(
+                deadline.Remaining);
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                "browser-platform-documentation"),
+            new PlatformTargetDemand.Exact(target),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "browser-platform-documentation")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(
+                        assemblyIdentity)),
+                PlatformViewDemand.Reference,
+                PlatformLibraryContentDemand
+                    .CompiledXmlDocumentation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "browser-platform-documentation"),
+                PlatformSourcePolicyGeneration.Create(
+                    "browser-platform-documentation-v1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 1,
+                maxTargetCandidates: 0,
+                maxAssemblies: 1,
+                maxXmlDocuments: 1,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes:
+                    BrowserInspectionScope.MaxRetainedImageBytes
+                    + 8L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: sourceTimeout),
+            deadline.Token);
+
+        var stopwatch = Stopwatch.StartNew();
+        PackagePlatformHouseResult<
+            PackageReferenceRealization> sourceResult =
+                await adapter.RealizeReferenceAsync(
+                        request,
+                        sourceLease.IssueOperationLease(
+                            deadline.Token,
+                            sourceTimeout,
+                            sourceTimeout))
+                    .ConfigureAwait(false);
+        if (sourceResult
+            is not PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded reference)
+        {
+            var terminal =
+                (PackagePlatformHouseResult<
+                    PackageReferenceRealization>.NotSucceeded)
+                        sourceResult;
+            throw new InvalidOperationException(
+                "PlatformHouse could not realize the reference Library: "
+                    + $"{terminal.Diagnostic.Kind}: "
+                    + terminal.Diagnostic.Summary);
+        }
+
+        stopwatch.Stop();
+        var consumed = new PlatformHouseConsumedWork(
+            sourceOperations: 1,
+            targetCandidates: 0,
+            assemblies: reference.Value.Libraries.Length,
+            xmlDocuments: reference.Value.Libraries.Count(
+                static library => library.Documentation is not null),
+            portablePdbs: 0,
+            sourceDocuments: 0,
+            bytes: reference.Value.Libraries.Sum(
+                static library => library.TotalContentLength),
+            forwardingHops: 0,
+            targetComparisons: 0,
+            elapsed: stopwatch.Elapsed);
+        PackagePlatformLibraryMaterializationResult materialization =
+            await PackagePlatformLibraryMaterializer
+                .MaterializeReferenceAsync(
+                    request,
+                    reference,
+                    consumed)
+                .ConfigureAwait(false);
+        if (materialization
+            is not PackagePlatformLibraryMaterializationResult.Completed
+                completed)
+        {
+            throw new InvalidOperationException(
+                "PlatformHouse could not materialize the reference Library "
+                    + $"({materialization.Realization.Outcome.GetType().Name}).");
+        }
+
+        await using (completed.Artifacts.ConfigureAwait(false))
+        await using (completed.Library.Owner.ConfigureAwait(false))
+        {
+            return await PlatformCompiledDocumentationQuery.ExecuteAsync(
+                    completed.Library,
+                    documentationId,
+                    new PlatformCompiledDocumentationQueryLimits
+                    {
+                        ApiSurface =
+                            BrowserApiSurfacePolicy.ExtractionBounds,
+                    },
+                    deadline.Token)
+                .ConfigureAwait(false);
+        }
+    }
 
     internal static Task<BrowserPlatformScopeResolution> OpenAssemblyAsync(
         string targetFramework,

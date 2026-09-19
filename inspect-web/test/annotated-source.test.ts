@@ -1189,6 +1189,48 @@ test("Finding detail renders typed synchronous completion without a runtime clai
   assert.doesNotMatch(html, /blocks the current thread awaiting/);
 });
 
+test("selected await presents both compiled paths without a runtime path claim", () => {
+  const awaitDocument: AnnotatedSourceDocument = {
+    ...sampleDocument,
+    nodes: sampleDocument.nodes.map(node =>
+      node.id === 1
+        ? { ...node, kind: "AwaitExpression" }
+        : node),
+  };
+  const awaitResult: AnnotatedSourceResult = {
+    ...result,
+    document: awaitDocument,
+    viewerCatalog: {
+      ...sampleViewerCatalog,
+      awaitCompletionPaths: {
+        available: true,
+        unavailableReason: null,
+        observations: [{ nodeId: 1 }],
+      },
+    },
+  };
+  const model = createAnnotatedSourceViewerModel(awaitResult);
+  const html = renderAnnotatedSourceModal({
+    result: awaitResult,
+    session: selectNode(
+      openModalSession(
+        model,
+        createEmbeddedSession(model),
+      ).modal,
+      1),
+    escapeHtml,
+  });
+
+  assert.match(html, /Compiled await paths/);
+  assert.match(html, /Inline completion/);
+  assert.match(html, /Suspension and resume/);
+  assert.match(html, /completed edge reaches the matching GetResult continuation/);
+  assert.match(html, /correlated resume reaches the same continuation/);
+  assert.match(html, /Compiled structure only/);
+  assert.match(html, /no runtime path, frequency, duration, scheduler, or thread was measured/);
+  assert.doesNotMatch(html, /fast path|slow path|path ran|completed successfully/);
+});
+
 test("Finding detail presents method-level callee evidence without an invented line", () => {
   const source = methodCostEvidenceResult();
   const model = createAnnotatedSourceViewerModel(source);
@@ -1258,6 +1300,11 @@ test("mixed-line hidden media keeps its layout text but removes its action", () 
         findings: [],
       },
       synchronousCompletions: {
+        available: false,
+        unavailableReason: "NotProjected",
+        observations: [],
+      },
+      awaitCompletionPaths: {
         available: false,
         unavailableReason: "NotProjected",
         observations: [],

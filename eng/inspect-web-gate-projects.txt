@@ -8,6 +8,7 @@ src/DotnetInspector.DependencyManifests
 src/DotnetInspector.DocumentationHouse
 src/DotnetInspector.DocumentationHouse.Contracts
 src/DotnetInspector.DocumentationHouse.Packages
+src/DotnetInspector.DocumentationHouse.Platform
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.LibraryMetadata
@@ -16,6 +17,11 @@ src/DotnetInspector.Networking
 src/DotnetInspector.PackageHouse.Execution
 src/DotnetInspector.PackageQueries
 src/DotnetInspector.Packages
+src/DotnetInspector.PlatformHouse
+src/DotnetInspector.PlatformHouse.Execution
+src/DotnetInspector.PlatformHouse.Execution.Packages
+src/DotnetInspector.PlatformHouse.Packages
+src/DotnetInspector.PlatformQueries
 src/DotnetInspector.Platforms
 src/DotnetInspector.Platforms.Formats
 src/DotnetInspector.Platforms.Packages
