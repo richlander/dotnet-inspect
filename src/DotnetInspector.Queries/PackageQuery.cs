@@ -1750,13 +1750,13 @@ public static partial class PackageQuery
                 continue;
 
             AssemblyIdentityNames identities = AssemblyIdentityScanner.Scan(image);
-            if (identities.Name.Length == 0)
-                continue;
             if (!identities.ReferencesComplete)
             {
                 throw new BadImageFormatException(
                     "An admitted assembly has an incomplete AssemblyRef table.");
             }
+            if (identities.Name.Length == 0)
+                continue;
 
             foreach (string reference in identities.ReferenceNames)
             {

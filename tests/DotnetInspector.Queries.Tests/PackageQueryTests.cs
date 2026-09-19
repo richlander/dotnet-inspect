@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -2366,6 +2367,54 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public async Task
+        ExecuteAsync_CompleteMetadataModuleWithoutAssemblyDefinitionIsSkipped()
+    {
+        FakePackageContent archive = FakePackageContent.FromBytes(
+            ("lib/net8.0/Module.dll", AssemblyReferenceModule()));
+        var content = new FakePackageQueryContentProvider(
+            new Dictionary<string, IPackageContent>
+            {
+                ["Contoso.Package"] = archive,
+            });
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.*",
+                    [
+                        Term(
+                            PackageQuery.ReferencesTermKey,
+                            "Contoso.Reference"),
+                    ],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                content,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Empty(events.OfType<PackageQueryEvent.Failure>());
+        Assert.Equal(["lib/net8.0/Module.dll"], archive.EntryRequests);
+    }
+
+    [Fact]
+    public async Task
+        ExecuteAsync_IncompleteAssemblyReferenceTableInMetadataModuleRemainsVisible()
+    {
+        await AssertAssemblyReferenceEvaluationFailureAsync(
+            FakePackageContent.FromBytes(
+                ("lib/net8.0/Module.dll",
+                    WithMalformedAssemblyReferenceName(
+                        AssemblyReferenceModule()))),
+            expectedEntryRequests: 1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_AssemblyReferenceBudgetsRejectBeforeExpansion()
     {
         byte[] caller = File.ReadAllBytes(
@@ -3398,6 +3447,42 @@ public sealed class PackageQueryTests
             malformed.AsSpan(nameOffset, sizeof(ushort)),
             ushort.MaxValue);
         return malformed;
+    }
+
+    private static byte[] AssemblyReferenceModule()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("Module.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contoso.Reference"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            @namespace: default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     private static async Task<List<PackageQueryEvent>> CollectAsync(
