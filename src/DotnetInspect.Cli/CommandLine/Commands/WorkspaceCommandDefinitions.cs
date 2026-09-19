@@ -38,7 +38,7 @@ public static class WorkspaceCommandDefinitions
         var packetOption = new Option<string?>("--packet")
         {
             Description =
-                "Use one canonical Workspace packet or exact Inspect Web Workspace URL",
+                "Use one canonical Base64URL Workspace packet string",
             Arity = ArgumentArity.ExactlyOne,
         };
         var replacePackageOption = new Option<int?>("--replace-package")
