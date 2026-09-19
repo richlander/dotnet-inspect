@@ -30,6 +30,38 @@ public sealed class ApiSignatureModelTests
         Assert.Equal(isReadOnly, member.IsReadOnly);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(VirtualModifierFlowSamples),
+        nameof(VirtualModifierFlowSamples.In),
+        "in")]
+    [InlineData(
+        nameof(VirtualModifierFlowSamples),
+        nameof(VirtualModifierFlowSamples.ReadOnly),
+        "ref readonly")]
+    [InlineData(
+        nameof(IInterfaceModifierFlowSamples),
+        nameof(IInterfaceModifierFlowSamples.In),
+        "in")]
+    [InlineData(
+        nameof(IInterfaceModifierFlowSamples),
+        nameof(IInterfaceModifierFlowSamples.ReadOnly),
+        "ref readonly")]
+    public void MethodSignatureModel_AuthenticatesCompilerReadOnlyByRefParameters(
+        string typeName,
+        string methodName,
+        string expectedModifier)
+    {
+        ApiMember member = GetType(typeName).Members.Single(
+            member => member.Name == methodName
+                && member.SignatureModel?.Parameters is
+                    [{ Modifier: not null }]);
+        ApiParameter parameter = Assert.Single(member.SignatureModel!.Parameters);
+
+        Assert.Equal(expectedModifier, parameter.Modifier);
+        Assert.True(parameter.CustomModifiersAreRepresentable);
+    }
+
     [Fact]
     public void MethodSignatureModel_ExposesReturnTypeParametersAndDefaults()
     {

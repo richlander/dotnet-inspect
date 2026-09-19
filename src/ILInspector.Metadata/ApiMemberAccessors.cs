@@ -126,13 +126,15 @@ public static class ApiMemberAccessors
         ApiMethodModifiers modifiers = implementation is not null
             ? ApiMethodModifiers.FromAttributes(
                 implementation.Attributes,
-                isExplicitImplementation)
+                isExplicitImplementation,
+                allowSpecialName: true)
             : new(
                 owner.IsStatic,
                 owner.IsVirtual,
                 owner.IsAbstract && accessorHasBody != true,
                 owner.IsOverride,
-                owner.IsSealed);
+                owner.IsSealed,
+                true);
         return new ApiMember
         {
             Name = name,
@@ -163,6 +165,8 @@ public static class ApiMemberAccessors
             IsAbstract = modifiers.IsAbstract,
             IsOverride = modifiers.IsOverride,
             IsSealed = modifiers.IsSealed,
+            MethodModifiersAreRepresentable =
+                modifiers.AreRepresentable,
             IsUnsafe = owner.IsUnsafe,
             IsReadOnly = accessorEntry?.IsReadOnly == true
                 || owner.IsReadOnly,

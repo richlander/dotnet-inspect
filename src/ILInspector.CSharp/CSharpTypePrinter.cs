@@ -1047,6 +1047,8 @@ public sealed class CSharpTypePrinter
             IsSealed = member.IsSealed,
             IsFinalizer = member.IsFinalizer,
             IsReadOnly = member.IsReadOnly,
+            ReadOnlyMarkerIsRepresentable =
+                member.ReadOnlyMarkerIsRepresentable,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,
             MemorySafety = member.MemorySafety,
@@ -1058,6 +1060,10 @@ public sealed class CSharpTypePrinter
             HasMethodBody = member.HasMethodBody,
             IsAsync = member.IsAsync,
             Accessibility = member.Accessibility,
+            MethodModifiersAreRepresentable =
+                member.MethodModifiersAreRepresentable,
+            MethodImplementationIsRepresentable =
+                member.MethodImplementationIsRepresentable,
             IsExtension = member.IsExtension,
             IsObsolete = member.IsObsolete,
             ObsoleteMessage = member.ObsoleteMessage

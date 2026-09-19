@@ -86,6 +86,18 @@ public class OperatorNamesTests
         bool expected)
         => Assert.Equal(expected, OperatorNames.IsMetadataOperatorName(input));
 
+    [Theory]
+    [InlineData("op_Addition", 2)]
+    [InlineData("op_Explicit", 1)]
+    [InlineData("op_CheckedExplicit", 1)]
+    [InlineData("op_Equality", null)]
+    public void Explicit_interface_declaration_parameter_count_includes_conversions(
+        string input,
+        int? expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.GetExplicitInterfaceDeclarationParameterCount(input));
+
     [Fact]
     public void Untreated_display_preserves_input_for_typed_presentation_boundary()
     {

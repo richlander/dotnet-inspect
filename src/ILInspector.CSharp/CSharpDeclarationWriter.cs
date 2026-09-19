@@ -1130,6 +1130,12 @@ internal static class CSharpDeclarationWriter
 
         if (options.AbbreviateSignature)
             signature = AbbreviateSignature(signature);
+        if (!renderedFromModel
+            && (member.Kind == "operator"
+                || member.Name.StartsWith("op_", StringComparison.Ordinal)))
+        {
+            signature = FormatOperatorSignature(signature, member.Name);
+        }
         signature = EscapeKnownIdentifiers(signature, type.TypeParameters.Concat(member.SignatureModel?.TypeParameters ?? []).Select(p => p.Name));
 
         if (member.Name == ".cctor")
@@ -1144,10 +1150,6 @@ internal static class CSharpDeclarationWriter
         {
             var typeName = FormatConstructorTypeName(type, options);
             signature = $"{typeName}{FormatConstructorCall(signature)}";
-        }
-        else if (member.Name.StartsWith("op_", StringComparison.Ordinal))
-        {
-            signature = FormatOperatorSignature(signature, member.Name);
         }
         else if (member.Kind is "method" or "extension-method" or "explicit-interface-implementation"
             && !IsExplicitInterfaceEvent(member))
@@ -1191,7 +1193,9 @@ internal static class CSharpDeclarationWriter
         signature = EscapeQualifiedKeywordSegments(
             signature,
             preserveQualifiedIndexerKeyword: IsExplicitInterfaceProperty(member)
-                && member.SignatureModel?.MemberName == "this[]");
+                && member.SignatureModel?.MemberName == "this[]",
+            preserveQualifiedOperatorKeyword:
+                IsExplicitInterfaceOperator(member));
         // Parameter names from SignatureModel are escaped in FormatParameter.
         // Re-lexing the composed string is only for compatibility text.
         if (!options.AbbreviateSignature && !renderedFromModel)
@@ -1234,7 +1238,8 @@ internal static class CSharpDeclarationWriter
             // (CS0465) rather than the object-finalizer override it is, so keep
             // the fallback modifier-free too.
         }
-        else if (member.Kind != "explicit-interface-implementation")
+        else if (member.Kind != "explicit-interface-implementation"
+            && !IsExplicitInterfaceOperator(member))
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -1945,6 +1950,20 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type, options)}({parameters})";
             return true;
         }
+        if (member.Kind == "operator"
+            && model.ReturnType is { Length: > 0 } operatorReturnType
+            && TryGetOperatorDeclarationName(
+                member.Name,
+                out string? operatorQualifier,
+                out string operatorName))
+        {
+            signature = FormatOperatorDeclaration(
+                operatorReturnType,
+                $"({parameters})",
+                operatorQualifier,
+                operatorName);
+            return true;
+        }
         if (((member.Kind == "method"
                 && methodParameters is not { Count: > 0 })
             || (parameterNames is { Count: > 0 }
@@ -2356,18 +2375,64 @@ internal static class CSharpDeclarationWriter
 
         var returnType = signature[..nameIndex].TrimEnd();
         var parameters = signature[parenStart..];
+        TryGetOperatorDeclarationName(
+            methodName,
+            out string? qualifier,
+            out string operatorName);
+        return FormatOperatorDeclaration(
+            returnType,
+            parameters,
+            qualifier,
+            operatorName);
+    }
 
-        if (methodName.StartsWith("op_Checked", StringComparison.Ordinal)
-            && OperatorNames.MapBinaryOrUnary(methodName["op_Checked".Length..]) is { } checkedSymbol)
-            return $"{returnType} operator checked {checkedSymbol}{parameters}";
+    static string FormatOperatorDeclaration(
+        string returnType,
+        string parameters,
+        string? qualifier,
+        string operatorName)
+    {
+        string operatorPrefix = qualifier is null
+            ? "operator"
+            : $"{qualifier}.operator";
 
-        return methodName switch
+        if (operatorName.StartsWith("op_Checked", StringComparison.Ordinal)
+            && OperatorNames.MapBinaryOrUnary(
+                operatorName["op_Checked".Length..]) is { } checkedSymbol)
         {
-            "op_Implicit" => $"implicit operator {returnType}{parameters}",
-            "op_Explicit" => $"explicit operator {returnType}{parameters}",
-            "op_CheckedExplicit" => $"explicit operator checked {returnType}{parameters}",
-            _ => $"{returnType} {OperatorNames.FormatDisplayName(methodName)}{parameters}"
+            return $"{returnType} {operatorPrefix} checked {checkedSymbol}{parameters}";
+        }
+
+        return operatorName switch
+        {
+            "op_Implicit" =>
+                $"implicit {operatorPrefix} {returnType}{parameters}",
+            "op_Explicit" =>
+                $"explicit {operatorPrefix} {returnType}{parameters}",
+            "op_CheckedExplicit" =>
+                $"explicit {operatorPrefix} checked {returnType}{parameters}",
+            _ =>
+                qualifier is null
+                    ? $"{returnType} "
+                        + $"{OperatorNames.FormatDisplayName(operatorName)}{parameters}"
+                    : $"{returnType} {qualifier}."
+                        + $"{OperatorNames.FormatDisplayName(operatorName)}{parameters}"
         };
+    }
+
+    static bool IsExplicitInterfaceOperator(ApiMember member)
+        => member.Kind == "operator"
+            && member.Name.LastIndexOf('.') > 0;
+
+    static bool TryGetOperatorDeclarationName(
+        string memberName,
+        out string? qualifier,
+        out string operatorName)
+    {
+        int separator = memberName.LastIndexOf('.');
+        qualifier = separator > 0 ? memberName[..separator] : null;
+        operatorName = memberName[(separator + 1)..];
+        return operatorName.StartsWith("op_", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -2444,7 +2509,8 @@ internal static class CSharpDeclarationWriter
 
     internal static string EscapeQualifiedKeywordSegments(
         string signature,
-        bool preserveQualifiedIndexerKeyword = false)
+        bool preserveQualifiedIndexerKeyword = false,
+        bool preserveQualifiedOperatorKeyword = false)
     {
         var sb = new StringBuilder(signature.Length);
         bool inString = false;
@@ -2495,6 +2561,13 @@ internal static class CSharpDeclarationWriter
                 && segment == "this"
                 && end < signature.Length
                 && signature[end] == '[')
+            {
+                continue;
+            }
+            if (preserveQualifiedOperatorKeyword
+                && segment == "operator"
+                && end < signature.Length
+                && char.IsWhiteSpace(signature[end]))
             {
                 continue;
             }

@@ -19,6 +19,7 @@ public class ImplicitFinalizerDetectionTests
 {
     // Instance (HASTHIS) signature blobs: [callconv, paramCount, retType, params...].
     static readonly byte[] VoidNullary = [0x20, 0x00, 0x01];       // void Finalize()
+    static readonly byte[] StaticVoidNullary = [0x00, 0x00, 0x01]; // static void Finalize()
     static readonly byte[] VoidOneParam = [0x20, 0x01, 0x01, 0x08]; // void Finalize(int)
     static readonly byte[] IntNullary = [0x20, 0x00, 0x08];         // int Finalize()
     static readonly byte[] VarargNullary = [0x25, 0x00, 0x01];      // vararg void Finalize()
@@ -37,6 +38,235 @@ public class ImplicitFinalizerDetectionTests
 
         Assert.True(member.IsFinalizer);
         Assert.Equal("finalizer", member.Kind);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_IsClassifiedAsFinalizer()
+    {
+        var member = ExtractMember(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true))),
+            "Handle",
+            "Finalize");
+
+        Assert.True(member.IsFinalizer);
+        Assert.Equal("finalizer", member.Kind);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_RequiresDestructorBodyShape()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Valid",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    ReuseSlot,
+                    VoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "Public",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.HideBySig,
+                    VoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "Static",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    StaticVoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "NewSlot",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    NewSlot,
+                    VoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "Sealed",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    ReuseSlot | MethodAttributes.Final,
+                    VoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "WrongName",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Release",
+                    ReuseSlot,
+                    VoidNullary,
+                    ExplicitObjectFinalizeOverride: true)),
+            new TypeSpec(
+                "Vararg",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    ReuseSlot,
+                    VarargNullary,
+                    ExplicitObjectFinalizeOverride: true)));
+
+        Assert.True(ExtractMember(image, "Valid", "Finalize").IsFinalizer);
+        Assert.False(ExtractMember(image, "Public", "Finalize").IsFinalizer);
+        Assert.False(ExtractMember(image, "Static", "Finalize").IsFinalizer);
+        Assert.False(ExtractMember(image, "NewSlot", "Finalize").IsFinalizer);
+        Assert.False(ExtractMember(image, "Sealed", "Finalize").IsFinalizer);
+        Assert.False(ExtractMember(image, "WrongName", "Release").IsFinalizer);
+        Assert.False(ExtractMember(image, "Vararg", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_RequiresExactTargetSignature()
+    {
+        var member = ExtractMember(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true,
+                        ExplicitObjectFinalizeSignature: IntNullary))),
+            "Handle",
+            "Finalize");
+
+        Assert.False(member.IsFinalizer);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_RejectsReservedTargetHeader()
+    {
+        var member = ExtractMember(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true,
+                        ExplicitObjectFinalizeSignature:
+                            [0xA0, 0x00, 0x01]))),
+            "Handle",
+            "Finalize");
+
+        Assert.False(member.IsFinalizer);
+    }
+
+    [Fact]
+    public void MemberReferenceBody_PreventsImplicitFinalizerFallback()
+    {
+        var member = ExtractMember(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true,
+                        ExplicitObjectFinalizeSignature: IntNullary,
+                        UseMemberReferenceBody: true))),
+            "Handle",
+            "Finalize");
+
+        Assert.False(member.IsFinalizer);
+    }
+
+    [Fact]
+    public void MemberReferenceBodySignatureComparison_DoesNotMaterializeOversizedBlob()
+    {
+        byte[] oversizedSignature = new byte[8_000_000];
+        using var stream = new MemoryStream(
+            BuildImage(
+                new TypeSpec(
+                    "Handle",
+                    BaseKind.Object,
+                    new MethodSpec(
+                        "Finalize",
+                        ReuseSlot,
+                        VoidNullary,
+                        ExplicitObjectFinalizeOverride: true,
+                        ExplicitObjectFinalizeSignature: IntNullary,
+                        UseMemberReferenceBody: true,
+                        MemberReferenceBodySignature: oversizedSignature))));
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result =
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 1,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: 100,
+                    maxRetainedTextCharacters: 1_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            result);
+        Assert.Single(Assert.Single(extracted.Surface.Types).Members);
+        Assert.True(
+            allocated < 4L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void OrdinaryMethods_DoNotRescanMethodImplementationsForFinalizerDetection()
+    {
+        const int methodCount = 64;
+        string namePrefix = new('M', 1_020);
+        MethodSpec[] methods = Enumerable.Range(0, methodCount)
+            .Select(index => new MethodSpec(
+                $"{namePrefix}{index:D4}",
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                VoidNullary,
+                ExplicitObjectFinalizeOverride: true,
+                UseMemberReferenceBody: true))
+            .ToArray();
+        using var stream = new MemoryStream(
+            BuildImage(new TypeSpec("Handle", BaseKind.Object, methods)));
+        using var peReader = new PEReader(stream);
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.IncludeAll,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 64,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: 1_000,
+                    maxRetainedTextCharacters: 1_000_000)));
+
+        Assert.Equal(
+            methodCount,
+            Assert.Single(extracted.Surface.Types).Members.Count);
     }
 
     [Fact]
@@ -161,9 +391,30 @@ public class ImplicitFinalizerDetectionTests
         public static BaseKind Def(string name) => new(BaseTag.Def, name);
     }
 
-    sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
+    sealed record MethodSpec(
+        string Name,
+        MethodAttributes Attributes,
+        byte[] Signature,
+        bool ExplicitObjectFinalizeOverride = false,
+        byte[]? ExplicitObjectFinalizeSignature = null,
+        bool UseMemberReferenceBody = false,
+        byte[]? MemberReferenceBodySignature = null);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
+    sealed record TypeSpec(
+        string Name,
+        BaseKind Base,
+        IReadOnlyList<MethodSpec> Methods,
+        string? Namespace = null)
+    {
+        public TypeSpec(
+            string name,
+            BaseKind @base,
+            MethodSpec method,
+            string? Namespace = null)
+            : this(name, @base, [method], Namespace)
+        {
+        }
+    }
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
@@ -207,7 +458,6 @@ public class ImplicitFinalizerDetectionTests
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Exception"));
         }
-
         // Shared trivial `ret` body; the extractor never reads method bodies.
         var instructions = new BlobBuilder();
         var encoder = new InstructionEncoder(instructions, new ControlFlowBuilder());
@@ -242,19 +492,46 @@ public class ImplicitFinalizerDetectionTests
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(methodRow));
             defHandles[types[i].Name] = handle;
-            methodRow++;
+            methodRow += types[i].Methods.Count;
         }
 
         foreach (var type in types)
         {
-            var spec = type.Method;
-            metadata.AddMethodDefinition(
-                spec.Attributes,
-                MethodImplAttributes.IL,
-                metadata.GetOrAddString(spec.Name),
-                metadata.GetOrAddBlob(spec.Signature),
-                bodyOffset,
-                parameterList: MetadataTokens.ParameterHandle(1));
+            foreach (var spec in type.Methods)
+            {
+                MethodDefinitionHandle method =
+                    metadata.AddMethodDefinition(
+                        spec.Attributes,
+                        MethodImplAttributes.IL,
+                        metadata.GetOrAddString(spec.Name),
+                        metadata.GetOrAddBlob(spec.Signature),
+                        bodyOffset,
+                        parameterList: MetadataTokens.ParameterHandle(1));
+                if (spec.ExplicitObjectFinalizeOverride)
+                {
+                    MemberReferenceHandle objectFinalize =
+                        metadata.AddMemberReference(
+                            objectRef,
+                            metadata.GetOrAddString("Finalize"),
+                            metadata.GetOrAddBlob(
+                                spec.ExplicitObjectFinalizeSignature
+                                    ?? VoidNullary));
+                    EntityHandle implementationBody = method;
+                    if (spec.UseMemberReferenceBody)
+                    {
+                        implementationBody = metadata.AddMemberReference(
+                            defHandles[type.Name],
+                            metadata.GetOrAddString(spec.Name),
+                            metadata.GetOrAddBlob(
+                                spec.MemberReferenceBodySignature
+                                    ?? spec.Signature));
+                    }
+                    metadata.AddMethodImplementation(
+                        defHandles[type.Name],
+                        implementationBody,
+                        objectFinalize);
+                }
+            }
         }
 
         var pe = new ManagedPEBuilder(

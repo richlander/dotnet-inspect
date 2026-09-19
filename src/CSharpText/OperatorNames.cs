@@ -65,6 +65,46 @@ public static class OperatorNames
     }
 
     /// <summary>
+    /// Returns the parameter count for an operator declaration that can stand
+    /// alone in a generated C# type, or null when the operator requires a paired
+    /// declaration or other surrounding-type evidence.
+    /// </summary>
+    public static int? GetStandaloneDeclarationParameterCount(
+        string methodName) =>
+        methodName switch
+        {
+            "op_UnaryPlus"
+                or "op_UnaryNegation"
+                or "op_Increment"
+                or "op_Decrement"
+                or "op_OnesComplement"
+                or "op_LogicalNot" => 1,
+            "op_Addition"
+                or "op_Subtraction"
+                or "op_Multiply"
+                or "op_Division"
+                or "op_Modulus"
+                or "op_BitwiseAnd"
+                or "op_BitwiseOr"
+                or "op_ExclusiveOr"
+                or "op_LeftShift"
+                or "op_RightShift"
+                or "op_UnsignedRightShift" => 2,
+            _ => null,
+        };
+
+    /// <summary>
+    /// Returns the parameter count for an explicit-interface operator declaration.
+    /// The authenticated interface relationship supplies the surrounding-type
+    /// evidence that standalone conversion declarations require.
+    /// </summary>
+    public static int? GetExplicitInterfaceDeclarationParameterCount(
+        string methodName) =>
+        methodName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit"
+            ? 1
+            : GetStandaloneDeclarationParameterCount(methodName);
+
+    /// <summary>
     /// Converts an IL operator method name to its C# display form.
     /// Non-operator names are returned unchanged.
     /// </summary>

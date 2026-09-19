@@ -253,6 +253,7 @@ public static partial class ApiSurfaceExtractor
                         typeDef.GetCustomAttributes());
                 CountSummaryMembers(
                     reader,
+                    typeDefHandle,
                     typeDef,
                     apiType,
                     surface,
@@ -1014,6 +1015,13 @@ public static partial class ApiSurfaceExtractor
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
+            var implementedInterfaceNames =
+                new Dictionary<ExactTypeIdentity, string>();
+            var implementedInterfaceNameOwners =
+                new Dictionary<string, ExactTypeIdentity>(
+                    StringComparer.Ordinal);
+            var ambiguousImplementedInterfaceNames =
+                new HashSet<string>(StringComparer.Ordinal);
             if (interfaces.Count > 0)
             {
                 apiType.Interfaces = [];
@@ -1035,6 +1043,32 @@ public static partial class ApiSurfaceExtractor
                         observeText,
                         observeDecodeWork);
                     apiType.Interfaces.Add(ifaceName);
+                    if (TryGetExactTypeIdentity(
+                            reader,
+                            iface.Interface,
+                            typeContext,
+                            observeDecodeWork,
+                            out ExactTypeEvidence interfaceEvidence))
+                    {
+                        implementedInterfaceNames.TryAdd(
+                            interfaceEvidence.Identity,
+                            ifaceName);
+                        if (implementedInterfaceNameOwners.TryGetValue(
+                                ifaceName,
+                                out ExactTypeIdentity? existingIdentity)
+                            && existingIdentity
+                                != interfaceEvidence.Identity)
+                        {
+                            ambiguousImplementedInterfaceNames.Add(
+                                ifaceName);
+                        }
+                        else
+                        {
+                            implementedInterfaceNameOwners.TryAdd(
+                                ifaceName,
+                                interfaceEvidence.Identity);
+                        }
+                    }
                     if (DecodeTypeDefinitionReference(
                             reader,
                             iface.Interface,
@@ -1054,7 +1088,23 @@ public static partial class ApiSurfaceExtractor
             {
             apiType.Members = [];
 
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+            var explicitImplementationBodies =
+                GetExplicitImplementationBodies(
+                    reader,
+                    typeDefHandle,
+                    typeDef,
+                    typeContext,
+                    observeDecodeWork);
+            HashSet<MethodDefinitionHandle>
+                explicitImplementationBodyHandles =
+                    [.. explicitImplementationBodies.Keys];
+            var methodImplementationBodyCounts =
+                GetMethodImplementationBodyCounts(
+                    reader,
+                    typeDefHandle,
+                    typeDef,
+                    typeContext,
+                    observeDecodeWork);
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -1108,8 +1158,57 @@ public static partial class ApiSurfaceExtractor
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                var isExplicitInterfaceImplementation =
+                    explicitImplementationBodies.TryGetValue(
+                        methodHandle,
+                        out ExplicitImplementationEvidence
+                            explicitImplementation);
+                ExactTypeIdentity explicitInterface =
+                    explicitImplementation.Interface;
+                int explicitSeparator = methodName.LastIndexOf('.');
+                bool explicitInterfaceQualifierMatches =
+                    !isExplicitInterfaceImplementation
+                    || explicitSeparator > 0
+                    && implementedInterfaceNames.TryGetValue(
+                        explicitInterface,
+                        out string? interfaceName)
+                    && !ambiguousImplementedInterfaceNames.Contains(
+                        interfaceName)
+                    && CSharpIdentifier.DeclarationSpellingsEqual(
+                        methodName[..explicitSeparator],
+                        interfaceName);
+
+                // A class finalizer is the destructor-shaped `object.Finalize`
+                // override the C# `~Type()` declaration compiles to. Both the
+                // overridden slot and the body MethodDef shape are required,
+                // excluding generic, static, new-slot, inaccessible, and
+                // unrelated Finalize methods. There are two slot-anchored shapes:
+                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
+                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
+                //     carries those.
+                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
+                //     with NO MethodImpl — it reuses the inherited object.Finalize
+                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
+                //     that slot roots at `System.Object` over metadata alone.
+                // Authenticate the finalizer before visibility filtering because
+                // destructor methods are protected rather than public.
+                var isFinalizer = apiType.Kind == "class"
+                    && (objectFinalizeOverrides.Contains(methodHandle)
+                        || IsImplicitObjectFinalizeOverride(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            observeDecodeWork)
+                        && !HasMethodImplementationBody(
+                            reader,
+                            typeDef,
+                            methodHandle,
+                            method,
+                            observeDecodeWork));
+                if (methodAccess != MethodAttributes.Public
+                    && !includeAll
+                    && !isExplicitInterfaceImplementation
+                    && !isFinalizer)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1174,7 +1273,10 @@ public static partial class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
-                var (isExtensionMethod, isReadOnlyMethod) =
+                var (
+                    isExtensionMethod,
+                    isReadOnlyMethod,
+                    isReadOnlyMarkerRepresentable) =
                     AttributeReader.ReadMethodMarkerAttributes(
                         reader,
                         methodCustomAttributes,
@@ -1187,42 +1289,32 @@ public static partial class ApiSurfaceExtractor
                     methodHandle,
                     method,
                     typeNullableContext,
+                    apiType.DefinitionName,
+                    currentAssemblyIdentity,
+                    apiType.TypeParameters.Count,
+                    apiType.Kind switch
+                    {
+                        "class" => true,
+                        "struct" => false,
+                        _ => null,
+                    },
                     isExtensionMethod,
                     observeText,
                     observeDecodeWork,
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
+                bool isConstructor =
+                    methodName is ".ctor" or ".cctor";
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
-                    isExplicitInterfaceImplementation);
-
-                // A class finalizer is the `object.Finalize` override the C#
-                // `~Type()` destructor compiles to. It is detected by the
-                // overridden slot (not by name/signature shape), which excludes
-                // the false positives a shape heuristic admits: an implicit
-                // generic `Finalize<T>()`, an override of an unrelated
-                // base/interface `Finalize()` slot, and an explicit
-                // `IFoo.Finalize()` implementation. There are two slot-anchored
-                // shapes:
-                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
-                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
-                //     carries those.
-                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
-                //     with NO MethodImpl — it reuses the inherited object.Finalize
-                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
-                //     that slot roots at `System.Object` over metadata alone.
-                // A finalizer is never generic, so a method that overrides
-                // object.Finalize while declaring its own type parameters is still
-                // rejected — rendering it `~Type()` would erase `<T>`.
-                var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(
-                            reader,
-                            typeDefHandle,
-                            method,
-                            observeDecodeWork));
+                    isExplicitInterfaceImplementation && !isFinalizer,
+                    allowSpecialName: isConstructor
+                        || isOperator
+                        || IsCSharpAccessor(
+                            accessorMethods.GetValueOrDefault(
+                                methodHandle)),
+                    allowRuntimeSpecialName: isConstructor);
 
                 var member = new ApiMember
                 {
@@ -1230,7 +1322,9 @@ public static partial class ApiSurfaceExtractor
                     Kind = ClassifyMethodKind(
                         methodName,
                         isFinalizer,
-                        isExplicitInterfaceImplementation),
+                        isExplicitInterfaceImplementation,
+                        explicitImplementation.DeclarationIsOperator
+                            == true),
                     MethodSemantics = accessorAssociationsAvailable
                         ? accessorMethods.GetValueOrDefault(
                             methodHandle,
@@ -1241,8 +1335,27 @@ public static partial class ApiSurfaceExtractor
                     IsAbstract = modifiers.IsAbstract,
                     IsOverride = modifiers.IsOverride,
                     IsSealed = modifiers.IsSealed,
+                    MethodModifiersAreRepresentable =
+                        modifiers.AreRepresentable,
+                    MethodImplementationIsRepresentable =
+                        methodImplementationBodyCounts.GetValueOrDefault(
+                            methodHandle) switch
+                        {
+                            0 => !isOperator || explicitSeparator < 0,
+                            1 => isFinalizer
+                                || isExplicitInterfaceImplementation
+                                    && explicitInterfaceQualifierMatches
+                                    && (!IsRecognizedOperatorMethodName(
+                                            methodName)
+                                        || explicitImplementation
+                                            .DeclarationIsOperator
+                                            is not null),
+                            _ => false,
+                        },
                     IsFinalizer = isFinalizer,
                     IsReadOnly = isReadOnlyMethod,
+                    ReadOnlyMarkerIsRepresentable =
+                        isReadOnlyMarkerRepresentable,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -1267,7 +1380,16 @@ public static partial class ApiSurfaceExtractor
                             observeDecodeWork),
                     MemorySafety = ApiMemorySafetyFacts.Read(
                         reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
-                    Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
+                    AccessibilityIsRepresentable =
+                        isExplicitInterfaceImplementation
+                            && !isFinalizer
+                            ? methodAccess == MethodAttributes.Private
+                            : IsRepresentableMethodAccessibility(methodAccess),
+                    Accessibility =
+                        isExplicitInterfaceImplementation
+                            && !isFinalizer
+                            ? null
+                            : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
                     HasRuntimeJsExport =
@@ -1441,7 +1563,7 @@ public static partial class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
-                    explicitImplementationBodies,
+                    explicitImplementationBodyHandles,
                     includeAll,
                     observeText,
                     observeDecodeWork,
@@ -1914,7 +2036,7 @@ public static partial class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
-                    explicitImplementationBodies,
+                    explicitImplementationBodyHandles,
                     observeText,
                     observeDecodeWork);
 

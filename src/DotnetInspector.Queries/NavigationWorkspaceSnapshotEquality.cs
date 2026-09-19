@@ -158,7 +158,15 @@ internal static class NavigationWorkspaceSnapshotEquality
         && OptionalArray(a.AccessorImplementations, b.AccessorImplementations)
         && a.HasRuntimeJsExportWrapperCandidate == b.HasRuntimeJsExportWrapperCandidate
         && Sequence(a.RuntimeJsExportWrapperCandidates, b.RuntimeJsExportWrapperCandidates)
-        && a.Accessibility == b.Accessibility && a.IsExtension == b.IsExtension
+        && a.Accessibility == b.Accessibility
+        && a.AccessibilityIsRepresentable == b.AccessibilityIsRepresentable
+        && a.MethodModifiersAreRepresentable
+            == b.MethodModifiersAreRepresentable
+        && a.MethodImplementationIsRepresentable
+            == b.MethodImplementationIsRepresentable
+        && a.ReadOnlyMarkerIsRepresentable
+            == b.ReadOnlyMarkerIsRepresentable
+        && a.IsExtension == b.IsExtension
         && a.IsCompilerGenerated == b.IsCompilerGenerated && a.HasJsonInclude == b.HasJsonInclude
         && a.HasMalformedJsonInclude == b.HasMalformedJsonInclude
         && Sequence(a.JsonIgnoreConditions, b.JsonIgnoreConditions)
@@ -191,16 +199,27 @@ internal static class NavigationWorkspaceSnapshotEquality
     static bool Signature(ApiSignature a, ApiSignature b) =>
         a.ReturnType == b.ReturnType && a.CanonicalReturnType == b.CanonicalReturnType
         && a.StructuralReturnType == b.StructuralReturnType
+        && a.ReturnTypeCustomModifiersAreRepresentable
+            == b.ReturnTypeCustomModifiersAreRepresentable
         && Sequence(a.ReturnTypeReferences, b.ReturnTypeReferences)
+        && a.ReturnTypeMatchesDeclaringType
+            == b.ReturnTypeMatchesDeclaringType
         && a.ReturnTypeDefinitionReference == b.ReturnTypeDefinitionReference
         && object.Equals(a.ReturnTypeShape, b.ReturnTypeShape)
         && Sequence(a.ReturnAttributes, b.ReturnAttributes)
-        && a.MemberName == b.MemberName && a.IsRequired == b.IsRequired
+        && a.MemberName == b.MemberName
+        && a.MethodDeclarationHeaderIsRepresentable
+            == b.MethodDeclarationHeaderIsRepresentable
+        && a.IsRequired == b.IsRequired
         && Sequence(a.TypeParameters, b.TypeParameters, TypeParameter)
         && Sequence(a.Parameters, b.Parameters, (x, y) =>
             Sequence(x.Attributes, y.Attributes) && x.Name == y.Name && x.Type == y.Type
             && x.CanonicalType == y.CanonicalType && Sequence(x.TypeReferences, y.TypeReferences)
-            && x.StructuralType == y.StructuralType && x.Modifier == y.Modifier
+            && x.StructuralType == y.StructuralType
+            && x.CustomModifiersAreRepresentable
+                == y.CustomModifiersAreRepresentable
+            && x.MatchesDeclaringType == y.MatchesDeclaringType
+            && x.Modifier == y.Modifier
             && x.HasDefault == y.HasDefault && x.DefaultValueText == y.DefaultValueText)
         && Sequence(a.Accessors, b.Accessors, (x, y) =>
             x.Kind == y.Kind && x.Accessibility == y.Accessibility && Sequence(x.ReturnAttributes, y.ReturnAttributes)

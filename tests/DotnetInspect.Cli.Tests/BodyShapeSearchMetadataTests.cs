@@ -116,10 +116,14 @@ public sealed class BodyShapeSearchMetadataTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(
+            implementationType,
+            probe);
         var (methodBodies, bodyOffset) = Int32Body(1);
         var body = metadata.AddMethodDefinition(
             MethodAttributes.Private | MethodAttributes.Final
-                | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+                | MethodAttributes.Virtual | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Contracts.Outer.IProbe.Target"),
             InstanceInt32Signature(metadata),

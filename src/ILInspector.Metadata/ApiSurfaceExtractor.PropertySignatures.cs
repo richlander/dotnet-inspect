@@ -278,16 +278,23 @@ public static partial class ApiSurfaceExtractor
                 beforeDecodeWork,
                 attributeMaterialize);
 
+        ReadOnlyByRefReturnMarker readOnlyByRefReturnMarker =
+            parameterAccessor.IsNil
+                ? ReadOnlyByRefReturnMarker.None
+                : ReadReadOnlyByRefReturnMarker(
+                    reader,
+                    paramHandles,
+                    attributeMaterialize);
+        bool isReadOnlyByRefReturn =
+            readOnlyByRefReturnMarker
+                is ReadOnlyByRefReturnMarker.IsReadOnly
+            || HasReadOnlyByRefReturnModifier(treeSignature.ReturnType);
         var returnType = FormatMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         var canonicalReturnType = FormatCanonicalMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         IReadOnlyList<string>? xmlDocumentationParameterTypes =
             TryGetXmlDocumentationNames(
                 treeSignature.ParameterTypes,
@@ -442,8 +449,14 @@ public static partial class ApiSurfaceExtractor
                     beforeDecodeWork));
             string renderedType = parameterType.Render();
             string canonicalType = parameterType.RenderCanonical();
-            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
-                parameterInfos[i];
+            var (
+                _,
+                isParams,
+                refKind,
+                _,
+                hasDefault,
+                defaultValue,
+                attributes) = parameterInfos[i];
             bool isByRef =
                 renderedType.StartsWith("ref ", StringComparison.Ordinal);
             if (isByRef)
@@ -787,6 +800,72 @@ public static partial class ApiSurfaceExtractor
             type = modified.Inner;
 
         return type is PrimitiveTypeNode { Name: "void" };
+    }
+
+    static bool CustomModifiersAreRepresentable(
+        TypeNode type,
+        ReadOnlyByRefModifierPolicy readOnlyByRefModifierPolicy)
+    {
+        if (!ContainsCustomModifier(type))
+        {
+            return readOnlyByRefModifierPolicy
+                is not ReadOnlyByRefModifierPolicy.Require;
+        }
+
+        return readOnlyByRefModifierPolicy
+                is not ReadOnlyByRefModifierPolicy.Reject
+            && type is ModifiedTypeNode
+            {
+                IsRequired: true,
+                Modifier: { } modifier,
+                Inner: ByRefTypeNode byRef,
+            }
+            && IsReadOnlyByRefModifier(modifier)
+            && !ContainsCustomModifier(byRef.ElementType);
+    }
+
+    enum ReadOnlyByRefModifierPolicy
+    {
+        Reject,
+        Allow,
+        Require
+    }
+
+    static bool ContainsCustomModifier(TypeNode type) => type switch
+    {
+        ModifiedTypeNode => true,
+        GenericTypeNode generic =>
+            generic.Arguments.Any(ContainsCustomModifier),
+        SZArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        MDArrayTypeNode array =>
+            ContainsCustomModifier(array.ElementType),
+        PointerTypeNode pointer =>
+            ContainsCustomModifier(pointer.ElementType),
+        ByRefTypeNode byRef =>
+            ContainsCustomModifier(byRef.ElementType),
+        FunctionPointerTypeNode functionPointer =>
+            functionPointer.ChildTypes.Any(ContainsCustomModifier),
+        PassthroughTypeNode passthrough =>
+            ContainsCustomModifier(passthrough.Inner),
+        _ => false,
+    };
+
+    static bool IsReadOnlyByRefModifier(TypeNode modifier)
+    {
+        ApiTypeReferenceIdentity? reference =
+            modifier.DefinitionReference();
+        if (reference?.DefinitionName is not { } definitionName
+            || definitionName.Segments.Length != 1
+            || !ResolvesThroughCoreLibrary(reference.Assembly))
+        {
+            return false;
+        }
+
+        string name = definitionName.Segments[0];
+        return definitionName.Namespace
+                == "System.Runtime.InteropServices"
+            && name == "InAttribute";
     }
 
     /// <summary>

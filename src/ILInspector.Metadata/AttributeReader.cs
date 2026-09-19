@@ -119,15 +119,20 @@ public static partial class AttributeReader
         return false;
     }
 
-    internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
-        MetadataReader reader,
-        CustomAttributeHandleCollection attributes,
-        bool includeExtension,
-        Action<int>? beforeMaterialize)
+    internal static (
+        bool IsExtension,
+        bool IsReadOnly,
+        bool IsReadOnlyMarkerRepresentable)
+        ReadMethodMarkerAttributes(
+            MetadataReader reader,
+            CustomAttributeHandleCollection attributes,
+            bool includeExtension,
+            Action<int>? beforeMaterialize)
     {
         // Share name materialization rather than adding a scan for each marker.
         bool isExtension = false;
         bool isReadOnly = false;
+        bool isReadOnlyMarkerRepresentable = true;
         foreach (var handle in attributes)
         {
             var attribute = reader.GetCustomAttribute(handle);
@@ -137,11 +142,29 @@ public static partial class AttributeReader
                 beforeMaterialize);
             isExtension |= includeExtension
                 && name == KnownAttributeNames.ExtensionAttribute;
-            isReadOnly |= name == KnownAttributeNames.IsReadOnlyAttribute;
-            if (isReadOnly && (!includeExtension || isExtension))
-                break;
+            if (name != KnownAttributeNames.IsReadOnlyAttribute)
+                continue;
+
+            if (isReadOnly
+                || !IsPlatformCoreContractAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    name,
+                    beforeMaterialize)
+                || !HasExpectedMarkerConstructor(
+                    reader,
+                    attribute.Constructor,
+                    beforeMaterialize)
+                || !HasMarkerValueBlob(reader, attribute))
+            {
+                isReadOnlyMarkerRepresentable = false;
+            }
+            isReadOnly = true;
         }
-        return (isExtension, isReadOnly);
+        return (
+            isExtension,
+            isReadOnly,
+            isReadOnlyMarkerRepresentable);
     }
 
     public static bool TryGetExtensionMarkerName(
@@ -2046,7 +2069,7 @@ public static partial class AttributeReader
         }
     }
 
-    static bool HasMarkerValueBlob(
+    internal static bool HasMarkerValueBlob(
         MetadataReader reader,
         CustomAttribute attribute)
     {

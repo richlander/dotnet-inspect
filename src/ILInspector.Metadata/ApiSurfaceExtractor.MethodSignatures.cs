@@ -38,6 +38,10 @@ public static partial class ApiSurfaceExtractor
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
+        MetadataTypeDefinitionName? declaringType = null,
+        ApiAssemblyIdentity? declaringAssembly = null,
+        int declaringTypeParameterCount = -1,
+        bool? declaringTypeIsReferenceType = null,
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -117,7 +121,8 @@ public static partial class ApiSurfaceExtractor
                 paramHandles,
                 sequenceNumber,
                 beforeRetainText,
-                attributeMaterialize))
+                attributeMaterialize,
+                readReadOnlyByRefMarker: true))
             .ToArray();
         string[] parameterNames = CSharpParameterNames.Allocate(
             parameterInfos.Select(info => info.name).ToArray(),
@@ -150,14 +155,26 @@ public static partial class ApiSurfaceExtractor
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
-            var (_, isParams, refKind, hasDefault, defaultValue, attributes) =
-                parameterInfos[i];
+            var (
+                _,
+                isParams,
+                refKind,
+                readOnlyByRefMarker,
+                hasDefault,
+                defaultValue,
+                attributes) = parameterInfos[i];
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
             if (isByRef)
             {
                 type = type["ref ".Length..];
                 canonicalType = canonicalType["ref ".Length..];
                 refKind ??= "ref";
+                if (refKind == "in"
+                    && readOnlyByRefMarker
+                        is ReadOnlyByRefParameterMarker.RefReadOnly)
+                {
+                    refKind = "ref readonly";
+                }
             }
             else
             {
@@ -165,6 +182,15 @@ public static partial class ApiSurfaceExtractor
             }
 
             var modifier = isParams ? "params" : refKind;
+            bool readOnlyByRefMarkerIsRepresentable = modifier switch
+            {
+                "in" => readOnlyByRefMarker
+                    is ReadOnlyByRefParameterMarker.In,
+                "ref readonly" => readOnlyByRefMarker
+                    is ReadOnlyByRefParameterMarker.RefReadOnly,
+                _ => readOnlyByRefMarker
+                    is ReadOnlyByRefParameterMarker.None
+            };
             bool acceptsNullDefault = AcceptsNullDefault(paramTypes[i]);
             string? defaultValueText = DefaultValueText(
                 reader,
@@ -191,6 +217,20 @@ public static partial class ApiSurfaceExtractor
                 StructuralType = paramTypes[i].HasStructuralPayload
                     ? paramTypes[i].StructuralIdentity()
                     : null,
+                CustomModifiersAreRepresentable =
+                    readOnlyByRefMarkerIsRepresentable
+                    && CustomModifiersAreRepresentable(
+                            paramTypes[i],
+                            modifier is "in" or "ref readonly"
+                                ? ReadOnlyByRefModifierPolicy.Allow
+                                : ReadOnlyByRefModifierPolicy.Reject),
+                MatchesDeclaringType =
+                    DeclaringTypeMatches(
+                        paramTypes[i],
+                        declaringType,
+                        declaringAssembly,
+                        declaringTypeParameterCount,
+                        declaringTypeIsReferenceType),
                 TypeReferences =
                     [.. paramTypes[i].ReferencedTypes().Distinct()],
                 Modifier = modifier,
@@ -203,16 +243,21 @@ public static partial class ApiSurfaceExtractor
         }
 
         string paramStr2 = string.Join(", ", parameters);
+        ReadOnlyByRefReturnMarker readOnlyByRefReturnMarker =
+            ReadReadOnlyByRefReturnMarker(
+                reader,
+                paramHandles,
+                attributeMaterialize);
+        bool isReadOnlyByRefReturn =
+            readOnlyByRefReturnMarker
+                is ReadOnlyByRefReturnMarker.IsReadOnly
+            || HasReadOnlyByRefReturnModifier(treeSignature.ReturnType);
         var returnType = FormatMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         var canonicalReturnType = FormatCanonicalMethodReturnType(
-            reader,
             treeSignature.ReturnType,
-            paramHandles,
-            beforeDecodeWork);
+            isReadOnlyByRefReturn);
         var returnAttributes = ReturnParameterAttributes(
             reader,
             paramHandles,
@@ -260,13 +305,42 @@ public static partial class ApiSurfaceExtractor
             XmlDocumentationIsVararg =
                 treeSignature.Header.CallingConvention
                     == SignatureCallingConvention.VarArgs,
+            MethodDeclarationHeaderIsRepresentable =
+                MethodDeclarationHeaderIsRepresentable(
+                    method,
+                    treeSignature,
+                    name),
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
             StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
                 ? treeSignature.ReturnType.StructuralIdentity()
                 : null,
+            ReturnTypeCustomModifiersAreRepresentable =
+                readOnlyByRefReturnMarker
+                    is not (
+                        ReadOnlyByRefReturnMarker.RequiresLocation
+                            or ReadOnlyByRefReturnMarker.Invalid)
+                && (readOnlyByRefReturnMarker
+                        is ReadOnlyByRefReturnMarker.IsReadOnly)
+                    == returnType.StartsWith(
+                        "ref readonly ",
+                        StringComparison.Ordinal)
+                && CustomModifiersAreRepresentable(
+                    treeSignature.ReturnType,
+                    returnType.StartsWith(
+                        "ref readonly ",
+                        StringComparison.Ordinal)
+                            ? ReadOnlyByRefModifierPolicy.Require
+                            : ReadOnlyByRefModifierPolicy.Reject),
             ReturnTypeReferences =
                 [.. treeSignature.ReturnType.ReferencedTypes().Distinct()],
+            ReturnTypeMatchesDeclaringType =
+                DeclaringTypeMatches(
+                    treeSignature.ReturnType,
+                    declaringType,
+                    declaringAssembly,
+                    declaringTypeParameterCount,
+                    declaringTypeIsReferenceType),
             ReturnTypeDefinitionReference =
                 treeSignature.ReturnType.DefinitionReference(),
             ReturnTypeShape =
@@ -279,6 +353,137 @@ public static partial class ApiSurfaceExtractor
         }, treeSignature.ReturnType.IsDegraded
             || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
     }
+
+    static bool MethodDeclarationHeaderIsRepresentable(
+        MethodDefinition method,
+        MethodSignature<TypeNode> signature,
+        string methodName)
+    {
+        int genericParameterCount = method.GetGenericParameters().Count;
+        bool constructorFlagsAreRepresentable =
+            ConstructorFlagsAreRepresentable(methodName, method.Attributes);
+        bool isQualifiedOperator =
+            IsOperatorMethodName(methodName)
+            && methodName.LastIndexOf('.') > 0;
+        bool operatorFlagsAreRepresentable =
+            !IsOperatorMethodName(methodName)
+            || isQualifiedOperator
+            || (method.Attributes & MethodAttributes.SpecialName) != 0;
+        return constructorFlagsAreRepresentable
+            && operatorFlagsAreRepresentable
+            && signature.Header.Kind == SignatureKind.Method
+            && signature.Header.CallingConvention
+                == SignatureCallingConvention.Default
+            && !signature.Header.HasExplicitThis
+            && (signature.Header.RawValue & ReservedSignatureFlag) == 0
+            && signature.Header.IsInstance
+                == ((method.Attributes & MethodAttributes.Static) == 0)
+            && signature.Header.IsGeneric == (genericParameterCount > 0)
+            && signature.GenericParameterCount == genericParameterCount
+            && signature.RequiredParameterCount
+                == signature.ParameterTypes.Length;
+    }
+
+    static bool ConstructorFlagsAreRepresentable(
+        string methodName,
+        MethodAttributes attributes)
+    {
+        MethodAttributes nonAccess =
+            attributes & ~MethodAttributes.MemberAccessMask;
+        return methodName switch
+        {
+            ".ctor" =>
+                nonAccess
+                    == (MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName),
+            ".cctor" =>
+                (attributes & MethodAttributes.MemberAccessMask)
+                    == MethodAttributes.Private
+                && nonAccess
+                    == (MethodAttributes.Static
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName),
+            _ => true,
+        };
+    }
+
+    static bool? DeclaringTypeMatches(
+        TypeNode type,
+        MetadataTypeDefinitionName? declaringType,
+        ApiAssemblyIdentity? declaringAssembly,
+        int declaringTypeParameterCount,
+        bool? declaringTypeIsReferenceType)
+    {
+        if (declaringType is null
+            || declaringAssembly is null
+            || declaringTypeParameterCount < 0
+            || declaringTypeIsReferenceType is null)
+        {
+            return null;
+        }
+
+        if (declaringTypeIsReferenceType == false
+            && type is GenericTypeNode
+            {
+                DefinitionName: "System.Nullable" or "System.Nullable`1",
+                DefinitionAssemblyIdentity: { } nullableAssembly,
+                Arguments: [TypeNode underlyingType],
+            }
+            && AttributeReader.IsCoreContractName(nullableAssembly.Name)
+            && PlatformKeys.IsPlatform(nullableAssembly.PublicKeyToken))
+        {
+            type = underlyingType;
+        }
+
+        if (declaringTypeParameterCount == 0)
+        {
+            return type is NamedTypeNode named
+                && named.IsReferenceType
+                    == declaringTypeIsReferenceType
+                && declaringAssembly.Equals(named.AssemblyIdentity)
+                && DefinitionMatches(
+                    named.MetadataName,
+                    declaringType);
+        }
+
+        if (type is not GenericTypeNode generic
+            || generic.IsReferenceType
+                != declaringTypeIsReferenceType
+            || !declaringAssembly.Equals(
+                generic.DefinitionAssemblyIdentity)
+            || !DefinitionMatches(
+                generic.MetadataName,
+                declaringType)
+            || generic.Arguments.Length
+                != declaringTypeParameterCount)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < generic.Arguments.Length; index++)
+        {
+            if (generic.Arguments[index] is not GenericParameterNode
+                {
+                    IsMethodParameter: false,
+                    Index: var parameterIndex,
+                }
+                || parameterIndex != index)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool DefinitionMatches(
+        MetadataTypeNameParts? actual,
+        MetadataTypeDefinitionName expected) =>
+        actual is not null
+            && actual.Namespace == expected.Namespace
+            && actual.Segments.SequenceEqual(expected.Segments);
 
     static IReadOnlyList<string>? TryGetXmlDocumentationNames(
         ImmutableArray<TypeNode> types,
@@ -328,18 +533,12 @@ public static partial class ApiSurfaceExtractor
             beforeMaterialize: beforeMaterialize);
 
     private static string FormatMethodReturnType(
-        MetadataReader reader,
         TypeNode returnType,
-        ParameterHandleCollection paramHandles,
-        Action<int>? beforeMaterialize = null)
+        bool isReadOnlyByRefReturn)
     {
         var rendered = returnType.Render();
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
-            || !IsReadOnlyByRefReturn(
-                reader,
-                returnType,
-                paramHandles,
-                beforeMaterialize))
+            || !isReadOnlyByRefReturn)
         {
             return rendered;
         }
@@ -354,18 +553,12 @@ public static partial class ApiSurfaceExtractor
     /// tuple rendering.
     /// </summary>
     private static string FormatCanonicalMethodReturnType(
-        MetadataReader reader,
         TypeNode returnType,
-        ParameterHandleCollection paramHandles,
-        Action<int>? beforeMaterialize = null)
+        bool isReadOnlyByRefReturn)
     {
         var rendered = returnType.RenderCanonical();
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
-            || !IsReadOnlyByRefReturn(
-                reader,
-                returnType,
-                paramHandles,
-                beforeMaterialize))
+            || !isReadOnlyByRefReturn)
         {
             return rendered;
         }
@@ -373,49 +566,81 @@ public static partial class ApiSurfaceExtractor
         return $"ref readonly {rendered["ref ".Length..]}";
     }
 
-    private static bool IsReadOnlyByRefReturn(
+    private static bool HasReadOnlyByRefReturnModifier(TypeNode returnType)
+        => returnType.HasRequiredModifier(
+                "System.Runtime.CompilerServices",
+                "IsReadOnlyAttribute")
+            || returnType.HasRequiredModifier(
+                "System.Runtime.CompilerServices",
+                "RequiresLocationAttribute")
+            || returnType.HasRequiredModifier(
+                "System.Runtime.InteropServices",
+                "InAttribute");
+
+    private static ReadOnlyByRefReturnMarker ReadReadOnlyByRefReturnMarker(
         MetadataReader reader,
-        TypeNode returnType,
         ParameterHandleCollection paramHandles,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize)
     {
+        ReadOnlyByRefReturnMarker marker =
+            ReadOnlyByRefReturnMarker.None;
         foreach (var handle in paramHandles)
         {
             var parameter = reader.GetParameter(handle);
-            if (parameter.SequenceNumber == 0
-                && HasReadOnlyByRefAttribute(
+            if (parameter.SequenceNumber != 0)
+                continue;
+
+            foreach (CustomAttributeHandle attributeHandle
+                in parameter.GetCustomAttributes())
+            {
+                CustomAttribute attribute =
+                    reader.GetCustomAttribute(attributeHandle);
+                string? name = AttributeReader.GetAttributeTypeName(
                     reader,
-                    parameter.GetCustomAttributes(),
-                    beforeMaterialize))
-                return true;
+                    attribute.Constructor,
+                    beforeMaterialize);
+                if (name is not (
+                        KnownAttributeNames.IsReadOnlyAttribute
+                        or KnownAttributeNames.RequiresLocationAttribute))
+                {
+                    continue;
+                }
+
+                ReadOnlyByRefReturnMarker current =
+                    name == KnownAttributeNames.IsReadOnlyAttribute
+                        ? ReadOnlyByRefReturnMarker.IsReadOnly
+                        : ReadOnlyByRefReturnMarker.RequiresLocation;
+                if (marker is not ReadOnlyByRefReturnMarker.None
+                    || !AttributeReader.IsPlatformCoreContractAttributeType(
+                        reader,
+                        attribute.Constructor,
+                        name,
+                        beforeMaterialize)
+                    || !AttributeReader.HasExpectedMarkerConstructor(
+                        reader,
+                        attribute.Constructor,
+                        beforeMaterialize)
+                    || !AttributeReader.HasMarkerValueBlob(
+                        reader,
+                        attribute))
+                {
+                    return ReadOnlyByRefReturnMarker.Invalid;
+                }
+
+                marker = current;
+            }
         }
 
-        return returnType.HasRequiredModifier("System.Runtime.CompilerServices", "IsReadOnlyAttribute")
-            || returnType.HasRequiredModifier("System.Runtime.CompilerServices", "RequiresLocationAttribute")
-            || returnType.HasRequiredModifier("System.Runtime.InteropServices", "InAttribute");
+        return marker;
     }
 
-    private static bool HasReadOnlyByRefAttribute(
-        MetadataReader reader,
-        CustomAttributeHandleCollection attributes,
-        Action<int>? beforeMaterialize = null)
-        => AttributeReader.HasAttribute(
-                reader,
-                attributes,
-                KnownAttributeNames.IsReadOnlyAttribute,
-                beforeMaterialize)
-            || AttributeReader.HasAttribute(
-                reader,
-                attributes,
-                "System.Runtime.CompilerServices.RequiresLocationAttribute",
-                beforeMaterialize);
-
-    private static (string? name, bool isParams, string? refKind, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
+    private static (string? name, bool isParams, string? refKind, ReadOnlyByRefParameterMarker readOnlyByRefMarker, bool hasDefault, object? defaultValue, List<string> attributes) GetParameterInfo(
         MetadataReader reader,
         ParameterHandleCollection handles,
         int sequenceNumber,
         Action<string>? beforeRetain = null,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        bool readReadOnlyByRefMarker = false)
     {
         foreach (var handle in handles)
         {
@@ -452,6 +677,13 @@ public static partial class ApiSurfaceExtractor
                     : isIn && !isOut
                         ? "in"
                         : null;
+                ReadOnlyByRefParameterMarker readOnlyByRefMarker =
+                    readReadOnlyByRefMarker
+                        ? ReadReadOnlyByRefParameterMarker(
+                            reader,
+                            attributes,
+                            beforeMaterialize)
+                        : ReadOnlyByRefParameterMarker.None;
 
                 bool hasDefault = (param.Attributes & System.Reflection.ParameterAttributes.HasDefault) != 0;
                 object? defaultValue = null;
@@ -477,11 +709,90 @@ public static partial class ApiSurfaceExtractor
                     }
                 }
 
-                return (name, isParams, refKind, hasDefault, defaultValue, renderedAttributes);
+                return (
+                    name,
+                    isParams,
+                    refKind,
+                    readOnlyByRefMarker,
+                    hasDefault,
+                    defaultValue,
+                    renderedAttributes);
             }
         }
 
-        return (null, false, null, false, null, []);
+        return (
+            null,
+            false,
+            null,
+            ReadOnlyByRefParameterMarker.None,
+            false,
+            null,
+            []);
+    }
+
+    static ReadOnlyByRefParameterMarker ReadReadOnlyByRefParameterMarker(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
+    {
+        ReadOnlyByRefParameterMarker marker =
+            ReadOnlyByRefParameterMarker.None;
+        foreach (CustomAttributeHandle handle in attributes)
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            string? name = AttributeReader.GetAttributeTypeName(
+                reader,
+                attribute.Constructor,
+                beforeMaterialize);
+            if (name is not (
+                    KnownAttributeNames.IsReadOnlyAttribute
+                    or KnownAttributeNames.RequiresLocationAttribute))
+            {
+                continue;
+            }
+
+            ReadOnlyByRefParameterMarker current =
+                name == KnownAttributeNames.IsReadOnlyAttribute
+                    ? ReadOnlyByRefParameterMarker.In
+                    : ReadOnlyByRefParameterMarker.RefReadOnly;
+
+            if (marker is not ReadOnlyByRefParameterMarker.None
+                || !AttributeReader.IsPlatformCoreContractAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    name,
+                    beforeMaterialize)
+                || !AttributeReader.HasExpectedMarkerConstructor(
+                    reader,
+                    attribute.Constructor,
+                    beforeMaterialize)
+                || !AttributeReader.HasMarkerValueBlob(
+                    reader,
+                    attribute))
+            {
+                return ReadOnlyByRefParameterMarker.Invalid;
+            }
+
+            marker = current;
+        }
+
+        return marker;
+    }
+
+    enum ReadOnlyByRefParameterMarker
+    {
+        None,
+        In,
+        RefReadOnly,
+        Invalid
+    }
+
+    enum ReadOnlyByRefReturnMarker
+    {
+        None,
+        IsReadOnly,
+        RequiresLocation,
+        Invalid
     }
 
     private sealed record DateTimeConstantDefault(long Ticks);
