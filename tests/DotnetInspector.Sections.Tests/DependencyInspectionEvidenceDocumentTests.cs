@@ -297,14 +297,15 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                 FailedRoots: 0,
                 DependencyInspectionTraversalCompletion.Complete,
                 RequestedDepth: null,
-                GraphNodes: 2,
-                GraphEdges: 1,
+                HierarchyOccurrences: 1,
+                CanonicalNodes: 2,
+                Relationships: 1,
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 DependencyInspectionPruningSummary.NotRequested,
                 IsPrefixRootSet: false,
                 PackagePrefix: null),
-            graph,
+            DependencyHierarchyDocument.Create(graph),
             [],
             [],
             [],
@@ -315,7 +316,8 @@ public sealed class DependencyInspectionEvidenceDocumentTests
             DependencyInspectionJsonContext.Default
                 .DependencyInspectionContent);
         JsonElement evidenceIdentity =
-            root.GetProperty("graph")
+            root.GetProperty("hierarchy")
+                .GetProperty("backing_graph")
                 .GetProperty("edges")[0]
                 .GetProperty("evidence_identity");
 
@@ -333,7 +335,8 @@ public sealed class DependencyInspectionEvidenceDocumentTests
         Assert.NotNull(roundTrip);
         Assert.IsType<
             DependencyGraphEvidenceIdentity.PackageVersionConstraint>(
-                Assert.Single(roundTrip.Graph.Edges).EvidenceIdentity);
+                Assert.Single(roundTrip.Hierarchy.BackingGraph.Edges)
+                    .EvidenceIdentity);
     }
 
     [Fact]
@@ -365,14 +368,15 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                 FailedRoots: 0,
                 DependencyInspectionTraversalCompletion.Failed,
                 RequestedDepth: null,
-                GraphNodes: 0,
-                GraphEdges: 0,
+                HierarchyOccurrences: 0,
+                CanonicalNodes: 0,
+                Relationships: 0,
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 DependencyInspectionPruningSummary.NotRequested,
                 IsPrefixRootSet: false,
                 PackagePrefix: null),
-            new DependencyGraphDocument([], [], [], [], []),
+            DependencyHierarchyDocument.Empty,
             [],
             [],
             [],
@@ -510,8 +514,9 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                 FailedRoots: 0,
                 DependencyInspectionTraversalCompletion.NotRequested,
                 RequestedDepth: null,
-                GraphNodes: 0,
-                GraphEdges: 0,
+                HierarchyOccurrences: 0,
+                CanonicalNodes: 0,
+                Relationships: 0,
                 DependencyInspectionEvidencePhaseCompletion.Complete,
                 DependencyInspectionEvidencePhaseCompletion.NotRequested,
                 new DependencyInspectionPruningSummary(
@@ -526,7 +531,7 @@ public sealed class DependencyInspectionEvidenceDocumentTests
                     Failed: 0),
                 IsPrefixRootSet: false,
                 PackagePrefix: null),
-            new DependencyGraphDocument([], [], [], [], []),
+            DependencyHierarchyDocument.Empty,
             [],
             [],
             [pruning],

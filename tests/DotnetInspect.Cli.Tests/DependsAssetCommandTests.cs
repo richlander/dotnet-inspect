@@ -627,7 +627,7 @@ public sealed class DependsAssetCommandTests
             "--project",
             AssetsFixture,
             "-S",
-            "Dependency Graph",
+            "Dependency Hierarchy",
             "--tree",
         ]);
     }
