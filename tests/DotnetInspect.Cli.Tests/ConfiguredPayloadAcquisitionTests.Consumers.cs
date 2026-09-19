@@ -170,6 +170,52 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task TimelineRange_MaxProbesAdjacentBoundaryRetainsSourceConfiguration()
+    {
+        const string Id = "range.timeline.adjacent";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0"],
+                version => CreateApiPackage(
+                    Id,
+                    version,
+                    useV2: version == "2.0.0"),
+                requests));
+        string workingDirectory = Directory.GetCurrentDirectory();
+
+        var result = await RunCommandAsync(
+            [
+                "timeline",
+                "--package", $"{Id}@1.0.0..2.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                "--nugetconfig-directory", workingDirectory,
+                "--max-probes", "2",
+                "--tips", "q"
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            2,
+            requests.Count(request =>
+                request.EndsWith(".nupkg", StringComparison.Ordinal)));
+        Assert.Contains(
+            "Confirm adjacent boundary 1.0.0..2.0.0:",
+            result.Output);
+        Assert.Contains(
+            $"--source {ShellCommandText.Quote(FirstFeed)}",
+            result.Output);
+        Assert.Contains(
+            $"--nugetconfig-directory {ShellCommandText.Quote(workingDirectory)}",
+            result.Output);
+    }
+
+    [Fact]
     public async Task TimelineRange_MaxProbesStopsAtChangedGapWithoutSuggestingDenseTraversal()
     {
         const string Id = "range.timeline.budget";

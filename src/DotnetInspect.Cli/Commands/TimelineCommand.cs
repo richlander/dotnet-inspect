@@ -60,7 +60,9 @@ public static class TimelineCommand
             }
 
             string sourceReplayArguments = "";
-            if (rangeExtraction is not null && selectedAddresses.Length < vector.Addresses.Length)
+            if (rangeExtraction is not null
+                && (options.MaxProbes is not null
+                    || selectedAddresses.Length < vector.Addresses.Length))
             {
                 NuGetSourceOptions sourceOptions = options.SourceOptions ?? NuGetSourceOptions.Default;
                 if (sourceOptions.ConfigFile is null)
