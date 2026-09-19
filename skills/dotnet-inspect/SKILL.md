@@ -76,9 +76,10 @@ High-value envelope cases:
   before offering a URL.
 
 Member `Call Graph` has not adopted `--envelope`. Use its Markdown table,
-`--tree`, `--mermaid`, `--tsv`, `--jsonl`, or structured `--json` content.
-A separate member `--share url` opens the public API Overview; it does not
-preserve the selected Call Graph.
+`--tree`, `--mermaid`, `--tsv`, or `--jsonl` edge rows. Do not use document
+`--json` for graph evidence; it currently emits the surrounding Type result,
+not graph edges. A separate member `--share url` opens the public API Overview;
+it does not preserve the selected Call Graph.
 
 ## Hand a question to Inspect Web
 
