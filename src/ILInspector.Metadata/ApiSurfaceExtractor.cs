@@ -1280,13 +1280,17 @@ public static partial class ApiSurfaceExtractor
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
+                bool isConstructor =
+                    methodName is ".ctor" or ".cctor";
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
                     isExplicitInterfaceImplementation && !isFinalizer,
-                    allowSpecialName: isOperator
+                    allowSpecialName: isConstructor
+                        || isOperator
                         || IsCSharpAccessor(
                             accessorMethods.GetValueOrDefault(
-                                methodHandle)));
+                                methodHandle)),
+                    allowRuntimeSpecialName: isConstructor);
 
                 var member = new ApiMember
                 {

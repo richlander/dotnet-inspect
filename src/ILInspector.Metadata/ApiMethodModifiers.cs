@@ -13,7 +13,8 @@ internal readonly record struct ApiMethodModifiers(
     internal static ApiMethodModifiers FromAttributes(
         MethodAttributes attributes,
         bool isExplicitInterfaceImplementation,
-        bool allowSpecialName = false)
+        bool allowSpecialName = false,
+        bool allowRuntimeSpecialName = false)
     {
         bool isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         bool isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
@@ -30,6 +31,19 @@ internal readonly record struct ApiMethodModifiers(
                 | MethodAttributes.Virtual
                 | MethodAttributes.NewSlot
                 | MethodAttributes.HideBySig;
+        MethodAttributes permittedOrdinaryFlags =
+            MethodAttributes.Static
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract;
+        if (allowSpecialName)
+            permittedOrdinaryFlags |= MethodAttributes.SpecialName;
+        if (allowRuntimeSpecialName)
+            permittedOrdinaryFlags |= MethodAttributes.RTSpecialName;
+        bool ordinaryFlagsAreRepresentable =
+            (nonAccess & ~permittedOrdinaryFlags) == 0;
         bool explicitShapeIsRepresentable =
             nonAccess == explicitShape
             || allowSpecialName
@@ -43,6 +57,7 @@ internal readonly record struct ApiMethodModifiers(
             isOverride && isFinal,
             isExplicitInterfaceImplementation
                 ? explicitShapeIsRepresentable
-                : !isFinal || isOverride);
+                : ordinaryFlagsAreRepresentable
+                    && (!isFinal || isOverride));
     }
 }

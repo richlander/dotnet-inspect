@@ -519,6 +519,11 @@ public class FidelityCheckGeneratedFilterTests
             Assert.DoesNotContain(
                 selected,
                 target =>
+                    target.Type == "RuntimeSpecialNameOrdinaryFixture"
+                    && target.Method == "Run");
+            Assert.DoesNotContain(
+                selected,
+                target =>
                     target.Type == "MultipleMethodImplFixture"
                     && target.Method == "IContract.Run");
             Assert.DoesNotContain(
@@ -4234,6 +4239,8 @@ public class FidelityCheckGeneratedFilterTests
             metadata.GetOrAddString("Object"));
         BlobHandle instanceVoidSignature = metadata.GetOrAddBlob(
             new byte[] { 0x20, 0x00, 0x01 });
+        BlobHandle staticVoidSignature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
 
         metadata.AddTypeDefinition(
             default,
@@ -4384,6 +4391,14 @@ public class FidelityCheckGeneratedFilterTests
                 objectRef,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(16));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString(
+                "RuntimeSpecialNameOrdinaryFixture"),
+            objectRef,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(17));
         metadata.AddGenericParameter(
             genericContractType,
             GenericParameterAttributes.None,
@@ -4496,26 +4511,6 @@ public class FidelityCheckGeneratedFilterTests
                 instanceVoidSignature,
                 bodyOffset,
                 MetadataTokens.ParameterHandle(1));
-        MethodDefinitionHandle specialNameBody =
-                metadata.AddMethodDefinition(
-                    MethodAttributes.Private
-                        | explicitImplementationAttributes
-                        | MethodAttributes.SpecialName,
-                    MethodImplAttributes.IL,
-                    metadata.GetOrAddString("IContract.Run"),
-                    instanceVoidSignature,
-                    bodyOffset,
-                    MetadataTokens.ParameterHandle(1));
-        MethodDefinitionHandle runtimeSpecialNameBody =
-                metadata.AddMethodDefinition(
-                    MethodAttributes.Private
-                        | explicitImplementationAttributes
-                        | MethodAttributes.RTSpecialName,
-                    MethodImplAttributes.IL,
-                    metadata.GetOrAddString("IContract.Run"),
-                    instanceVoidSignature,
-                    bodyOffset,
-                    MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle malformedBody =
             metadata.AddMethodDefinition(
                 MethodAttributes.Public
@@ -4624,6 +4619,37 @@ public class FidelityCheckGeneratedFilterTests
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Run"),
             instanceVoidSignature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle specialNameBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle runtimeSpecialNameBody =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | explicitImplementationAttributes
+                    | MethodAttributes.RTSpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("IContract.Run"),
+                instanceVoidSignature,
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            staticVoidSignature,
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
         MemberReferenceHandle genericDeclaration =
