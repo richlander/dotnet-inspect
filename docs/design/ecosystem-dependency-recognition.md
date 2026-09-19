@@ -600,11 +600,11 @@ The completed ecosystem-aware route returns
 mutate the lower Dependency Content, replace it with several recognition
 envelopes, or attach recognition as a second envelope payload.
 
-Selecting the ecosystem pair section, an ecosystem row predicate, or complete
-envelope output requests the direct Package-declaration and direct
-assembly-reference producers needed by classification. It does not authorize
-transitive traversal. Other dependency-inspection requests retain their
-existing plan and result.
+After dependency-inspection adoption, the asset dependency route's baseline
+semantic plan requests all applicable direct Package declarations and direct
+assembly references needed by classification, independently from output
+format. It does not authorize transitive traversal; hierarchy selection and
+depth continue to own that work.
 
 Section and column projection shape presentation. Row predicates select the
 ordinary pair view through the dependency owner's typed row-query path. None
@@ -612,6 +612,11 @@ is silently applied after completion to narrow or reconstruct envelope Content.
 A CLI route whose ordinary shaping or row-selection options cannot coexist
 with complete envelope transport rejects the combination rather than
 serializing a success-shaped partial Document.
+
+Unprojected `--json` serializes the complete
+`DependencyEcosystemRecognitionDocument`. `--envelope.content` serializes the
+same value under the same owner-issued serializer; envelope output adds only
+Share and diagnostics.
 
 ### Package and Library Info rollup
 
@@ -786,8 +791,8 @@ end-to-end tracker. The current plan has eight steps:
    presentation.
 4. Adopt Library direct-reference observations and CLI Library Info/detail
    presentation.
-5. Adopt pair-grain recognition and typed ecosystem selection in CLI
-   dependency inspection, including complete envelope composition.
+5. Adopt baseline pair-grain recognition, typed ecosystem selection, and
+   complete JSON/envelope composition in CLI dependency inspection.
 6. Expose the Package/Library recognition envelope through the managed
    inspect-web facade.
 7. Adopt the result in the Browser Package surface.
@@ -839,8 +844,10 @@ The implementation must name Release gates for:
 - dependency composition preserving the exact lower
   `DependencyInspectionContent`, Share, and diagnostics without a generic
   auxiliary payload;
-- dependency ecosystem section, predicate, and envelope gestures requesting
-  complete direct evidence without authorizing transitive traversal;
+- dependency baseline Content requesting complete direct evidence independently
+  from output format without authorizing transitive traversal;
+- unprojected dependency JSON equaling `--envelope.content`, with the envelope
+  adding only Share and diagnostics;
 - dependency inspection filtering pair rows through typed
   `EcosystemPackId` identity without classifying traversal-only nodes;
 - dependency recognition remaining distinct from Package Query's
