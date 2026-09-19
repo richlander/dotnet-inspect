@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
@@ -9,6 +10,7 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 using InertText;
 using NuGetFetch;
 
@@ -444,9 +446,15 @@ internal sealed record PackageQueryEcosystemDependencyMatch(
     PackageQueryEcosystemMembershipDeclaration Ecosystem,
     PackageQueryEcosystemMembershipMatch Membership);
 
+internal sealed record PackageAssemblyReferenceOccurrence(
+    string TargetFramework,
+    string Path,
+    string ReferencedAssembly);
+
 internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
-    string? ToolSettingsVersion);
+    string? ToolSettingsVersion,
+    ImmutableArray<PackageAssemblyReferenceOccurrence> AssemblyReferences);
 
 /// <summary>
 /// Plans and executes product-owned manifest and package-content terms over a
@@ -463,6 +471,11 @@ public static partial class PackageQuery
     public const int MaximumInspectionTerms =
         PortableQueryPayloadCodec.MaxTerms - RequiredPortableTermCount;
     public const int MaximumToolSettingsBytes = 64 * 1024;
+    public const int MaximumAssemblyReferenceAssets = 256;
+    public const long MaximumAssemblyReferenceEntryBytes =
+        16L * 1024 * 1024;
+    public const long MaximumAssemblyReferenceTotalBytes =
+        128L * 1024 * 1024;
     public const int MaximumEvidencePreviewItems = 3;
     public const int MaximumEvidencePreviewCharacters = 160;
 
@@ -481,6 +494,7 @@ public static partial class PackageQuery
     public const string ReadmeTermKey = "readme";
     public const string ToolTermKey = "tool";
     public const string ToolFormatTermKey = "tool-format";
+    public const string ReferencesTermKey = "references";
     public const string SkillTermKey = "skill";
     public const string ToolReplacementGroupId =
         "package.query.replacement.dotnet-tool";
@@ -702,6 +716,17 @@ public static partial class PackageQuery
             DisplayGroupLabel = ".NET tool",
         },
         new(
+            ReferencesTermKey,
+            "assembly reference",
+            "Downloads the package and matches a direct AssemblyRef simple name in an admitted ref/ or lib/ assembly.",
+            550,
+            PackageQueryAcquisitionTier.PackageContent,
+            EqualityOperator,
+            "assembly simple name",
+            "System.Text.Json",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input),
+        new(
             SkillTermKey,
             "embedded SKILL.md",
             "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
@@ -748,6 +773,7 @@ public static partial class PackageQuery
         Key(ToolTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Tool)),
         Key(ToolFormatTermKey, BindToolFormat),
+        Key(ReferencesTermKey, BindReferences),
         Key(SkillTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Skill)),
     ]);
@@ -1098,6 +1124,17 @@ public static partial class PackageQuery
         };
     }
 
+    private static PortableQueryBinding<PackageQueryPredicate> BindReferences(
+        PortableQueryOperator @operator,
+        string value) =>
+        @operator == PortableQueryOperator.Equal
+        && RealizedMemberCoordinate.IsAssemblySimpleName(value)
+            ? Bound(
+                PackageQueryPredicateKind.References,
+                value,
+                Normalize(value))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
     private static PortableQueryBinding<PackageQueryPredicate> Bound(
         PackageQueryPredicateKind kind,
         string value,
@@ -1123,6 +1160,7 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
             PackageQueryPredicateKind.Tool => ToolTermKey,
             PackageQueryPredicateKind.ToolFormat => ToolFormatTermKey,
+            PackageQueryPredicateKind.References => ReferencesTermKey,
             PackageQueryPredicateKind.Skill => SkillTermKey,
             _ => throw new InvalidOperationException(
                 "Unknown Package Query predicate kind."),
@@ -1321,12 +1359,14 @@ public static partial class PackageQuery
                         {
                             facts = await ReadPackageContentFactsAsync(
                                 content,
+                                match.Value.PackageId,
                                 plan.BoundTerms,
                                 cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex) when (
                             ex is IOException
                                 or InvalidDataException
+                                or BadImageFormatException
                                 or DecoderFallbackException
                                 or NotSupportedException
                                 or UnauthorizedAccessException
@@ -1560,6 +1600,7 @@ public static partial class PackageQuery
 
     static async ValueTask<PackageContentFacts> ReadPackageContentFactsAsync(
         IPackageContent content,
+        string packageId,
         ImmutableArray<BoundPackageQueryTerm> terms,
         CancellationToken cancellationToken)
     {
@@ -1569,6 +1610,8 @@ public static partial class PackageQuery
             term.Predicate.Kind == PackageQueryPredicateKind.Skill);
         bool needsToolSettings = terms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.ToolFormat);
+        bool needsAssemblyReferences = terms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.References);
         PackageQueryEvidenceSummary? skills = needsSkills
             ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
             : null;
@@ -1578,7 +1621,157 @@ public static partial class PackageQuery
                 entries,
                 cancellationToken).ConfigureAwait(false)
             : null;
-        return new PackageContentFacts(skills, toolVersion);
+        ImmutableArray<PackageAssemblyReferenceOccurrence> assemblyReferences =
+            needsAssemblyReferences
+                ? await ReadAssemblyReferencesAsync(
+                    content,
+                    packageId,
+                    terms,
+                    cancellationToken).ConfigureAwait(false)
+                : [];
+        return new PackageContentFacts(
+            skills,
+            toolVersion,
+            assemblyReferences);
+    }
+
+    static async ValueTask<ImmutableArray<PackageAssemblyReferenceOccurrence>>
+        ReadAssemblyReferencesAsync(
+            IPackageContent content,
+            string packageId,
+            ImmutableArray<BoundPackageQueryTerm> terms,
+            CancellationToken cancellationToken)
+    {
+        PackageCompileAsset[] assets =
+        [
+            .. PackageCompileAssetSelector.Select(content, packageId)
+                .CandidateAssets
+                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
+        ];
+        if (assets.Length > MaximumAssemblyReferenceAssets)
+        {
+            throw new InvalidDataException(
+                "The package contains too many admitted assembly assets.");
+        }
+        if (assets.Select(asset => asset.Path)
+            .Distinct(StringComparer.Ordinal)
+            .Count() != assets.Length)
+        {
+            throw new InvalidDataException(
+                "The package contains duplicate admitted assembly asset paths.");
+        }
+
+        var requested = new HashSet<string>(
+            terms
+                .Where(term =>
+                    term.Predicate.Kind == PackageQueryPredicateKind.References)
+                .Select(term => term.Predicate.Text!),
+            StringComparer.OrdinalIgnoreCase);
+        var declaredLengths = new Dictionary<string, long>(
+            StringComparer.Ordinal);
+        if (content is IPackageContentEntryManifest manifest)
+        {
+            long declaredTotal = 0;
+            foreach (PackageCompileAsset asset in assets)
+            {
+                if (!manifest.TryGetEntryLength(
+                        asset.Path,
+                        out long declaredLength))
+                {
+                    continue;
+                }
+                if (declaredLength < 0
+                    || declaredLength > MaximumAssemblyReferenceEntryBytes)
+                {
+                    throw new InvalidDataException(
+                        "An admitted assembly asset exceeds its scan budget.");
+                }
+                if (declaredLength
+                    > MaximumAssemblyReferenceTotalBytes - declaredTotal)
+                {
+                    throw new InvalidDataException(
+                        "The admitted assembly assets exceed their aggregate scan budget.");
+                }
+
+                declaredLengths.Add(asset.Path, declaredLength);
+                declaredTotal += declaredLength;
+            }
+        }
+
+        long observedTotal = 0;
+        var occurrences =
+            ImmutableArray.CreateBuilder<PackageAssemblyReferenceOccurrence>();
+        foreach (PackageCompileAsset asset in assets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            long remaining = MaximumAssemblyReferenceTotalBytes - observedTotal;
+            if (remaining <= 0)
+            {
+                throw new InvalidDataException(
+                    "The admitted assembly assets exceed their aggregate scan budget.");
+            }
+
+            long entryLimit = Math.Min(
+                MaximumAssemblyReferenceEntryBytes,
+                remaining);
+            if (!content.TryOpenEntry(asset.Path, entryLimit, out Stream? stream))
+            {
+                throw new IOException(
+                    "An admitted assembly asset is unavailable within its scan budget.");
+            }
+
+            byte[] bytes;
+            await using (stream.ConfigureAwait(false))
+            {
+                bytes = await BoundedContentReader.ReadAllBytesAsync(
+                    stream,
+                    entryLimit,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+
+            long chargedBytes = declaredLengths.TryGetValue(
+                asset.Path,
+                out long declaredLength)
+                    ? Math.Max(declaredLength, bytes.LongLength)
+                    : bytes.LongLength;
+            if (chargedBytes > remaining)
+            {
+                throw new InvalidDataException(
+                    "The admitted assembly assets exceed their aggregate scan budget.");
+            }
+            observedTotal += chargedBytes;
+
+            using var imageStream = new MemoryStream(bytes, writable: false);
+            using var image = new PEReader(
+                imageStream,
+                PEStreamOptions.PrefetchMetadata);
+            if (!MetadataFormatAdmission.AdmitImage(image))
+                continue;
+
+            AssemblyIdentityNames identities = AssemblyIdentityScanner.Scan(image);
+            if (!identities.ReferencesComplete)
+            {
+                throw new BadImageFormatException(
+                    "An admitted assembly has an incomplete AssemblyRef table.");
+            }
+            if (identities.Name.Length == 0)
+                continue;
+
+            foreach (string reference in identities.ReferenceNames)
+            {
+                if (requested.Contains(reference))
+                {
+                    occurrences.Add(
+                        new PackageAssemblyReferenceOccurrence(
+                            asset.TargetFramework,
+                            asset.Path,
+                            reference));
+                }
+            }
+        }
+
+        return occurrences.ToImmutable();
     }
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(
@@ -1723,6 +1916,7 @@ public static partial class PackageQuery
                 match.RequiredManifest.IsToolPackage,
             PackageQueryPredicateKind.ToolFormat =>
                 match.RequiredManifest.IsToolPackage,
+            PackageQueryPredicateKind.References => true,
             PackageQueryPredicateKind.Skill => true,
             _ => throw new InvalidOperationException(
                 "A structural Package Query term reached manifest evaluation."),
@@ -1786,11 +1980,23 @@ public static partial class PackageQuery
         {
             PackageQueryPredicateKind.ToolFormat =>
                 content.ToolSettingsVersion == term.Predicate.Text,
+            PackageQueryPredicateKind.References =>
+                MatchingAssemblyReferences(term, content).Length > 0,
             PackageQueryPredicateKind.Skill =>
                 content.SkillDocuments is { Count: > 0 },
             _ => throw new InvalidOperationException(
                 "A non-content Package Query term reached content evaluation."),
         };
+
+    static PackageAssemblyReferenceOccurrence[] MatchingAssemblyReferences(
+        BoundPackageQueryTerm term,
+        PackageContentFacts content) =>
+        [
+            .. content.AssemblyReferences.Where(occurrence =>
+                occurrence.ReferencedAssembly.Equals(
+                    term.Predicate.Text,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
 
     static PackageQueryDependencyMatch[] MatchingDependencies(
         BoundPackageQueryTerm term,
@@ -1957,6 +2163,10 @@ public static partial class PackageQuery
                     PackageQueryPredicateKind.Readme => "true",
                     PackageQueryPredicateKind.Tool => "true",
                     PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.References =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Assembly-reference answers require a bound simple name."),
                     PackageQueryPredicateKind.Skill => "true",
                     _ => throw new InvalidOperationException(
                         "A structural Package Query term reached answer production."),
@@ -2050,6 +2260,16 @@ public static partial class PackageQuery
                                 ".NET tool format evidence requires package-content facts.")),
                     ],
                 },
+            PackageQueryPredicateKind.References =>
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = AssemblyReferenceEvidence(
+                        MatchingAssemblyReferences(
+                                term,
+                                content
+                                ?? throw new InvalidOperationException(
+                                    "Assembly-reference evidence requires package-content facts."))),
+                },
             PackageQueryPredicateKind.Skill =>
                 new PackageQueryEvidence(term.Descriptor.Key)
                 {
@@ -2071,6 +2291,38 @@ public static partial class PackageQuery
             Term = term.Term,
         };
         return new PackageQueryTermResult(answer, evidence);
+    }
+
+    static PackageQueryEvidenceSummary AssemblyReferenceEvidence(
+        IEnumerable<PackageAssemblyReferenceOccurrence> occurrences)
+    {
+        PackageAssemblyReferenceOccurrence[] ordered =
+        [
+            .. occurrences
+                .OrderBy(
+                    occurrence => occurrence.Path,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    occurrence => occurrence.Path,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    occurrence => occurrence.ReferencedAssembly,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    occurrence => occurrence.ReferencedAssembly,
+                    StringComparer.Ordinal),
+        ];
+        return new PackageQueryEvidenceSummary(
+            ordered.Length,
+            [
+                .. ordered
+                    .Take(MaximumEvidencePreviewItems)
+                    .Select(occurrence => new InertString(
+                        TextPolicy.Field,
+                        $"{occurrence.TargetFramework}: {occurrence.Path} -> "
+                            + occurrence.ReferencedAssembly,
+                        MaximumEvidencePreviewCharacters)),
+            ]);
     }
 
     static PackageQueryEvidence DependencyTargetEvidence(

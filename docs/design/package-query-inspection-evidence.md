@@ -33,6 +33,7 @@ preview is display text, never a package coordinate or archive-entry handle.
 | --- | --- | --- |
 | Has dependencies / no dependencies | Distinct declared dependency IDs in the selected dependency scope, using ordinal case-insensitive identity | Up to three IDs, ordered ordinal case-insensitively, preserving the first declared spelling of each ID |
 | Depends on package | Distinct selected declaration tuples of manifest group, declared package ID, and version range | Up to three `group: ID range` values, ordered ordinally |
+| References assembly | Every matching `AssemblyRef` occurrence in an admitted managed `ref/` or `lib/` assembly; framework duplicates remain distinct occurrences | Up to three `<tfm>: <archive-path> -> <simple-name>` values, ordered by archive path using ordinal case-insensitive order with ordinal tie-breaking |
 | Embedded SKILL.md | Distinct matching archive-entry paths, using ordinal path identity and the existing case-insensitive skill-document predicate | Up to three actual paths, ordered ordinally |
 
 Dependency summaries describe declarations, not a resolved dependency closure.
@@ -46,13 +47,17 @@ target is not empty evidence.
 
 A root `skills/SKILL.md` preview remains that path. The inventory does not
 establish a skill's declared name, valid frontmatter, or valid document body.
+An assembly-reference preview identifies the package asset and observed simple
+name only. It does not assert resolution, package ownership, version
+compatibility, or dependency traversal.
 Content that cannot be acquired or evaluated retains the existing visible
 failure outcome; unavailable evidence is not an empty item set.
 
 Only already-requested inspection tiers contribute summaries. A dependency
 summary consumes the admitted manifest; a skills summary consumes the entry
-inventory already used by its selected content facet. Summaries do not request
-additional manifests, archives, or skill-document bodies.
+inventory already used by its selected content facet; an assembly-reference
+summary consumes the bounded SRM scan already required by `references`.
+Summaries do not request additional manifests, archives, or content bodies.
 
 ## Answers, evidence, and rendering
 
@@ -81,9 +86,9 @@ host-specific rendering instead of introducing Markout into interactive cards.
 Operation feedback, item failures, completion accounting, and window credit
 retain their existing owners.
 
-The CLI projection consumes the same answers and evidence. Sections/Markout
-renders a direct `Answer` column and a host-authored `Evidence` presentation;
-JSON and JSONL remain valid projected data rather than query-authored prose.
+The CLI projection renders the direct semantic `Answer` but does not flatten
+structured Evidence into a table column. Complete Evidence remains available
+in unprojected JSON and `InspectionEnvelope<PackageQueryDocument>`.
 
 ## Boundary and evidence
 
@@ -97,14 +102,17 @@ before preview encoding or shortening.
 license provenance, distinct IDs, all-group and selected-group dependency
 scope, compatible selection, selected-empty, no-groups and no-match
 distinctions, multiple frameworks, root and nested skill paths, preview bounds,
-unchanged acquisition counts, and visible unavailable content. Browser engine
-tests gate the typed projection; frontend source and view tests gate transport,
-host rendering, package-specific cards, and once-per-result-set context.
+assembly-reference occurrences, bounded assembly scanning, unchanged
+acquisition counts, and visible unavailable or malformed content. Browser
+engine tests gate the typed projection; frontend source and view tests gate
+transport, host rendering, package-specific cards, and once-per-result-set
+context.
 
 The design follows ordinary count-plus-preview disclosure: NuGet manifest
 dependency groups supply the existing structured facts, while the current
-Package Query inventory supplies skill-document presence. These are input
-evidence, not authority for a new dependency resolver or skill parser.
+Package Query inventory supplies skill-document presence and the metadata
+owner supplies direct `AssemblyRef` names. These are input evidence, not
+authority for a new dependency resolver, reference resolver, or skill parser.
 
 ## Three-step production adoption
 

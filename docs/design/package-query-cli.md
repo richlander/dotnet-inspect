@@ -52,9 +52,10 @@ canary.
 
 CLI and Browser now consume the same first production vocabulary:
 `dependencies=none`, `dependency-target=all|<tfm>`,
-`depends=<package-id>`, `downloads=10k|100k|1m`,
-`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`skill=true`.
+`depends=<package-id>`, `depends-ecosystem=<ecosystem-id>`,
+`downloads=10k|100k|1m`,
+`license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`,
+`references=<assembly-simple-name>`, and `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
 `prerelease=stable|include` are structural terms authored by the shared input
 planner rather than host-visible inspection controls. Assembly-semantic
@@ -145,6 +146,7 @@ The production inspection vocabulary is:
 | `readme` | `true` | nuspec | The manifest declares an embedded README |
 | `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
 | `tool-format` | `v1` or `v2` | package content | Tool settings use the selected format |
+| `references` | assembly simple name | package content | An admitted managed `ref/` or `lib/` assembly directly declares the simple name in its `AssemblyRef` table |
 | `skill` | `true` | package content | The archive contains an admitted skill document |
 
 All terms admit equality only. Independent terms AND. Repeated
@@ -166,6 +168,9 @@ dotnet-inspect package query 'Polly.*' \
 
 dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
+
+dotnet-inspect package query Microsoft.Extensions.Http \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions"
 
 dotnet-inspect package query 'dotnet-*' \
   --where "tool-format=v1" \
@@ -211,6 +216,32 @@ known ecosystem without exact-package or package-prefix membership is rejected
 before package-source work. The shared portable intent stores only the
 canonical term value, so Workspace Share packet formats do not change; a
 decoded plan must bind the application snapshot before execution.
+
+`references` accepts one assembly simple name, preserves its spelling as the
+semantic Answer, and compares it with ordinal case-insensitive identity.
+Package Query evaluates every selector-admitted `.dll` under `ref/<tfm>/` and
+`lib/<tfm>/`, including nested assemblies and all discovered framework groups.
+It skips valid PE images with no managed metadata. Runtime-specific
+`runtimes/<rid>/lib/` assets are outside this term.
+
+The term reads only `Assembly` and `AssemblyRef` metadata through
+`AssemblyIdentityScanner`; it never loads inspected assemblies. It does not
+match version, culture, or public-key token, resolve references, traverse a
+dependency graph, or infer package dependencies. Repeated distinct
+`references` terms AND and may be satisfied by different admitted assemblies;
+case variants collapse as one normalized binding. Malformed or unsupported
+metadata and an incomplete `AssemblyRef` table are visible package-content
+evaluation failures, not negative matches.
+
+Assembly-reference evaluation admits at most 256 package assembly assets,
+16 MiB expanded bytes for one asset, and 128 MiB expanded bytes across the
+candidate. Entry manifests reject known over-budget content before expansion;
+bounded reads enforce the same limits when lengths are unavailable. The
+Release real-asset gates exercise `Microsoft.Extensions.Http@10.0.0` at five
+assets and 450,880 bytes and `Microsoft.NETCore.App.Ref@10.0.10` at 167 assets
+and 6,046,168 bytes. The limits therefore cover both the motivating package
+and a high-cardinality reference pack with substantial headroom while remaining
+well below the Browser archive admission ceiling.
 
 `dependency-target=<tfm>` canonicalizes the requested NuGet target and uses
 the dependency-group owner's compatible selection. The plan and evidence
@@ -267,9 +298,10 @@ identify the license. The raw declaration remains provenance and supplies the
 separate package-file inventory; explicit `--print` on that section may read
 the selected document in the same way as README and SKILL projections.
 
-Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
-Such a query defaults the candidate budget to 20 and cannot bypass the
-20-candidate ceiling. `--nuspec-only` rejects it before acquisition.
+Selecting `tool-format`, `references`, or `skill` explicitly authorizes
+archive acquisition. Such a query defaults the candidate budget to 20 and
+cannot bypass the 20-candidate ceiling. `--nuspec-only` rejects it before
+acquisition.
 `downloads` is evaluated from source search metadata and does not force a
 manifest request. Nuspec terms acquire manifests but no package archive;
 manifest predicates run before archive acquisition.
@@ -659,8 +691,8 @@ product-issued keys and values and do not reconstruct those predicates:
 - **`nuspec` tier.** `dependencies`, `depends`, `readme`, and `tool` consume
   exact manifest facts. The broad `tool=true` predicate stops at the declared
   package type; it does not open the archive merely to classify tool settings.
-- **`package-content` tier.** `tool-format` and `skill` require an explicit
-  `IPackageQueryContentProvider` and accept at most 20 candidates.
+- **`package-content` tier.** `tool-format`, `references`, and `skill` require
+  an explicit `IPackageQueryContentProvider` and accept at most 20 candidates.
   `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
   combining members, so selecting both returns either recognized settings
   format with evidence identifying the observed version.

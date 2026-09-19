@@ -53,6 +53,10 @@ public class PackageQueryCliTests
             registeredInspectionTerms.Select(term =>
                 term.Descriptor.Key),
             PackageQueryOptions.QueryKeys.Select(key => key.Name));
+        Assert.Contains(
+            registeredInspectionTerms,
+            term => term.Descriptor.Key
+                == PackageQuery.ReferencesTermKey);
         Assert.Equal(
             registeredInspectionTerms.Length,
             PackageQueryOptions.QueryKeys.Length);
@@ -177,6 +181,34 @@ public class PackageQueryCliTests
         PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
         Assert.Equal(PackageQuery.DependsEcosystemTermKey, term.Key);
         Assert.Equal("ecosystem.aspire", term.Value);
+    }
+
+    [Fact]
+    public void ReferencesTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "references="
+                        + "Microsoft.Extensions.DependencyInjection.Abstractions",
+                ],
+                nuspecOnly: false,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.ReferencesTermKey, term.Key);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            term.Value);
+        Assert.Equal(
+            PackageQuery.MaximumPackageContentCandidates,
+            options.Plan.MaximumCandidates);
     }
 
     [Theory]
@@ -382,6 +414,9 @@ public class PackageQueryCliTests
         "depends-ecosystem=ecosystem.platform",
         "Unknown ecosystem")]
     [InlineData("license=Apache-2.0", "term value is invalid")]
+    [InlineData(
+        "references=System.Text.Json, Version=10.0.0.0",
+        "term value is invalid")]
     [InlineData("dependency-target=not/a/tfm", "term value is invalid")]
     [InlineData(
         "dependency-target=net8.0",
@@ -450,6 +485,20 @@ public class PackageQueryCliTests
             out OptionError error));
         Assert.Null(options);
         Assert.Contains("cannot be combined with --nuspec-only", error.ToString());
+
+        Assert.False(PackageQueryOptions.TryCreate(
+            "Contoso.*",
+            ["references=System.Text.Json"],
+            nuspecOnly: true,
+            take: null,
+            rowSelection: null,
+            includePrerelease: false,
+            out options,
+            out error));
+        Assert.Null(options);
+        Assert.Contains(
+            "cannot be combined with --nuspec-only",
+            error.ToString());
     }
 
     [Fact]

@@ -219,6 +219,8 @@ dnx dotnet-inspect -y -- package query 'Polly.*' \
   --where "dependency-target=netstandard2.0"
 dnx dotnet-inspect -y -- package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
+dnx dotnet-inspect -y -- package query Microsoft.Extensions.Http \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions"
 ```
 
 `--where` repeats select product terms, not arbitrary package-field
@@ -242,6 +244,10 @@ candidate work, while `-n` and `--rows` select final
 matched-package rows. Without explicit `--take`, a simple `-n N` is pushed into
 execution: direct package rows use an effective candidate bound of N, while
 filtered queries scan until N matches or their default candidate bound.
+`references=<assembly-simple-name>` matches direct `AssemblyRef` declarations
+from admitted managed `ref/` and `lib/` assemblies across package framework
+groups. Matching is ordinal case-insensitive, does not resolve or traverse the
+reference, and repeated values are ANDed.
 Pushdown is capped at 1,000 candidates; larger semantic heads remain valid and
 are applied after bounded execution. Selecting a package-content term is
 itself approval for archive acquisition and permits at most 20 candidates; use
