@@ -16,17 +16,17 @@ public sealed class NavigationState
     internal NavigationState(NavigationStateData data) => Data = data;
 
     internal NavigationStateData Data { get; }
-    internal NavigationWorkspaceSnapshot InstalledSnapshot => Data.Installed;
+    internal NavigationWorkspaceSnapshot CurrentSnapshot => Data.Current;
 
     public string Id => Data.Projection.Session;
-    public InspectionWorkspaceIdentity Workspace => Data.Installed.Workspace.Identity;
+    public InspectionWorkspaceIdentity Workspace => Data.Current.Workspace.Identity;
     public NavigationConsumerSnapshot Snapshot => Data.Consumer;
     public NavigationConsumerScopeStatus Scope => Data.Scope;
     public NavigationPublication Publication => new(Data.Revision, Data.Consumer.Generation);
 }
 
 internal sealed record NavigationStateData(
-    NavigationWorkspaceSnapshot Installed,
+    NavigationWorkspaceSnapshot Current,
     NavigationConsumerSnapshot Consumer,
     NavigationConsumerScopeStatus Scope,
     NavigationProjectionState Projection,
@@ -45,7 +45,7 @@ internal sealed record NavigationStateData(
     internal ImmutableArray<NavigationRequest> Synchronization { get; init; } = [];
     internal NavigationPublication? Acknowledged { get; init; }
     internal NavigationEffectAuthority? Effect { get; init; }
-    internal NavigationEffectAuthority? ConsumerInstallation { get; init; }
+    internal NavigationEffectAuthority? ConsumerPosting { get; init; }
     internal NavigationScopeEvaluationRequest? ProtectedScope { get; init; }
 }
 
@@ -80,7 +80,7 @@ public sealed class NavigationEvaluationRequest
     {
         Identity = request;
         Attempt = attempt;
-        Basis = basis.Installed;
+        Basis = basis.Current;
         Publication = new(basis.Revision, basis.Consumer.Generation);
         Intent = basis.Intent;
         Occurrence = occurrence;
@@ -416,7 +416,7 @@ public enum NavigationAuthorityResult
 {
     Accepted,
     InvalidAuthority,
-    InstallationRequired,
+    PostingRequired,
 }
 
 public enum NavigationCompletionRejection

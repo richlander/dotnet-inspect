@@ -1,7 +1,5 @@
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
-using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -17,6 +15,14 @@ public static class ILOffsetProjectionProducer
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Source);
+        if (request.Analysis is not null
+            && request.AnalysisFailure is not null)
+        {
+            throw new ArgumentException(
+                "IL-offset projection cannot receive both focused Analysis "
+                    + "results and an Analysis failure.",
+                nameof(request));
+        }
 
         var context = request.Source.Context;
         if (!context.HasMetadata)
@@ -148,35 +154,82 @@ public static class ILOffsetProjectionProducer
         bool wantsCost = Includes(request, ILOffsetProjectionCapabilities.CostContext);
         if (wantsAllocation || wantsSafety || wantsCost)
         {
-            string assemblyDisplayName =
-                request.Assembly?.Path
-                ?? request.Assembly?.Identity.Name
-                ?? context.AssemblyPath;
-            // One index acquisition serves all three semantic contexts in this request.
-            if (!TryOpenAnalysisIndex(
-                    request.Assembly,
-                    context,
-                    assemblyDisplayName,
-                    out var index,
-                    out var indexError))
+            if (request.Analysis is not { } analysis)
             {
                 var failureKind = wantsAllocation
                     ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
                     : wantsSafety
                         ? ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable
                         : ILOffsetProjectionFailureKind.CostAnalysisUnavailable;
-                return ILOffsetProjectionOutcome.Failed(failureKind, indexError);
+                return ILOffsetProjectionOutcome.Failed(
+                    failureKind,
+                    request.AnalysisFailure
+                        ?? "IL-offset semantic analysis unavailable: "
+                            + "no focused Analysis input was supplied.");
+            }
+            Guid sourceModuleVersionId = ReadModuleVersionId(context);
+            if (sourceModuleVersionId
+                != analysis.Receipt.ModuleIdentity.ModuleVersionId)
+            {
+                var failureKind = wantsAllocation
+                    ? ILOffsetProjectionFailureKind.AllocationAnalysisUnavailable
+                    : wantsSafety
+                        ? ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable
+                        : ILOffsetProjectionFailureKind.CostAnalysisUnavailable;
+                return ILOffsetProjectionOutcome.Failed(
+                    failureKind,
+                    "IL-offset semantic analysis unavailable: "
+                        + "the source and Analysis input represent "
+                        + "different module generations.");
+            }
+            if (wantsAllocation
+                && !analysis.Allocations.WasRequested)
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind
+                        .AllocationAnalysisUnavailable,
+                    "IL-offset allocation analysis was not requested "
+                        + "by the supplied execution.");
+            }
+            if (wantsSafety
+                && !analysis.Safety.WasRequested)
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind
+                        .SafetyAnalysisUnavailable,
+                    "IL-offset safety analysis was not requested "
+                        + "by the supplied execution.");
+            }
+            if (wantsCost
+                && !analysis.CallGraph.WasRequested)
+            {
+                return ILOffsetProjectionOutcome.Failed(
+                    ILOffsetProjectionFailureKind
+                        .CostAnalysisUnavailable,
+                    "IL-offset cost analysis was not requested "
+                        + "by the supplied execution.");
             }
             if (wantsAllocation)
-                allocationContext = BuildAllocationContext(index, request.MethodToken, request.ILOffset);
-            if (wantsSafety)
-                safetyContext = BuildSafetyContext(
-                    index,
-                    assemblyDisplayName,
+            {
+                allocationContext = BuildAllocationContext(
+                    analysis,
                     request.MethodToken,
                     request.ILOffset);
+            }
+            if (wantsSafety)
+            {
+                safetyContext = BuildSafetyContext(
+                    analysis,
+                    request.MethodToken,
+                    request.ILOffset);
+            }
             if (wantsCost)
-                costContext = BuildCostContext(index, request.MethodToken, request.ILOffset);
+            {
+                costContext = BuildCostContext(
+                    analysis,
+                    request.MethodToken,
+                    request.ILOffset);
+            }
         }
 
         SourceLinkResolver.ILOffsetSourceInfo? source = null;
@@ -294,57 +347,6 @@ public static class ILOffsetProjectionProducer
 
     static string FormatILOffset(int offset) => $"IL_{offset:X4}";
 
-    /// <summary>
-    /// Analysis is the single source of truth for allocation, safety, and cost facts at an IL
-    /// coordinate. Zero facts is a complete, verified answer; an acquisition failure is reported
-    /// as a visible outcome failure, never silently replaced by an opcode-pattern guess. The
-    /// index is opened once per request (via the shared cache) and reused across all three
-    /// contexts instead of re-opening the assembly for each one.
-    /// </summary>
-    static bool TryOpenAnalysisIndex(
-        ResolvedAssemblyReference? assembly,
-        PdbContext sourceContext,
-        string assemblyPath,
-        [NotNullWhen(true)] out Analysis.LibraryBodyIndex? index,
-        out string error)
-    {
-        try
-        {
-            var indexes = new AnalysisIndexCache();
-            if (assembly is null)
-            {
-                index = indexes.ForPath(assemblyPath);
-            }
-            else
-            {
-                index = indexes.ForAssembly(
-                    assembly,
-                    out Guid analysisModuleVersionId);
-                Guid sourceModuleVersionId =
-                    ReadModuleVersionId(sourceContext);
-                if (sourceModuleVersionId
-                    != analysisModuleVersionId)
-                {
-                    throw new InvalidOperationException(
-                        "The SourceLink context and Analysis descriptor "
-                        + "represent different module generations.");
-                }
-            }
-            error = "";
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or IOException
-            or InvalidOperationException
-            or ArgumentException
-            or UnauthorizedAccessException)
-        {
-            index = null;
-            error = $"IL-offset semantic analysis unavailable: {ex.GetType().Name}: {ex.Message}";
-            return false;
-        }
-    }
-
     static Guid ReadModuleVersionId(PdbContext context) =>
         context.InspectImage(
             static image =>
@@ -356,39 +358,41 @@ public static class ILOffsetProjectionProducer
             });
 
     static List<ILOffsetAllocationContext> BuildAllocationContext(
-        Analysis.LibraryBodyIndex index,
+        ILOffsetAnalysisInput analysis,
         int methodToken,
         int ilOffset)
         => Analysis.SemanticFactProjection.AllocationFacts(
-                index.GetAllocationOccurrences(),
+                analysis.Allocations.Occurrences,
                 methodToken,
                 ilOffset)
             .Select(ToILOffsetAllocationContext)
             .ToList();
 
     static List<ILOffsetSafetyContext> BuildSafetyContext(
-        Analysis.LibraryBodyIndex index,
-        string assemblyPath,
+        ILOffsetAnalysisInput analysis,
         int methodToken,
         int ilOffset)
     {
-        var subject = new FindingSubject($"{assemblyPath}|{methodToken:X8}", $"0x{methodToken:X}");
-        index.GetUnsafetyOccurrences().TryGetValue(methodToken, out var occurrences);
-        index.GetUnsafeEvidenceByMember().TryGetValue(methodToken, out var evidence);
+        analysis.Safety.Occurrences.TryGetValue(
+            methodToken,
+            out var occurrences);
+        analysis.UnsafeEvidenceByToken.TryGetValue(
+            methodToken,
+            out var evidence);
         return Analysis.SemanticFactProjection.SafetyFacts(
-                Analysis.AnalysisFindings.InspectUnsafeEvidence(evidence.IsDefault ? [] : evidence, subject),
-                Analysis.AnalysisFindings.InspectUnsafety(occurrences.IsDefault ? [] : occurrences, subject),
+                evidence.IsDefault ? [] : evidence,
+                occurrences.IsDefault ? [] : occurrences,
                 ilOffset)
             .Select(ToILOffsetSafetyContext)
             .ToList();
     }
 
     static List<ILOffsetCostContext> BuildCostContext(
-        Analysis.LibraryBodyIndex index,
+        ILOffsetAnalysisInput analysis,
         int methodToken,
         int ilOffset)
     {
-        index.GetDirectCallsByEvidenceMethod()
+        analysis.CallsByEvidenceMethod
             .TryGetValue(methodToken, out var calls);
         return Analysis.SemanticFactProjection.CostFacts(
                 calls.IsDefault ? [] : calls,

@@ -175,16 +175,14 @@ public sealed class LibraryBodyIndex
     /// <summary>
     /// Conservative physical return and single-argument call sinks, with
     /// reaching-definition-backed direct-call provenance for their values,
-    /// when <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
-    /// requested.
+    /// when call value flow is requested.
     /// </summary>
     public ImmutableArray<MethodResultSink> ResultSinks { get; }
 
     /// <summary>
     /// Every physical <c>stsfld</c>/<c>stfld</c> site with the resolved
-    /// provenance of the value it stores, when
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
-    /// requested. Unproven stores are present with an unresolved value so a
+    /// provenance of the value it stores, when call value flow is requested.
+    /// Unproven stores are present with an unresolved value so a
     /// consumer asking "is this the only write to this field?" fails closed.
     /// </summary>
     public ImmutableArray<FieldStoreFact> FieldStores { get; }
@@ -192,8 +190,7 @@ public sealed class LibraryBodyIndex
     /// <summary>
     /// Every physical <c>ldsfld</c>/<c>ldfld</c>/<c>ldsflda</c>/<c>ldflda</c>
     /// site, with the receiver argument Analysis proved for an instance access
-    /// and whether the field address escapes, when
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
+    /// and whether the field address escapes, when call value flow is
     /// requested. The read/address counterpart of <see cref="FieldStores"/>,
     /// needed where a cached read never reaches a resolvable stack slot or an
     /// indirect write must invalidate stable provenance.
@@ -202,8 +199,7 @@ public sealed class LibraryBodyIndex
 
     /// <summary>
     /// The union of proven producers each non-void body can return, when
-    /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
-    /// requested. Present with an unresolved value whenever any reachable
+    /// call value flow is requested. Present with an unresolved value whenever any reachable
     /// return went unproven, so a consumer asking "can this method return
     /// anything else?" fails closed.
     /// </summary>
@@ -239,7 +235,8 @@ public sealed class LibraryBodyIndex
     /// body walk. No IL or control-flow state is retained.
     /// </summary>
     public ImmutableArray<ArrayPoolOwnershipMethodEvidence>
-        ArrayPoolOwnership { get; }
+        ArrayPoolOwnership
+    { get; }
 
     readonly LeakTriageResult? _leakTriage;
 

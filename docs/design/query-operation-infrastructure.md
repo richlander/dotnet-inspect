@@ -3,7 +3,8 @@
 ## Status
 
 **Implemented host-neutral substrate with Package Query adopted in CLI and
-Inspect Web; remaining production adoption continues under
+Inspect Web, and Graph Libraries adopted across its CLI query sections;
+remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -20,8 +21,9 @@ Release gate for this substrate.
 Current CLI query discovery remains partly maintained through command-specific
 catalogs. Package Query is the first production adopter: one effective route
 now supplies plan resolution, CLI discovery terms, and Browser control terms.
-Graph and the remaining operations still bind their syntax through separate
-paths.
+Graph Libraries is the second adopter: one command route and five row-set
+routes supply its Cluster plan, CLI lowering, and section discovery. The
+remaining operations still bind their syntax through separate paths.
 
 ## Authority and exact claim
 
@@ -553,8 +555,9 @@ The migration begins from useful but separate systems:
 - `SectionQueryCatalog` still binds command sections and summaries explicitly,
   but its Package Query term rows are projected from the effective operation
   route.
-- Graph Libraries parses and advertises its Cluster selector through a
-  command-specific path.
+- Graph Libraries owns one executable Cluster selector, a command-wide route,
+  and five operation-backed row-set routes. CLI parsing and each section's
+  `-Q` projection derive from those effective routes.
 - Find exposes its Results and Members sections to discovery but currently has
   no executable query-term or order inventory.
 
@@ -575,8 +578,8 @@ eight-step path:
 3. **Implemented:** adopt Package Query in CLI and Inspect Web without changing
    its vocabulary, package aggregation, evidence, bounds, failures, or result
    rows.
-4. Adopt Graph query surfaces and operation-backed Graph sections without
-   changing Graph topology or projection semantics.
+4. **Implemented:** adopt Graph query surfaces and operation-backed Graph
+   sections without changing Graph topology or projection semantics.
 5. Adopt Depends and operation-backed Dependency sections without changing
    root, traversal, evidence, completion, or hierarchy semantics.
 6. Adopt Find Type and Member query capability without changing its discovery
@@ -597,6 +600,18 @@ and `PackageQuery.RegisteredTerms` are projections of that effective route;
 CLI and Browser host adapters add only their syntax and control presentation.
 Later hosts may consume the same pattern without requiring every CLI operation
 to gain a Browser page in this release.
+
+Graph Libraries is the second adopter. Its operation definition registers the
+explicit Library pair subject role, Library-pair direct-use result grain,
+Cluster selector, and five existing projection row sets. One command route and
+one route per operation-backed section expose the same selector. The CLI lowers
+`--where` to canonical portable intent, resolves the owner-issued plan, and
+applies that plan through
+`AssemblyPairDirectUseClusterProjection.ScopeToObservedCluster`. The existing
+pair query, cluster derivation, root-path composition, section selection,
+Markout lowering, completion, and failure contracts remain unchanged. Inspect
+Web has no two-Library selection surface, so this focused adoption adds no
+Browser gesture; a future Browser consumer can use the same route and plan.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
@@ -623,10 +638,15 @@ from corresponding CLI and Browser gestures. Existing Package Query gates
 continue to cover independent candidate and match bounds, row selection,
 visible failures, acquisition authorization, execution, and result rows.
 
+Graph Libraries' Release gates cover exact command-route projection, automatic
+Cluster inheritance across all five row-set routes, canonical CLI intent,
+atomic rejection of unsupported terms, and the existing cluster-scoped command
+behavior and visible unavailable-cluster failures.
+
 Remaining adopter slices must add Release gates for:
 
-- command and operation-backed-section equivalence for one Graph and one
-  Dependency scenario;
+- command and operation-backed-section equivalence for one Dependency
+  scenario;
 - separation of candidate work bounds from result-row selection;
 - visible acquisition, decode, traversal, and row-resolution failures; and
 - Package and Library reference qualification at their distinct result grains.

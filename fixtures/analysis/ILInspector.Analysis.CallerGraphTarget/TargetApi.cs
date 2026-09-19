@@ -177,6 +177,41 @@ namespace Target
             useAlternative ? new object() : Shared;
     }
 
+    public static class LocalThrowPathApi
+    {
+        public static void Entry(string value)
+        {
+            Forward(value);
+            Forward(value);
+            Action<string> callback = Forward;
+            GC.KeepAlive(callback);
+        }
+
+        public static void EntryAlternatives(string value)
+        {
+            ForwardA(value);
+            ForwardB(value);
+        }
+
+        static void Forward(string value) =>
+            Throw(value);
+
+        static void ForwardA(string value) =>
+            Throw(value);
+
+        static void ForwardB(string value) =>
+            Throw(value);
+
+        static void Throw(string value)
+        {
+            if (value is null)
+                throw new LocalThrowPathException(nameof(value));
+        }
+    }
+
+    public sealed class LocalThrowPathException(string parameterName)
+        : Exception(parameterName);
+
     public readonly struct CustomAwaitable
     {
         public CustomAwaiter GetAwaiter() => new();
