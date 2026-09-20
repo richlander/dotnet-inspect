@@ -1,5 +1,7 @@
 using System.CommandLine;
+using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -114,7 +116,7 @@ public partial class DependsAssetCommandTests
             content.Failures,
             DependencyGroups: [],
             RestoredPackages: [],
-            Evidence: null);
+            Enriched: null);
 
         Assert.Same(inspection, projection.Inspection);
         Assert.Same(content, projection.Content);
@@ -126,6 +128,7 @@ public partial class DependsAssetCommandTests
             new DependencyRootOccurrenceIdentity(1),
             Assert.Single(projection.Content.Roots).Identity);
         Assert.Null(projection.Evidence);
+        Assert.Null(projection.Enriched);
         Assert.Empty(projection.Content.Dependencies);
         Assert.Empty(projection.Content.Pruning);
         Assert.Empty(projection.Content.Failures);

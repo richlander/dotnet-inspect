@@ -1365,23 +1365,16 @@ public sealed class InspectionGraphCommandTests
     [Fact]
     public async Task LibrariesCommand_AppliesOccurrenceRowWindowsToJsonLines()
     {
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(
-                    [
-                        "graph",
-                        "libraries",
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphCaller
-                            .AssemblyPath(),
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphTarget
-                            .AssemblyPath(),
-                        "--jsonl",
-                        "--rows",
-                        "1..2",
-                    ])
-                .InvokeAsync());
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "--jsonl",
+            "--rows",
+            "1..2");
 
         Assert.Equal(0, captured.ExitCode);
         string[] lines = captured.Output
@@ -1455,50 +1448,141 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_WindowsHumanSummaryAndRowsTogether()
+    public async Task LibrariesCommand_SemanticTailSelectsTheSameCallSiteAcrossFormats()
     {
-        async Task<(int ExitCode, string Output, string Error)> Execute(
-            string rows) =>
-            await ConsoleCapture.RunAsync(
-                () => CommandLineBuilder.CreateRootCommand()
-                    .Parse(
-                        [
-                            "graph",
-                            "libraries",
-                            "--library",
-                            FixtureCatalog.AnalysisCallerGraphCaller
-                                .AssemblyPath(),
-                            "--library",
-                            FixtureCatalog.AnalysisCallerGraphTarget
-                                .AssemblyPath(),
-                            "--rows",
-                            rows,
-                        ])
-                    .InvokeAsync());
+        string[] pair =
+        [
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+        ];
+        const string columns =
+            "Source Member;Target Member;Evidence Token;IL Offset";
+        var complete = await RunCliAsync(
+            [.. pair, "--jsonl", "--columns", columns]);
+        JsonElement expected;
+        using (var document = JsonDocument.Parse(
+            complete.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Last()))
+        {
+            expected = document.RootElement.Clone();
+        }
+        string evidenceToken =
+            expected.GetProperty("evidence_token").GetString()!;
+        string ilOffset =
+            expected.GetProperty("il_offset").GetString()!;
 
-        var partial = await Execute("1..2");
-        var empty = await Execute("999..1000");
+        string[] selection =
+        [
+            .. pair,
+            "-n",
+            "1",
+            "--tail",
+            "--columns",
+            columns,
+        ];
+        var markdown = await RunCliAsync(selection);
+        var table = await RunCliAsync([.. selection, "--table"]);
+        var tsv = await RunCliAsync(
+            [.. selection, "--tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. selection, "--jsonl"]);
+        var selectedJsonl = await RunCliAsync(
+            [
+                .. selection,
+                "-S",
+                LibraryCallUseSections.CallSites,
+                "--jsonl",
+            ]);
+        var json = await RunCliAsync([.. selection, "--json"]);
+        var count = await RunCliAsync([.. selection, "--count"]);
+        var jsonCount = await RunCliAsync(
+            [.. selection, "--count", "--json"]);
 
-        Assert.Equal(0, partial.ExitCode);
+        foreach (var result in new[]
+        {
+            complete,
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            selectedJsonl,
+            json,
+            count,
+            jsonCount,
+        })
+        {
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            selectedJsonl,
+            json,
+        })
+        {
+            Assert.Contains(
+                evidenceToken,
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                ilOffset,
+                result.Output,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            selectedJsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using var jsonDocument = JsonDocument.Parse(json.Output);
+        JsonProperty section =
+            Assert.Single(jsonDocument.RootElement.EnumerateObject());
+        Assert.Single(section.Value.EnumerateArray());
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal("1", jsonCount.Output.Trim());
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_StrictUnavailableWindowWithholdsOutput()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "--rows",
+            "999..1000",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
         Assert.Contains(
-            "Evidence Method",
-            partial.Output,
+            "Library call-site row selection stage 1 requires call site 1000, "
+                + "but only ",
+            captured.Error,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "2 call sites.",
-            partial.Output,
-            StringComparison.Ordinal);
-        Assert.Equal(0, empty.ExitCode);
-        Assert.Contains(
-            "No direct pair call use is selected by the row window.",
-            empty.Output,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "source members",
-            empty.Output,
-            StringComparison.Ordinal);
-        Assert.Empty(partial.Error);
-        Assert.Empty(empty.Error);
     }
 
     [Fact]
@@ -1567,20 +1651,15 @@ public sealed class InspectionGraphCommandTests
     [Fact]
     public async Task LibrariesCommand_ReportsPairRelevantVersionSkew()
     {
-        var captured = await ConsoleCapture.RunAsync(
-            () => CommandLineBuilder.CreateRootCommand()
-                .Parse(
-                    [
-                        "graph",
-                        "libraries",
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphCaller
-                            .AssemblyPath(),
-                        "--library",
-                        FixtureCatalog.AnalysisCallerGraphTargetV2
-                            .AssemblyPath(),
-                    ])
-                .InvokeAsync());
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath(),
+            "-n",
+            "1");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Contains(
@@ -1750,18 +1829,22 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
-    public async Task LibrariesCommand_RetainsLegacyWindowValidation()
+    public async Task LibrariesCommand_RejectsLegacyCountRows()
     {
         var captured = await RunCliAsync(
             "graph",
             "libraries",
             "--rows",
-            "..1");
+            "1");
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
         Assert.Contains(
-            "--rows '..1' has no start row",
+            "--rows requires N..M, N.., or ..M with positive positions.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -1819,12 +1902,48 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs(
+        bool explicitCallSites)
+    {
+        var args = new List<string>
+        {
+            "graph",
+            "libraries",
+            "-n",
+            "1",
+            "--json",
+        };
+        if (explicitCallSites)
+        {
+            args.Add("-S");
+            args.Add(LibraryCallUseSections.CallSites);
+        }
+
+        var captured = await RunCliAsync([.. args]);
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Exactly two --library values are required.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
-    public async Task LibrariesCommand_InferredLinesRejectJsonBeforeRequiredInputs()
+    public async Task LibrariesCommand_SummarySectionRetainsRenderedLineFallback()
     {
         var captured = await RunCliAsync(
             "graph",
             "libraries",
+            "-S",
+            LibraryCallUseSections.ConsumerUseSites,
             "-n",
             "1",
             "--json");

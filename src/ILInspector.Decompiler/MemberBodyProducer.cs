@@ -122,6 +122,17 @@ public static class MemberBodyProducer
     public static MemberBodyProductionResult ProduceBody(
         Pipeline.MetadataSource source,
         MetadataMethodAddress address)
+        => ProduceBody(source, address, propertySource: null);
+
+    /// <summary>
+    /// Produces a body with optional proven getter-storage binding before raising.
+    /// A caller supplying <paramref name="propertySource"/> must place the body
+    /// in the owning property; null preserves independent body-only spelling.
+    /// </summary>
+    public static MemberBodyProductionResult ProduceBody(
+        Pipeline.MetadataSource source,
+        MetadataMethodAddress address,
+        SelectedPropertyAccessorSource? propertySource)
     {
         ArgumentNullException.ThrowIfNull(source);
         try
@@ -188,6 +199,7 @@ public static class MemberBodyProducer
                     "method body could not be imported");
             }
 
+            propertySource?.BindBody(function);
             var projection = Pipeline.CSharpPrinter.PrintRaised(
                 function,
                 importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef),

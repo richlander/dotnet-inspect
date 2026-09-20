@@ -1,5 +1,7 @@
 using System.CommandLine;
+using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -123,6 +125,86 @@ public partial class DependsAssetCommandTests
         RunCapturedAsync(string[] args) =>
         ConsoleCapture.RunAsync(() => RunAsync(args));
 
+    private static Task<(int ExitCode, string Output, string Error)>
+        RunCapturedOfflineAsync(string[] args) =>
+        ConsoleCapture.RunAsync(async () =>
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            try
+            {
+                return await RunAsync(args);
+            }
+            finally
+            {
+                DotnetInspector.Networking.HttpClientFactory.Initialize(
+                    new HttpClientFactoryOptions());
+                DotnetInspector.Networking.HttpClientFactory
+                    .ResetSharedForTesting();
+            }
+        });
+
+    private static async Task<(
+        int ExitCode,
+        string Output,
+        string Error,
+        ConcurrentQueue<Uri> Requests)> RunCapturedWithPackageFeedAsync(
+            string[] args,
+            string packageId,
+            string version)
+    {
+        var requests = new ConcurrentQueue<Uri>();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetAuthenticationDecorator(
+                innerHandler => new PackageFeedHandler(
+                    packageId,
+                    version,
+                    requests,
+                    innerHandler));
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory
+            .ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory
+            .SetPackageSourceHandlerForTesting(
+                _ => new PackageFeedHandler(
+                    packageId,
+                    version,
+                    requests,
+                    new HttpClientHandler()));
+        try
+        {
+            var result = await ConsoleCapture.RunAsync(async errorWriter =>
+            {
+                using IDisposable trafficLogging =
+                    DotnetInspector.Networking.HttpClientFactory
+                        .EnableNetworkTrafficLogging(
+                            CSharpText.CSharpIdentifier
+                                .ContainRenderedText,
+                            errorWriter);
+                return await RunAsync(args);
+            });
+            return (
+                result.ExitCode,
+                result.Output,
+                result.Error,
+                requests);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory
+                .SetAuthenticationDecorator(null);
+            DotnetInspector.Networking.HttpClientFactory
+                .SetPackageSourceHandlerForTesting(null);
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+        }
+    }
+
     private static Task<int> RunAsync(string[] args)
     {
         RootCommand root = CommandLineBuilder.CreateRootCommand();
@@ -152,6 +234,54 @@ public partial class DependsAssetCommandTests
             Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private sealed class PackageFeedHandler(
+        string packageId,
+        string version,
+        ConcurrentQueue<Uri> requests,
+        HttpMessageHandler innerHandler)
+        : DelegatingHandler(innerHandler)
+    {
+        private const string FlatContainer =
+            "https://api.nuget.org/v3-flatcontainer/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            requests.Enqueue(uri);
+            string path = uri.GetLeftPart(UriPartial.Path);
+            string? body = uri.Host.Equals(
+                    "azuresearch-usnc.nuget.org",
+                    StringComparison.OrdinalIgnoreCase)
+                ? $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""
+                : path switch
+                {
+                    "https://api.nuget.org/v3/index.json" => $$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "{{FlatContainer}}",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            }
+                          ]
+                        }
+                        """,
+                    _ => null,
+                };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? ""),
+                RequestMessage = request,
+            });
+        }
     }
 
     private static void WriteLocalSourcePackage(

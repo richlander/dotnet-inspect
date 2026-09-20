@@ -1,5 +1,7 @@
 using System.CommandLine;
+using System.Collections.Concurrent;
 using System.IO.Compression;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -566,6 +568,152 @@ public partial class DependsAssetCommandTests
         Assert.Equal(
             WorkspaceShareOutput.UrlPrefix + packet,
             share.GetProperty("full_url").GetString());
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesExactPackageShareWhenManifestIsUnavailable()
+    {
+        const string packageId =
+            "Copilot.Pr7538.DoesNotExist.9f4a3d71e6b64b1ab8a6058df130417a";
+        string[] arguments =
+        [
+            "depends",
+            "--package",
+            $"{packageId}@1.0.0",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+            "--verbose",
+        ];
+        var ordinary = await RunCapturedOfflineAsync(arguments);
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-exact-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var withEvidence = await RunCapturedOfflineAsync(
+        [
+            .. arguments,
+            "--evidence-envelope",
+            sidecar,
+        ]);
+
+        Assert.True(
+            ordinary.ExitCode == 0,
+            $"Ordinary stderr:{Environment.NewLine}{ordinary.Error}");
+        Assert.True(
+            ordinary.ExitCode == withEvidence.ExitCode,
+            $"Evidence stderr:{Environment.NewLine}{withEvidence.Error}");
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            ordinary.Error
+                + $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+        using JsonDocument document =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement packageInputs =
+            document.RootElement.GetProperty("evidence")
+                .GetProperty("package_inputs");
+        Assert.Empty(packageInputs.GetProperty("roots").EnumerateArray());
+        JsonElement failure = Assert.Single(
+            packageInputs.GetProperty("failed_roots").EnumerateArray());
+        Assert.Equal(
+            "acquisition",
+            failure.GetProperty("kind").GetString());
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            failure.GetProperty("coordinate")
+                .GetProperty("package_id")
+                .GetString());
+        Assert.Equal(
+            "1.0.0",
+            failure.GetProperty("coordinate")
+                .GetProperty("version")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task EvidenceEnvelopePreservesLatestPackageShareAndSettledCoordinate()
+    {
+        const string packageId = "Contoso.Share.Latest";
+        const string version = "2.0.0";
+        string[] arguments =
+        [
+            "depends",
+            "--package",
+            $"{packageId}@LaTeSt",
+            "--tfm",
+            "net8.0",
+            "--source",
+            "https://api.nuget.org/v3/index.json",
+            "--share",
+            "packet",
+            "--verbose",
+        ];
+        var ordinary = await RunCapturedWithPackageFeedAsync(
+            arguments,
+            packageId,
+            version);
+        using var directory =
+            new TemporaryTestDirectory("depends-evidence-share-latest-");
+        string sidecar = Path.Combine(
+            directory.FullName,
+            "evidence.json");
+
+        var withEvidence = await RunCapturedWithPackageFeedAsync(
+        [
+            .. arguments,
+            "--evidence-envelope",
+            sidecar,
+        ],
+            packageId,
+            version);
+
+        Assert.True(
+            ordinary.ExitCode == 0,
+            $"Ordinary stderr:{Environment.NewLine}{ordinary.Error}");
+        Assert.True(
+            ordinary.ExitCode == withEvidence.ExitCode,
+            $"Evidence stderr:{Environment.NewLine}{withEvidence.Error}");
+        Assert.Equal(ordinary.Output, withEvidence.Output);
+        Assert.Equal(
+            ordinary.Error
+                + $"Evidence envelope: {sidecar}{Environment.NewLine}",
+            withEvidence.Error);
+        Assert.Single(
+            withEvidence.Requests,
+            static request => request.Host.Equals(
+                "azuresearch-usnc.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+
+        using JsonDocument document =
+            JsonDocument.Parse(await File.ReadAllTextAsync(
+                sidecar,
+                TestContext.Current.CancellationToken));
+        JsonElement failure = Assert.Single(
+            document.RootElement.GetProperty("evidence")
+                .GetProperty("package_inputs")
+                .GetProperty("failed_roots")
+                .EnumerateArray());
+        Assert.Equal(
+            packageId.ToLowerInvariant(),
+            failure.GetProperty("coordinate")
+                .GetProperty("package_id")
+                .GetString());
+        Assert.Equal(
+            version,
+            failure.GetProperty("coordinate")
+                .GetProperty("version")
+                .GetString());
+        Assert.Equal(
+            $"{packageId}@LaTeSt",
+            failure.GetProperty("source_label").GetString());
     }
 
     [Fact]
