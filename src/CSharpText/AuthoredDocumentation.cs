@@ -81,18 +81,33 @@ public sealed class CSharpAuthoredDocumentationRequest
 
         this.activePhysicalLines =
             activePhysicalLines is null ? [] : [.. activePhysicalLines];
-        int lineCount = CSharpSourceText.CountLines(sourceText);
         int previous = 0;
         foreach (int line in this.activePhysicalLines)
         {
-            if (line <= previous || line > lineCount)
+            if (line <= previous)
             {
                 throw new ArgumentException(
-                    "Active physical lines must be positive, sorted, distinct, "
-                        + "and within the supplied source.",
+                    "Active physical lines must be positive, sorted, and "
+                        + "distinct.",
                     nameof(activePhysicalLines));
             }
             previous = line;
+        }
+        if (!this.activePhysicalLines.IsEmpty
+            && sourceText.Length <= limits.MaxSourceCharacters)
+        {
+            int validationLineLimit =
+                Math.Min(limits.MaxLines, DeclarationIndex.MaxLineCount);
+            int lineCount = CSharpSourceText.CountLines(
+                sourceText,
+                validationLineLimit);
+            if (lineCount <= validationLineLimit
+                && this.activePhysicalLines[^1] > lineCount)
+            {
+                throw new ArgumentException(
+                    "Active physical lines must lie within the supplied source.",
+                    nameof(activePhysicalLines));
+            }
         }
 
         SourceText = sourceText;
@@ -386,16 +401,15 @@ public static class CSharpAuthoredDocumentation
             .Where(static declaration => IsEligible(declaration.Kind))
             .Select(declaration => (
                 Declaration: declaration,
-                Parts: index.GetOwnedDeclarationTextParts(declaration)))
+                Span: index.GetOwnedDeclarationSpan(declaration)))
             .Where(candidate =>
-                candidate.Parts is { } parts
-                && SameSpan(parts.Declaration, request.DeclarationSpan))
-            .Select(candidate => (
-                candidate.Declaration,
-                Parts: candidate.Parts!))
+                candidate.Span is { } span
+                && SameSpan(span, request.DeclarationSpan))
             .ToArray();
 
-        if (matches.Any(match => !match.Parts.DeclarationKnown))
+        if (matches.Any(match =>
+                match.Declaration.TextCoordinates
+                    is not { DeclarationKnown: true }))
         {
             return new CSharpAuthoredDocumentationOutcome.Uncertain(
                 CSharpAuthoredDocumentationUncertainty
@@ -467,13 +481,15 @@ public static class CSharpAuthoredDocumentation
                     .Where(static declaration => IsEligible(declaration.Kind))
                     .Select(declaration => (
                         Declaration: declaration,
-                        Parts: repaired.Index.GetOwnedDeclarationTextParts(
+                        Span: repaired.Index.GetOwnedDeclarationSpan(
                             declaration)))
                     .Where(candidate =>
-                        candidate.Parts is { IsKnown: true } parts
+                        candidate.Span is { } span
                         && candidate.Declaration.SpanKnown
+                        && candidate.Declaration.TextCoordinates
+                            is { IsKnown: true }
                         && SameSpan(
-                            parts.Declaration,
+                            span,
                             request.DeclarationSpan))
                     .ToArray();
                 if (repairedMatches.Length > 1)
@@ -497,12 +513,19 @@ public static class CSharpAuthoredDocumentation
                         ],
                         Work(unterminatedCharacters));
                 }
+                if (!index.UnterminatedDocumentationKnown)
+                {
+                    return new CSharpAuthoredDocumentationOutcome.Uncertain(
+                        CSharpAuthoredDocumentationUncertainty
+                            .ConditionalBranchUnresolved,
+                        Work(unterminatedCharacters));
+                }
             }
 
             bool overlappingUncertainty = index.Declarations.Any(declaration =>
                 declaration.TextCoordinates is { DeclarationKnown: false }
-                && index.GetOwnedDeclarationTextParts(declaration) is { } parts
-                && Overlaps(parts.Declaration, request.DeclarationSpan));
+                && index.GetOwnedDeclarationSpan(declaration) is { } span
+                && Overlaps(span, request.DeclarationSpan));
             return overlappingUncertainty
                 ? new CSharpAuthoredDocumentationOutcome.Uncertain(
                     CSharpAuthoredDocumentationUncertainty
@@ -518,7 +541,12 @@ public static class CSharpAuthoredDocumentation
                     Declaration(match.Declaration, request.DeclarationSpan))],
                 Work());
         }
-        if (matches.Any(match => !match.Parts.DocumentationKnown))
+        DeclarationSpan matchedDeclaration = matches[0].Declaration;
+        DeclarationTextParts selectedParts =
+            index.GetOwnedDeclarationTextParts(matchedDeclaration)
+                ?? throw new InvalidOperationException(
+                    "A matched declaration must expose text coordinates.");
+        if (!selectedParts.DocumentationKnown)
         {
             return new CSharpAuthoredDocumentationOutcome.Uncertain(
                 CSharpAuthoredDocumentationUncertainty
@@ -526,15 +554,14 @@ public static class CSharpAuthoredDocumentation
                 Work());
         }
 
-        var selected = matches[0];
         var declarationEvidence = Declaration(
-            selected.Declaration,
+            matchedDeclaration,
             request.DeclarationSpan);
         ImmutableArray<MemberTextPart> attached =
             SelectAttachedDocumentation(
                 source,
-                selected.Parts.Declaration,
-                selected.Parts.XmlDocumentation);
+                selectedParts.Declaration,
+                selectedParts.XmlDocumentation);
         if (attached.IsEmpty)
         {
             return new CSharpAuthoredDocumentationOutcome.Absent(

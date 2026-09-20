@@ -12,6 +12,7 @@ internal readonly record struct SourceTextRange(
 }
 
 internal sealed record DeclarationTextCoordinates(
+    SourceTextRange Declaration,
     SourceTextRange Signature,
     SourceTextRange? Body,
     SourceTextPoint TerminalEnd,

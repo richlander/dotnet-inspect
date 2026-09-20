@@ -42,6 +42,7 @@ internal static class DeclarationIndexBuilder
         public bool HasInitializer;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
+        public SourceTextPoint DeclarationStart;
         public SourceTextPoint SignatureStart;
         public SourceTextPoint SignatureEnd;
         public SourceTextPoint? BodyStart;
@@ -67,6 +68,7 @@ internal static class DeclarationIndexBuilder
             out hasLineDirectives,
             out _,
             out _,
+            out _,
             out _);
 
     internal static ImmutableArray<DeclarationSpan> Build(
@@ -87,6 +89,7 @@ internal static class DeclarationIndexBuilder
             out hasLineDirectives,
             out tokenCount,
             out declarationCount,
+            out _,
             out _);
 
     internal static ImmutableArray<DeclarationSpan> Build(
@@ -98,7 +101,8 @@ internal static class DeclarationIndexBuilder
         out bool hasLineDirectives,
         out int tokenCount,
         out int declarationCount,
-        out SourceTextRange? unterminatedDocumentation)
+        out SourceTextRange? unterminatedDocumentation,
+        out bool unterminatedDocumentationKnown)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokenCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDeclarationCount);
@@ -206,6 +210,7 @@ internal static class DeclarationIndexBuilder
         var xmlDocumentation = new List<SourceTextRange>();
         var documentationSections = new HashSet<int>();
         int openDocumentationBlock = -1;
+        bool openDocumentationKnown = true;
         int previousLineDocumentationLine = -2;
         bool previousDocumentationWasLine = false;
         int nestedBraceDepth = 0;
@@ -437,6 +442,7 @@ internal static class DeclarationIndexBuilder
             xmlDocumentation.Clear();
             documentationSections.Clear();
             openDocumentationBlock = -1;
+            openDocumentationKnown = true;
             previousLineDocumentationLine = -2;
             previousDocumentationWasLine = false;
         }
@@ -499,6 +505,9 @@ internal static class DeclarationIndexBuilder
                     "static",
                     Text),
                 HasInitializer = hasInitializer,
+                DeclarationStart = attributeSpans.Count > 0
+                    ? attributeSpans[0].Start
+                    : new SourceTextPoint(sigStart - 1, sigColumn),
                 SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
                 SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
                 BodyStart = bodyStart is { } body
@@ -544,6 +553,7 @@ internal static class DeclarationIndexBuilder
                 IsStatic = sharedDeclaration.IsStatic,
                 HasInitializer = declarator.HasInitializer,
                 ClosesAtEndOfFile = sharedDeclaration.ClosesAtEndOfFile,
+                DeclarationStart = sharedDeclaration.DeclarationStart,
                 SignatureStart = sharedDeclaration.SignatureStart,
                 SignatureEnd = sharedDeclaration.SignatureEnd,
                 BodyStart = sharedDeclaration.BodyStart,
@@ -840,8 +850,10 @@ internal static class DeclarationIndexBuilder
                             new SourceTextPoint(tok.Line, tok.Column),
                             new SourceTextPoint(tok.Line, tok.End)));
                         openDocumentationBlock = xmlDocumentation.Count - 1;
+                        openDocumentationKnown = tok.DepthKnown;
                         documentationSections.Add(tok.Section);
                         attachedDocumentationKnown &= tok.DepthKnown;
+                        openDocumentationKnown &= tok.DepthKnown;
                         previousDocumentationWasLine = false;
                     }
                     else
@@ -864,6 +876,7 @@ internal static class DeclarationIndexBuilder
                     };
                     documentationSections.Add(tok.Section);
                     attachedDocumentationKnown &= tok.DepthKnown;
+                    openDocumentationKnown &= tok.DepthKnown;
                     if (attributeSpans.Count == 0)
                         nearestAttachedDocumentationKnown &= tok.DepthKnown;
                 }
@@ -1114,6 +1127,9 @@ internal static class DeclarationIndexBuilder
                         StaticModifierKnown = headerKnown
                             && declarationHeader.All(t => t.DepthKnown),
                         IsPartial = DeclarationHeaderGrammar.HasTopLevelKeyword(declarationHeader, "partial", Text),
+                        DeclarationStart = attributeSpans.Count > 0
+                            ? attributeSpans[0].Start
+                            : new SourceTextPoint(sigStart - 1, sigColumn),
                         SignatureStart = new SourceTextPoint(sigStart - 1, sigColumn),
                         SignatureEnd = new SourceTextPoint(signatureEnd.Line, signatureEnd.End),
                         BodyStart = new SourceTextPoint(tok.Line, tok.Column),
@@ -1610,6 +1626,8 @@ internal static class DeclarationIndexBuilder
                     lines[^1].Length),
             }
             : null;
+        unterminatedDocumentationKnown =
+            openDocumentationBlock < 0 || openDocumentationKnown;
 
         return [.. rows.Select((r, i) => new DeclarationSpan(
             r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureStartColumn,
@@ -1620,6 +1638,7 @@ internal static class DeclarationIndexBuilder
             IsStatic = r.IsStatic,
             HasInitializer = r.HasInitializer,
             TextCoordinates = new DeclarationTextCoordinates(
+                new SourceTextRange(r.DeclarationStart, r.TerminalEnd),
                 new SourceTextRange(r.SignatureStart, r.SignatureEnd),
                 r.BodyStart is { } bodyStart
                     ? new SourceTextRange(bodyStart, r.TerminalEnd)

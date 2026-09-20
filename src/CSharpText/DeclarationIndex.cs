@@ -426,7 +426,8 @@ public sealed class DeclarationIndex
         ImmutableArray<TransparentScopeSpan> transparentScopes,
         ImmutableArray<ConditionalGroupSpan> conditionalGroups,
         bool hasLineDirectives,
-        SourceTextRange? unterminatedDocumentation)
+        SourceTextRange? unterminatedDocumentation,
+        bool unterminatedDocumentationKnown)
     {
         this.sourceLines = sourceLines;
         this.sourceLineStarts = sourceLineStarts;
@@ -439,6 +440,7 @@ public sealed class DeclarationIndex
                 && !sourceLineStarts.IsDefaultOrEmpty
                 ? Convert(range)
                 : null;
+        UnterminatedDocumentationKnown = unterminatedDocumentationKnown;
 
         MemberTextPart Convert(SourceTextRange range)
         {
@@ -481,6 +483,7 @@ public sealed class DeclarationIndex
     public int LineCount => sourceLines.Length;
 
     internal MemberTextPart? UnterminatedDocumentation { get; }
+    internal bool UnterminatedDocumentationKnown { get; }
 
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
@@ -498,7 +501,7 @@ public sealed class DeclarationIndex
         int maxTokenCount,
         int maxDeclarationCount)
     {
-        int lineCount = CSharpSourceText.CountLines(sourceText);
+        int lineCount = CSharpSourceText.CountLines(sourceText, maxLineCount);
         if (lineCount > maxLineCount)
         {
             return DeclarationIndexBuildResult.Incomplete(
@@ -535,7 +538,8 @@ public sealed class DeclarationIndex
                 out bool hasLineDirectives,
                 out _,
                 out _,
-                out SourceTextRange? unterminatedDocumentation);
+                out SourceTextRange? unterminatedDocumentation,
+                out bool unterminatedDocumentationKnown);
         return new DeclarationIndex(
             sourceLines,
             sourceLineStarts,
@@ -543,7 +547,8 @@ public sealed class DeclarationIndex
             transparentScopes,
             conditionalGroups,
             hasLineDirectives,
-            unterminatedDocumentation);
+            unterminatedDocumentation,
+            unterminatedDocumentationKnown);
     }
 
     private static DeclarationIndexBuildResult BuildBoundedCore(
@@ -567,7 +572,8 @@ public sealed class DeclarationIndex
                     out bool hasLineDirectives,
                     out tokenCount,
                     out declarationCount,
-                    out SourceTextRange? unterminatedDocumentation);
+                    out SourceTextRange? unterminatedDocumentation,
+                    out bool unterminatedDocumentationKnown);
             return DeclarationIndexBuildResult.Completed(
                 new DeclarationIndex(
                     sourceLines,
@@ -576,7 +582,8 @@ public sealed class DeclarationIndex
                     transparentScopes,
                     conditionalGroups,
                     hasLineDirectives,
-                    unterminatedDocumentation),
+                    unterminatedDocumentation,
+                    unterminatedDocumentationKnown),
                 lines.Count,
                 tokenCount,
                 declarationCount);
@@ -871,33 +878,34 @@ public sealed class DeclarationIndex
             return new MemberTextPart(start, end - start, range.Lines);
         }
 
+        var declarationPart = Convert(coordinates.Declaration);
         var signature = Convert(coordinates.Signature);
         var attributes = coordinates.Attributes.Select(Convert).ToImmutableArray();
-        int declarationStart = attributes
-            .Select(static attribute => attribute.Start)
-            .DefaultIfEmpty(signature.Start)
-            .Min();
-        int declarationStartLine = attributes
-            .Where(attribute => attribute.Start == declarationStart)
-            .Select(static attribute => attribute.Lines.StartLine)
-            .DefaultIfEmpty(signature.Lines.StartLine)
-            .Min();
-        int declarationEnd =
-            sourceLineStarts[coordinates.TerminalEnd.Line]
-                + coordinates.TerminalEnd.Column;
 
         return new DeclarationTextParts(
-            new MemberTextPart(
-                declarationStart,
-                declarationEnd - declarationStart,
-                new LineRange(
-                    declarationStartLine,
-                    coordinates.TerminalEnd.Line + 1)),
+            declarationPart,
             coordinates.XmlDocumentation.Select(Convert).ToImmutableArray(),
             attributes,
             coordinates.DeclarationKnown,
             coordinates.DocumentationKnown,
             coordinates.IsKnown);
+    }
+
+    internal MemberTextPart? GetOwnedDeclarationSpan(
+        DeclarationSpan declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        if (sourceLineStarts.IsDefaultOrEmpty
+            || declaration.TextCoordinates is not { } coordinates)
+        {
+            return null;
+        }
+
+        SourceTextRange range = coordinates.Declaration;
+        int start =
+            sourceLineStarts[range.Start.Line] + range.Start.Column;
+        int end = sourceLineStarts[range.End.Line] + range.End.Column;
+        return new MemberTextPart(start, end - start, range.Lines);
     }
 
     internal int GetPhysicalLine(int position)

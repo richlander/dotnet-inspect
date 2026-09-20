@@ -226,6 +226,60 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void AmbiguousSharedDeclaration_MaterializesDocumentationLinearly()
+    {
+        var smaller = Fixture(400);
+        var larger = Fixture(800);
+
+        _ = CSharpAuthoredDocumentation.Read(smaller);
+        _ = CSharpAuthoredDocumentation.Read(larger);
+
+        long smallAllocation = Measure(smaller);
+        long largeAllocation = Measure(larger);
+
+        Assert.True(
+            largeAllocation < smallAllocation * 3,
+            $"doubling fragments and declarators changed allocation from "
+                + $"{smallAllocation:N0} to {largeAllocation:N0} bytes");
+
+        static long Measure(CSharpAuthoredDocumentationRequest request)
+        {
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            var result = Assert.IsType<
+                CSharpAuthoredDocumentationOutcome.Ambiguous>(
+                    CSharpAuthoredDocumentation.Read(request));
+            long allocation =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.Equal(0, result.Work.DocumentationCharactersExamined);
+            return allocation;
+        }
+
+        static CSharpAuthoredDocumentationRequest Fixture(int count)
+        {
+            string documentation = string.Concat(
+                Enumerable.Range(0, count).Select(index =>
+                    index % 2 == 0
+                        ? "/// <summary>x</summary>\n"
+                        : "/** <remarks>x</remarks> */\n"));
+            string declaration = "int "
+                + string.Join(
+                    ", ",
+                    Enumerable.Range(0, count).Select(index => $"F{index}"))
+                + ";";
+            string source =
+                $"class C\n{{\n{documentation}{declaration}\n}}";
+            return new(
+                source,
+                TextSpan(source, declaration),
+                limits: CSharpAuthoredDocumentationLimits.Default with
+                {
+                    MaxDeclarations = count + 1,
+                });
+        }
+    }
+
+    [Fact]
     public void ExactRawSpan_IncludesAttributesAndRejectsContainment()
     {
         const string source = """
@@ -621,6 +675,30 @@ public sealed class AuthoredDocumentationTests
     }
 
     [Fact]
+    public void ConditionalUnterminatedDocumentation_IsUncertain()
+    {
+        const string source = """
+            class C
+            {
+            #if DOCUMENTATION
+                /** broken
+            #endif
+                void M() { }
+            }
+            """;
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Uncertain>(
+                CSharpAuthoredDocumentation.Read(
+                    new(source, MethodSpan(source, "M"))));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationUncertainty
+                .ConditionalBranchUnresolved,
+            result.Reason);
+    }
+
+    [Fact]
     public void UnterminatedDocumentationLimit_CoversTheFullLexicalComment()
     {
         string source = """
@@ -969,6 +1047,29 @@ public sealed class AuthoredDocumentationTests
                 MaxRetainedTextCharacters = value,
             },
             CSharpAuthoredDocumentationIncompleteBoundary.RetainedText);
+    }
+
+    [Fact]
+    public void SourceLimitPrecedesDeferredPhysicalLineValidation()
+    {
+        string source = new('x', 1_000_000);
+        var request = new CSharpAuthoredDocumentationRequest(
+            source,
+            new(0, 0),
+            activePhysicalLines: [2],
+            limits: CSharpAuthoredDocumentationLimits.Default with
+            {
+                MaxSourceCharacters = 1,
+            });
+
+        var result = Assert.IsType<
+            CSharpAuthoredDocumentationOutcome.Incomplete>(
+                CSharpAuthoredDocumentation.Read(request));
+
+        Assert.Equal(
+            CSharpAuthoredDocumentationIncompleteBoundary.SourceCharacters,
+            result.Boundary);
+        Assert.Equal(2, result.Work.SourceCharactersExamined);
     }
 
     [Fact]
