@@ -450,8 +450,8 @@ public class DiffCommand
                                 logger,
                                 inputs.FromSurface,
                                 inputs.ToSurface,
-                                inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
-                                inputs.To.AssemblySet.Assemblies.FirstOrDefault());
+                                inputs.From.AssemblySet.Assemblies,
+                                inputs.To.AssemblySet.Assemblies);
                         view = DiffOutputFormatter.BuildImplementationDiffView(
                             inputs.Name,
                             implementation.Local,
@@ -1199,8 +1199,8 @@ public class DiffCommand
                         logger,
                         inputs.FromSurface,
                         inputs.ToSurface,
-                        inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
-                        inputs.To.AssemblySet.Assemblies.FirstOrDefault());
+                        inputs.From.AssemblySet.Assemblies,
+                        inputs.To.AssemblySet.Assemblies);
                 implementationView =
                     DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
@@ -1426,8 +1426,8 @@ public class DiffCommand
         VerboseLogger logger,
         ApiSurface? fromSurface = null,
         ApiSurface? toSurface = null,
-        AssemblySetEntry? fromEntry = null,
-        AssemblySetEntry? toEntry = null)
+        IReadOnlyList<AssemblySetEntry>? fromEntries = null,
+        IReadOnlyList<AssemblySetEntry>? toEntries = null)
     {
         var result = BuildImplementationDiff(
             fromPaths,
@@ -1444,8 +1444,8 @@ public class DiffCommand
             logger,
             fromSurface,
             toSurface,
-            fromEntry,
-            toEntry);
+            fromEntries,
+            toEntries);
     }
 
     internal static async Task<ImplementationDiffWithSource>
@@ -1458,8 +1458,8 @@ public class DiffCommand
             VerboseLogger logger,
             ApiSurface? fromSurface = null,
             ApiSurface? toSurface = null,
-            AssemblySetEntry? fromEntry = null,
-            AssemblySetEntry? toEntry = null)
+            IReadOnlyList<AssemblySetEntry>? fromEntries = null,
+            IReadOnlyList<AssemblySetEntry>? toEntries = null)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!options.IncludePdbSource)
@@ -1478,22 +1478,22 @@ public class DiffCommand
         if (request is not null)
         {
             await using var workspace = new InspectionWorkspace();
-            var before = CreateSourceParticipant(fromPaths[0], options, oldSide: true, fromEntry);
-            var after = CreateSourceParticipant(toPaths[0], options, oldSide: false, toEntry);
+            var before = CreateSourceParticipant(
+                fromPaths[0],
+                options,
+                oldSide: true,
+                FindAssemblySetEntry(fromPaths[0], fromEntries));
+            var after = CreateSourceParticipant(
+                toPaths[0],
+                options,
+                oldSide: false,
+                FindAssemblySetEntry(toPaths[0], toEntries));
             using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);
             using var afterGroup = workspace.CreateAssemblyContextGroup([after]);
-            var sourceContext = new AssemblyContextSourceQueryContext(
+            var sourceContext = CreateSourceQueryContext(
+                options,
                 httpClient,
-                FileSystemPdbStore.CreateDefault(),
-                new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
-                new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
-            {
-                AllowAdjacentPdbReads = true,
-                AllowLocalSourceReads = true,
-                RepositoryPaths = options.SourceRepositories,
-                NuGetSourceOptions = options.SourceOptions,
-                Log = logger.Log,
-            };
+                logger);
             InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
                 await MemberSourcePairInspection.ExecuteAsync(
                 beforeGroup, before, afterGroup, after, request, sourceContext);
@@ -1501,27 +1501,53 @@ public class DiffCommand
         }
 
         // Broader selections and targets without one exact MethodDef anchor
-        // (including property/event accessor selections) retain legacy enrichment.
+        // (including property/event accessor selections) use the batch route.
         if (result.Members.Count == 0)
             return new(result);
 
         var subjects = result.Members
             .Select(member => member.Subject)
             .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
+        PdbSourceEndpointIndex fromIndex =
+            PdbSourceEndpointMethods(
+                result,
+                subjects,
+                oldSide: true);
+        PdbSourceEndpointIndex toIndex =
+            PdbSourceEndpointMethods(
+                result,
+                subjects,
+                oldSide: false);
+        foreach (PdbSourceEndpointFailure failure
+            in fromIndex.Failures.Values)
+        {
+            logger.Log(failure.Detail);
+        }
+        foreach (PdbSourceEndpointFailure failure
+            in toIndex.Failures.Values)
+        {
+            logger.Log(failure.Detail);
+        }
         var from = await AcquirePdbSourceInspectionsAsync(
             fromPaths,
             subjects,
             options,
             oldSide: true,
             httpClient,
-            logger);
+            logger,
+            fromEntries,
+            fromIndex.Methods,
+            fromIndex.Failures);
         var to = await AcquirePdbSourceInspectionsAsync(
             toPaths,
             subjects,
             options,
             oldSide: false,
             httpClient,
-            logger);
+            logger,
+            toEntries,
+            toIndex.Methods,
+            toIndex.Failures);
         var comparisons = subjects.Values.Select(subject =>
             new PdbSourceComparisonInput(
                 subject,
@@ -1533,6 +1559,70 @@ public class DiffCommand
             new ImplementationDiffOptions(
                 TypeFilters: options.TypeFilter,
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal))));
+    }
+
+    sealed record PdbSourceEndpointIndex(
+        ImmutableDictionary<string, MethodIdentity> Methods,
+        ImmutableDictionary<string, PdbSourceEndpointFailure> Failures);
+
+    internal sealed record PdbSourceEndpointFailure(
+        string Detail,
+        ImmutableArray<MethodIdentity> AmbiguousMethods);
+
+    static PdbSourceEndpointIndex
+        PdbSourceEndpointMethods(
+            ImplementationDiffResult result,
+            IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
+            bool oldSide)
+    {
+        var methods =
+            new Dictionary<string, MethodIdentity>(
+                StringComparer.Ordinal);
+        var ambiguous =
+            new HashSet<string>(StringComparer.Ordinal);
+        var failures =
+            new Dictionary<string, PdbSourceEndpointFailure>(
+                StringComparer.Ordinal);
+        foreach (ImplementationComplexityChange change
+            in result.Complexity.Changes)
+        {
+            if (!subjects.ContainsKey(change.Subject.Id))
+                continue;
+            MethodIdentity? method = oldSide
+                ? change.OldProfile?.Method
+                : change.NewProfile?.Method;
+            if (method is null)
+                continue;
+            if (ambiguous.Contains(change.Subject.Id))
+                continue;
+            if (methods.TryGetValue(
+                    change.Subject.Id,
+                    out MethodIdentity? existing)
+                && (existing.ModuleVersionId
+                        != method.ModuleVersionId
+                    || existing.MetadataToken
+                        != method.MetadataToken))
+            {
+                methods.Remove(change.Subject.Id);
+                ambiguous.Add(change.Subject.Id);
+                failures[change.Subject.Id] = new(
+                    $"PDB-source endpoint association remains unavailable "
+                        + $"for Research subject '{change.Subject.Id}': "
+                        + $"0x{existing.MetadataToken:X8} "
+                        + $"'{existing.DeclaringType.ToQualifiedDisplayString()}."
+                        + $"{existing.Name}' and "
+                        + $"0x{method.MetadataToken:X8} "
+                        + $"'{method.DeclaringType.ToQualifiedDisplayString()}."
+                        + $"{method.Name}' share that Research identity.",
+                    [existing, method]);
+                continue;
+            }
+
+            methods[change.Subject.Id] = method;
+        }
+        return new(
+            methods.ToImmutableDictionary(StringComparer.Ordinal),
+            failures.ToImmutableDictionary(StringComparer.Ordinal));
     }
 
     static AssemblyMemberSourcePairRequest? TryResolveSelectedSourceRequest(
@@ -1608,9 +1698,42 @@ public class DiffCommand
             new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)));
     }
 
+    static AssemblySetEntry? FindAssemblySetEntry(
+        string path,
+        IReadOnlyList<AssemblySetEntry>? entries)
+    {
+        if (entries is null)
+            return null;
+        string fullPath = Path.GetFullPath(path);
+        return entries.FirstOrDefault(
+            entry => Path.GetFullPath(entry.Path) == fullPath);
+    }
+
+    static AssemblyContextSourceQueryContext CreateSourceQueryContext(
+        DiffOptions options,
+        HttpClient httpClient,
+        VerboseLogger logger)
+        => new(
+            httpClient,
+            FileSystemPdbStore.CreateDefault(),
+            new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
+            new SourceFetch(
+                DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
+        {
+            AllowAdjacentPdbReads = true,
+            AllowLocalSourceReads = true,
+            RepositoryPaths = options.SourceRepositories,
+            NuGetSourceOptions = options.SourceOptions,
+            Log = logger.Log,
+        };
+
     internal sealed record PdbSourceInspectionBatch(
         ImmutableDictionary<string, FindingInspection<string>> Inspections,
         ImmutableArray<string> IndexingFailures);
+
+    sealed record PdbSourceRequestIndex(
+        ImmutableDictionary<int, AssemblyMemberSourceRequest> Requests,
+        ImmutableDictionary<int, string> Failures);
 
     internal static FindingInspection<string> PdbSourceInspectionFor(
         PdbSourceInspectionBatch batch,
@@ -1642,23 +1765,47 @@ public class DiffCommand
         DiffOptions options,
         bool oldSide,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        IReadOnlyList<AssemblySetEntry>? entries = null,
+        IReadOnlyDictionary<string, MethodIdentity>?
+            endpointMethods = null,
+        IReadOnlyDictionary<string, PdbSourceEndpointFailure>?
+            endpointFailures = null)
     {
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
+        if (endpointFailures is not null)
+        {
+            foreach ((string subjectId, PdbSourceEndpointFailure failure)
+                in endpointFailures)
+            {
+                results[subjectId] =
+                    PdbSourceFailure(
+                        subjects[subjectId],
+                        failure.Detail);
+            }
+        }
         var indexingFailures = ImmutableArray.CreateBuilder<string>();
-        var fetcher = new SourceFetch(DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch);
-        var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
-
+        var indexed =
+            new List<(
+                string Path,
+                LibraryBodyIndex Index,
+                AssemblyContextParticipant Participant)>();
         foreach (string path in paths)
         {
-            LibraryBodyIndex index;
             try
             {
-                index = MethodBodyInspectionSession.Open(
+                LibraryBodyIndex index = MethodBodyInspectionSession.Open(
                         path,
                         includeAllocations: false,
                         includeOpportunities: false)
                     .BodyIndex;
+                AssemblyContextParticipant participant =
+                    CreateSourceParticipant(
+                        path,
+                        options,
+                        oldSide,
+                        FindAssemblySetEntry(path, entries));
+                indexed.Add((path, index, participant));
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -1672,7 +1819,21 @@ public class DiffCommand
                 indexingFailures.Add(failure);
                 continue;
             }
+        }
 
+        if (indexed.Count == 0)
+        {
+            return new PdbSourceInspectionBatch(
+                results.ToImmutableDictionary(StringComparer.Ordinal),
+                indexingFailures.ToImmutable());
+        }
+
+        var sourceContext = CreateSourceQueryContext(options, httpClient, logger);
+        await using var workspace = new InspectionWorkspace();
+
+        foreach ((string path, LibraryBodyIndex index,
+            AssemblyContextParticipant participant) in indexed)
+        {
             foreach (string failure in PdbSourceDeclarationIndexFailures(
                 path,
                 index.DeclaredMethods,
@@ -1682,59 +1843,157 @@ public class DiffCommand
                 indexingFailures.Add(failure);
             }
 
-            var targets = index.DeclaredMethods
-                .Select(method => (
-                    Method: method,
-                    Subject: ResearchMemberIdentity.SubjectFromMethod(method)))
-                .Where(item => subjects.ContainsKey(item.Subject.Id))
-                .Where(item => !results.ContainsKey(item.Subject.Id))
-                .ToArray();
-            if (targets.Length == 0)
+            var targets =
+                new List<(
+                    MethodIdentity Method,
+                    ResearchSubjectKey Subject)>();
+            var targetSubjects =
+                new HashSet<string>(StringComparer.Ordinal);
+            if (endpointMethods is not null)
+            {
+                foreach ((string subjectId, MethodIdentity method)
+                    in endpointMethods)
+                {
+                    if (method.ModuleVersionId
+                            != index.ModuleIdentity.ModuleVersionId
+                        || results.ContainsKey(subjectId))
+                    {
+                        continue;
+                    }
+
+                    targets.Add((method, subjects[subjectId]));
+                    targetSubjects.Add(subjectId);
+                }
+            }
+            foreach (MethodIdentity method in index.DeclaredMethods)
+            {
+                ResearchSubjectKey derived =
+                    ResearchMemberIdentity.SubjectFromMethod(method);
+                if (!subjects.TryGetValue(
+                        derived.Id,
+                        out ResearchSubjectKey? subject)
+                    || results.ContainsKey(subject.Id)
+                    || !targetSubjects.Add(subject.Id))
+                {
+                    continue;
+                }
+
+                targets.Add((method, subject));
+            }
+            bool hasEndpointFailures =
+                endpointFailures?.Values.Any(
+                    failure => failure.AmbiguousMethods.Any(
+                        method => method.ModuleVersionId
+                            == index.ModuleIdentity.ModuleVersionId))
+                == true;
+            if (targets.Count == 0 && !hasEndpointFailures)
                 continue;
 
+            PdbSourceRequestIndex requestIndex;
             try
             {
-                using var source = SourceLinkService.Open(path, logger.Log);
-                if (source.Context.NeedsPdb)
-                {
-                    await SourceEnricher.AcquirePdbAsync(
-                        source.Context,
-                        httpClient,
-                        packageName,
-                        packageVersion,
-                        isPlatformAssembly: options.PlatformVersionRange is not null,
-                        logger.Log,
-                        sourceOptions: options.SourceOptions);
-                }
-
-                foreach (var target in targets)
-                {
-                    var subject = subjects[target.Subject.Id];
-                    var inspection = await PdbSourceHouse.AcquireMemberAsync(
-                        source,
-                        target.Method.MetadataToken,
-                        target.Method.Name,
-                        new FindingSubject(subject.Id, subject.Display),
-                        fetcher,
-                        options.SourceRepositories);
-                    results[subject.Id] = inspection.Lines;
-                }
+                requestIndex = BuildPdbSourceRequestIndex(path);
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
-                or InvalidOperationException
-                or HttpRequestException)
+                or InvalidOperationException)
             {
                 foreach (var target in targets)
                 {
                     var subject = subjects[target.Subject.Id];
-                    results[subject.Id] = new FindingInspection<string>.Failed(
-                        new InspectionError(
-                            new FindingSubject(subject.Id, subject.Display),
-                            Inspector.Text.TextFindings.LineDescriptor,
-                            $"PDB-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
+                    results[subject.Id] = PdbSourceFailure(
+                        subject,
+                        $"PDB-source API target projection failed "
+                        + $"({ex.GetType().Name}): {ex.Message}");
                 }
+                continue;
+            }
+
+            if (endpointFailures is not null)
+            {
+                ProjectPdbSourceEndpointFailures(
+                    endpointFailures,
+                    index.ModuleIdentity.ModuleVersionId,
+                    requestIndex,
+                    subjects,
+                    results);
+            }
+            if (targets.Count == 0)
+                continue;
+
+            using var group = workspace.CreateAssemblyContextGroup([participant]);
+            PdbSourceRequestIndex? generatedRequestIndex = null;
+            string? generatedRequestIndexFailure = null;
+            foreach (var target in targets)
+            {
+                var subject = subjects[target.Subject.Id];
+                if (!requestIndex.Requests.TryGetValue(
+                        target.Method.MetadataToken,
+                        out AssemblyMemberSourceRequest? request))
+                {
+                    if (generatedRequestIndex is null
+                        && generatedRequestIndexFailure is null)
+                    {
+                        try
+                        {
+                            generatedRequestIndex =
+                                BuildPdbSourceRequestIndex(
+                                    path,
+                                    includeCompilerGenerated: true);
+                        }
+                        catch (Exception ex) when (ex is IOException
+                            or UnauthorizedAccessException
+                            or BadImageFormatException
+                            or InvalidOperationException)
+                        {
+                            generatedRequestIndexFailure =
+                                $"PDB-source compiler-generated API target "
+                                + $"projection failed "
+                                + $"({ex.GetType().Name}): {ex.Message}";
+                        }
+                    }
+                    generatedRequestIndex?.Requests.TryGetValue(
+                        target.Method.MetadataToken,
+                        out request);
+                }
+                if (request is null)
+                {
+                    requestIndex.Failures.TryGetValue(
+                        target.Method.MetadataToken,
+                        out string? apiFailure);
+                    string? generatedFailure = null;
+                    generatedRequestIndex?.Failures.TryGetValue(
+                        target.Method.MetadataToken,
+                        out generatedFailure);
+                    results[subject.Id] = PdbSourceFailure(
+                        subject,
+                        string.Join(
+                            " ",
+                            new[]
+                            {
+                                apiFailure,
+                                generatedFailure,
+                                generatedRequestIndexFailure,
+                                $"PDB-source API target projection did not "
+                                    + $"retain MethodDef "
+                                    + $"0x{target.Method.MetadataToken:X8}.",
+                            }
+                                .Where(static failure =>
+                                    !string.IsNullOrWhiteSpace(failure))));
+                    continue;
+                }
+
+                InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+                    await MemberSourceInspection.ExecuteAsync(
+                        group,
+                        participant,
+                        request,
+                        sourceContext);
+                results[subject.Id] =
+                    ProjectPdbSourceInspection(
+                        inspection.Content,
+                        subject);
             }
         }
 
@@ -1742,6 +2001,219 @@ public class DiffCommand
             results.ToImmutableDictionary(StringComparer.Ordinal),
             indexingFailures.ToImmutable());
     }
+
+    static void ProjectPdbSourceEndpointFailures(
+        IReadOnlyDictionary<
+            string,
+            PdbSourceEndpointFailure> failures,
+        Guid moduleVersionId,
+        PdbSourceRequestIndex requestIndex,
+        IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
+        IDictionary<string, FindingInspection<string>> results)
+    {
+        foreach (PdbSourceEndpointFailure failure
+            in failures.Values)
+        {
+            foreach (MethodIdentity method
+                in failure.AmbiguousMethods)
+            {
+                if (method.ModuleVersionId != moduleVersionId
+                    || !requestIndex.Requests.TryGetValue(
+                        method.MetadataToken,
+                        out AssemblyMemberSourceRequest? request)
+                    || !subjects.TryGetValue(
+                        request.Member.StableSelector,
+                        out ResearchSubjectKey? subject)
+                    || results.ContainsKey(subject.Id))
+                {
+                    continue;
+                }
+
+                results[subject.Id] =
+                    PdbSourceFailure(
+                        subject,
+                        failure.Detail);
+            }
+        }
+    }
+
+    static PdbSourceRequestIndex BuildPdbSourceRequestIndex(
+        string path,
+        bool includeCompilerGenerated = false)
+    {
+        ApiSurface surface =
+            AssemblyReader.ExtractApiSurface(
+                path,
+                includeAll: true,
+                typesOnly: false,
+                includeCompilerGenerated)
+            ?? throw new InvalidOperationException(
+                $"Could not extract the PDB-source API target surface from '{path}'.");
+        var requests =
+            new Dictionary<int, AssemblyMemberSourceRequest>();
+        var failures = new Dictionary<int, string>();
+
+        foreach (ApiType type in surface.Types)
+        {
+            foreach (ApiMember member in type.Members)
+                AddPdbSourceRequest(type, member, requests, failures);
+            foreach (ApiMember accessor in type.Members.SelectMany(
+                owner => ApiMemberAccessors.Create(owner, type)))
+            {
+                AddPdbSourceRequest(type, accessor, requests, failures);
+            }
+        }
+
+        return new(
+            requests.ToImmutableDictionary(),
+            failures.ToImmutableDictionary());
+    }
+
+    static void AddPdbSourceRequest(
+        ApiType type,
+        ApiMember member,
+        IDictionary<int, AssemblyMemberSourceRequest> requests,
+        IDictionary<int, string> failures)
+    {
+        if (member.MetadataToken is not { } metadataToken
+            || System.Reflection.Metadata.Ecma335.MetadataTokens
+                .EntityHandle(metadataToken).Kind
+                != System.Reflection.Metadata.HandleKind.MethodDefinition)
+        {
+            return;
+        }
+
+        AssemblyMemberSourceRequest request;
+        try
+        {
+            request = AssemblyMemberSourceRequest
+                .From(type, member)
+                .WithoutDecompiledFallback();
+        }
+        catch (ArgumentException ex)
+        {
+            failures[metadataToken] =
+                $"PDB-source API target projection rejected MethodDef "
+                + $"0x{metadataToken:X8}: {ex.Message}";
+            return;
+        }
+
+        if (requests.TryGetValue(
+                metadataToken,
+                out AssemblyMemberSourceRequest? existing)
+            && (existing.Type != request.Type
+                || existing.Member != request.Member))
+        {
+            requests.Remove(metadataToken);
+            failures[metadataToken] =
+                $"PDB-source API target projection is ambiguous for "
+                + $"MethodDef 0x{metadataToken:X8}.";
+            return;
+        }
+        if (!failures.ContainsKey(metadataToken))
+            requests[metadataToken] = request;
+    }
+
+    static FindingInspection<string> ProjectPdbSourceInspection(
+        AssemblyMemberSourceEntry entry,
+        ResearchSubjectKey subject)
+        => entry switch
+        {
+            AssemblyMemberSourceEntry.Available
+            {
+                Source: AssemblyMemberSource.Pdb pdb,
+            } => RebindPdbSourceInspection(pdb.Inspection, subject),
+            AssemblyMemberSourceEntry.Available
+            {
+                Source: AssemblyMemberSource.Decompiled,
+            } => PdbSourceFailure(
+                subject,
+                "Authored-only PDB Source inspection returned decompiled text."),
+            AssemblyMemberSourceEntry.Unavailable
+            {
+                PdbAttempt: { } attempt,
+            } => RebindPdbSourceInspection(attempt, subject),
+            AssemblyMemberSourceEntry.Unavailable
+            {
+                Failure.Kind: AssemblySourceFailureKind.TargetNotFound,
+            } unavailable => new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                $"{unavailable.Failure.Kind}: {unavailable.Failure.Detail}"),
+            AssemblyMemberSourceEntry.Unavailable unavailable
+                when unavailable.Failure.Kind
+                    is AssemblySourceFailureKind.AuthoredMemberUnavailable
+                    or AssemblySourceFailureKind.AuthoredMemberPartsUnavailable
+                    or AssemblySourceFailureKind.AuthoredDocumentUnavailable
+                    or AssemblySourceFailureKind.PdbAndDecompiledUnavailable
+                => new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    $"{unavailable.Failure.Kind}: "
+                    + unavailable.Failure.Detail),
+            AssemblyMemberSourceEntry.Unavailable unavailable =>
+                PdbSourceFailure(
+                    subject,
+                    $"{unavailable.Failure.Kind}: "
+                    + unavailable.Failure.Detail),
+            AssemblyMemberSourceEntry.Rejected rejected =>
+                PdbSourceFailure(
+                    subject,
+                    $"PDB-source assembly candidate was rejected: "
+                    + rejected.Failure),
+            _ => throw new InvalidOperationException(
+                "Unknown completed member source result."),
+        };
+
+    static FindingInspection<string> RebindPdbSourceInspection(
+        PdbMemberSourceInspection inspection,
+        ResearchSubjectKey subject)
+    {
+        var findingSubject =
+            new FindingSubject(subject.Id, subject.Display);
+        return inspection.Lines.Value switch
+        {
+            FindingInspection<string>.Complete complete =>
+                new FindingInspection<string>.Complete(
+                [
+                    .. complete.Findings.Select(finding =>
+                        new Finding<string>(
+                            findingSubject,
+                            finding.Descriptor,
+                            finding.Key,
+                            finding.Payload,
+                            finding.Ordinal,
+                            finding.Detail)),
+                ]),
+            FindingInspection<string>.Absent absent =>
+                new FindingInspection<string>.Absent(
+                    absent.Kind,
+                    inspection.Outcome switch
+                    {
+                        PdbMemberSourceOutcome.NoVouchedDeclaration =>
+                            "The selected member's PDB source range does not "
+                            + "identify one declaration that can be shown.",
+                        PdbMemberSourceOutcome.SourceMappingUnavailable =>
+                            "The selected member has no portable-PDB source mapping.",
+                        _ => absent.Detail,
+                    }),
+            FindingInspection<string>.Failed failed =>
+                new FindingInspection<string>.Failed(
+                    new InspectionError(
+                        findingSubject,
+                        failed.Error.Descriptor,
+                        failed.Error.Reason)),
+            _ => throw new InvalidOperationException(
+                "Unknown PDB-source finding inspection."),
+        };
+    }
+
+    static FindingInspection<string> PdbSourceFailure(
+        ResearchSubjectKey subject,
+        string reason)
+        => new FindingInspection<string>.Failed(
+            new InspectionError(
+                new FindingSubject(subject.Id, subject.Display),
+                Inspector.Text.TextFindings.LineDescriptor,
+                reason));
 
     internal static ImmutableArray<string> PdbSourceDeclarationIndexFailures(
         string path,
