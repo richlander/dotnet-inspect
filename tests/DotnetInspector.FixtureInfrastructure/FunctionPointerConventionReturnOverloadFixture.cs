@@ -25,6 +25,10 @@ public static class FunctionPointerConventionReturnOverloadFixture
     public const string CoreLibraryLookalikeModifierTypeName =
         "FunctionPointerCoreLibraryLookalikeReturnSample";
 
+    public const string
+        CoreLibrarySuppressGcTransitionLookalikeModifierTypeName =
+            "FunctionPointerCoreLibrarySuppressGcTransitionLookalikeReturnSample";
+
     public enum IdentityCase
     {
         ConventionModifiers,
@@ -33,6 +37,7 @@ public static class FunctionPointerConventionReturnOverloadFixture
         RequiredModifier,
         DuplicateConventionModifier,
         CoreLibraryLookalikeModifier,
+        CoreLibrarySuppressGcTransitionLookalikeModifier,
     }
 
     public static string GetTypeName(IdentityCase identityCase)
@@ -46,6 +51,8 @@ public static class FunctionPointerConventionReturnOverloadFixture
                 DuplicateConventionModifierTypeName,
             IdentityCase.CoreLibraryLookalikeModifier =>
                 CoreLibraryLookalikeModifierTypeName,
+            IdentityCase.CoreLibrarySuppressGcTransitionLookalikeModifier =>
+                CoreLibrarySuppressGcTransitionLookalikeModifierTypeName,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(identityCase)),
         };
@@ -127,6 +134,19 @@ public static class FunctionPointerConventionReturnOverloadFixture
                         0x00, 0x01, 0x1B, 0x09, 0x00,
                         0x20, 0x11, 0x08, 0x02,
                     }),
+                IdentityCase
+                    .CoreLibrarySuppressGcTransitionLookalikeModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x09, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x15, 0x08, 0x02,
+                    }),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(identityCase)),
             };
@@ -178,6 +198,12 @@ public static class FunctionPointerConventionReturnOverloadFixture
             metadata.GetOrAddString(
                 "System.Runtime.CompilerServices"),
             metadata.GetOrAddString("CallConvCdecl"));
+        metadata.AddTypeReference(
+            EntityHandle.ModuleDefinition,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString(
+                "CallConvSuppressGCTransition"));
         TypeReferenceHandle objectType =
             metadata.AddTypeReference(
                 coreReference,
@@ -217,6 +243,15 @@ public static class FunctionPointerConventionReturnOverloadFixture
             metadata.GetOrAddString(
                 "System.Runtime.CompilerServices"),
             metadata.GetOrAddString("CallConvCdecl"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            firstChanged);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic | TypeAttributes.Sealed,
+            metadata.GetOrAddString(
+                "System.Runtime.CompilerServices"),
+            metadata.GetOrAddString(
+                "CallConvSuppressGCTransition"),
             objectType,
             MetadataTokens.FieldDefinitionHandle(1),
             firstChanged);

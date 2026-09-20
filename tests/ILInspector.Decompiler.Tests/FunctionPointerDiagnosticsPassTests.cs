@@ -109,6 +109,75 @@ public class FunctionPointerDiagnosticsPassTests
                 .Count());
     }
 
+    [Theory]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibraryLookalikeModifier,
+        "delegate* unmanaged[Cdecl]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices.CallConvCdecl)"
+            + "System.Int32>")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibrarySuppressGcTransitionLookalikeModifier,
+        "delegate* unmanaged[SuppressGCTransition]<System.Int32>",
+        "delegate* unmanaged"
+            + "<modopt(System.Runtime.CompilerServices"
+            + ".CallConvSuppressGCTransition)System.Int32>")]
+    public void TypeRefDecoder_DoesNotNormalizeCoreLibraryLookalikes(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            identityCase,
+        string expectedCoreLibraryIdentity,
+        string expectedLookalikeIdentity)
+    {
+        byte[] image =
+            FunctionPointerConventionReturnOverloadFixture.Build(
+                returnOne: false,
+                identityCase);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        string[] identities =
+        [
+            .. reader.MethodDefinitions
+                .Select(handle => reader.GetMethodDefinition(handle))
+                .Where(method => reader.GetString(method.Name) == "Changed")
+                .Select(method => method.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty).ReturnType)
+                .Select(CSharpBodyDiff.CanonicalTypeName),
+        ];
+
+        Assert.Equal(
+            [expectedCoreLibraryIdentity, expectedLookalikeIdentity],
+            identities);
+    }
+
+    [Fact]
+    public void
+        TypeRefInstantiation_DoesNotNormalizeSuppressGcTransitionLookalike()
+    {
+        TypeRef lookalike = TypeRef.Definition(
+            "Sample",
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef genericReturn = TypeRef.GenericParameter(0)
+            .WithCustomModifier(lookalike, isRequired: false);
+        TypeRef pointer = TypeRef.FunctionPointer(
+            genericReturn,
+            [],
+            "unmanaged");
+
+        TypeRef instantiated = pointer.Instantiate(
+            [TypeRef.CoreLib("System", "Int32")],
+            []);
+
+        Assert.Equal(
+            "delegate* unmanaged"
+                + "<modopt(System.Runtime.CompilerServices"
+                + ".CallConvSuppressGCTransition)System.Int32>",
+            CSharpBodyDiff.CanonicalTypeName(instantiated));
+    }
+
     [Fact]
     public void CallIndirect_PreservesInOutFunctionPointerArgumentKeywords()
     {

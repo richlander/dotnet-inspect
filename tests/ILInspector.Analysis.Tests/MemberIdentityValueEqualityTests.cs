@@ -565,15 +565,18 @@ public class MemberIdentityValueEqualityTests
             modifiedIdentity);
     }
 
-    [Fact]
+    [Theory]
+    [InlineData("CallConvCdecl")]
+    [InlineData("CallConvSuppressGCTransition")]
     public void
-        FunctionPointerSignatureIdentity_DoesNotNormalizeCoreLibraryLookalikes()
+        FunctionPointerSignatureIdentity_DoesNotNormalizeCoreLibraryLookalikes(
+            string modifierName)
     {
         TypeRef integer = TypeRef.CoreLib("System", "Int32");
         TypeRef lookalike = TypeRef.Definition(
             "Sample",
             "System.Runtime.CompilerServices",
-            "CallConvCdecl");
+            modifierName);
         TypeRef modifiedReturn = TypeRef.UnsupportedModified(
             lookalike,
             integer,
@@ -594,7 +597,7 @@ public class MemberIdentityValueEqualityTests
                 out string identity));
         Assert.Equal(
             "delegate* unmanaged"
-                + "<modopt(System.Runtime.CompilerServices.CallConvCdecl)"
+                + $"<modopt(System.Runtime.CompilerServices.{modifierName})"
                 + "int>",
             identity);
     }

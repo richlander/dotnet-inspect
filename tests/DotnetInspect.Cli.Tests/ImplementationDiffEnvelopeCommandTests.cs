@@ -193,6 +193,9 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     [InlineData(
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             .CoreLibraryLookalikeModifier)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .CoreLibrarySuppressGcTransitionLookalikeModifier)]
     public async Task
         FunctionPointerReturnOverloads_SelectByExactBodyIdentity(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase

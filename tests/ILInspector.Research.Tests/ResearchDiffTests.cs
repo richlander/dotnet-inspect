@@ -2212,6 +2212,39 @@ public class ResearchDiffTests
 
     [Fact]
     public void
+        ImplementationComplexityService_FunctionPointerConventionLookalikesRemainDistinct()
+    {
+        TypeRef integer = TypeRef.CoreLib("System", "Int32");
+        TypeRef realModifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef lookalikeModifier = TypeRef.Definition(
+            "Sample",
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef FunctionPointer(TypeRef modifier) =>
+            TypeRef.UnsupportedFunctionPointer(
+                new MethodSignature<TypeRef>(
+                    new SignatureHeader(
+                        SignatureKind.Method,
+                        SignatureCallingConvention.Unmanaged,
+                        SignatureAttributes.None),
+                    TypeRef.UnsupportedModified(
+                        modifier,
+                        integer,
+                        isRequired: false),
+                    requiredParameterCount: 0,
+                    genericParameterCount: 0,
+                    []));
+
+        AssertComplexityFunctionPointerReturnsRemainDistinct(
+            FunctionPointer(realModifier),
+            FunctionPointer(lookalikeModifier),
+            "FunctionPointerConventionLookalikeReturnSample");
+    }
+
+    [Fact]
+    public void
         ImplementationComplexityService_FunctionPointerHeaderOverloadsRemainDistinct()
     {
         TypeRef integer = TypeRef.CoreLib("System", "Int32");
