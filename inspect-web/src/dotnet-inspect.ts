@@ -3994,7 +3994,12 @@ function activatePackage(
   state.workspaceSubjectOpen = false;
   state.package = pkg;
   if (changed) {
-    clearLibraryQuery();
+    state.libraryQuerySequence++;
+    state.libraryQueryReference = "";
+    state.libraryQueryInspection = null;
+    state.libraryQueryLoading = false;
+    state.libraryQueryError = "";
+    state.libraryQueryKey = "";
     state.dependenciesGroupIndex = null;
   }
   state.rootKind = pkg.source.kind === "platform" ? "platform" : "package";

@@ -258,7 +258,7 @@ test("dependency selection exposes a missing exact framework", () => {
 test("dependency group selection resets when package identity changes", () => {
   assert.match(
     appSource,
-    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+    /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\) \{[\s\S]*state\.dependenciesGroupIndex = null;[\s\S]*\}/);
 });
 
 test("missing exact dependency groups never create graph edges", () => {
