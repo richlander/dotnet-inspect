@@ -1297,15 +1297,17 @@ public partial class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_SuppressesCompilerGeneratedRecordMembers()
+    public void OptimizationOpportunities_SuppressesGeneratedActionableRecordMembers()
     {
         var index = LibraryBodyIndex.Open(typeof(OpportunityRecordFixture).Assembly.Location);
 
         // Record synthesized members (e.g. get_EqualityContract) are [CompilerGenerated],
-        // so they are excluded from optimization-opportunity scanning entirely. None should
-        // surface.
+        // so actionable opportunities are excluded. Exact diagnostic censuses remain visible.
         Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
-            opportunity.Method.DeclaringType.Name == nameof(OpportunityRecordFixture));
+            opportunity.Shape
+                != AnalysisFindings.StringMaterializationShape
+            && opportunity.Method.DeclaringType.Name
+                == nameof(OpportunityRecordFixture));
     }
 
     [Fact]
