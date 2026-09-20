@@ -211,6 +211,10 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     string,
     string | Promise<string>
   >();
+  readonly validationResponses = new Map<
+    string,
+    boolean | Promise<boolean>
+  >();
   readonly acknowledgementResponses = new Map<
     string,
     string | Promise<string>
@@ -366,9 +370,9 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
 
   validateRetainedWorkspaceNavigationAuthority(
     realizationId: string,
-  ): boolean {
+  ): boolean | Promise<boolean> {
     this.lifecycle.push(`validate:${realizationId}`);
-    return true;
+    return this.validationResponses.get(realizationId) ?? true;
   }
 
   recordRetainedWorkspaceNavigationPosting(
@@ -802,6 +806,58 @@ test("post-cutover posting failure abandons authority without rolling back activ
     succeeded: false,
     failure: "Injected posting failure.",
   }]);
+});
+
+test("validation failure after deletion cutover cannot restore predecessor", async () => {
+  const fixture = createFixture();
+  const first = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+  const second = fixture.controller.retain({
+    label: "B",
+    canonicalLocation: "/b",
+    canonicalPacket: "packet-b",
+  });
+  const selectFirst = fixture.controller.activate(first.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(first.id, "realization-1"),
+    failure: null,
+  });
+  await selectFirst;
+
+  const validation = deferred<boolean>();
+  fixture.client.validationResponses.set(
+    "realization-2",
+    validation.promise,
+  );
+  const deletion = fixture.controller.delete(first.id);
+  fixture.client.activations[1]!.resolve({
+    status: "activated",
+    posting: posting(second.id, "realization-2"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  validation.reject(new Error("Navigation validation failed."));
+
+  await assert.rejects(deletion, /Navigation validation failed/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
+  assert.deepEqual(
+    fixture.controller.state.definitions.map(value => value.id),
+    [second.id],
+  );
+  assert.equal(fixture.clears(), 1);
+  assert.deepEqual(
+    fixture.posted.map(value => value.realizationId),
+    ["realization-1"],
+  );
+  assert.deepEqual(fixture.client.activationCompletions.at(-1), {
+    receipt: "receipt-2",
+    succeeded: false,
+    failure: "Navigation validation failed.",
+  });
 });
 
 test("unknown commit outcome keeps the transaction barrier", async () => {
@@ -1591,12 +1647,6 @@ test("waiting activation cannot revoke committed deletion", async () => {
     canonicalLocation: "/b",
     canonicalPacket: "packet-b",
   });
-  const third = fixture.controller.retain({
-    label: "C",
-    canonicalLocation: "/c",
-    canonicalPacket: "packet-c",
-  });
-
   const selectFirst = fixture.controller.activate(first.id);
   fixture.client.activations[0]!.resolve({
     status: "activated",
@@ -1618,23 +1668,18 @@ test("waiting activation cannot revoke committed deletion", async () => {
 
   const barrier = fixture.controller.waitForPendingCommit();
   assert.notEqual(barrier, null);
-  const selectThird = barrier!.then(
-    () => fixture.controller.activate(third.id),
+  const reselectDeleted = barrier!.then(
+    () => fixture.controller.activate(first.id),
   );
   successorCompletion.resolve();
   await deletion;
 
   assert.deepEqual(
     fixture.controller.state.definitions.map(value => value.id),
-    [second.id, third.id],
+    [second.id],
   );
-  fixture.client.activations[2]!.resolve({
-    status: "activated",
-    posting: posting(third.id, "realization-3"),
-    failure: null,
-  });
-  await selectThird;
-  assert.equal(fixture.controller.state.activeDefinitionId, third.id);
+  await assert.rejects(reselectDeleted, /Unknown retained Workspace definition/);
+  assert.equal(fixture.controller.state.activeDefinitionId, second.id);
 });
 
 test("active deletion removes retired definition after cutover failure", async () => {

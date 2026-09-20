@@ -290,12 +290,6 @@ export function createRetainedWorkspaceActivationController(
     ) => void | Promise<void>,
   ): Promise<boolean> {
     const authority = authorityArguments(posting);
-    if (!await client.validateRetainedWorkspaceNavigationAuthority(
-      ...authority,
-    )) {
-      await abandonPosting(posting);
-      return false;
-    }
     if (posting.publicationOrdinal <= postedPublicationOrdinal) {
       if (posting.publicationOrdinal < postedPublicationOrdinal) {
         await abandonPosting(posting);
@@ -303,9 +297,15 @@ export function createRetainedWorkspaceActivationController(
       return false;
     }
 
-    postedPublicationOrdinal = posting.publicationOrdinal;
-    activeDefinitionId = posting.retainedDefinitionId;
     try {
+      if (!await client.validateRetainedWorkspaceNavigationAuthority(
+        ...authority,
+      )) {
+        hooks.clear();
+        await abandonPosting(posting);
+        return false;
+      }
+      postedPublicationOrdinal = posting.publicationOrdinal;
       hooks.post(posting);
       const recorded =
         await client.recordRetainedWorkspaceNavigationPosting(
@@ -336,13 +336,29 @@ export function createRetainedWorkspaceActivationController(
       }
       return true;
     } catch (error) {
+      let clearFailure: unknown = null;
+      try {
+        hooks.clear();
+      } catch (clearError) {
+        clearFailure = clearError;
+      }
       try {
         await abandonPosting(posting);
       } catch (abandonmentError) {
         throw new AggregateError(
-          [error, abandonmentError],
-          "Retained Workspace posting and Navigation abandonment failed.",
+          clearFailure === null
+            ? [error, abandonmentError]
+            : [error, clearFailure, abandonmentError],
+          "Retained Workspace posting reconciliation and Navigation "
+            + "abandonment failed.",
           { cause: abandonmentError },
+        );
+      }
+      if (clearFailure !== null) {
+        throw new AggregateError(
+          [error, clearFailure],
+          "Retained Workspace posting and presentation reconciliation failed.",
+          { cause: error },
         );
       }
       throw error;
@@ -440,6 +456,9 @@ export function createRetainedWorkspaceActivationController(
     complete: (
       posting: BrowserRetainedWorkspacePosting,
     ) => void | Promise<void> = () => {},
+    committed: (
+      posting: BrowserRetainedWorkspacePosting,
+    ) => void = () => {},
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     const definition = find(retainedDefinitionId);
     if (soleDeactivationIntent !== null) {
@@ -604,6 +623,8 @@ export function createRetainedWorkspaceActivationController(
                 "Activated retained Workspace omitted its consumer completion receipt.",
               );
             }
+            activeDefinitionId = posting.retainedDefinitionId;
+            committed(posting);
             try {
               const posted = await postActivation(posting, complete);
               if (!posted) {
@@ -855,31 +876,17 @@ export function createRetainedWorkspaceActivationController(
         ? undefined
         : find(options.successorDefinitionId);
     if (successor !== undefined) {
-      const successorActivation = activate(
-        successor.id,
-        options.acceptSuccessor,
-        options.completeSuccessor,
-      );
       const completeCommittedDeletion = (): void => {
-        if (activeDefinitionId !== successor.id
-          || committingDefinitionId !== null
-          || hasUnsettledActivation(retainedDefinitionId)
-          || !definitions.some(
-            definition => definition.id === retainedDefinitionId,
-          )) {
-          return;
-        }
         definitions = definitions.filter(
           definition => definition.id !== retainedDefinitionId,
         );
       };
-      let result: BrowserRetainedWorkspaceActivationResult;
-      try {
-        result = await successorActivation;
-      } catch (error) {
-        completeCommittedDeletion();
-        throw error;
-      }
+      const result = await activate(
+        successor.id,
+        options.acceptSuccessor,
+        options.completeSuccessor,
+        completeCommittedDeletion,
+      );
       if (result.status !== "activated" && result.status !== "noEffect") {
         return;
       }
