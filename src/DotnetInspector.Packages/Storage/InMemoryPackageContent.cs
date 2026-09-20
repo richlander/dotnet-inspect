@@ -184,7 +184,7 @@ public sealed class InMemoryPackageContent :
             throw new InvalidDataException("Package entry exceeds the configured byte limit.");
         }
 
-        byte[] bytes = GC.AllocateUninitializedArray<byte>((int)entry.Length);
+        byte[] bytes = new byte[(int)entry.Length];
         using var entryStream = entry.Open();
         int offset = 0;
         while (offset < bytes.Length)

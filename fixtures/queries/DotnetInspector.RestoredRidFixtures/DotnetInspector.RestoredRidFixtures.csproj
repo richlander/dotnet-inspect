@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>win;win-x64;linux-x64;osx-arm64</RuntimeIdentifiers>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Pkcs" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <Target Name="CopyRestoredRidFixtureAssets" AfterTargets="Build">
+    <PropertyGroup>
+      <_FixtureOutput>$(ArtifactsPath)/bin/$(MSBuildProjectName)/$(Configuration.ToLowerInvariant())/</_FixtureOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <_PackageArchive Include="$(PkgSystem_Security_Cryptography_Pkcs)/*.nupkg" />
+    </ItemGroup>
+    <MakeDir Directories="$(_FixtureOutput)" />
+    <Copy SourceFiles="$(ProjectAssetsFile)" DestinationFiles="$(_FixtureOutput)project.assets.json" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/rid-cases.json" DestinationFolder="$(_FixtureOutput)" />
+    <Copy SourceFiles="@(_PackageArchive)" DestinationFiles="$(_FixtureOutput)pkcs.nupkg" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(_FixtureOutput)$(TargetFileName)"
+          Condition="'$(RuntimeIdentifier)' != ''" />
+  </Target>
+</Project>

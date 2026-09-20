@@ -114,7 +114,6 @@ public partial record ApiOptions : IProjectionOptions
     /// When false, the command decides the default based on context.
     /// </summary>
     public bool DocsExplicitlySet { get; init; }
-    public bool UseLocalDocs { get; init; }
     public bool ShowSamples { get; init; }
     public bool PreferRenderedUrls { get; init; }
 
@@ -338,6 +337,7 @@ public record TypeOptions : ApiOptions
 public record MemberOptions : ApiOptions
 {
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
+    internal RowSelectionIntent<string>? CallRowSelection { get; init; }
     internal RowSelectionIntent<string>? CallerRowSelection { get; init; }
     internal bool RouterDeferredTypeOrMember { get; init; }
     internal string[] RouterDeferredTypeMemberValues { get; init; } = [];

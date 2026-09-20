@@ -191,6 +191,7 @@ public enum StateMachineRelationshipFailureKind
     CrossKind,
     BudgetExceeded,
     Ambiguous,
+    InvalidHandle,
 }
 
 /// <summary>Inspectable structural evidence for a rejected relationship.</summary>

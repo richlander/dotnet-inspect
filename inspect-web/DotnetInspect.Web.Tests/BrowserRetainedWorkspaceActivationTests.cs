@@ -6,6 +6,12 @@ using NuGetFetch;
 
 namespace DotnetInspect.Web.Tests;
 
+[CollectionDefinition(
+    "Retained Workspace activation",
+    DisableParallelization = true)]
+public sealed class BrowserRetainedWorkspaceActivationCollection;
+
+[Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
 public sealed class BrowserRetainedWorkspaceActivationTests
 {
@@ -22,8 +28,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "workspace-1", firstPacket);
+        NavigationEffectAuthority firstAuthority =
+            Assert.IsType<NavigationEffectAuthority>(
+                first.Navigation.Authority);
         using WorkspaceRealizationOperationLease firstOperation =
             await EnterAsync(owner, "workspace-1");
         AssertWorkspace(
@@ -31,7 +40,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             firstOperation,
             [foo, bar],
             selectedIndex: 1);
-        BrowserRetainedWorkspaceInstallation second =
+        BrowserRetainedWorkspacePosting second =
             await ActivateAsync(owner, "workspace-2", secondPacket);
         using (WorkspaceRealizationOperationLease secondOperation =
             await EnterAsync(owner, "workspace-2"))
@@ -42,6 +51,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 [baz, bar],
                 selectedIndex: 0);
         }
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                first.RealizationId,
+                first.PublicationOrdinal,
+                firstAuthority));
 
         Assert.NotNull(second.Predecessor);
         Task<BrowserRetainedWorkspaceSettlementResult> observation =
@@ -58,7 +72,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             WorkspaceRealizationRetirementReason.Replaced,
             settled.Settlement.Reason);
 
-        BrowserRetainedWorkspaceInstallation third =
+        BrowserRetainedWorkspacePosting third =
             await ActivateAsync(owner, "workspace-1", firstPacket);
         using WorkspaceRealizationOperationLease thirdOperation =
             await EnterAsync(owner, "workspace-1");
@@ -84,8 +98,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation first =
+        BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(
+                first.Navigation.Authority);
 
         var noEffect = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.NoEffect>(
@@ -93,11 +110,149 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                     Request("a", packet),
                     TestContext.Current.CancellationToken));
 
-        Assert.Equal(first.RealizationId, noEffect.Installation.RealizationId);
+        Assert.Equal(first.RealizationId, noEffect.Posting.RealizationId);
         Assert.Equal(
             first.PublicationOrdinal,
-            noEffect.Installation.PublicationOrdinal);
+            noEffect.Posting.PublicationOrdinal);
+        Assert.Same(first.Navigation, noEffect.Posting.Navigation);
+        Assert.True(
+            owner.ValidateNavigationAuthority(
+                first.RealizationId,
+                first.PublicationOrdinal,
+                authority));
         Assert.Equal(1, owner.Capacity.Charged);
+    }
+
+    [Fact]
+    public async Task InitialNavigationAuthority_RequiresExactPostingTuple()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(
+                posting.Navigation.Authority);
+
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                "workspace-realization-other",
+                posting.PublicationOrdinal,
+                authority));
+        Assert.Equal(
+            NavigationAuthorityResult.InvalidAuthority,
+            owner.RecordConsumerPosting(
+                posting.RealizationId,
+                posting.PublicationOrdinal + 1,
+                authority));
+        Assert.True(
+            owner.ValidateNavigationAuthority(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
+                authority));
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            owner.RecordConsumerPosting(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
+                authority));
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            owner.Acknowledge(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
+                authority));
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
+                authority));
+    }
+
+    [Fact]
+    public async Task ReplacementPublishesPredecessorNavigationCleanupFailure()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        string packet = Packet();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting first =
+            await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(
+                first.Navigation.Authority);
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            owner.RecordConsumerPosting(
+                first.RealizationId,
+                first.PublicationOrdinal,
+                authority));
+        Assert.Equal(
+            NavigationAuthorityResult.Accepted,
+            owner.Acknowledge(
+                first.RealizationId,
+                first.PublicationOrdinal,
+                authority));
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePreparation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async ValueTask<NavigationPreparation> ThrowDuringRetirement(
+            NavigationEvaluationRequest _,
+            CancellationToken cancellationToken)
+        {
+            using CancellationTokenRegistration registration =
+                cancellationToken.Register(
+                    static () => throw new InvalidOperationException(
+                        "retirement cleanup failed"));
+            Task cancellation = Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            started.SetResult();
+            try
+            {
+                await cancellation;
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                await releasePreparation.Task;
+                throw;
+            }
+            throw new InvalidOperationException(
+                "Retirement cancellation did not stop preparation.");
+        }
+
+        Task<NavigationConsumerResult?> maintenance =
+            first.NavigationState.RefreshAsync(
+                ThrowDuringRetirement,
+                TestContext.Current.CancellationToken).AsTask();
+        await started.Task;
+
+        BrowserRetainedWorkspacePosting replacement;
+        try
+        {
+            replacement = await ActivateAsync(owner, "b", packet);
+        }
+        finally
+        {
+            releasePreparation.SetResult();
+        }
+
+        Assert.Contains(
+            "retirement cleanup failed",
+            Assert.IsType<BrowserRetainedWorkspaceCleanupEvidence>(
+                replacement.Cleanup).Message,
+            StringComparison.Ordinal);
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                first.RealizationId,
+                first.PublicationOrdinal,
+                authority));
+        Assert.Null(await maintenance);
     }
 
     [Fact]
@@ -107,7 +262,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        BrowserRetainedWorkspaceInstallation incumbent =
+        BrowserRetainedWorkspacePosting incumbent =
             await ActivateAsync(owner, "a", packet);
 
         var invalid = Assert.IsType<
@@ -143,7 +298,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
 
-        BrowserRetainedWorkspaceInstallation installation =
+        BrowserRetainedWorkspacePosting posting =
             await ActivateAsync(owner, $"format-{version}", packet);
 
         Assert.Equal(
@@ -151,7 +306,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
             WorkspaceSharePacketCodec.Decode(
                 packet,
                 TestContext.Current.CancellationToken).FormatVersion);
-        Assert.Equal(packet, installation.CanonicalPacket);
+        Assert.Equal(packet, posting.CanonicalPacket);
     }
 
     [Fact]
@@ -190,7 +345,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         var activated = Assert.IsType<
             BrowserRetainedWorkspaceActivationResult.Activated>(
                 await replacement);
-        Assert.Equal("b", activated.Installation.RetainedDefinitionId);
+        Assert.Equal("b", activated.Posting.RetainedDefinitionId);
         Assert.Equal("b", activationOwner.Active!.RetainedDefinitionId);
     }
 
@@ -201,7 +356,11 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         string packet = Packet();
         await using var owner =
             new BrowserRetainedWorkspaceActivationOwner(() => options);
-        _ = await ActivateAsync(owner, "a", packet);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "a", packet);
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(
+                posting.Navigation.Authority);
 
         var deactivated = Assert.IsType<
             BrowserRetainedWorkspaceDeactivationResult.Deactivated>(
@@ -211,8 +370,13 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         Assert.True(deactivated.Settlement.Succeeded);
         Assert.Null(owner.Active);
         Assert.Equal(0, owner.Capacity.Charged);
+        Assert.False(
+            owner.ValidateNavigationAuthority(
+                posting.RealizationId,
+                posting.PublicationOrdinal,
+                authority));
 
-        BrowserRetainedWorkspaceInstallation replacement =
+        BrowserRetainedWorkspacePosting replacement =
             await ActivateAsync(owner, "b", packet);
         Assert.Equal("b", replacement.RetainedDefinitionId);
     }
@@ -290,7 +454,7 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         string packet) =>
         new(id, $"Workspace {id}", $"/workspace/{id}", packet);
 
-    static async Task<BrowserRetainedWorkspaceInstallation> ActivateAsync(
+    static async Task<BrowserRetainedWorkspacePosting> ActivateAsync(
         BrowserRetainedWorkspaceActivationOwner owner,
         string id,
         string packet)
@@ -300,12 +464,12 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 await owner.ActivateAsync(
                     Request(id, packet),
                     TestContext.Current.CancellationToken));
-        Assert.Equal(packet, activated.Installation.CanonicalPacket);
-        return activated.Installation;
+        Assert.Equal(packet, activated.Posting.CanonicalPacket);
+        return activated.Posting;
     }
 
     static void AssertWorkspace(
-        BrowserRetainedWorkspaceInstallation installation,
+        BrowserRetainedWorkspacePosting posting,
         WorkspaceRealizationOperationLease operation,
         IReadOnlyList<string> expectedPackages,
         int selectedIndex)
@@ -316,8 +480,18 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 .Select(package => package.Occurrence.Package.PackageId)
                 .Order(StringComparer.Ordinal)]);
         Assert.Equal(
-            selectedIndex + 1,
-            installation.Navigation.ActiveStateIndex);
+            expectedPackages[selectedIndex],
+            Assert.Single(
+                posting.Navigation.Snapshot.Packages,
+                package => package.IsCurrent).PackageId);
+        Assert.Equal(
+            expectedPackages.Count,
+            posting.Packages.Length);
+        Assert.Equal(
+            posting.Navigation.Snapshot.Packages
+                .Select(package => package.Subject.Id),
+            posting.Packages
+                .Select(package => package.ConsumerPackageSubjectId));
         Assert.Equal(
             expectedPackages[selectedIndex],
             operation.Scope.Packages[selectedIndex]
@@ -443,7 +617,6 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 "Microsoft.Extensions.DependencyInjection.Abstractions",
                 "PlatformDemo"),
         ];
-        var store = new InMemoryPackageStore();
         foreach (PackageFixture fixture in fixtures)
         {
             byte[] assembly = await File.ReadAllBytesAsync(
@@ -455,22 +628,16 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 TestContext.Current.CancellationToken);
             byte[] package = Archive(
                 ($"lib/net10.0/{fixture.AssemblyName}.dll", assembly));
-            await store.CommitAsync(
-                fixture.PackageId,
-                "11.0.0-preview.7.26381.103",
-                NuGetCache.GetSourceKey(sourceUrl),
-                new MemoryStream(package, writable: false),
-                TestContext.Current.CancellationToken);
+            await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+                new BrowserPackage(
+                    fixture.PackageId,
+                    "11.0.0-preview.7.26381.103",
+                    package,
+                    fromCache: false,
+                    producerKey: NuGetCache.GetSourceKey(sourceUrl)));
         }
 
-        CompleteRestorationExecutionOptions baseline = await OptionsAsync();
-        return baseline with
-        {
-            ContextLoad = baseline.ContextLoad with
-            {
-                PackageStore = store,
-            },
-        };
+        return await OptionsAsync();
     }
 
     static string LegacyPacket() =>
@@ -506,13 +673,13 @@ public sealed class BrowserRetainedWorkspaceActivationTests
         byte[] package = await File.ReadAllBytesAsync(
             packagePath,
             TestContext.Current.CancellationToken);
-        var store = new InMemoryPackageStore();
-        await store.CommitAsync(
-            "System.Text.Json",
-            "9.0.4",
-            NuGetCache.GetSourceKey(sourceUrl),
-            new MemoryStream(package, writable: false),
-            TestContext.Current.CancellationToken);
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                "System.Text.Json",
+                "9.0.4",
+                package,
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         var available = new ViewFacetAvailabilitySnapshot(
             facets.Descriptors.Select(
@@ -528,7 +695,8 @@ public sealed class BrowserRetainedWorkspaceActivationTests
                 SourceAuthorization =
                     new UniformPackageSourceAuthorization(
                         [new PackageSource("nuget.org", sourceUrl)]),
-                PackageStore = store,
+                PackageStore = BrowserPackageWorkspace.SessionPackageStore,
+                IncludePackageRootBindings = true,
             },
             ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(1),
             Facets = facets,

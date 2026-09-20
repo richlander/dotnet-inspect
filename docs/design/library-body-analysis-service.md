@@ -31,6 +31,23 @@ call-graph composition consume those focused types. The compatibility index
 delegates its leverage and local graph members to the same results; it no
 longer owns a second implementation.
 
+The first Research adoption publishes `LibraryAllocationAnalysisResult`,
+extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
+and lets `LibraryCallGraphAnalysisResult` publish its detached method signals.
+`MemberProjectionProducer` receives those results and
+`LibraryLeverageAnalysisResult` through one member-projection-specific input.
+The input preserves their shared execution receipt; it is not a general result
+bag. CLI and Workspace/L1 composition own the single Analysis execution and
+pass the focused values into Research.
+
+The second Research adoption moves IL-offset allocation, safety, and cost
+composition off `LibraryBodyIndex`. `ILOffsetAnalysisInput` joins the three
+focused results from one receipt. CLI coordinate composition executes Analysis
+once over the already-prefetched authoritative image, scopes the request to
+the selected physical MethodDef tokens, and reuses the input across coordinate
+file rows. The Research producer validates source-module correspondence and
+result participation without reopening Analysis.
+
 The CLI session adoption moves both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
@@ -150,8 +167,11 @@ The existing internal `MethodBodyAnalysisResult`, `SafetyAnalysisResult`,
 the decomposition direction, not final public API approval. A result becomes
 public only when its first production consumer fixes the smallest useful
 shape. New Resource Occurrence Analysis publishes a distinct
-`ResourceOccurrenceAnalysisResult`; it does not add another property or
-projection method to `LibraryBodyIndex`.
+`LibraryResourceOccurrenceAnalysisResult` containing root-bound
+`ResourceOccurrenceAnalysisResult` method evidence. Its explicit admitted
+effect set is carried by the request rather than by an unparameterized feature
+bit. It does not add another property or projection method to
+`LibraryBodyIndex`.
 
 During migration, `LibraryBodyIndex` may adapt the execution receipt and
 focused results for unmigrated consumers. Adapter-only lazy indexes may remain
@@ -220,6 +240,22 @@ focused call-graph and optimization results for graph construction and
 optional annotations. The existing `CallTreeNode`, `CallGraphProjection`, and
 Markout lowering remain the structured and rendered output path; the slice
 changes evidence ownership, not output shape or host rendering.
+
+The first sequence-5 slice moves member Research fact production from
+`LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:
+allocation occurrences, safety evidence and occurrences, call evidence and
+signals, and leverage. `MemberProjectionAnalysisInput` validates that all four
+carry the same receipt and provides only the member-projection joins over those
+results. Path-backed compatibility production and immutable-image L1
+production each execute Analysis once; only the L1 query retains a
+compatibility index for its separate callee-evidence composition.
+
+The next sequence-5 slice moves `ILOffsetProjectionProducer` to allocation,
+safety, and call-graph results from one exact receipt. CLI single-coordinate
+execution prepares one token-scoped input; coordinate-file execution prepares
+one input for the union of selected physical MethodDef tokens. This preserves
+the existing point-fact output and typed failure boundary while removing both
+`AnalysisIndexCache` and `LibraryBodyIndex` from IL-offset production.
 
 The pathological graph cases remain explicit: bodiless declarations may still
 be selected as roots, async and lifted calls retain physical evidence

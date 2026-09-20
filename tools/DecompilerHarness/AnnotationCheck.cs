@@ -164,9 +164,16 @@ static class AnnotationCheck
         {
             using var source = MetadataSource.Open(assemblyPath, context: metadata);
             var reader = source.Reader;
-            ResearchAssemblyContext assemblyContext =
-                ResearchAssemblyContext.Create(
-                    LibraryBodyIndex.Open(assemblyPath));
+            LibraryBodyAnalysisExecution analysisExecution =
+                LibraryBodyAnalysisService.ExecutePath(
+                    assemblyPath,
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.Default));
+            var analysis = new MemberProjectionAnalysisInput(
+                analysisExecution.Allocations,
+                analysisExecution.Safety,
+                analysisExecution.CallGraph,
+                analysisExecution.Leverage);
 
             foreach (var typeDefHandle in reader.TypeDefinitions)
             {
@@ -204,7 +211,7 @@ static class AnnotationCheck
                     var annotations = ResearchViews.CollectFacts(
                         source,
                         function,
-                        assemblyContext);
+                        analysis);
 
                     // The independent witness: offset -> opcode, read straight from
                     // the IL bytes with the runtime-ported reader.

@@ -172,7 +172,8 @@ Modal dismissal destroys modal-local state. It derives the embedded primary
 from the modal primary using the same default-and-C# eligibility rule, closes
 detail, and leaves the embedded reader at its fixed presentation. A later
 **Explore** starts fresh; it does not resurrect the dismissed modal's
-annotation, media, coordinate, node, or detail state.
+annotation, media, coordinate, relationship-presentation, node, or detail
+state.
 
 The modal is opened and dismissed through
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md). Those
@@ -200,14 +201,33 @@ the Findings section. With no primary selection, **Selection** renders a
 non-action **Nothing selected** tile in the same content position that
 selected-node tiles occupy.
 
-**Relationships** is an edge table over the producer-issued typed relationship
-sidecar. It renders one row per physical call occurrence, not one row per
-logical edge, and preserves the shared stable edge row when repeated call sites
-target the same edge. The call-site action opens the existing exact
+**Relationships** offers **Table** and **Diagram** presentations over the
+producer-issued typed relationship sidecar. Every fresh modal session starts in
+**Table**. The table renders one row per physical call occurrence, not one row
+per logical edge, and preserves the shared stable edge row when repeated call
+sites target the same edge. The call-site action opens the existing exact
 `call.edge` Finding detail. Separate **Member** and **Source** actions consume
 the row's typed target. Selecting or inspecting a row never silently navigates.
 Coordinate disclosure adds the method-relative IL offset; the browser does not
 parse source text or labels to recover it.
+
+**Diagram** is opt-in and lazy. It lowers only the already retained current-body
+relationship rows and performs no graph or source acquisition. The current body
+is the visual root. One visual edge represents each producer-issued stable edge
+row, and its label discloses repeated physical-occurrence count and loop state.
+One stable edge may retain multiple occurrence-specific typed destinations,
+including version-distinct assembly identities. Companion target entries keep
+each such destination's **Member** and **Source** actions explicit rather than
+choosing one, and provide an explicit **call site(s)** action that returns to
+**Table** and focuses the first exact physical row for that logical edge. The
+diagram itself is not a navigation surface: Mermaid labels and node identifiers
+never select a target or recover identity.
+
+Changing **Table** or **Diagram** preserves primary selection, Finding detail,
+annotation membership, visible media, and coordinate visibility. Focus remains
+on the activated presentation control, except the explicit **call site(s)**
+action focuses the first matching physical table row. Modal dismissal destroys
+the presentation choice; a later **Explore** starts again in **Table**.
 
 The table does not participate in **Default**, **All**, **Clear**, or
 **Custom** because those sets own source annotations, not inspector rows.
@@ -326,6 +346,28 @@ that the operation may block the current thread when the task is incomplete and
 that no runtime blocking or duration was measured. The browser does not infer
 this evidence from a member label or source spelling, and it renders no negative
 claim when the relationship has no such observation.
+
+The same detail may show Research-composed bounded local-throw paths that begin
+with the selected physical relationship. Each observation is an ordered typed
+member path ending at a method whose Analysis evidence proves a construction-fed
+local `throw`, followed by the qualified exception type and the construction
+and throw IL offsets. Repeated source calls sharing one logical first edge keep
+their separate Finding identities while displaying the same witness.
+
+The detail describes only a static direct-call path to a method containing a
+local throw. It explicitly does not say that the selected method throws, that
+the terminal throw executes or escapes, that an exception propagates through
+the path, or that any handler intercepts it. Positive paths remain visible
+under incomplete evidence. Empty incomplete evidence says no path was observed
+within the available bounds; only a complete bounded result may say none was
+observed within those bounds. Path labels and exception spelling are
+presentation, never identity.
+
+The path operation retains one deterministic shortest witness per
+root/destination pair, not one witness per possible first relationship. If
+another retained witness exists but none begins with the selected relationship,
+detail says only that no retained deterministic shortest witness begins there;
+it does not make a per-relationship absence claim.
 
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a

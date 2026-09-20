@@ -179,7 +179,9 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.invalid-source-attempts");
         }
 
-        SourcePolicyDecision decision = SelectSourcePolicy(
+        PlatformSourcePolicyDecision<
+            PlatformAssemblyReferenceSourceAttempt> decision =
+                PlatformSourcePolicyReducer.Select(
             selection,
             byCapability);
         bool consumedWorkCoversAttempts =
@@ -193,7 +195,7 @@ public static class PlatformHouseAssemblyReferenceResolver
                 $"{IdentityPrefix}.invalid-source-work");
         }
 
-        if (decision.Kind == SourcePolicyDecisionKind.Failed
+        if (decision.Kind == PlatformSourcePolicyDecisionKind.Failed
             && consumedWorkCoversAttempts)
         {
             return Failed(
@@ -212,37 +214,39 @@ public static class PlatformHouseAssemblyReferenceResolver
                 consumedWork,
                 $"{IdentityPrefix}.source-policy-incomplete",
                 retainedSettlements: consumedWorkCoversAttempts
-                    ? TerminalSettlements(decision.Settlements)
+                    ? PlatformSourcePolicyReducer.TerminalSettlements(
+                        decision.Settlements)
                     : null);
         }
 
         return decision.Kind switch
         {
-            SourcePolicyDecisionKind.Selected =>
+            PlatformSourcePolicyDecisionKind.Selected =>
                 await ResolveSelectedAsync(
                         request,
-                        decision.Selected!.Materialization,
+                        ((PlatformAssemblyReferenceSourceAttempt.Succeeded)
+                            decision.Selected!).Materialization,
                         consumedWork,
                         decision.Settlements,
                         requireSingleCapability: false)
                     .ConfigureAwait(false),
-            SourcePolicyDecisionKind.Unavailable => Unavailable(
+            PlatformSourcePolicyDecisionKind.Unavailable => Unavailable(
                 request,
                 consumedWork,
                 decision.Settlements,
                 $"{IdentityPrefix}.sources-unavailable"),
-            SourcePolicyDecisionKind.Ambiguous => Ambiguous(
+            PlatformSourcePolicyDecisionKind.Ambiguous => Ambiguous(
                 request,
                 consumedWork,
                 decision.Candidates,
                 decision.Settlements),
-            SourcePolicyDecisionKind.Rejected => Rejected(
+            PlatformSourcePolicyDecisionKind.Rejected => Rejected(
                 request,
                 consumedWork,
                 decision.RejectionKind!.Value,
                 $"{IdentityPrefix}.source-policy-rejected",
                 retainedSettlements: decision.Settlements),
-            SourcePolicyDecisionKind.Incomplete => Incomplete(
+            PlatformSourcePolicyDecisionKind.Incomplete => Incomplete(
                 request,
                 consumedWork,
                 $"{IdentityPrefix}.source-policy-incomplete",
@@ -589,7 +593,8 @@ public static class PlatformHouseAssemblyReferenceResolver
             return Failed(
                 request,
                 consumedWork,
-                TerminalSettlements(sourceSettlements),
+                PlatformSourcePolicyReducer.TerminalSettlements(
+                    sourceSettlements),
                 failures,
                 cancellation is not null,
                 $"{IdentityPrefix}.execution-failed");
@@ -780,274 +785,6 @@ public static class PlatformHouseAssemblyReferenceResolver
             && consumedWork.Assemblies >= successes
             && consumedWork.Bytes >= bytes;
     }
-
-    static SourcePolicyDecision SelectSourcePolicy(
-        PlatformSourceSelection selection,
-        IReadOnlyDictionary<
-            PlatformSourceCapabilityIdentity,
-            PlatformAssemblyReferenceSourceAttempt> attempts) =>
-        selection.Mode == PlatformSourceSelectionMode.Aggregation
-            ? SelectAggregation(selection, attempts)
-            : SelectOrdered(selection, attempts);
-
-    static SourcePolicyDecision SelectOrdered(
-        PlatformSourceSelection selection,
-        IReadOnlyDictionary<
-            PlatformSourceCapabilityIdentity,
-            PlatformAssemblyReferenceSourceAttempt> attempts)
-    {
-        bool sawFallbackFailure = false;
-        for (int index = 0;
-            index < selection.Capabilities.Count;
-            index++)
-        {
-            PlatformSourceCapabilityIdentity capability =
-                selection.Capabilities[index];
-            if (!attempts.TryGetValue(capability, out var attempt))
-            {
-                return SourcePolicyDecision.ForIncomplete(
-                    BuildTerminalSettlements(
-                        selection,
-                        attempts,
-                        index - 1));
-            }
-
-            if (attempt
-                is PlatformAssemblyReferenceSourceAttempt.Succeeded success)
-            {
-                return SourcePolicyDecision.ForSelected(
-                    success,
-                    BuildSelectedSettlements(
-                        selection,
-                        attempts,
-                        index,
-                        aggregation: false));
-            }
-
-            var terminal =
-                (PlatformAssemblyReferenceSourceAttempt.NotSucceeded)
-                    attempt;
-            switch (terminal.Contribution)
-            {
-                case PlatformSourceContribution.Rejected:
-                    return SourcePolicyDecision.ForRejected(
-                        terminal.RejectionKind!.Value,
-                        BuildTerminalSettlements(
-                            selection,
-                            attempts,
-                            index));
-                case PlatformSourceContribution.Incomplete:
-                    return SourcePolicyDecision.ForIncomplete(
-                        BuildTerminalSettlements(
-                            selection,
-                            attempts,
-                            index));
-                case PlatformSourceContribution.Failed
-                    when selection.Mode
-                        == PlatformSourceSelectionMode.Precedence:
-                    return SourcePolicyDecision.ForFailed(
-                        BuildTerminalSettlements(
-                            selection,
-                            attempts,
-                            index));
-                case PlatformSourceContribution.Failed:
-                    sawFallbackFailure = true;
-                    break;
-            }
-        }
-
-        IReadOnlyList<PlatformSourceSettlement> settlements =
-            BuildTerminalSettlements(
-                selection,
-                attempts,
-                selection.Capabilities.Count - 1);
-        return sawFallbackFailure
-            ? SourcePolicyDecision.ForFailed(settlements)
-            : SourcePolicyDecision.ForUnavailable(settlements);
-    }
-
-    static SourcePolicyDecision SelectAggregation(
-        PlatformSourceSelection selection,
-        IReadOnlyDictionary<
-            PlatformSourceCapabilityIdentity,
-            PlatformAssemblyReferenceSourceAttempt> attempts)
-    {
-        IReadOnlyList<PlatformSourceSettlement> terminalSettlements =
-            BuildAggregationTerminalSettlements(selection, attempts);
-        if (attempts.Values.Any(
-                attempt => attempt.Contribution
-                    is PlatformSourceContribution.Failed))
-        {
-            return SourcePolicyDecision.ForFailed(terminalSettlements);
-        }
-        if (selection.Capabilities.Any(
-                capability => !attempts.ContainsKey(capability)))
-        {
-            return SourcePolicyDecision.ForIncomplete(
-                terminalSettlements);
-        }
-
-        foreach (PlatformSourceCapabilityIdentity capability
-            in selection.Capabilities)
-        {
-            if (attempts[capability]
-                    is PlatformAssemblyReferenceSourceAttempt.NotSucceeded
-                    {
-                        Contribution:
-                            PlatformSourceContribution.Rejected,
-                    } rejected)
-            {
-                return SourcePolicyDecision.ForRejected(
-                    rejected.RejectionKind!.Value,
-                    terminalSettlements);
-            }
-        }
-        if (attempts.Values.Any(
-                attempt => attempt.Contribution
-                    is PlatformSourceContribution.Incomplete))
-        {
-            return SourcePolicyDecision.ForIncomplete(
-                terminalSettlements);
-        }
-        PlatformAssemblyReferenceSourceAttempt.Succeeded[] successes =
-            [.. selection.Capabilities
-                .Select(capability => attempts[capability])
-                .OfType<
-                    PlatformAssemblyReferenceSourceAttempt.Succeeded>()];
-        if (successes.Length > 1)
-        {
-            return SourcePolicyDecision.ForAmbiguous(
-                [.. successes.Select(success => success.Candidate)],
-                terminalSettlements);
-        }
-        if (successes.Length == 1
-            && attempts.Values
-                .Where(attempt => !ReferenceEquals(
-                    attempt,
-                    successes[0]))
-                .All(
-                    attempt => attempt.Contribution
-                        is PlatformSourceContribution.Unavailable
-                        {
-                            Reason:
-                                PlatformSourceUnavailabilityKind.Absent,
-                        }))
-        {
-            int selectedIndex = IndexOf(
-                selection.Capabilities,
-                successes[0].Contribution.Capability);
-            return SourcePolicyDecision.ForSelected(
-                successes[0],
-                BuildSelectedSettlements(
-                    selection,
-                    attempts,
-                    selectedIndex,
-                    aggregation: true));
-        }
-        return SourcePolicyDecision.ForUnavailable(terminalSettlements);
-    }
-
-    static IReadOnlyList<PlatformSourceSettlement>
-        BuildSelectedSettlements(
-            PlatformSourceSelection selection,
-            IReadOnlyDictionary<
-                PlatformSourceCapabilityIdentity,
-                PlatformAssemblyReferenceSourceAttempt> attempts,
-            int selectedIndex,
-            bool aggregation)
-    {
-        var settlements = new List<PlatformSourceSettlement>(
-            attempts.Count);
-        for (int index = 0;
-            index < selection.Capabilities.Count;
-            index++)
-        {
-            if (!attempts.TryGetValue(
-                    selection.Capabilities[index],
-                    out var attempt))
-            {
-                continue;
-            }
-            PlatformSourceSettlementDisposition disposition =
-                index == selectedIndex
-                    ? PlatformSourceSettlementDisposition.Selected
-                    : aggregation || index < selectedIndex
-                        ? PlatformSourceSettlementDisposition.OutcomeRelevant
-                        : PlatformSourceSettlementDisposition.Shadowed;
-            settlements.Add(
-                new PlatformSourceSettlement(
-                    attempt.Contribution,
-                    disposition));
-        }
-        return settlements.AsReadOnly();
-    }
-
-    static IReadOnlyList<PlatformSourceSettlement>
-        BuildTerminalSettlements(
-            PlatformSourceSelection selection,
-            IReadOnlyDictionary<
-                PlatformSourceCapabilityIdentity,
-                PlatformAssemblyReferenceSourceAttempt> attempts,
-            int terminalIndex)
-    {
-        var settlements = new List<PlatformSourceSettlement>(
-            attempts.Count);
-        for (int index = 0;
-            index < selection.Capabilities.Count;
-            index++)
-        {
-            if (!attempts.TryGetValue(
-                    selection.Capabilities[index],
-                    out var attempt))
-            {
-                continue;
-            }
-            settlements.Add(
-                new PlatformSourceSettlement(
-                    attempt.Contribution,
-                    index <= terminalIndex
-                        ? PlatformSourceSettlementDisposition.OutcomeRelevant
-                        : PlatformSourceSettlementDisposition.Shadowed));
-        }
-        return settlements.AsReadOnly();
-    }
-
-    static IReadOnlyList<PlatformSourceSettlement>
-        BuildAggregationTerminalSettlements(
-            PlatformSourceSelection selection,
-            IReadOnlyDictionary<
-                PlatformSourceCapabilityIdentity,
-                PlatformAssemblyReferenceSourceAttempt> attempts)
-    {
-        var settlements = new List<PlatformSourceSettlement>(
-            attempts.Count);
-        foreach (PlatformSourceCapabilityIdentity capability
-            in selection.Capabilities)
-        {
-            if (attempts.TryGetValue(capability, out var attempt))
-            {
-                settlements.Add(
-                    new PlatformSourceSettlement(
-                        attempt.Contribution,
-                        PlatformSourceSettlementDisposition
-                            .OutcomeRelevant));
-            }
-        }
-        return settlements.AsReadOnly();
-    }
-
-    static IReadOnlyList<PlatformSourceSettlement> TerminalSettlements(
-        IEnumerable<PlatformSourceSettlement> settlements) =>
-        Array.AsReadOnly(
-            settlements.Select(
-                settlement => new PlatformSourceSettlement(
-                    settlement.Contribution,
-                    settlement.Disposition
-                        == PlatformSourceSettlementDisposition.Selected
-                            ? PlatformSourceSettlementDisposition
-                                .OutcomeRelevant
-                            : settlement.Disposition))
-                .ToArray());
 
     static bool TryValidateRequest(
         PlatformHouseRequest request,
@@ -1493,65 +1230,6 @@ public static class PlatformHouseAssemblyReferenceResolver
     sealed record BindingSnapshotState(
         AssemblyBindingRequest Request,
         AssemblyReferenceIdentity ExpectedIdentity);
-
-    enum SourcePolicyDecisionKind
-    {
-        Selected,
-        Unavailable,
-        Ambiguous,
-        Rejected,
-        Incomplete,
-        Failed,
-    }
-
-    sealed record SourcePolicyDecision(
-        SourcePolicyDecisionKind Kind,
-        IReadOnlyList<PlatformSourceSettlement> Settlements,
-        PlatformAssemblyReferenceSourceAttempt.Succeeded? Selected = null,
-        IReadOnlyList<PlatformHouseCandidateIdentity>? AmbiguousCandidates =
-            null,
-        PlatformHouseRejectionKind? RejectionKind = null)
-    {
-        internal IReadOnlyList<PlatformHouseCandidateIdentity> Candidates =>
-            AmbiguousCandidates
-            ?? Array.Empty<PlatformHouseCandidateIdentity>();
-
-        internal static SourcePolicyDecision ForSelected(
-            PlatformAssemblyReferenceSourceAttempt.Succeeded selected,
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(
-                SourcePolicyDecisionKind.Selected,
-                settlements,
-                Selected: selected);
-
-        internal static SourcePolicyDecision ForUnavailable(
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(SourcePolicyDecisionKind.Unavailable, settlements);
-
-        internal static SourcePolicyDecision ForAmbiguous(
-            IReadOnlyList<PlatformHouseCandidateIdentity> candidates,
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(
-                SourcePolicyDecisionKind.Ambiguous,
-                settlements,
-                AmbiguousCandidates: candidates);
-
-        internal static SourcePolicyDecision ForRejected(
-            PlatformHouseRejectionKind rejectionKind,
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(
-                SourcePolicyDecisionKind.Rejected,
-                settlements,
-                RejectionKind: rejectionKind);
-
-        internal static SourcePolicyDecision ForIncomplete(
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(SourcePolicyDecisionKind.Incomplete, settlements);
-
-        internal static SourcePolicyDecision ForFailed(
-            IReadOnlyList<PlatformSourceSettlement> settlements) =>
-            new(SourcePolicyDecisionKind.Failed, settlements);
-    }
 
     sealed class ExactAssemblyBindingPolicy(
         AssemblyBindingRequest expectedRequest,

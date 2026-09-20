@@ -233,6 +233,7 @@ public sealed class InstalledImplementationPlatformSource
             FrameworkCoordinate,
             IReadOnlyDictionary<string, FrameworkDirectoryEntry>>
                 _frameworkEntries = [];
+        private readonly long _initialBytes;
         private long _remainingBytes;
         private int _resolutionSteps;
         private string? _sharedRoot;
@@ -253,7 +254,8 @@ public sealed class InstalledImplementationPlatformSource
             _cancellationToken = cancellationToken;
             _observation = new InstalledObservationBudget(
                 source._maxObservedEntries);
-            _remainingBytes = request.Work.MaxBytes;
+            _initialBytes = request.Work.MaxBytes;
+            _remainingBytes = _initialBytes;
         }
 
         internal async ValueTask<InstalledImplementationRealization>
@@ -921,7 +923,8 @@ public sealed class InstalledImplementationPlatformSource
                 _generation,
                 _request.Coordinate,
                 Array.AsReadOnly(frameworks.ToArray()),
-                Array.AsReadOnly(libraries.ToArray()));
+                Array.AsReadOnly(libraries.ToArray()),
+                _initialBytes - _remainingBytes);
         }
 
         private async ValueTask<InstalledImplementationLibrary>

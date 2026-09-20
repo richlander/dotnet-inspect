@@ -61,17 +61,28 @@ weighty production logic.
 The first implementation is `ILOffsetProjectionProducer`:
 
 - `ILOffsetProjectionRequest` carries the already-open `SourceLinkService`,
-  coordinate, and capability flags — never a path, `PEReader`, or command options.
+  optional focused Analysis input, coordinate, and capability flags — never a
+  path, `PEReader`, `LibraryBodyIndex`, or command options.
 - Metadata exposes a session-bound `MethodBodySource` from both `PdbContext` and
   `AssemblyInspectionSession`. It returns copied `MethodBodyData` and implements
   operand-name resolution without exposing its owned readers.
 - `MethodBodyData` lives in `MetadataPrimitives` because it is the neutral
   Metadata-to-Instructions contract; Instructions decodes the snapshot directly.
-- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + Analysis +
-  SourceLink composition and returns `ILOffsetProjectionOutcome`.
+- `ILOffsetProjectionProducer.Produce` owns Metadata + Instructions + focused
+  Analysis + SourceLink composition and returns `ILOffsetProjectionOutcome`;
+  it never acquires or reopens Analysis.
 - `ResearchViews.ProjectILOffset` forwards directly to the producer.
-- `ILOffsetQuery` retains only CLI parsing, capability selection, symbol
-  acquisition, failure/exit handling, and producer invocation.
+- `ILOffsetQuery` retains CLI parsing, capability selection, one scoped
+  Analysis execution over the SourceLink session's prefetched authoritative
+  image, failure/exit handling, and producer invocation. Coordinate-file
+  execution unions the MethodDef tokens once and reuses one focused input for
+  every row.
+
+`ILOffsetAnalysisInput` joins allocation, safety, and call-graph results from
+one Analysis execution receipt. The producer verifies that the input's module
+version matches the already-open source session and that each requested result
+family participated; missing, mixed, stale, or unrequested evidence remains a
+typed visible failure rather than an empty context.
 
 The capability replaces product friendship. Research and the CLI consume
 explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
@@ -82,7 +93,7 @@ session is disposed, while copied body data remains safe to retain.
 `MemberProjectionProducer` applies that pattern to member inspection:
 
 - top-level `MemberProjectionRequest` and `MemberProjectionResult` contracts
-  carry already-open Metadata, optional Analysis context, and selected
+  carry already-open Metadata, optional focused Analysis input, and selected
   projection capabilities;
 - the producer owns method import, one Finding census, overlays, portable
   source, tracing, and projection-specific failure shaping;
@@ -92,9 +103,15 @@ session is disposed, while copied body data remains safe to retain.
   the CLI unions `ResearchFactRegistry` requirements into its existing Analysis
   execution, while the pathless Workspace query supplies its immutable-image
   context; and
-- `ResearchAssemblyContext` remains a transitional input until every member
-  fact family has an exact focused Analysis result. The producer does not
-  replace that boundary with a universal Research result bag.
+- `MemberProjectionAnalysisInput` joins the exact allocation, safety,
+  call-graph, and leverage results issued by one Analysis execution. CLI and
+  Workspace/L1 composition supply it, so the producer never reopens Analysis.
+
+`ResearchAssemblyContext` is no longer a member-projection input. The
+Workspace/L1 query retains it only for residual query-owned callee evidence
+that still uses the compatibility index. The focused member input is not a
+universal Research result bag: its constructor names the four result families
+used by the default registry and requires one shared execution receipt.
 
 This migration is tracked by
 [#2786](https://github.com/richlander/dotnet-inspect/issues/2786).

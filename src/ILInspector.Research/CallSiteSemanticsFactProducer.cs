@@ -43,15 +43,15 @@ public sealed record CallSiteSemanticsEvidence(
 
     public static bool TryCreate(
         DirectCall call,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         out CallSiteSemanticsEvidence? evidence)
     {
         ArgumentNullException.ThrowIfNull(call);
-        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         if (!TryResolveCallee(
                 call,
-                assembly,
+                analysis,
                 out MethodIdentity? callee)
             || callee is null)
         {
@@ -61,7 +61,7 @@ public sealed record CallSiteSemanticsEvidence(
 
         ImmutableArray<string> exceptionTypes =
         [
-            .. assembly.Signals
+            .. analysis.Signals
                 .GetValueOrDefault(
                     callee.MetadataToken,
                     MethodSignals.None)
@@ -78,7 +78,7 @@ public sealed record CallSiteSemanticsEvidence(
 
         ImmutableArray<CallSiteEvidenceCoordinate> coordinates =
         [
-            .. assembly.CallsByCaller
+            .. analysis.CallsByEvidenceMethod
                 .GetValueOrDefault(callee.MetadataToken, [])
                 .Where(candidate =>
                     candidate.Kind == CallKind.NewObject
@@ -109,13 +109,13 @@ public sealed record CallSiteSemanticsEvidence(
 
     internal static bool TryResolveCallee(
         DirectCall call,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         out MethodIdentity? callee)
     {
         int token = call.CalleeDefinitionToken;
-        callee = assembly.Signals.ContainsKey(token)
-            || assembly.LeverageByToken.ContainsKey(token)
-                ? assembly.Index.DeclaredMethods.FirstOrDefault(
+        callee = analysis.Signals.ContainsKey(token)
+            || analysis.LeverageByToken.ContainsKey(token)
+                ? analysis.CallGraph.DeclaredMethods.FirstOrDefault(
                     method => method.MetadataToken == token)
                 : null;
         return callee is not null;
@@ -163,18 +163,18 @@ public sealed record CallSiteSafetyEvidence(
 
     public static bool TryCreate(
         DirectCall call,
-        ResearchAssemblyContext assembly,
+        MemberProjectionAnalysisInput analysis,
         out CallSiteSafetyEvidence? evidence)
     {
         ArgumentNullException.ThrowIfNull(call);
-        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(analysis);
 
         if (!CallSiteSemanticsEvidence.TryResolveCallee(
                 call,
-                assembly,
+                analysis,
                 out MethodIdentity? callee)
             || callee is null
-            || !assembly.UnsafeEvidenceByToken.TryGetValue(
+            || !analysis.UnsafeEvidenceByToken.TryGetValue(
                 callee.MetadataToken,
                 out IReadOnlyList<UnsafeEvidence>? unsafeEvidence))
         {
@@ -235,9 +235,11 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
 
     public IReadOnlyList<Finding<IAnnotation>> Produce(ResearchFactContext context)
     {
-        if (context.Assembly is not { } assembly || context.Imported.MetadataToken == 0)
+        if (context.Analysis is not { } analysis
+            || context.Imported.MetadataToken == 0)
             return [];
-        var callSites = assembly.InspectCallSites(context.Imported.MetadataToken);
+        var callSites =
+            analysis.InspectCallSites(context.Imported.MetadataToken);
         if (callSites.IsEmpty)
             return [];
 
@@ -247,7 +249,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
             var call = finding.Payload;
             if (CallSiteSemanticsEvidence.TryCreate(
                     call,
-                    assembly,
+                    analysis,
                     out CallSiteSemanticsEvidence? semantics)
                 && semantics is not null)
             {
@@ -262,7 +264,7 @@ sealed class CallSiteSemanticsFactProducer : IResearchFactProducer
 
             if (CallSiteSafetyEvidence.TryCreate(
                     call,
-                    assembly,
+                    analysis,
                     out CallSiteSafetyEvidence? safety)
                 && safety is not null)
             {

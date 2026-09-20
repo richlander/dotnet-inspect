@@ -19,6 +19,7 @@ public sealed class PdbLocalDeclarationScopeTests
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocals))]
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto))]
     [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels))]
+    [InlineData(nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryLabels))]
     [InlineData(nameof(PdbScopeFixtures.LambdaScopes))]
     [InlineData(nameof(PdbScopeFixtures.LocalFunctionScopes))]
     public void DisjointCompilerScopes_PreserveBothExactNames(string method)
@@ -38,7 +39,8 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.Contains("KeepAlive(ref same);", result.Output);
         Assert.DoesNotContain("V_", result.Output);
         if (method is nameof(PdbScopeFixtures.SequentialScopeLocalsWithGoto)
-            or nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels))
+            or nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels)
+            or nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryLabels))
         {
             Assert.Contains(
                 function.Descendants,
@@ -46,6 +48,11 @@ public sealed class PdbLocalDeclarationScopeTests
         }
         if (method == nameof(PdbScopeFixtures.SequentialScopeLocalsWithInternalLabels))
             Assert.NotEmpty(function.Descendants.OfType<LabelAnchor>());
+        if (method == nameof(PdbScopeFixtures.SequentialScopeLocalsWithEntryLabels))
+        {
+            Assert.Contains("IL_0005:\n{\n    int same =", result.Output);
+            Assert.Contains("IL_0016:\n{\n    string same =", result.Output);
+        }
     }
 
     [Fact]
@@ -767,6 +774,50 @@ public sealed class PdbLocalDeclarationScopeTests
             anchor => anchor.SourceOffset == 20);
         Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
         Assert.Contains("V_1", result.Output);
+    }
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("conditional")]
+    [InlineData("switch")]
+    [InlineData("leave")]
+    public void ExternalTransferToDeclarationBlockEntry_PreservesExactNames(
+        string transferKind)
+    {
+        var entry = new Block(0);
+        entry.Add(Transfer(transferKind, 10));
+        var first = new Block(10);
+        var firstStore = new StoreLocal(0, Int32, new Constant(1, Int32));
+        first.Add(firstStore);
+        first.Add(Observe(0));
+        var second = new Block(20);
+        second.Add(new StoreLocal(1, Int32, new Constant(2, Int32)));
+        second.Add(Observe(1));
+        var body = new BlockContainer();
+        body.Add(entry);
+        body.Add(first);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.NotSame(first, firstStore.Parent);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "int same =", StringSplitOptions.None).Length - 1);
+        Assert.Contains("IL_000A:\n{", result.Output);
+        Assert.DoesNotContain("V_", result.Output);
     }
 
     [Theory]

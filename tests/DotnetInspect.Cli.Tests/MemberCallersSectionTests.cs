@@ -367,6 +367,7 @@ public class MemberCallersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
         Assert.DoesNotContain("No callers found in this assembly.", result.Output);
     }
 

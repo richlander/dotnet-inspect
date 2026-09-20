@@ -455,6 +455,63 @@ internal sealed record CompleteRestorationInvocation(
     IReadOnlyDictionary<string, NavigationPackageEvaluation>
         PackageEvaluations);
 
+/// <summary>
+/// One exact ready Package occurrence exposed only while complete restoration
+/// still owns its live package evidence.
+/// </summary>
+public sealed record CompleteRestorationReadyPackage
+{
+    internal CompleteRestorationReadyPackage(
+        string navigationId,
+        string consumerPackageSubjectId,
+        PackageRootBinding binding,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(navigationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(consumerPackageSubjectId);
+        NavigationId = navigationId;
+        ConsumerPackageSubjectId = consumerPackageSubjectId;
+        Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        Evaluation = evaluation
+            ?? throw new ArgumentNullException(nameof(evaluation));
+    }
+
+    public string NavigationId { get; }
+
+    public string ConsumerPackageSubjectId { get; }
+
+    public PackageRootBinding Binding { get; }
+
+    public NavigationPackageEvaluation Evaluation { get; }
+}
+
+/// <summary>
+/// Validated product-order package evidence for a detached host projection.
+/// The callback must not retain live bindings or evaluations after returning.
+/// </summary>
+public sealed record CompleteRestorationReadyProjection
+{
+    internal CompleteRestorationReadyProjection(
+        ImmutableArray<CompleteRestorationReadyPackage> packages)
+    {
+        if (packages.IsDefault
+            || packages.Any(static package => package is null))
+        {
+            throw new ArgumentException(
+                "Ready Packages must be an initialized immutable array.",
+                nameof(packages));
+        }
+        Packages = packages;
+    }
+
+    public ImmutableArray<CompleteRestorationReadyPackage> Packages { get; }
+}
+
+public delegate ValueTask CompleteRestorationProjectionOperation(
+    CompleteWorkspaceActivation activation,
+    CompleteRestorationReadyProjection projection,
+    CancellationToken cancellationToken);
+
 internal delegate ValueTask<ImmutableArray<PackageRootBinding>>
     CompleteRestorationPackageRootsOperation(
         ImmutableArray<PackageRootBinding> packageRoots,
@@ -571,6 +628,30 @@ public static class CompleteRestorationCoordinator
             packageRootsOperation: null,
             operation: null,
             cancellationToken);
+
+    public static ValueTask<CompleteRestorationResult<TActivation>>
+        RestoreWithProjectionAsync<TActivation>(
+            CompleteRestorationPreparationResult preparation,
+            ICompleteRestorationIntentAuthority authority,
+            ICompleteRestorationHost<TActivation> host,
+            CompleteRestorationExecutionOptions options,
+            CompleteRestorationProjectionOperation operation,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return RestoreCoreAsync(
+            preparation,
+            authority,
+            host,
+            options,
+            packageRootsOperation: null,
+            async (_, activation, invocation, token) =>
+                await operation(
+                    activation,
+                    CreateReadyProjection(activation, invocation),
+                    token).ConfigureAwait(false),
+            cancellationToken);
+    }
 
     internal static ValueTask<CompleteRestorationResult<TActivation>>
         RestoreWithOperationAsync<TActivation>(
@@ -1076,6 +1157,97 @@ public static class CompleteRestorationCoordinator
         }
 
         return distinct.ToImmutable();
+    }
+
+    private static CompleteRestorationReadyProjection CreateReadyProjection(
+        CompleteWorkspaceActivation activation,
+        CompleteRestorationInvocation invocation)
+    {
+        NavigationOperationInitialization navigation =
+            activation.Snapshot.Navigation;
+        ImmutableArray<NavigationPackageDescriptor> productPackages =
+            navigation.State.CurrentSnapshot.Packages;
+        ImmutableArray<NavigationConsumerPackageDescriptor> consumerPackages =
+            navigation.Result.Consumer.Snapshot.Packages;
+        if (productPackages.Length != consumerPackages.Length)
+        {
+            throw new InvalidOperationException(
+                "The restored Navigation state and consumer projection "
+                    + "disagree on Package count.");
+        }
+
+        var ready =
+            ImmutableArray.CreateBuilder<CompleteRestorationReadyPackage>(
+                invocation.PackageEvaluations.Count);
+        var navigationIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (NavigationPackageDescriptor product in productPackages)
+        {
+            KeyValuePair<string, NavigationPackageEvaluation>[] evaluations =
+            [
+                .. invocation.PackageEvaluations.Where(
+                    pair => ReferenceEquals(
+                        pair.Value.Occurrence.Occurrence,
+                        product.Occurrence)),
+            ];
+            if (evaluations.Length == 0)
+                continue;
+            if (evaluations.Length != 1
+                || !navigationIds.Add(evaluations[0].Key))
+            {
+                throw new InvalidOperationException(
+                    "A restored ready Package occurrence did not map to one "
+                        + "unique Navigation row.");
+            }
+
+            string navigationId = evaluations[0].Key;
+            NavigationPackageEvaluation evaluation = evaluations[0].Value;
+            if (!invocation.PackageRequests.TryGetValue(
+                    navigationId,
+                    out PackageArtifactRootRequest request))
+            {
+                throw new InvalidOperationException(
+                    $"Restored Navigation row '{navigationId}' omitted its "
+                        + "exact Package request.");
+            }
+
+            PackageRootBinding[] bindings =
+            [
+                .. invocation.PackageRoots.Where(
+                    binding => PackageArtifactRootRequest.From(binding)
+                        == request),
+            ];
+            if (bindings.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Restored Navigation row '{navigationId}' did not retain "
+                        + "one exact Package Root binding.");
+            }
+
+            NavigationConsumerPackageDescriptor[] consumers =
+            [
+                .. consumerPackages.Where(
+                    package => package.Order == product.Order),
+            ];
+            if (consumers.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Restored Navigation row '{navigationId}' did not map to "
+                        + "one consumer Package subject.");
+            }
+
+            ready.Add(new(
+                navigationId,
+                consumers[0].Subject.Id,
+                bindings[0],
+                evaluation));
+        }
+        if (ready.Count != invocation.PackageEvaluations.Count)
+        {
+            throw new InvalidOperationException(
+                "Complete restoration omitted a ready Navigation Package "
+                    + "from the projection.");
+        }
+        return new(ready.MoveToImmutable());
     }
 
     private static PackageNavigationRequestResolution

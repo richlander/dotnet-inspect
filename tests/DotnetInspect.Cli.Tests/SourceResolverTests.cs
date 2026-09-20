@@ -81,6 +81,24 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public async Task ResolveAsync_UnavailableExplicitFramework_DefersWithoutCurrentCatalogFallback()
+    {
+        var source = await SourceResolver.ResolveAsync(
+            ["System.String"],
+            explicitPackage: null,
+            explicitAssembly: null,
+            explicitPlatform: null,
+            NoSourceKeys,
+            verbose: false,
+            platformFramework: "runtime@99.0.0");
+
+        Assert.Equal("System.String", source.PackagePath);
+        Assert.Null(source.PlatformAssembly);
+        Assert.Null(source.TypeName);
+        Assert.Equal("runtime@99.0.0", source.FrameworkOverride);
+    }
+
+    [Fact]
     public async Task ResolveAsync_ExplicitSource_DoesNotUseBareCoreLibLookup()
     {
         SkipIfCoreLibUnavailable();
