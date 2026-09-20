@@ -115,6 +115,8 @@ docs/design/models/inspect-web-retained-workspace-completion/ReachabilityAccepte
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityCancellationAfterAcceptance.cfg=12
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityCancellationBeforeAcceptance.cfg=12
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityCompatibilityCompletion.cfg=12
+docs/design/models/inspect-web-retained-workspace-completion/ReachabilityCompatibilityCompletionBeforeRetirementFailure.cfg=12
+docs/design/models/inspect-web-retained-workspace-completion/ReachabilityCompatibilityRetirementFailureBeforeCompletion.cfg=12
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityManagedReleaseBeforePredecessorSettlement.cfg=12
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityNoCutoverFailureCompletion.cfg=12
 docs/design/models/inspect-web-retained-workspace-completion/ReachabilityOldCompletionIgnored.cfg=12

@@ -59,6 +59,8 @@ The model covers:
 - managed replacement completion before predecessor settlement;
 - compatibility retirement and sole-active deletion through imported
   `CloseCoordinator` and `FinishCoordinatorClose`;
+- failed compatibility retirement leaving no-Workspace presentation whether
+  consumer completion happens before or after the failure is observed;
 - successful and failed consumer completion with visible terminal failure;
 - delayed or unknown transport response without rollback;
 - old completion arriving while a newer operation remains accepted; and
@@ -107,6 +109,8 @@ that product enforcement already exists.
 - no-cutover failure preserves the incumbent;
 - successful cutover and post-cutover failure never restore the predecessor;
 - retirement removes managed selection and presentation;
+- failed compatibility retirement leaves no presentation for its associated
+  current operation while preserving any already-terminal consumer outcome;
 - pre-acceptance cancellation preserves the incumbent;
 - post-acceptance cancellation preserves completion ownership;
 - terminal failure remains visible; and
@@ -133,6 +137,8 @@ Every configuration is pinned in
 | `ReachabilityCancellationBeforeAcceptance.cfg` | 12 | Pre-acceptance cancellation settles its unpublished candidate |
 | `ReachabilityCancellationAfterAcceptance.cfg` | 12 | Post-acceptance cancellation leaves completion owned |
 | `ReachabilityCompatibilityCompletion.cfg` | 12 | Compatibility completion follows terminal managed retirement |
+| `ReachabilityCompatibilityCompletionBeforeRetirementFailure.cfg` | 12 | Later failed retirement clears an earlier successful compatibility presentation |
+| `ReachabilityCompatibilityRetirementFailureBeforeCompletion.cfg` | 12 | Successful consumer completion after failed retirement remains no-Workspace |
 | `ReachabilityManagedReleaseBeforePredecessorSettlement.cfg` | 12 | Managed success releases while its predecessor still drains |
 | `ReachabilityNoCutoverFailureCompletion.cfg` | 12 | No-cutover failure releases after candidate settlement and consumer completion |
 | `ReachabilityOldCompletionIgnored.cfg` | 12 | Old completion does not release the newer accepted operation |
@@ -157,6 +163,6 @@ npx --no-install markdownlint-cli "$model/README.md"
 ```
 
 The focused run on 2026-09-20 used TLA Tools `2026.08.11.125311` with OpenJDK
-`21.0.12`. Safety and liveness each explored 404,181 generated states and
-166,333 distinct states to depth 27. All 16 configured semantic verdicts
+`21.0.12`. Safety and liveness each explored 406,749 generated states and
+168,869 distinct states to depth 27. All 18 configured semantic verdicts
 matched the manifest.

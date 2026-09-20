@@ -79,6 +79,8 @@ CompletionWitnesses == {
     "PrematureReleaseBeforePresentation",
     "ManagedReleasedBeforePredecessorSettlement",
     "CompatibilityCompletion",
+    "CompatibilityCompletionBeforeRetirementFailure",
+    "CompatibilityRetirementFailureBeforeCompletion",
     "SoleDeletionCompletion",
     "OldCompletionIgnored",
     "RetiredSoleActiveRevived"
@@ -863,20 +865,36 @@ ObserveRetirementOutcome(t) ==
                       IF failed
                       THEN "RetiredFailed"
                       ELSE "RetiredSucceeded"]
+          /\ presentationKind' =
+              IF failed
+                  /\ transitions[t].kind = "Compatibility"
+              THEN "None"
+              ELSE presentationKind
+          /\ presentedRealization' =
+              IF failed
+                  /\ transitions[t].kind = "Compatibility"
+              THEN NoRealization
+              ELSE presentedRealization
           /\ visibleFailures' =
               IF failed
               THEN visibleFailures \cup {t}
               ELSE visibleFailures
+          /\ witnesses' =
+              witnesses
+              \cup (IF failed
+                        /\ transitions[t].kind = "Compatibility"
+                        /\ transitions[t].consumer = "Succeeded"
+                    THEN {
+                        "CompatibilityCompletionBeforeRetirementFailure"
+                    }
+                    ELSE {})
     /\ UNCHANGED <<
         bootstrapState,
         realizationDefinition,
         selectedDefinition,
-        presentationKind,
-        presentedRealization,
         nextOrdinal,
         latestIntent,
-        acceptedTransition,
-        witnesses
+        acceptedTransition
         >>
     /\ CoordinatorUnchanged
 
@@ -950,6 +968,8 @@ CompleteConsumer(t, result) ==
              THEN "Managed"
              ELSE IF result = "Succeeded"
                          /\ transitions[t].kind = "Compatibility"
+                         /\ transitions[t].outcome
+                            \in {"RetirementPending", "RetiredSucceeded"}
                   THEN "Compatibility"
                   ELSE "None"
     /\ presentedRealization' =
@@ -973,6 +993,13 @@ CompleteConsumer(t, result) ==
                   /\ transitions[t].outcome = "ManagedSucceeded"
                   /\ transitions[t].transport = "Unknown"
               THEN {"UnknownPostCutoverFailure"}
+              ELSE {})
+        \cup (IF result = "Succeeded"
+                  /\ transitions[t].kind = "Compatibility"
+                  /\ transitions[t].outcome = "RetiredFailed"
+              THEN {
+                  "CompatibilityRetirementFailureBeforeCompletion"
+              }
               ELSE {})
     /\ UNCHANGED <<
         bootstrapState,
@@ -1254,6 +1281,20 @@ RetirementRemovesManagedSelection ==
            /\ selectedDefinition = NoDefinition
            /\ presentationKind # "Managed"
 
+TransitionOwnsCurrentPresentation(t) ==
+    /\ transitions[t].intent = latestIntent
+    /\ \/ acceptedTransition = t
+       \/ /\ acceptedTransition = NoTransition
+          /\ transitions[t].state = "Released"
+
+FailedCompatibilityRetirementLeavesNoWorkspace ==
+    \A t \in Transitions :
+        /\ TransitionOwnsCurrentPresentation(t)
+        /\ transitions[t].kind = "Compatibility"
+        /\ transitions[t].outcome = "RetiredFailed"
+        => /\ presentationKind = "None"
+           /\ presentedRealization = NoRealization
+
 CancellationBeforeAcceptancePreservesIncumbent ==
     \A t \in Transitions :
         transitions[t].state = "CancelledPendingSettlement"
@@ -1291,6 +1332,7 @@ Safety ==
     /\ NoCutoverFailurePreservesIncumbent
     /\ ManagedCutoverDoesNotRollback
     /\ RetirementRemovesManagedSelection
+    /\ FailedCompatibilityRetirementLeavesNoWorkspace
     /\ CancellationBeforeAcceptancePreservesIncumbent
     /\ CancellationAfterAcceptancePreservesOwnership
     /\ NoPrematureReleaseBeforePresentation
@@ -1316,6 +1358,12 @@ NeverManagedReleasedBeforePredecessorSettlement ==
 
 NeverCompatibilityCompletion ==
     "CompatibilityCompletion" \notin witnesses
+
+NeverCompatibilityCompletionBeforeRetirementFailure ==
+    "CompatibilityCompletionBeforeRetirementFailure" \notin witnesses
+
+NeverCompatibilityRetirementFailureBeforeCompletion ==
+    "CompatibilityRetirementFailureBeforeCompletion" \notin witnesses
 
 NeverSoleDeletionCompletion ==
     "SoleDeletionCompletion" \notin witnesses
