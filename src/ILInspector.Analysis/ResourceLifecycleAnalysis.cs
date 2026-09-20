@@ -104,14 +104,14 @@ public static class ResourceLifecycleAnalysis
                        outcome),
             ];
             if (occurrences.IsEmpty
-                && result.Methods.Any(method => !method.IsComplete))
+                && !result.IsComplete)
             {
                 ResourceLifecycleLimitation first =
-                    result.Methods
-                        .SelectMany(method =>
+                    result.Limitations
+                        .Concat(result.Methods.SelectMany(method =>
                             method.Limitations.Concat(
                                 method.Roots.SelectMany(root =>
-                                    root.Limitations)))
+                                    root.Limitations))))
                         .First();
                 return Failed(
                     subject,

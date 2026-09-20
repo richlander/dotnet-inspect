@@ -322,6 +322,33 @@ public static class Entry
         ArrayPool<byte>.Shared.Return(buffer);
     }
 
+    public static void RentAndReturnOnEitherBranch(bool first)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        if (first)
+            ArrayPool<byte>.Shared.Return(buffer);
+        else
+            ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentAndReturnOnSomeBranches(
+        bool first,
+        bool second)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        if (first)
+            ArrayPool<byte>.Shared.Return(buffer);
+        else if (second)
+            ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void AcquireAndReleaseThroughConcreteInterface()
+    {
+        var pool = new OwnershipResourcePool();
+        byte[] buffer = pool.Acquire(16);
+        pool.Release(buffer);
+    }
+
     public static void RentTwoWithSecondAddress()
     {
         byte[] first = ArrayPool<byte>.Shared.Rent(16);
@@ -347,6 +374,21 @@ public static class Entry
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public interface IOwnershipResourcePool
+    {
+        byte[] Acquire(int length);
+        void Release(byte[] buffer);
+    }
+
+    public sealed class OwnershipResourcePool : IOwnershipResourcePool
+    {
+        public byte[] Acquire(int length) => new byte[length];
+
+        public void Release(byte[] buffer)
+        {
         }
     }
 

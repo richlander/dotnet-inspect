@@ -58,11 +58,13 @@ prerequisites. An occurrence-only request does not run lifecycle analysis.
 Unrelated body-analysis requests do not admit the shipped ArrayPool model or
 pay its resolution cost.
 
-Effect resolution receives only calls whose metadata name can match one of the
-admitted member selectors, including explicit-interface name suffixes. This is
-a lossless selector prefilter: nonmatching names cannot satisfy an exact member
-selector. Acquisition, authority, and resource declarations remain
-unconditional candidates. Other exact-selector calls enter lifecycle effect
+Effect resolution receives only calls whose member shape can match one of the
+admitted member selectors, including concrete methods that may implement an
+interface selector and explicit-interface name suffixes. This is a lossless
+prefilter: incompatible names, arity, instance shape, calling convention, and
+parameter counts cannot satisfy either a direct selector or an interface
+application. Acquisition, authority, and resource declarations remain
+unconditional candidates. Other matching calls enter lifecycle effect
 resolution only when their receiver or an argument carries a candidate
 acquisition result. Resource Occurrence and Lifecycle Analysis still receive
 the full direct-call population, so participating and unresolved boundaries
@@ -118,6 +120,11 @@ The first slice deliberately uses bounded physical evidence:
 - same-block ordering for use-after-release and double-release;
 - the existing block graph for modeled terminal exits; and
 - validated exception-region correlation for cleanup around a boundary.
+
+Terminal-exit analysis with multiple release sites remains explicitly
+incomplete until predicate correlation can prove that alternative releases
+cover every path. Same-block double-release and other sound positive outcomes
+remain available for that root.
 
 An `operation throws=never` effect suppresses that exact direct-call boundary
 as an exceptional-cleanup candidate. Other participating direct-call

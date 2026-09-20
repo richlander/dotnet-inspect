@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using InertText;
@@ -9,6 +11,10 @@ public sealed class ResourceLifecycleAnalysisTests
 {
     static readonly ResourceEffectModelIdentity ThrowsNeverModel =
         new("test.resource-lifecycle-throws-never");
+    static readonly ResourceEffectModelIdentity InterfaceLifecycleModel =
+        new("test.resource-lifecycle-interface");
+    static readonly ResourceKindIdentity InterfaceBufferKind =
+        new("test.resource-lifecycle.interface-buffer");
 
     [Fact]
     public void OccurrenceOnlyRequest_DoesNotSelectLifecycle()
@@ -66,6 +72,45 @@ public sealed class ResourceLifecycleAnalysisTests
             execution,
             "RentAndStoreDirectly",
             ResourceLifecycleOutcomeKind.InvalidTransfer);
+    }
+
+    [Fact]
+    public void LifecycleRequest_AppliesInterfaceEffectsToConcreteCalls()
+    {
+        ResourceEffectAdmissionOutcome outcome =
+            ResourceEffectAdmissionBuilder.Admit(
+                [InterfaceLifecycleDefinition()]);
+        ResourceEffectAdmission admission = Assert.IsType<
+            ResourceEffectAdmissionOutcome.Admitted>(outcome).Admission;
+
+        ResourceLifecycleRootResult root = Root(
+            Analyze(
+                LibraryBodyAnalysisRequest.CreateResourceLifecycle(
+                    admission)),
+            "AcquireAndReleaseThroughConcreteInterface");
+
+        Assert.True(root.IsComplete);
+        Assert.Empty(root.Outcomes);
+    }
+
+    [Theory]
+    [InlineData("RentAndReturnOnEitherBranch")]
+    [InlineData("RentAndReturnOnSomeBranches")]
+    public void LifecycleRequest_MarksMultipleReleaseSitesIncomplete(
+        string methodName)
+    {
+        ResourceLifecycleRootResult root = Root(Analyze(), methodName);
+
+        Assert.False(root.IsComplete);
+        ResourceLifecycleLimitation limitation = Assert.Single(
+            root.Limitations,
+            candidate =>
+                candidate.Kind
+                    == ResourceLifecycleLimitationKind.UnsupportedFlow);
+        Assert.Contains(
+            "multiple release sites",
+            limitation.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,6 +246,34 @@ public sealed class ResourceLifecycleAnalysisTests
                 inspection.Value);
     }
 
+    [Fact]
+    public void LifecycleProjection_DoesNotIgnoreLibraryLimitation()
+    {
+        LibraryResourceLifecycleAnalysisResult lifecycle =
+            Analyze().ResourceLifecycle;
+        ResourceLifecycleMethodResult completeMethod = Assert.Single(
+            lifecycle.Methods,
+            method => method.Method.Name == "RentAndReturnDirectly");
+        lifecycle = lifecycle with
+        {
+            Methods = [completeMethod],
+            Limitations =
+            [
+                new ResourceLifecycleLimitation(
+                    ResourceLifecycleLimitationKind.ResourceOccurrence,
+                    "Interface application coverage was incomplete."),
+            ],
+        };
+
+        var inspection = ResourceLifecycleAnalysis.Inspect(
+            lifecycle,
+            new FindingSubject("fixture", "fixture"));
+
+        Assert.IsType<
+            FindingInspection<ResourceLifecycleOccurrence>.Failed>(
+                inspection.Value);
+    }
+
     static LibraryBodyAnalysisExecution Analyze(
         LibraryBodyAnalysisRequest? request = null)
     {
@@ -285,6 +358,107 @@ public sealed class ResourceLifecycleAnalysisTests
                     ]),
             ]);
     }
+
+    static ResourceEffectModelDefinition InterfaceLifecycleDefinition()
+    {
+        ResourceTypeExpression.Named byteType = CoreType("Byte");
+        ResourceTypeExpression byteArray =
+            new ResourceTypeExpression.SzArray(byteType);
+        ResourceTypeExpression.Named pool = new(
+            new ResourceAssemblySelector(
+                "ILInspector.Analysis.OwnershipFlowFixtures",
+                publicKeyToken: null,
+                ResourceAssemblyVersionPolicy.Any),
+            "Ownership",
+            [
+                new ResourceTypeNameSegment("Entry", 0),
+                new ResourceTypeNameSegment(
+                    "IOwnershipResourcePool",
+                    0),
+            ]);
+        ResourceKindReference buffer =
+            new(InterfaceBufferKind, []);
+        return new(
+            ResourceEffectLanguageIdentity.Version1,
+            InterfaceLifecycleModel,
+            [
+                new ResourceKindDefinition(
+                    InterfaceBufferKind,
+                    arity: 0,
+                    [
+                        new ResourceDeclarationProvenance(
+                            InterfaceLifecycleModel,
+                            ResourceDeclarationAuthority.CallerSupplied,
+                            new InertString(
+                                TextPolicy.Field,
+                                "resource-lifecycle-interface:0"),
+                            0),
+                    ]),
+            ],
+            [],
+            [
+                Declaration(
+                    pool,
+                    "Acquire",
+                    [CoreType("Int32")],
+                    byteArray,
+                    new ResourceEffect.Acquire(
+                        buffer,
+                        new ResourceEffectLocation.Return(),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        Correspondence: null,
+                        Lender: null),
+                    ordinal: 1),
+                Declaration(
+                    pool,
+                    "Release",
+                    [byteArray],
+                    CoreType("Void"),
+                    new ResourceEffect.Release(
+                        new ResourceEffectLocation.Parameter(0),
+                        new ResourceEffectCompletion.NormalReturn(),
+                        buffer,
+                        Correspondence: null,
+                        Observation: null),
+                    ordinal: 2),
+            ]);
+    }
+
+    static ResourceEffectTypedDeclaration Declaration(
+        ResourceTypeExpression.Named declaringType,
+        string name,
+        ImmutableArray<ResourceTypeExpression> parameterTypes,
+        ResourceTypeExpression returnType,
+        ResourceEffect effect,
+        int ordinal) =>
+        new(
+            new ResourceEffectTargetSelector.Member(
+                new ResourceEffectMemberSelector(
+                    declaringType,
+                    name,
+                    ResourceEffectMemberKind.Method,
+                    isStatic: false,
+                    genericArity: 0,
+                    ResourceEffectCallingConvention.Default,
+                    hasThis: true,
+                    explicitThis: false,
+                    [
+                        .. parameterTypes.Select(parameter =>
+                            new ResourceEffectParameterSelector(
+                                parameter,
+                                ResourceEffectRefKind.Value)),
+                    ],
+                    returnType)),
+            effect,
+            [
+                new ResourceDeclarationProvenance(
+                    InterfaceLifecycleModel,
+                    ResourceDeclarationAuthority.CallerSupplied,
+                    new InertString(
+                        TextPolicy.Field,
+                        $"resource-lifecycle-interface:{ordinal}"),
+                    ordinal),
+            ]);
 
     static ResourceTypeExpression.Named FixtureEntryType() =>
         new(

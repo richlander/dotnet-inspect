@@ -310,8 +310,21 @@ internal static class ResourceLifecycleAnalysisService
             }
         }
 
-        if (acquisitionDefinition is not null
-            && releases.Length <= 1)
+        bool releasesSpanBlocks = releases
+            .Select(context.Blocks.BlockIndexAt)
+            .Distinct()
+            .Skip(1)
+            .Any();
+        if (acquisitionDefinition is not null && releasesSpanBlocks)
+        {
+            limitations.Add(new(
+                ResourceLifecycleLimitationKind.UnsupportedFlow,
+                "Terminal-exit analysis does not support multiple "
+                + "release sites for one resource root.",
+                context.Method,
+                root));
+        }
+        else if (acquisitionDefinition is not null)
         {
             ResourceExceptionPathAnalyzer.LeakExitKind exit =
                 ResourceExceptionPathAnalyzer.PathExitsWithoutRelease(

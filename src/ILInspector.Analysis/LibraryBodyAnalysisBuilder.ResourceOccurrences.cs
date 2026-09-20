@@ -161,12 +161,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                                 declaration.Target,
                         declaration.Effect))
                 .ToImmutableArray();
-        ImmutableHashSet<(string Member, string Namespace, string Type)>
-            targets =
+        ImmutableArray<ResourceEffectMemberSelector> targets =
             declarations
                 .Select(static declaration =>
-                    TargetKey(declaration.Target))
-                .ToImmutableHashSet();
+                    declaration.Target.Selector)
+                .ToImmutableArray();
         if (targets.IsEmpty)
         {
             return analysis with
@@ -178,30 +177,28 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             };
         }
 
-        ImmutableHashSet<(string Member, string Namespace, string Type)>
-            alwaysResolveTargets =
+        ImmutableArray<ResourceEffectMemberSelector> alwaysResolveTargets =
             declarations
                 .Where(static declaration =>
                     declaration.Effect is ResourceEffect.Acquire
                         or ResourceEffect.Authority
                         or ResourceEffect.Resource)
                 .Select(static declaration =>
-                    TargetKey(declaration.Target))
-                .ToImmutableHashSet();
-        ImmutableHashSet<(string Member, string Namespace, string Type)>
-            acquisitionTargets =
+                    declaration.Target.Selector)
+                .ToImmutableArray();
+        ImmutableArray<ResourceEffectMemberSelector> acquisitionTargets =
             declarations
                 .Where(static declaration =>
                     declaration.Effect is ResourceEffect.Acquire)
                 .Select(static declaration =>
-                    TargetKey(declaration.Target))
-                .ToImmutableHashSet();
+                    declaration.Target.Selector)
+                .ToImmutableArray();
         ImmutableHashSet<(int MethodToken, int ILOffset)>
             candidateAcquisitions =
             restrictToLifecycleParticipants
                 ? analysis.Methods.DirectCalls
                     .Where(call =>
-                        MatchesTarget(call, acquisitionTargets))
+                        CouldMatchTarget(call, acquisitionTargets))
                     .Select(call =>
                         (
                             call.EvidenceMethod.MetadataToken,
@@ -211,9 +208,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         ImmutableArray<DirectCall> calls =
         [
             .. analysis.Methods.DirectCalls.Where(call =>
-                MatchesTarget(call, targets)
+                CouldMatchTarget(call, targets)
                 && (!restrictToLifecycleParticipants
-                    || MatchesTarget(call, alwaysResolveTargets)
+                    || CouldMatchTarget(call, alwaysResolveTargets)
                     || CarriesCandidateAcquisition(
                         call,
                         candidateAcquisitions))),
@@ -226,16 +223,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             },
         };
     }
-
-    static (
-        string Member,
-        string Namespace,
-        string Type) TargetKey(
-            ResourceEffectTargetSelector.Member target) =>
-        (
-            target.Selector.MetadataName,
-            target.Selector.DeclaringType.Namespace,
-            MetadataTypeName(target.Selector.DeclaringType.Segments));
 
     static bool CarriesCandidateAcquisition(
         DirectCall call,
@@ -255,42 +242,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                             call.EvidenceMethod.MetadataToken,
                             source.ILOffset))));
 
-    static bool MatchesTarget(
+    static bool CouldMatchTarget(
         DirectCall call,
-        ImmutableHashSet<(string Member, string Namespace, string Type)>
-            targets)
-    {
-        TypeRef declaringType =
-            call.Callee.DeclaringType.Kind == TypeRefKind.GenericInstance
-                ? call.Callee.DeclaringType.ElementType
-                    ?? call.Callee.DeclaringType
-                : call.Callee.DeclaringType;
-        return targets.Any(target =>
-            string.Equals(
-                declaringType.Namespace,
-                target.Namespace,
-                StringComparison.Ordinal)
-            && string.Equals(
-                declaringType.Name,
-                target.Type,
-                StringComparison.Ordinal)
-            && (string.Equals(
-                    call.Callee.Name,
-                    target.Member,
-                    StringComparison.Ordinal)
-                || call.Callee.Name.EndsWith(
-                    $".{target.Member}",
-                    StringComparison.Ordinal)));
-    }
-
-    static string MetadataTypeName(
-        ImmutableArray<ResourceTypeNameSegment> segments) =>
-        string.Join(
-            "+",
-            segments.Select(segment =>
-                segment.GenericArity == 0
-                    ? segment.MetadataName
-                    : $"{segment.MetadataName}`{segment.GenericArity}"));
+        ImmutableArray<ResourceEffectMemberSelector> targets) =>
+        targets.Any(target =>
+            ResourceEffectSelectorBinder.MemberShapeCouldMatch(
+                target,
+                call.Callee,
+                allowExplicitInterfaceName: true));
 
     static ImmutableArray<ResourceOccurrenceLimitation> Limitations(
         ResourceEffectResolutionOutcome outcome) =>
