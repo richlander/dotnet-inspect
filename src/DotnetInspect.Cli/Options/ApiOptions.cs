@@ -376,6 +376,12 @@ public record MemberOptions : ApiOptions
         get;
         init;
     }
+    public InspectionEnvelope<AssemblyMemberDecompilationEntry>?
+        MemberDecompilationInspection
+    {
+        get;
+        init;
+    }
     public MemberSourceDiffPresentationResult? MemberSourceDiffPresentation
     {
         get;
