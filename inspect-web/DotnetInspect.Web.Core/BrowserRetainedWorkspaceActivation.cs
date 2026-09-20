@@ -57,19 +57,19 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
     string? RuntimeIdentifier,
     BrowserPackageSurfaceInfo Surface);
 
-internal abstract record BrowserRetainedWorkspacePackageAdmissionResult
+internal abstract record BrowserRetainedWorkspaceAdmissionResult<T>
+    where T : class
 {
-    private protected BrowserRetainedWorkspacePackageAdmissionResult() { }
+    private protected BrowserRetainedWorkspaceAdmissionResult() { }
 
-    internal sealed record Admitted(
-        BrowserRetainedWorkspacePackagePresentation Package)
-        : BrowserRetainedWorkspacePackageAdmissionResult;
+    internal sealed record Admitted(T Presentation)
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
 
     internal sealed record Superseded
-        : BrowserRetainedWorkspacePackageAdmissionResult;
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
 
     internal sealed record Unavailable(string Message)
-        : BrowserRetainedWorkspacePackageAdmissionResult;
+        : BrowserRetainedWorkspaceAdmissionResult<T>;
 }
 
 internal sealed record BrowserRetainedWorkspaceCleanupEvidence(string Message);
@@ -696,12 +696,38 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
             WorkspaceRealizationOperationUnavailableReason.NoActiveRealization);
     }
 
-    internal async Task<BrowserRetainedWorkspacePackageAdmissionResult>
+    internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePackagePresentation>>
         AdmitPackageAsync(
             string retainedDefinitionId,
             string realizationId,
             string navigationId,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default) =>
+        AdmitRowAsync(
+            retainedDefinitionId, realizationId, navigationId, "Package",
+            static (active, id) => active.Packages.FirstOrDefault(
+                candidate => candidate.NavigationId == id),
+            cancellationToken);
+
+    internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>
+        AdmitPlatformAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            CancellationToken cancellationToken = default) =>
+        AdmitRowAsync(
+            retainedDefinitionId, realizationId, navigationId, "Platform",
+            static (active, id) => active.Platforms.FirstOrDefault(
+                candidate => candidate.NavigationId == id),
+            cancellationToken);
+
+    async Task<BrowserRetainedWorkspaceAdmissionResult<T>> AdmitRowAsync<T>(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        string rowKind,
+        Func<BrowserRetainedWorkspacePosting, string, T?> select,
+        CancellationToken cancellationToken)
+        where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
@@ -713,7 +739,7 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
         if (admission
             is not WorkspaceRealizationOperationAdmission.Admitted admitted)
         {
-            return new BrowserRetainedWorkspacePackageAdmissionResult.Superseded();
+            return new BrowserRetainedWorkspaceAdmissionResult<T>.Superseded();
         }
 
         using WorkspaceRealizationOperationLease operation = admitted.Lease;
@@ -724,16 +750,14 @@ internal sealed class BrowserRetainedWorkspaceActivationOwner :
                 || active.RealizationId != realizationId
                 || !ReferenceEquals(active.Realization, operation.Realization))
             {
-                return new BrowserRetainedWorkspacePackageAdmissionResult.Superseded();
+                return new BrowserRetainedWorkspaceAdmissionResult<T>.Superseded();
             }
 
-            BrowserRetainedWorkspacePackagePresentation? package =
-                active.Packages.FirstOrDefault(
-                    candidate => candidate.NavigationId == navigationId);
-            return package is null
-                ? new BrowserRetainedWorkspacePackageAdmissionResult.Unavailable(
-                    $"Navigation row '{navigationId}' is not a Package in the active Workspace.")
-                : new BrowserRetainedWorkspacePackageAdmissionResult.Admitted(package);
+            T? presentation = select(active, navigationId);
+            return presentation is null
+                ? new BrowserRetainedWorkspaceAdmissionResult<T>.Unavailable(
+                    $"Navigation row '{navigationId}' is not a {rowKind} in the active Workspace.")
+                : new BrowserRetainedWorkspaceAdmissionResult<T>.Admitted(presentation);
         }
     }
 

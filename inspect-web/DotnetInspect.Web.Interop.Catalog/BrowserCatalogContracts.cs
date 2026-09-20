@@ -555,14 +555,42 @@ public sealed record BrowserRetainedWorkspacePackage(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
-    BrowserPackageSurface Surface);
+    BrowserPackageSurface Surface,
+    BrowserRetainedWorkspaceTypePage TypePage);
 
 public sealed record BrowserRetainedWorkspacePlatform(
     string NavigationId,
     int ContextIndex,
     string Family,
     string? RuntimeIdentifier,
-    BrowserPackageSurface Surface);
+    BrowserPackageSurface Surface,
+    BrowserRetainedWorkspaceTypePage TypePage);
+
+public sealed record BrowserRetainedWorkspaceTypePage(
+    int Offset,
+    int TotalTypes,
+    int? NextOffset);
+
+public sealed record BrowserRetainedWorkspaceSurfaceSummary(
+    string? SelectedCompileFramework,
+    int LibraryCount,
+    int TypeCount,
+    int MemberCount,
+    int DocumentCount,
+    bool HasInspectionNotices);
+
+public sealed record BrowserRetainedWorkspacePackageInventory(
+    string NavigationId,
+    int ContextIndex,
+    string ConsumerPackageSubjectId,
+    BrowserRetainedWorkspaceSurfaceSummary Summary);
+
+public sealed record BrowserRetainedWorkspacePlatformInventory(
+    string NavigationId,
+    int ContextIndex,
+    string Family,
+    string? RuntimeIdentifier,
+    BrowserRetainedWorkspaceSurfaceSummary Summary);
 
 public sealed record BrowserRetainedWorkspaceLibraryIdentity(
     string Name,
@@ -607,6 +635,11 @@ public sealed record BrowserRetainedWorkspacePackageAdmissionResult(
     BrowserRetainedWorkspacePackage? Package,
     string? Message);
 
+public sealed record BrowserRetainedWorkspacePlatformAdmissionResult(
+    string Status,
+    BrowserRetainedWorkspacePlatform? Platform,
+    string? Message);
+
 public sealed record BrowserRetainedWorkspaceCleanup(string Message);
 
 /// <summary>
@@ -628,8 +661,8 @@ public sealed record BrowserRetainedWorkspacePosting(
     long PublicationOrdinal,
     BrowserRetainedWorkspaceDefinitionState Definition,
     BrowserRetainedNavigationResult Navigation,
-    BrowserRetainedWorkspacePackage[] Packages,
-    BrowserRetainedWorkspacePlatform[] Platforms,
+    BrowserRetainedWorkspacePackageInventory[] Packages,
+    BrowserRetainedWorkspacePlatformInventory[] Platforms,
     BrowserRetainedWorkspacePredecessor? Predecessor,
     BrowserRetainedWorkspaceCleanup? Cleanup);
 
@@ -679,6 +712,7 @@ public sealed record BrowserRetainedWorkspaceSettlementResult(
 [JsonSerializable(typeof(BrowserWorkspaceShareEncodeResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceActivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspacePackageAdmissionResult))]
+[JsonSerializable(typeof(BrowserRetainedWorkspacePlatformAdmissionResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceDeactivationResult))]
 [JsonSerializable(typeof(BrowserRetainedWorkspaceSettlementResult))]
 internal sealed partial class BrowserCatalogJsonContext : JsonSerializerContext;

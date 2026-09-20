@@ -4,6 +4,8 @@ using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using NuGetFetch;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
+using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
+using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -72,10 +74,21 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal("t0", platform.NavigationId);
         Assert.Equal(mixedIndex, platform.ContextIndex);
         Assert.Equal("linux-x64", platform.RuntimeIdentifier);
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Unavailable>(
+        Assert.IsType<PackageAdmission.Unavailable>(
             await owner.AdmitPackageAsync(
                 "mixed", installation.RealizationId, platform.NavigationId,
                 TestContext.Current.CancellationToken));
+        var platformAdmission = Assert.IsType<PlatformAdmission.Admitted>(
+            await owner.AdmitPlatformAsync(
+                "mixed", installation.RealizationId, platform.NavigationId,
+                TestContext.Current.CancellationToken));
+        Assert.Same(platform, platformAdmission.Presentation);
+        Assert.IsType<PlatformAdmission.Unavailable>(
+            await owner.AdmitPlatformAsync(
+                "mixed", installation.RealizationId, "t1",
+                TestContext.Current.CancellationToken));
+        Assert.Same(installation, owner.Active);
+        Assert.Equal("t1", owner.Active?.Definition.Navigation?.Focus);
         await owner.DisposeAsync();
         AssertPlatformPresentation(platform);
     }
@@ -134,16 +147,16 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         BrowserRetainedWorkspacePosting first =
             await ActivateAsync(owner, "a", packet);
         var admitted =
-            Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Admitted>(
+            Assert.IsType<PackageAdmission.Admitted>(
                 await owner.AdmitPackageAsync(
                     "a", first.RealizationId, "t0",
                     TestContext.Current.CancellationToken));
-        Assert.Same(Assert.Single(first.Packages), admitted.Package);
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Unavailable>(
+        Assert.Same(Assert.Single(first.Packages), admitted.Presentation);
+        Assert.IsType<PackageAdmission.Unavailable>(
             await owner.AdmitPackageAsync(
                 "a", first.RealizationId, "System.Text.Json",
                 TestContext.Current.CancellationToken));
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Superseded>(
+        Assert.IsType<PackageAdmission.Superseded>(
             await owner.AdmitPackageAsync(
                 "other", first.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
@@ -151,16 +164,16 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         BrowserRetainedWorkspacePosting replacement =
             await ActivateAsync(owner, "a", packet);
         Assert.NotEqual(first.RealizationId, replacement.RealizationId);
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Superseded>(
+        Assert.IsType<PackageAdmission.Superseded>(
             await owner.AdmitPackageAsync(
                 "a", first.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Admitted>(
+        Assert.IsType<PackageAdmission.Admitted>(
             await owner.AdmitPackageAsync(
                 "a", replacement.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
         await owner.DisposeAsync();
-        Assert.IsType<BrowserRetainedWorkspacePackageAdmissionResult.Superseded>(
+        Assert.IsType<PackageAdmission.Superseded>(
             await owner.AdmitPackageAsync(
                 "a", replacement.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
@@ -307,14 +320,51 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 Assert.Equal(["t0", "t1"], installation.Definition.Contexts[0].TabIds);
                 Assert.Equal(["t2"], installation.Definition.Contexts[1].TabIds);
                 Assert.Equal(2, installation.Packages.Length);
-                Catalog.BrowserRetainedWorkspacePlatform platform =
+                Catalog.BrowserRetainedWorkspacePlatformInventory platform =
                     Assert.Single(installation.Platforms);
                 Assert.Equal("t0", platform.NavigationId);
                 Assert.Equal(0, platform.ContextIndex);
                 Assert.Equal("runtime", platform.Family);
                 Assert.Equal("linux-x64", platform.RuntimeIdentifier);
-                Assert.NotEmpty(platform.Surface.Assemblies);
-                Assert.NotEmpty(platform.Surface.Types);
+                Assert.True(platform.Summary.LibraryCount > 0);
+                Assert.True(platform.Summary.TypeCount > 0);
+                string platformJson = await Catalog.CatalogExports.AdmitRetainedWorkspacePlatform(
+                    "facade", installation.RealizationId, platform.NavigationId);
+                var platformDetail = Assert.IsType<Catalog.BrowserRetainedWorkspacePlatformAdmissionResult>(
+                    JsonSerializer.Deserialize(
+                        platformJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspacePlatformAdmissionResult));
+                Assert.True(platformDetail.Status == "admitted", platformDetail.Message);
+                Assert.NotNull(platformDetail.Platform);
+                Assert.Equal(platform.Summary.LibraryCount,
+                    platformDetail.Platform.Surface.Assemblies.Length);
+                Assert.Equal(platform.Summary.TypeCount,
+                    platformDetail.Platform.TypePage.TotalTypes);
+                Assert.Equal(platform.ContextIndex, platformDetail.Platform.ContextIndex);
+                Assert.Equal(platform.RuntimeIdentifier, platformDetail.Platform.RuntimeIdentifier);
+                var expectedTypes = Catalog.BrowserRetainedWorkspaceActivationService.Owner.Active!
+                    .Platforms.Single().Surface.Types;
+                var actualTypes = new List<Catalog.BrowserTypeSurface>();
+                while (true)
+                {
+                    AssertTransportAdmitted(platformJson);
+                    Assert.Equal(actualTypes.Count, platformDetail.Platform.TypePage.Offset);
+                    actualTypes.AddRange(platformDetail.Platform.Surface.Types);
+                    if (platformDetail.Platform.TypePage.NextOffset is not { } nextOffset)
+                        break;
+                    platformJson = await Catalog.CatalogExports.AdmitRetainedWorkspacePlatform(
+                        "facade", installation.RealizationId, platform.NavigationId, nextOffset);
+                    platformDetail = Assert.IsType<Catalog.BrowserRetainedWorkspacePlatformAdmissionResult>(
+                        JsonSerializer.Deserialize(
+                            platformJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePlatformAdmissionResult));
+                    Assert.True(platformDetail.Status == "admitted", platformDetail.Message);
+                    Assert.NotNull(platformDetail.Platform);
+                }
+                Assert.Equal(expectedTypes.Select(type => type.QueryId),
+                    actualTypes.Select(type => type.QueryId));
             }
             else
             {
@@ -322,12 +372,19 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 Assert.Equal(["t0"], Assert.Single(installation.Definition.Contexts).TabIds);
                 Assert.Empty(installation.Platforms);
             }
-            Catalog.BrowserRetainedWorkspacePackage package =
+            Catalog.BrowserRetainedWorkspacePackageInventory package =
                 Assert.Single(installation.Packages,
                     package => package.NavigationId == activeTab);
             Assert.Equal(0, package.ContextIndex);
-            Assert.NotEmpty(package.Surface.Types);
-            Assert.NotEmpty(package.Surface.Documents);
+            Assert.True(package.Summary.TypeCount > 0);
+            Assert.True(package.Summary.DocumentCount > 0);
+            Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            using (JsonDocument compact = JsonDocument.Parse(json))
+            {
+                Assert.All(compact.RootElement.GetProperty("posting")
+                    .GetProperty("packages").EnumerateArray(),
+                    row => Assert.False(row.TryGetProperty("surface", out _)));
+            }
             json = await Catalog.CatalogExports.AdmitRetainedWorkspacePackage(
                 "facade", installation.RealizationId, package.NavigationId);
             var admitted = Assert.IsType<Catalog.BrowserRetainedWorkspacePackageAdmissionResult>(
@@ -337,6 +394,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         .BrowserRetainedWorkspacePackageAdmissionResult));
             Assert.Equal("admitted", admitted.Status);
             Assert.Equal(package.ConsumerPackageSubjectId, admitted.Package?.ConsumerPackageSubjectId);
+            Assert.NotNull(admitted.Package);
+            Assert.Equal(package.Summary.TypeCount, admitted.Package.TypePage.TotalTypes);
+            Assert.Equal(0, admitted.Package.TypePage.Offset);
+            Assert.InRange(admitted.Package.Surface.Types.Length, 1, 100);
+            Assert.Equal(package.Summary.DocumentCount, admitted.Package.Surface.Documents.Length);
+            Assert.Equal(package.Summary.MemberCount, admitted.Package.Surface.TotalMembers);
             json = await Catalog.CatalogExports.AdmitRetainedWorkspacePackage(
                 "facade", "old-realization", package.NavigationId);
             var superseded = Assert.IsType<Catalog.BrowserRetainedWorkspacePackageAdmissionResult>(
@@ -346,6 +409,30 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         .BrowserRetainedWorkspacePackageAdmissionResult));
             Assert.Equal("superseded", superseded.Status);
             Assert.Null(superseded.Package);
+            if (includePlatform)
+            {
+                string wrongKindJson = await Catalog.CatalogExports.AdmitRetainedWorkspacePlatform(
+                    "facade", installation.RealizationId, package.NavigationId, 0);
+                var wrongKind = JsonSerializer.Deserialize(wrongKindJson,
+                    Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+                Assert.Equal("unavailable", wrongKind?.Status);
+                string invalidOffsetJson = await Catalog.CatalogExports.AdmitRetainedWorkspacePlatform(
+                    "facade", installation.RealizationId, "t0", -1);
+                var invalidOffset = JsonSerializer.Deserialize(invalidOffsetJson,
+                    Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+                Assert.Equal("unavailable", invalidOffset?.Status);
+                Assert.Contains("offset", invalidOffset?.Message);
+                var replacement = ReadActivation(
+                    await Catalog.CatalogExports.ActivateRetainedWorkspaceDefinition(
+                        "replacement", "Replacement", "/workspace", Packet()));
+                Assert.Equal("activated", replacement.Status);
+                string stalePageJson = await Catalog.CatalogExports.AdmitRetainedWorkspacePlatform(
+                    "facade", installation.RealizationId, "t0", 100);
+                var stalePage = JsonSerializer.Deserialize(stalePageJson,
+                    Catalog.BrowserCatalogJsonContext.Default.BrowserRetainedWorkspacePlatformAdmissionResult);
+                Assert.Equal("superseded", stalePage?.Status);
+                Assert.Null(stalePage?.Platform);
+            }
         }
         finally
         {

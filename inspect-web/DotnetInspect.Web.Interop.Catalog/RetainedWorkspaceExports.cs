@@ -4,6 +4,8 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.SourceSelection;
+using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
+using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
 
 namespace DotnetInspect.Web.Interop.Catalog;
 
@@ -14,17 +16,32 @@ public static partial class CatalogExports
     public static async Task<string> AdmitRetainedWorkspacePackage(
         string retainedDefinitionId,
         string realizationId,
-        string navigationId)
+        string navigationId,
+        int typeOffset = 0)
     {
         BrowserRetainedWorkspacePackageAdmissionResult result =
             await BrowserRetainedWorkspaceActivationService.AdmitPackageAsync(
                 retainedDefinitionId,
                 realizationId,
-                navigationId).ConfigureAwait(false);
-        return JsonSerializer.Serialize(
-            result,
-            BrowserCatalogJsonContext.Default
-                .BrowserRetainedWorkspacePackageAdmissionResult);
+                navigationId,
+                typeOffset).ConfigureAwait(false);
+        return BrowserRetainedWorkspaceDetailWireProjection.Serialize(result);
+    }
+
+    [JSExport]
+    public static async Task<string> AdmitRetainedWorkspacePlatform(
+        string retainedDefinitionId,
+        string realizationId,
+        string navigationId,
+        int typeOffset = 0)
+    {
+        BrowserRetainedWorkspacePlatformAdmissionResult result =
+            await BrowserRetainedWorkspaceActivationService.AdmitPlatformAsync(
+                retainedDefinitionId,
+                realizationId,
+                navigationId,
+                typeOffset).ConfigureAwait(false);
+        return BrowserRetainedWorkspaceDetailWireProjection.Serialize(result);
     }
 
     [JSExport]
@@ -158,23 +175,50 @@ internal static class BrowserRetainedWorkspaceActivationService
         AdmitPackageAsync(
             string retainedDefinitionId,
             string realizationId,
-            string navigationId)
+            string navigationId,
+            int typeOffset)
     {
-        DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult result =
+        PackageAdmission result =
             await _owner.AdmitPackageAsync(
                 retainedDefinitionId,
                 realizationId,
                 navigationId).ConfigureAwait(false);
         return result switch
         {
-            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
-                .Admitted admitted => new("admitted", Package(admitted.Package), null),
-            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
-                .Superseded => new("superseded", null, null),
-            DotnetInspect.Web.BrowserRetainedWorkspacePackageAdmissionResult
-                .Unavailable unavailable => new("unavailable", null, unavailable.Message),
+            PackageAdmission.Admitted admitted when
+                ValidOffset(typeOffset, admitted.Presentation.Surface) =>
+                new("admitted", Package(admitted.Presentation, typeOffset), null),
+            PackageAdmission.Admitted =>
+                new("unavailable", null, "The requested Type offset is outside the retained Package inventory."),
+            PackageAdmission.Superseded => new("superseded", null, null),
+            PackageAdmission.Unavailable unavailable =>
+                new("unavailable", null, unavailable.Message),
             _ => throw new InvalidOperationException(
                 "Retained Package admission returned an unsupported result."),
+        };
+    }
+
+    internal static async Task<BrowserRetainedWorkspacePlatformAdmissionResult>
+        AdmitPlatformAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            string navigationId,
+            int typeOffset)
+    {
+        PlatformAdmission result = await _owner.AdmitPlatformAsync(
+            retainedDefinitionId, realizationId, navigationId).ConfigureAwait(false);
+        return result switch
+        {
+            PlatformAdmission.Admitted admitted when
+                ValidOffset(typeOffset, admitted.Presentation.Surface) =>
+                new("admitted", Platform(admitted.Presentation, typeOffset), null),
+            PlatformAdmission.Admitted =>
+                new("unavailable", null, "The requested Type offset is outside the retained Platform inventory."),
+            PlatformAdmission.Superseded => new("superseded", null, null),
+            PlatformAdmission.Unavailable unavailable =>
+                new("unavailable", null, unavailable.Message),
+            _ => throw new InvalidOperationException(
+                "Retained Platform admission returned an unsupported result."),
         };
     }
 
@@ -345,15 +389,22 @@ internal static class BrowserRetainedWorkspaceActivationService
             posting.PublicationOrdinal,
             Definition(posting),
             BrowserCatalogWireProjection.Project(posting.Navigation),
-            [.. posting.Packages.Select(Package)],
+            [
+                .. posting.Packages.Select(
+                    static package => new BrowserRetainedWorkspacePackageInventory(
+                        package.NavigationId,
+                        package.ContextIndex,
+                        package.ConsumerPackageSubjectId,
+                        Summary(package.Surface))),
+            ],
             [
                 .. posting.Platforms.Select(
-                    static platform => new BrowserRetainedWorkspacePlatform(
+                    static platform => new BrowserRetainedWorkspacePlatformInventory(
                         platform.NavigationId,
                         platform.ContextIndex,
                         platform.Family,
                         platform.RuntimeIdentifier,
-                        BrowserCatalogWireProjection.Project(platform.Surface))),
+                        Summary(platform.Surface))),
             ],
             posting.Predecessor is null
                 ? null
@@ -365,12 +416,55 @@ internal static class BrowserRetainedWorkspaceActivationService
                 : new(posting.Cleanup.Message));
 
     static BrowserRetainedWorkspacePackage Package(
-        BrowserRetainedWorkspacePackagePresentation package) =>
+        BrowserRetainedWorkspacePackagePresentation package,
+        int typeOffset) =>
         new(
             package.NavigationId,
             package.ContextIndex,
             package.ConsumerPackageSubjectId,
-            BrowserCatalogWireProjection.Project(package.Surface));
+            PageSurface(package.Surface, typeOffset),
+            TypePage(package.Surface, typeOffset));
+
+    static BrowserRetainedWorkspacePlatform Platform(
+        BrowserRetainedWorkspacePlatformPresentation platform,
+        int typeOffset) =>
+        new(
+            platform.NavigationId,
+            platform.ContextIndex,
+            platform.Family,
+            platform.RuntimeIdentifier,
+            PageSurface(platform.Surface, typeOffset),
+            TypePage(platform.Surface, typeOffset));
+
+    static bool ValidOffset(int offset, BrowserPackageSurfaceInfo surface) =>
+        offset >= 0 && offset <= surface.Types.Length;
+
+    static BrowserRetainedWorkspaceTypePage TypePage(
+        BrowserPackageSurfaceInfo surface, int offset)
+    {
+        int end = offset + Math.Min(100, surface.Types.Length - offset);
+        return new(offset, surface.Types.Length, end < surface.Types.Length ? end : null);
+    }
+
+    static BrowserPackageSurface PageSurface(
+        BrowserPackageSurfaceInfo surface, int offset)
+    {
+        int count = Math.Min(100, surface.Types.Length - offset);
+        return BrowserCatalogWireProjection.Project(surface with
+        {
+            Types = surface.Types[offset..(offset + count)],
+        });
+    }
+
+    static BrowserRetainedWorkspaceSurfaceSummary Summary(
+        BrowserPackageSurfaceInfo surface) =>
+        new(
+            surface.CompileLibrary.TargetFramework,
+            surface.Assemblies.Length,
+            surface.Types.Length,
+            surface.TotalMembers,
+            surface.Documents.Count,
+            surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
 
     static BrowserRetainedWorkspaceDefinitionState Definition(
         DotnetInspect.Web.BrowserRetainedWorkspacePosting posting)
