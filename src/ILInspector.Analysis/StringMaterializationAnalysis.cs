@@ -39,6 +39,11 @@ public static class StringMaterializationAnalysis
 {
     public static ImmutableArray<StringMaterializationOccurrence> Collect(
         IEnumerable<DirectCall> calls)
+        => Collect(calls, receiverSources: null);
+
+    internal static ImmutableArray<StringMaterializationOccurrence> Collect(
+        IEnumerable<DirectCall> calls,
+        IReadOnlyDictionary<int, CallReceiverSource>? receiverSources)
     {
         ArgumentNullException.ThrowIfNull(calls);
 
@@ -52,7 +57,10 @@ public static class StringMaterializationAnalysis
 
         foreach (DirectCall call in callArray)
         {
-            if (Classify(call, callsByCoordinate)
+            if (Classify(
+                    call,
+                    callsByCoordinate,
+                    receiverSources)
                     is not { } kind)
             {
                 continue;
@@ -76,7 +84,8 @@ public static class StringMaterializationAnalysis
     private static StringMaterializationKind? Classify(
         DirectCall call,
         IReadOnlyDictionary<(int MethodToken, int ILOffset), DirectCall>
-            callsByCoordinate)
+            callsByCoordinate,
+        IReadOnlyDictionary<int, CallReceiverSource>? receiverSources)
     {
         if (call.Kind is not (
                 CallKind.Call
@@ -149,7 +158,8 @@ public static class StringMaterializationAnalysis
             && member.Name == "ToString"
             && HasStringBuilderReceiver(
                 call,
-                callsByCoordinate))
+                callsByCoordinate,
+                receiverSources))
         {
             return StringMaterializationKind.StringBuilderFinalization;
         }
@@ -160,9 +170,12 @@ public static class StringMaterializationAnalysis
     private static bool HasStringBuilderReceiver(
         DirectCall call,
         IReadOnlyDictionary<(int MethodToken, int ILOffset), DirectCall>
-            callsByCoordinate)
+            callsByCoordinate,
+        IReadOnlyDictionary<int, CallReceiverSource>? receiverSources)
     {
-        CallReceiverSource? receiver = call.ReceiverSource;
+        CallReceiverSource? receiver =
+            receiverSources?.GetValueOrDefault(call.ILOffset)
+            ?? call.ReceiverSource;
         if (receiver is not
                 {
                     IsComplete: true,

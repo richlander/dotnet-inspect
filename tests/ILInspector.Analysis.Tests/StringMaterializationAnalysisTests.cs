@@ -235,6 +235,8 @@ public sealed class StringMaterializationAnalysisTests
                 "string.join",
             ["Build"] =
                 "string.builder-finalization",
+            ["BuildStored"] =
+                "string.builder-finalization",
             ["Construct"] =
                 "string.constructor",
             ["Decode"] =
@@ -266,6 +268,14 @@ public sealed class StringMaterializationAnalysisTests
                     .IncludeInMemberTriage(opportunity));
         }
 
+        Assert.Contains(
+            "(object::ToString)",
+            Assert.Single(
+                opportunities,
+                candidate =>
+                    candidate.Method.Name == "BuildStored")
+                .Evidence,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             opportunities,
             candidate =>

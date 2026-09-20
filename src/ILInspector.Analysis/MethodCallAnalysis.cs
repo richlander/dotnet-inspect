@@ -65,7 +65,7 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,
         bool includeCallValueFlow = true,
-        bool includeReceiverSources = false,
+        IDictionary<int, CallReceiverSource>? privateReceiverSources = null,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
@@ -180,7 +180,7 @@ internal static partial class MethodCallAnalysis
             && context.Instructions.Instructions.Any(static instruction =>
                 instruction.OpCode is ILOpCode.Throw or ILOpCode.Rethrow);
         if (includeCallValueFlow
-            || includeReceiverSources
+            || privateReceiverSources is not null
             || includeLocalThrows)
         {
             var callsByOffset = calls.ToDictionary(call => call.ILOffset);
@@ -235,9 +235,13 @@ internal static partial class MethodCallAnalysis
                 }
                 reaching = sources.ReachingDefinitions;
             }
-            else if (includeReceiverSources)
+            if (privateReceiverSources is not null)
             {
-                CollectReceiverSources(calls, sources);
+                CollectReceiverSources(
+                    calls,
+                    sources,
+                    privateReceiverSources,
+                    includeNewObjectSources: true);
             }
             if (includeLocalThrows
                 && localThrows is not null
@@ -454,7 +458,9 @@ internal static partial class MethodCallAnalysis
 
     static void CollectReceiverSources(
         ImmutableArray<DirectCall>.Builder calls,
-        StackValueSourceResolver sources)
+        StackValueSourceResolver sources,
+        IDictionary<int, CallReceiverSource>? destination = null,
+        bool includeNewObjectSources = false)
     {
         if (!sources.IsComplete)
             return;
@@ -462,7 +468,9 @@ internal static partial class MethodCallAnalysis
         for (int index = 0; index < calls.Count; index++)
         {
             DirectCall call = calls[index];
-            if (call.Kind is CallKind.NewObject
+            if (call.Kind is not (
+                    CallKind.Call
+                    or CallKind.CallVirtual)
                 || !call.Callee.HasThis)
             {
                 continue;
@@ -470,13 +478,18 @@ internal static partial class MethodCallAnalysis
 
             SourceSet source = sources.CallReceiverSource(
                 call.ILOffset,
-                call.Callee.ParameterTypes.Length);
-            calls[index] = call with
+                call.Callee.ParameterTypes.Length,
+                includeNewObjectSources);
+            var receiver = new CallReceiverSource(
+                source.CallOffsets,
+                source.IsComplete);
+            if (destination is not null)
             {
-                ReceiverSource = new(
-                    source.CallOffsets,
-                    source.IsComplete),
-            };
+                destination.Add(call.ILOffset, receiver);
+                continue;
+            }
+
+            calls[index] = call with { ReceiverSource = receiver };
         }
     }
 
@@ -514,7 +527,10 @@ internal static partial class MethodCallAnalysis
             => _reaching;
 
         internal SourceSet SinkSource(int sinkOffset)
-            => SourceAt(_stack.StackBeforeOffset(sinkOffset), -1);
+            => SourceAt(
+                _stack.StackBeforeOffset(sinkOffset),
+                -1,
+                includeNewObjectSources: false);
 
         internal SourceSet CallArgumentSource(
             int callOffset,
@@ -526,19 +542,26 @@ internal static partial class MethodCallAnalysis
             int stackIndex = stack.Length - parameterCount + argumentIndex;
             return stackIndex < 0 || stackIndex >= stack.Length
                 ? SourceSet.Incomplete
-                : Resolve(stack[stackIndex].ProducerOffset, []);
+                : Resolve(
+                    stack[stackIndex].ProducerOffset,
+                    includeNewObjectSources: false,
+                    []);
         }
 
         internal SourceSet CallReceiverSource(
             int callOffset,
-            int parameterCount)
+            int parameterCount,
+            bool includeNewObjectSources = false)
         {
             ImmutableArray<StackValue> stack =
                 _stack.StackBeforeOffset(callOffset);
             int stackIndex = stack.Length - parameterCount - 1;
             return stackIndex < 0 || stackIndex >= stack.Length
                 ? SourceSet.Incomplete
-                : Resolve(stack[stackIndex].ProducerOffset, []);
+                : Resolve(
+                    stack[stackIndex].ProducerOffset,
+                    includeNewObjectSources,
+                    []);
         }
 
         internal string? CallArgumentStringLiteral(
@@ -560,6 +583,7 @@ internal static partial class MethodCallAnalysis
         SourceSet SourceAt(
             ImmutableArray<StackValue> stack,
             int stackIndex,
+            bool includeNewObjectSources,
             HashSet<int>? resolving = null)
         {
             if (!IsComplete)
@@ -570,10 +594,16 @@ internal static partial class MethodCallAnalysis
                 : stackIndex;
             return index < 0 || index >= stack.Length
                 ? SourceSet.Incomplete
-                : Resolve(stack[index].ProducerOffset, resolving ?? []);
+                : Resolve(
+                    stack[index].ProducerOffset,
+                    includeNewObjectSources,
+                    resolving ?? []);
         }
 
-        SourceSet Resolve(int producerOffset, HashSet<int> resolving)
+        SourceSet Resolve(
+            int producerOffset,
+            bool includeNewObjectSources,
+            HashSet<int> resolving)
         {
             if (producerOffset == StackValue.NoProducer
                 || !resolving.Add(producerOffset))
@@ -586,7 +616,9 @@ internal static partial class MethodCallAnalysis
                 if (_callsByOffset.TryGetValue(
                         producerOffset,
                         out DirectCall? call)
-                    && IsDirectResultCall(call))
+                    && (IsDirectResultCall(call)
+                        || includeNewObjectSources
+                            && call.Kind == CallKind.NewObject))
                 {
                     return new([call.ILOffset], IsComplete: true);
                 }
@@ -637,6 +669,7 @@ internal static partial class MethodCallAnalysis
                     SourceSet source = SourceAt(
                         _stack.StackBeforeOffset(definition.Offset),
                         -1,
+                        includeNewObjectSources,
                         resolving);
                     if (!source.IsComplete)
                         return SourceSet.Incomplete;

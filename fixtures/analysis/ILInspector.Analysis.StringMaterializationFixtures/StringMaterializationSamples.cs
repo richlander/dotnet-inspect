@@ -20,6 +20,14 @@ public static class StringMaterializationSamples
             .Append('!')
             .ToString();
 
+    public static string BuildStored(string value)
+    {
+        var builder = new StringBuilder();
+        builder.Append(value);
+        builder.Append('!');
+        return builder.ToString();
+    }
+
     public static string Construct(int count)
         => new('x', count);
 

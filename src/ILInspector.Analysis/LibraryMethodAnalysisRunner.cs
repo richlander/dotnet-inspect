@@ -633,6 +633,11 @@ internal sealed class LibraryMethodAnalysisRunner(
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
             ImmutableArray.CreateBuilder<DirectCall>();
+        Dictionary<int, CallReceiverSource>?
+            stringReceiverSources =
+                includeOpportunities
+                    ? []
+                    : null;
         ImmutableArray<MethodResultSink>.Builder? resultSinks =
             includeCallValueFlow
                 ? ImmutableArray.CreateBuilder<MethodResultSink>()
@@ -1031,8 +1036,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         || hasUnsafeLocals,
                     includeCallValueFlow:
                         includeCallValueFlow,
-                    includeReceiverSources:
-                        includeOpportunities,
+                    privateReceiverSources:
+                        stringReceiverSources,
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
@@ -1069,23 +1074,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 result.StringMaterializations =
                     StringMaterializationAnalysis.Collect(
-                        calls);
-                if (!includeCallValueFlow)
-                {
-                    for (int index = 0;
-                        index < calls.Count;
-                        index++)
-                    {
-                        if (calls[index].ReceiverSource is not
-                            null)
-                        {
-                            calls[index] = calls[index] with
-                            {
-                                ReceiverSource = null,
-                            };
-                        }
-                    }
-                }
+                        calls,
+                        stringReceiverSources);
             }
             if (asyncBody is not null
                 && resultSinks is not null)

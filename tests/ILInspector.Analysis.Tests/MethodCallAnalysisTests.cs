@@ -474,6 +474,37 @@ public sealed class MethodCallAnalysisTests
         Assert.False(raw.ReceiverSource.IsComplete);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FunctionLoadsDoNotPublishReceiverSources(bool virtualLoad)
+    {
+        byte[] il = virtualLoad
+            ?
+            [
+                0x14,
+                0xFE, 0x07, 0x02, 0x00, 0x00, 0x0A,
+                0x26,
+                0x2A,
+            ]
+            :
+            [
+                0xFE, 0x06, 0x02, 0x00, 0x00, 0x0A,
+                0x26,
+                0x2A,
+            ];
+
+        DirectCall functionLoad = Assert.Single(
+            CollectCallsWithInstanceSecond(il));
+
+        Assert.Equal(
+            virtualLoad
+                ? CallKind.LoadVirtualFunction
+                : CallKind.LoadFunction,
+            functionLoad.Kind);
+        Assert.Null(functionLoad.ReceiverSource);
+    }
+
     [Fact]
     public void ClassifiesReturnSinkSourcesAndIncompleteCoverage()
     {

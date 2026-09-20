@@ -61,6 +61,11 @@ existing complete receiver-provenance result proves that every reaching direct
 call produces a trusted `StringBuilder`. An unknown, raw, or mixed receiver is
 not classified.
 
+The census obtains constructor-aware receiver provenance from the existing
+value-source resolver through a private per-method map. It does not populate or
+alter the published `DirectCall.ReceiverSource`; ordinary call-value-flow
+requests retain their existing call-kind and source semantics.
+
 Each occurrence becomes an `analysis.string-materialization` Finding. Finding
 identity combines the strategy with the resolved operation signature. IL
 offsets and metadata tokens remain version-local provenance rather than
