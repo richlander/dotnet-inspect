@@ -36,13 +36,14 @@ enrichment and the full source-policy contract remain later adoption.
 The tracker contains 12 ordered steps from this specification through both
 host adoptions and retirement of the current duplicated composition.
 
-The current production implementation is `AssemblyContextSourceQuery`, which
-resolves an exact member or type, attempts PDB-mapped source, and falls back to
-`CSharpDecompilerService`. Type/member authored acquisition and selected-member pairs
-use SourceHouse; `PdbSourceHouse` retains broader enrichment
+The current production orchestrator is `AssemblyContextSourceQuery`, which
+resolves an exact member or type and applies authored-first fallback.
+Type/member authored acquisition, selected-member pairs, and exact-member
+decompilation use SourceHouse. Type decompilation still invokes
+`CSharpDecompilerService` directly; `PdbSourceHouse` retains broader enrichment
 ordering. SourceLinkService owns checksum verification and decoding.
-The ordinary query's fallback remains migration evidence, not the target public
-House policy boundary.
+Query-owned fallback ordering remains migration evidence, not the target
+public House policy boundary.
 
 ### Authored settlement delivery
 
@@ -341,6 +342,41 @@ The multi-assembly production case compares
 gates authored edits from two independently bound fixture assemblies, with
 their endpoint order reversed, through the production batch and output
 projection. This is a focused PR-fast case, not an exhaustive assembly sweep.
+
+#### Shared member decompilation settlement
+
+The focused #7885 delivery settles decompiled C# for one exact MethodDef
+member target through SourceHouse and adopts that operation in
+`MemberSourceInspection`. SourceHouse resolves the Metadata-issued type,
+member anchor, and token against its own detached selected-assembly snapshot,
+then invokes `CSharpDecompilerService.ProduceMember` with the consumer's
+printer options, finite body-projection limit, explicit binding policy, and
+either the selected Library companion or embedded PDB contribution or no PDB.
+It performs no ambient path, adjacent-file, or network discovery.
+
+The decompiled result remains a native `CSharpDecompilationAttempt`, including
+its status, text, imports, fidelity, diagnostics, method-addressed body
+projections, supplied/consulted symbol evidence, and work charge. The House
+adds exact request correspondence, selected Library content, detached PDB
+contribution evidence, and terminal operation-lease settlement without
+relabeling the result as authored source.
+
+The assembly-context adapter keeps one admitted Library alive while the shared
+member operation performs its authorized authored and decompiled work. Each
+House operation receives a fresh lease; the adapter retires the Library only
+after all requested operations settle. Authored-only member requests never
+invoke decompilation. Authored failure, absence, checksum rejection, or finite
+authored bounds do not suppress an independently authorized decompiled
+fallback, while an invalid owner-issued PDB companion remains a visible
+Library admission failure rather than a successful no-PDB retry.
+
+CLI same-member Source Diff consumes this path through
+`MemberSourceInspection.CompareAsync`. Browser ordinary member Source consumes
+it through `MemberSourceInspection.ExecuteAsync`, with the existing
+`queryMemberSource` worker and `loadMemberSource` TypeScript call site.
+Ordinary CLI Decompiled Source, Implementation Diff's C# lane,
+cross-version authored member pairs, and type decompilation remain separate
+consumers and are not migrated by this delivery.
 
 ## Authority and exact claim
 

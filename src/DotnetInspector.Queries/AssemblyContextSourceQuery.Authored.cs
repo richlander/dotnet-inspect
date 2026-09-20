@@ -32,7 +32,9 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainSymbols = false)
+        bool retainLibrary = false,
+        SourceHouseMemberDecompilationLimits?
+            retainedOperationLimits = null)
     {
         var findingSubject = new FindingSubject(
             "member", request.Member.Format(MemberAnchorFormat.Qualified));
@@ -44,7 +46,10 @@ public static partial class AssemblyContextSourceQuery
                     ? SourceHouseMemberSourceForm.DocumentParts
                     : SourceHouseMemberSourceForm.DeclarationText),
             operationName: "member-source", limits, timeout, cancellationToken,
-            retainSymbols).ConfigureAwait(false);
+            retainSymbols: false,
+            retainLibrary,
+            retainedOperationLimits)
+            .ConfigureAwait(false);
         PdbMemberSourceInspection inspection = authored switch
         {
             { AcquisitionFailure: { } failure } =>
@@ -58,11 +63,13 @@ public static partial class AssemblyContextSourceQuery
             { HouseOutcome: { } outcome } => ProjectMemberAuthored(outcome, findingSubject),
             _ => throw new InvalidOperationException("Authored source inspection did not settle."),
         };
-        return new(inspection, inspection.IsComplete ? authored.Provenance : null,
-            authored.PdbImage)
+        return new(
+            inspection,
+            inspection.IsComplete ? authored.Provenance : null)
         {
             HouseOutcome = authored.HouseOutcome,
             LibraryFailure = authored.LibraryFailure,
+            RetainedLibrary = authored.RetainedLibrary,
         };
     }
 
@@ -84,7 +91,8 @@ public static partial class AssemblyContextSourceQuery
             group, participant, context, retained, version,
             new SourceHouseTarget.TypeTarget(request.Type, request.OriginalDocumentPath),
             operationName: "type-source", limits, timeout, cancellationToken,
-            retainSymbols).ConfigureAwait(false);
+            retainSymbols, retainLibrary: false,
+            retainedOperationLimits: null).ConfigureAwait(false);
         PdbTypeSourceInspection inspection = authored switch
         {
             { AcquisitionFailure: { } failure } =>
@@ -123,64 +131,76 @@ public static partial class AssemblyContextSourceQuery
         SourceHouseLimits limits,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        bool retainSymbols)
+        bool retainSymbols,
+        bool retainLibrary,
+        SourceHouseMemberDecompilationLimits?
+            retainedOperationLimits)
     {
         var opened = await OpenSourceLinkAsync(
             retained, context, cancellationToken).ConfigureAwait(false);
-        if (opened.Source is not { } source)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            EnsureBindingPolicyVersion(participant, version);
-            return new(AcquisitionFailure: opened.Failure);
-        }
 
         AssemblyContextLibraryPortablePdb? companion = null;
         ImmutableArray<byte>? pdbImage = null;
         AssemblyPdbSourceProvenance? provenance = null;
         Exception? provenanceFailure = null;
+        Exception? acquisitionFailure = opened.Failure;
         Exception? primaryFailure = null;
-        try
+        if (opened.Source is { } source)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureBindingPolicyVersion(participant, version);
+                try
+                {
+                    provenance = new(
+                        source.RepositoryUrl,
+                        source.CommitHash);
+                }
+                catch (Exception failure) when (
+                    target is SourceHouseTarget.TypeTarget
+                    && IsInspectionFailure(failure))
+                {
+                    // Malformed type-map provenance must not suppress decompiler fallback.
+                    // InspectTypePdbAsync rethrows this failure if authored source succeeds.
+                    provenanceFailure = failure;
+                }
+                if (retainSymbols || !source.Context.HasEmbeddedPdb)
+                    pdbImage = source.Context.GetPortablePdbImage();
+                if (!source.Context.HasEmbeddedPdb
+                    && pdbImage is { } image)
+                {
+                    companion = new(
+                        image,
+                        new AssemblySourcePdbProvenance(
+                            participant.Assembly.Registration,
+                            source.Context.PdbId,
+                            source.Context.PdbLocation,
+                            source.Context.PortablePdbPath,
+                            source.Context.SymbolServer));
+                }
+            }
+            catch (Exception failure)
+            {
+                primaryFailure = failure;
+                throw;
+            }
+            finally
+            {
+                Exception? cleanup = source.DisposeWithFailure();
+                if (primaryFailure is not null && cleanup is not null)
+                    ArtifactSetSession.AttachCleanupFailures(primaryFailure, [cleanup]);
+                else if (primaryFailure is null)
+                    ValidateAfterSourceDisposal(
+                        participant, version, cancellationToken, cleanup);
+            }
+        }
+        else
         {
             cancellationToken.ThrowIfCancellationRequested();
             EnsureBindingPolicyVersion(participant, version);
-            try
-            {
-                provenance = new(source.RepositoryUrl, source.CommitHash);
-            }
-            catch (Exception failure) when (
-                target is SourceHouseTarget.TypeTarget
-                && IsInspectionFailure(failure))
-            {
-                // Malformed type-map provenance must not suppress decompiler fallback.
-                // InspectTypePdbAsync rethrows this failure if authored source succeeds.
-                provenanceFailure = failure;
-            }
-            if (retainSymbols || !source.Context.HasEmbeddedPdb)
-                pdbImage = source.Context.GetPortablePdbImage();
-            if (!source.Context.HasEmbeddedPdb
-                && pdbImage is { } image)
-            {
-                companion = new(image, new AssemblySourcePdbProvenance(
-                    participant.Assembly.Registration,
-                    source.Context.PdbId,
-                    source.Context.PdbLocation,
-                    source.Context.PortablePdbPath,
-                    source.Context.SymbolServer));
-            }
-        }
-        catch (Exception failure)
-        {
-            primaryFailure = failure;
-            throw;
-        }
-        finally
-        {
-            Exception? cleanup = source.DisposeWithFailure();
-            if (primaryFailure is not null && cleanup is not null)
-                ArtifactSetSession.AttachCleanupFailures(primaryFailure, [cleanup]);
-            else if (primaryFailure is null)
-                ValidateAfterSourceDisposal(
-                    participant, version, cancellationToken, cleanup);
+            if (!retainLibrary)
+                return new(AcquisitionFailure: acquisitionFailure);
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
@@ -194,9 +214,25 @@ public static partial class AssemblyContextSourceQuery
             await AssemblyContextLibraryAdapter.MaterializeAsync(
                 group, participant, AssemblyContextLibraryRole.Implementation,
                 new(
-                    Math.Max(1, Math.Max(limits.MaximumAssemblyBytes, limits.MaximumPortablePdbBytes)),
+                    Math.Max(
+                        1,
+                        Math.Max(
+                            Math.Max(
+                                limits.MaximumAssemblyBytes,
+                                limits.MaximumPortablePdbBytes),
+                            Math.Max(
+                                retainedOperationLimits
+                                    ?.MaximumAssemblyBytes ?? 0,
+                                retainedOperationLimits
+                                    ?.MaximumPortablePdbBytes ?? 0))),
                     Math.Max(1, Math.Min(int.MaxValue,
-                        (long)limits.MaximumAssemblyBytes + limits.MaximumPortablePdbBytes))),
+                        Math.Max(
+                            (long)limits.MaximumAssemblyBytes
+                                + limits.MaximumPortablePdbBytes,
+                            (long)(retainedOperationLimits
+                                    ?.MaximumAssemblyBytes ?? 0)
+                                + (retainedOperationLimits
+                                    ?.MaximumPortablePdbBytes ?? 0))))),
                 companion, cancellationToken).ConfigureAwait(false);
         if (admission is AssemblyContextLibraryAdapterResult.Terminal terminal)
         {
@@ -206,6 +242,7 @@ public static partial class AssemblyContextSourceQuery
             return new(
                 Provenance: provenance,
                 PdbImage: retainSymbols ? pdbImage : null,
+                AcquisitionFailure: acquisitionFailure,
                 ProvenanceFailure: provenanceFailure)
             {
                 LibraryFailure = terminal,
@@ -214,24 +251,29 @@ public static partial class AssemblyContextSourceQuery
         if (admission is not AssemblyContextLibraryAdapterResult.Completed completed)
             throw new InvalidOperationException("Unknown Library admission result.");
 
-        SourceHouseOutcome outcome;
+        SourceHouseOutcome? outcome = null;
         primaryFailure = null;
         try
         {
             EnsureBindingPolicyVersion(participant, version);
-            var houseRequest = new SourceHouseAuthoredRequest(
-                SourceHouseRequestIdentity.Create(operationName),
-                completed.Reference,
-                completed.Reference.ImplementationAssembly!,
-                target,
-                plan);
-            if (completed.Owner.IssueOperationLease(completed.Reference)
-                is not LibraryOperationLeaseIssueOutcome.Issued issued)
+            if (acquisitionFailure is null)
             {
-                throw new InvalidOperationException("The admitted Library could not issue its operation lease.");
+                var houseRequest = new SourceHouseAuthoredRequest(
+                    SourceHouseRequestIdentity.Create(operationName),
+                    completed.Reference,
+                    completed.Reference.ImplementationAssembly!,
+                    target,
+                    plan);
+                if (completed.Owner.IssueOperationLease(completed.Reference)
+                    is not LibraryOperationLeaseIssueOutcome.Issued issued)
+                {
+                    throw new InvalidOperationException(
+                        "The admitted Library could not issue its authored operation lease.");
+                }
+                outcome = await AuthoredSourceHouse.ExecuteAuthoredAsync(
+                    houseRequest, issued.Lease, cancellationToken)
+                    .ConfigureAwait(false);
             }
-            outcome = await AuthoredSourceHouse.ExecuteAuthoredAsync(
-                houseRequest, issued.Lease, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception failure)
         {
@@ -240,21 +282,43 @@ public static partial class AssemblyContextSourceQuery
         }
         finally
         {
-            await RetireAuthoredLibraryAsync(completed, primaryFailure).ConfigureAwait(false);
+            if (!retainLibrary || primaryFailure is not null)
+            {
+                await RetireSourceHouseLibraryAsync(
+                        completed,
+                        primaryFailure)
+                    .ConfigureAwait(false);
+            }
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        EnsureBindingPolicyVersion(participant, version);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(participant, version);
+        }
+        catch (Exception failure)
+        {
+            if (retainLibrary)
+            {
+                await RetireSourceHouseLibraryAsync(
+                        completed,
+                        failure)
+                    .ConfigureAwait(false);
+            }
+            throw;
+        }
         return new(
             Provenance: provenance,
             PdbImage: retainSymbols ? pdbImage : null,
+            AcquisitionFailure: acquisitionFailure,
             ProvenanceFailure: provenanceFailure)
         {
             HouseOutcome = outcome,
+            RetainedLibrary = retainLibrary ? completed : null,
         };
     }
 
-    static async ValueTask RetireAuthoredLibraryAsync(
+    internal static async ValueTask RetireSourceHouseLibraryAsync(
         AssemblyContextLibraryAdapterResult.Completed completed,
         Exception? primaryFailure)
     {
@@ -287,7 +351,8 @@ public static partial class AssemblyContextSourceQuery
     {
         if (failures.Count > 0)
             throw new InvalidOperationException(
-                "Authored source Library/Artifact retirement failed.", new AggregateException(failures));
+                "SourceHouse Library/Artifact retirement failed.",
+                new AggregateException(failures));
     }
 
     static string AdmissionDetail(AssemblyContextLibraryAdapterResult.Terminal terminal) =>
@@ -666,5 +731,7 @@ public static partial class AssemblyContextSourceQuery
     {
         public SourceHouseOutcome? HouseOutcome { get; init; }
         public AssemblyContextLibraryAdapterResult.Terminal? LibraryFailure { get; init; }
+        public AssemblyContextLibraryAdapterResult.Completed?
+            RetainedLibrary { get; init; }
     }
 }

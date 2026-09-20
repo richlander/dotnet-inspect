@@ -144,6 +144,64 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Depends_Envelope_QueryRetainsContentAndRefusesUnrepresentableShare(
+        bool requestShare)
+    {
+        string[][] queries =
+        [
+            ["--where", "Kind=Interface"],
+            ["--order-by", "Target desc"],
+            ["--order-by", "Target desc", "--top", "1"],
+        ];
+
+        foreach (string[] query in queries)
+        {
+            ConfigureAuthenticDependencyFeed(source: PublicDependencyFeed);
+            var result = await RunEnvelopeCommandAsync(
+                [
+                    .. AuthenticDependencyArguments(
+                        false,
+                        true,
+                        PublicDependencyFeed),
+                    .. query,
+                    .. requestShare ? new[] { "--share", "url" } : [],
+                ]);
+
+            Assert.True(
+                result.Exit == (requestShare ? 1 : 0),
+                result.Error);
+            Assert.True(result.Output.Length > 0, result.Error);
+            using JsonDocument document = JsonDocument.Parse(result.Output);
+            Assert.True(
+                document.RootElement.GetProperty("content")
+                    .GetProperty("queryResult")
+                    .GetProperty("dependency")
+                    .GetProperty("found")
+                    .GetBoolean());
+            JsonElement share =
+                document.RootElement.GetProperty("share");
+            Assert.Equal(
+                "nonProjectable",
+                share.GetProperty("kind").GetString());
+            Assert.Contains(
+                "query predicates, ordering, or --top",
+                share.GetProperty("reason").GetString());
+            if (requestShare)
+            {
+                Assert.Contains(
+                    "--share is not projectable",
+                    result.Error);
+            }
+            else
+            {
+                Assert.Empty(result.Error);
+            }
+        }
+    }
+
+    [Theory]
     [InlineData("--json", null)]
     [InlineData("--markdown", null)]
     [InlineData("--plaintext", null)]

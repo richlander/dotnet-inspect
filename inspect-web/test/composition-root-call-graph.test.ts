@@ -803,7 +803,10 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /else if \(disposition === "resident"\)[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     navigation,
-    /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+    /navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";/);
+  assert.match(
+    navigation,
+    /enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
   assert.match(
     navigation,
     /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
@@ -837,7 +840,7 @@ test("restored selections reveal their accessibility bucket", () => {
     /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
-    /function navigateToType\([^)]*\) \{[\s\S]*?revealTypeInFilters\(target\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
+    /function navigateToType\([\s\S]*?enterTypeSubject\(target, options\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
 });
 
 test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
@@ -1065,7 +1068,7 @@ test("Package and Library Overview share the named identity frame", () => {
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction libraryIdentity/)?.[0]
     ?? "";
   const renderOverview =
-    appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderLibraryOverview/)?.[0]
+    appSource.match(/function renderPackageOverview\([\s\S]*?\n}\n\nfunction renderLibraryCompositionOverview/)?.[0]
     ?? "";
   assert.match(appSource,
     /const overviewWorkingSurface =[\s\S]*activeScope === "package" && state\.packageLens === "overview"[\s\S]*activeScope === "library" && state\.libraryLens === "overview"/);
@@ -1078,26 +1081,33 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderOverview,
     /renderPackageDocuments\(pkg\.documents \|\| \[\], escapeHtml\)/);
   assert.match(renderOverview,
-    /platformLibrarySelectHtml\(\)/);
-  assert.match(renderOverview,
-    /const libraries = packageLibraries\(\)/);
-  assert.match(renderOverview,
-    /data-lib-scope=[\s\S]*No managed libraries were admitted/);
+    /renderPackageInfo\(pkg\.packageInfo, escapeHtml\)/);
+  assert.doesNotMatch(renderOverview,
+    /platformLibrarySelectHtml|packageLibraries\(\)|data-lib-scope|library-list/);
   assert.match(renderOverview,
     /renderOverviewSurface\(\{[\s\S]*subject: "package",[\s\S]*displayName: packageDisplayName\(pkg\),[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*coordinateFieldsHtml: packageVersionField\(\),[\s\S]*contentHtml,/);
   const renderLibraryOverview =
     appSource.match(/function renderLibraryOverview\([\s\S]*?\n}\n\nfunction renderGraphMemberPendingHtml/)?.[0]
     ?? "";
+  const renderLibraryComposition =
+    appSource.match(/function renderLibraryCompositionOverview\([\s\S]*?\n}\n\nfunction renderLibraryOverview/)?.[0]
+    ?? "";
+  assert.match(renderLibraryComposition,
+    /displayName: library\?\.name \?\? "All libraries"/);
+  assert.match(renderLibraryComposition,
+    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.types, 0\)/);
+  assert.match(renderLibraryComposition,
+    /libraries\.reduce\(\(sum, candidate\) => sum \+ candidate\.members, 0\)/);
   assert.match(renderLibraryOverview,
-    /renderOverviewSurface\(\{[\s\S]*subject: "library",[\s\S]*displayName: library\.name,[\s\S]*iconHtml: renderInspectedSubjectIcon\(pkg\),[\s\S]*details: \[library\.asset \|\| "Managed library", libraryIdentity\(library\)\]/);
+    /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
+  assert.match(renderLibraryOverview,
+    /pkg\.isRuntimePack[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
   assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
     /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
   assert.match(renderLibraryOverview,
     /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
-  assert.doesNotMatch(renderLibraryOverview,
-    /currentPackage\(\)\.types|library\.types|library\.members|typeKind\(/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });
@@ -1123,7 +1133,10 @@ test("library metadata uses compact coordinates in a full-area working surface",
     /if \(state\.libraryLens === "overview"\s*\|\| state\.libraryLens === "compare"\s*\|\| state\.libraryLens === "references"\s*\|\| state\.libraryLens === "integrations"\s*\|\| state\.libraryLens === "analysis"\s*\|\| state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
-    /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
+    /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml: metadataLibraryControl[\s\S]*?package-metadata-controls/);
+  assert.doesNotMatch(
+    renderMetadata,
+    /packageVersionField|packageFrameworkField|packageCoordinateFields/);
   assert.match(
     appSource,
     /function openExplorerOverview\(\s*assemblyFileName: string,\s*metadataRoot: MetadataRootSelection,\s*\)[\s\S]*?buildBaseExplorer\(assemblyFileName, metadataRoot\)[\s\S]*?ex\.overview = true;[\s\S]*?state\.explorer = ex;[\s\S]*?render\(\);/);

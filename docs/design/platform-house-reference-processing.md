@@ -14,7 +14,9 @@ PlatformHouse contract slice is
 target-selection execution is tracked by
 [#7778](https://github.com/richlander/dotnet-inspect/issues/7778), with
 selected-target one-Library realization tracked by
-[#7825](https://github.com/richlander/dotnet-inspect/issues/7825).
+[#7825](https://github.com/richlander/dotnet-inspect/issues/7825) and
+selected-target complete reference-population realization tracked by
+[#7892](https://github.com/richlander/dotnet-inspect/issues/7892).
 The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
@@ -136,6 +138,17 @@ allowance delegated to that invocation. Exact owner-issued observations remain
 exact. Unmeasured unavailability remains zero so an ordinary absent source can
 fall back; every other unobserved terminal capable of hiding performed work
 cannot be reused as though its invocation consumed nothing.
+
+Selected-target complete reference-population realization is implemented in
+`DotnetInspector.PlatformHouse.Execution` under #7892. It composes the same
+family-default target selector, source-policy reducer, cumulative finite-work
+accounting, and selected-association route with the complete-population
+Artifact materializer. Installed and package-backed factories prepare only
+authoritative non-empty reference populations for the frozen target.
+Completion transfers every source-ordered Library owner beside one separate
+Artifact session while retaining the original request, selected target,
+discovery and realization settlements, and cumulative work. Terminal paths
+transfer neither authority.
 
 Package-backed successful-result materialization is implemented in
 `DotnetInspector.PlatformHouse.Execution.Packages` under #7304. It accepts only
@@ -569,12 +582,60 @@ and complete package-version discovery remains owned by
 Those focused successors decide how their source contracts produce the exact
 candidates required here.
 
-The five-slice production path in #7742 is: lock this contract, add installed
+#### Selected complete reference population
+
+A family-default, reference-only complete-population operation selects and
+realizes one authoritative reference population in the same closed House
+operation. The original family-default request remains the request and receipt
+identity. The selected exact target and any source-issued package discovery
+association are ephemeral execution currency; neither replaces the target
+demand nor enters the completed value.
+
+After target settlement, the executor applies the request's existing Reference
+source policy to lazy installed or package-backed complete-population
+capabilities. A preferred installed success suppresses later package discovery
+and realization. A package capability may receive a selected discovery
+association only when the discovery capability and owner-issued route match
+the capability declaration and the association names the frozen target.
+Mismatch rejects before package operation authority is issued.
+
+Each successful attempt must retain one authoritative complete-population
+contribution for the original request, selected target, exact source
+generation, and requested population. The selected attempt must contain at
+least one distinct managed assembly identity. A failed, rejected, incomplete,
+partial, empty, or over-budget attempt cannot publish its observed prefix as a
+shortened population.
+
+Target discovery and realization share one cumulative finite-work ledger.
+Exact source observations remain exact. When an ordinary unavailable attempt
+reports no work, it consumes no assembly or byte allowance. When a failed,
+rejected, or incomplete attempt reports no work, the executor reserves the
+delegated assembly and byte allowance before considering another source, so
+unmeasured work cannot be reused.
+
+Completion publishes the selected source's members in source order through one
+bounded Artifact generation and transfers every resulting
+`LibraryContentOwner` atomically beside the separately owned
+`ArtifactSetSession`. The receipt retains the original request, selected target
+settlement, target-discovery settlements, selected and outcome-relevant
+realization settlements, source generations, and cumulative consumed work.
+Every terminal path transfers neither authority and completes cleanup before
+projecting its outcome. Cancellation observed during successful cleanup
+remains cancellation; cleanup failure is the primary `Failed` outcome and
+retains whether cancellation was observed.
+
+This complete reference population is stage 7a input to later target-bound type
+indexing. Stage 7b derives a catalog only after this operation has settled; the
+population executor does not index types, route a host request, or migrate
+`PlatformTypeCatalog`.
+
+The production path in #7742 is refined here: lock this contract, add installed
 cross-feature-band discovery, adapt package-backed stable fallback, implement
-the source-neutral reducer, then adopt the same requests and outcomes in the
-CLI and Browser/Wasm before retiring direct router selection. Rendering is not
-part of target settlement; hosts project the retained typed evidence through
-their existing output boundaries.
+the source-neutral reducer, realize the selected complete reference population,
+derive its target-bound type catalog, then adopt the same requests and outcomes
+in the CLI and Browser/Wasm before retiring direct router selection. Rendering
+is not part of target settlement; hosts project the retained typed evidence
+through their existing output boundaries.
 
 ### Closed operations
 
@@ -1986,6 +2047,14 @@ runtime-support provenance, detached Package Source lifetime, and
 Platform-owned declaration-surface role closure. Internal Metadata operations
 remain later step-6 slices.
 
+Step 7 is staged without changing the ten-step count. Step 7a, tracked by
+[#7892](https://github.com/richlander/dotnet-inspect/issues/7892), selects one
+family-default target and realizes its authoritative complete reference
+population in the same closed operation. Step 7b derives the target-bound type
+catalog from that population before the later Metadata resolution and
+host-adoption slices. The stage-7a population operation does not expose catalog
+semantics or change CLI or Inspect Web routing.
+
 The step-6 ownership correction was designed under
 [#6984](https://github.com/richlander/dotnet-inspect/issues/6984). It adopts
 the shared Library contract without changing the ten-step PlatformHouse count;
@@ -2208,6 +2277,7 @@ The implementation and adoption slices own these Release gates:
 | Package-backed paired population ownership | Independently authoritative package-backed reference and implementation populations publish into one bounded Artifact generation and settle once each after Package Source operations detach. Exact managed identities form the same reference-first lossless union while every content item retains source-issued package provenance. Completion transfers every Library owner beside one Artifact session; terminal and cancellation paths transfer neither authority. |
 | Package-backed reference population ownership | One authoritative package-backed reference population produces one source-ordered reference-only Library owner per distinct managed identity and one source settlement after Package Source detaches. Every content item retains source-issued package provenance. Completion transfers every Library owner beside one Artifact session; terminal, cancellation, duplicate identity, foreign contribution, and incomplete work transfer neither authority. |
 | Package-backed implementation population ownership | One authoritative package-backed runtime population produces one source-ordered implementation-only Library owner per distinct managed identity, assigns each exact runtime content both mandatory roles under Platform-owned declaration-surface evidence, and records one source settlement after Package Source detaches. Every content item retains source-issued package and runtime-support provenance. Completion transfers every Library owner beside one Artifact session; terminal, cancellation, duplicate identity, foreign contribution, and incomplete work transfer neither authority. |
+| Selected reference population | One family-default, reference-only complete-population operation freezes one exact target, applies the authorized Reference source policy, and publishes one non-empty authoritative population. Installed success suppresses package work; package fallback uses only the exact selected discovery association; failure or work exhaustion cannot publish a shortened population. Completion preserves the original request, selected target and discovery evidence, source-generation settlements, and cumulative work while transferring all Library owners beside the separate Artifact session. Every terminal path cleans up before projection and retains no live authority. |
 | Resource-free House boundary | Focused contract tests over contributions, completed House values, receipts, requests, and cache entries prove that they retain no live source handle or content obligation, Artifact owner or lease, Library owner or lease, callback, opener, stream, or disposal delegate. |
 | Internal Library access | PlatformHouse Metadata work reads exact content only through a fresh internal `LibraryOperationLease`; every borrow ends before `await`, and the lease settles before completion. |
 | Terminal owner disposition | Completed non-owning operations, unavailability, ambiguity, rejection, failure, incomplete completion, and cancellation retire every constructed owner the House does not return, including partially constructed multi-Library population work; only a completed owning `Realize` result transfers owners, and retirement failure remains visible. |
@@ -2409,6 +2479,25 @@ complete-population ownership:
   `PackageImplementationPopulation_CancellationTransfersNoAuthority` cover
   finite aggregate work and cancellation before package
   implementation-population Artifact acceptance.
+
+The implemented step-7a gates add selected-target complete reference
+population execution:
+
+- `InstalledPopulationCompletesAndSuppressesPackageWork` preserves the original
+  family-default request, selected target, discovery and realization
+  settlements, source generation, cumulative work, source order, and separate
+  all-owner and Artifact-session retirement while proving installed success
+  suppresses package discovery and realization;
+- `PackageFallbackReceivesExactSelectedAssociation` and
+  `SelectedPackageReferencePopulationCompletesFromDiscoveryAssociation` cover
+  the exact fallback discovery association and real package-backed two-Library
+  population;
+- `ForeignPopulationAssociationRejectsBeforePackageOperation` proves an
+  association mismatch cannot issue package operation authority; and
+- `ExhaustedPopulationWorkCannotPublishShortenedResult` plus
+  `UnmeasuredSelectedPopulationIncompleteReservesDelegatedWork` prove that
+  finite-work exhaustion and unmeasured terminal work publish no shortened
+  population and cannot reuse reserved work for a later source.
 
 Each later implementation slice adds the smallest gate covering its adopted
 property.

@@ -7,7 +7,9 @@ using SemanticRowSelection =
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
+using DotnetInspector.PortableQueries;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
@@ -1087,8 +1089,16 @@ public partial class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
+            bool wantsEcosystemDependencies =
+                RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline);
+
             // Parse nuspec for full package inspection.
-            var nuspec = DotnetInspector.Services.NuspecParser.FindAndParse(extractPath);
+            NuspecData? nuspec = FindPackageNuspecForInspection(
+                extractPath,
+                resolution,
+                wantsEcosystemDependencies);
 
             // Handle file content modes and exit early.
             if (options.ShowContent)
@@ -1208,6 +1218,15 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
+            if (wantsEcosystemDependencies)
+            {
+                await ApplyPackageEcosystemDependenciesAsync(
+                    result,
+                    resolution,
+                    RequiresPackageEcosystemDiagnosticDisclosure(
+                        producerOptions),
+                    logger.Log);
+            }
 
             await PopulatePackageSignatureAsync(
                 result,
@@ -1256,7 +1275,48 @@ public partial class PackageCommand
                         options.Tfm,
                         options.IncludePrerelease,
                         options.SourceOptions,
+                        PackageDependencyQueryPlan(options),
                         context);
+            }
+
+            if (result.DependencyHierarchyProjection is { } hierarchyProjection
+                && options.DependencyQueryPlan?.HierarchyRows
+                    is { Operations.Count: > 0 })
+            {
+                if (!DependsCommand.TrySelectHierarchyRows(
+                        hierarchyProjection,
+                        options.DependencyQueryPlan,
+                        options.Rows,
+                        options.DependencyHierarchyLegacyWindowStageIndex,
+                        out IReadOnlyList<
+                            DependencyHierarchyOccurrenceRow>
+                            selectedHierarchyRows))
+                {
+                    return 1;
+                }
+
+                result.DependencyHierarchyProjection =
+                    hierarchyProjection with
+                    {
+                        HierarchyRows = [.. selectedHierarchyRows],
+                    };
+                options = options with
+                {
+                    DependencyHierarchyRowsSelected = true,
+                };
+            }
+
+            static DependencyQueryPlan PackageDependencyQueryPlan(
+                InspectionOptions options)
+            {
+                if (options.DependencyQueryPlan is { } plan)
+                    return plan;
+
+                DependencyQueryPlanResult result =
+                    DependencyQuery.ResolveIntent(
+                        DependencyQueryRouteKind.PackageHierarchy,
+                        PortableQueryIntent.Empty);
+                return ((DependencyQueryPlanResult.Accepted)result).Plan;
             }
 
             // Filter output based on options
@@ -1272,6 +1332,13 @@ public partial class PackageCommand
             if (!TrySelectPackageSourceLinkFiles(
                     result,
                     options.SourceLinkFileRowSelection))
+            {
+                return 1;
+            }
+
+            if (!TrySelectPackageEcosystemDependencies(
+                    result,
+                    options.EcosystemDependencyRowSelection))
             {
                 return 1;
             }
@@ -1644,6 +1711,41 @@ public partial class PackageCommand
         }
 
         result.Files = [.. selected];
+        return true;
+    }
+
+    private static bool TrySelectPackageEcosystemDependencies(
+        InspectionResult result,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null)
+            return true;
+
+        IReadOnlyList<EcosystemDependencyRecognitionEntry> rows =
+            result.EcosystemDependencyRecognitionInspection?.Content switch
+            {
+                EcosystemDependencyRecognitionOutcome.Complete complete =>
+                    complete.Document.Classification.Recognized,
+                EcosystemDependencyRecognitionOutcome.Incomplete incomplete =>
+                    incomplete.Document.Classification.Recognized,
+                _ => [],
+            };
+        if (!SemanticRowSelection.TrySelect(
+                intent,
+                rows,
+                "Package ecosystem dependencies",
+                failure =>
+                    $"Package ecosystem dependency row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} rows are available.",
+                out IReadOnlyList<
+                    EcosystemDependencyRecognitionEntry> selected))
+        {
+            return false;
+        }
+
+        result.EcosystemDependencyRows = selected;
         return true;
     }
 }

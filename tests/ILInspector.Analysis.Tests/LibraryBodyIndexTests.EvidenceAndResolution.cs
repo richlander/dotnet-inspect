@@ -62,6 +62,31 @@ public partial class LibraryBodyIndexTests
             call => call.ReceiverSource is not null);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(OptimizationOpportunityFixtures.InstanceMethodGroup),
+        CallKind.LoadFunction)]
+    [InlineData(
+        nameof(OptimizationOpportunityFixtures.VirtualInstanceMethodGroup),
+        CallKind.LoadVirtualFunction)]
+    public void CombinedValueFlowAndOpportunities_DoNotPublishFunctionLoadReceivers(
+        string methodName,
+        CallKind kind)
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow
+                | LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        DirectCall functionLoad = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller.Name == methodName
+                && call.Kind == kind);
+
+        Assert.Null(functionLoad.ReceiverSource);
+    }
+
     [Fact]
     public void FieldIdentity_CanonicalizesLocalMemberRefAliasBySignature()
     {

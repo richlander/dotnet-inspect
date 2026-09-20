@@ -56,6 +56,7 @@ public sealed record PerformanceTriageOptions
         "span-to-array-copy",
         "stackalloc-candidate",
         "string-build-in-loop",
+        "string-materialization",
         "sync-call-in-async",
         "temporary-byte-array-copy",
     ];

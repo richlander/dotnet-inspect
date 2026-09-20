@@ -3,8 +3,9 @@
 ## Status
 
 **Implemented host-neutral substrate with Package Query adopted in CLI and
-Inspect Web, and Graph Libraries adopted across its CLI query sections;
-remaining production adoption continues under
+Inspect Web, Graph Libraries adopted across its CLI query sections, Dependency
+adopted across its command and section routes, and Find adopted across its Type
+and Member result routes; remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -558,8 +559,13 @@ The migration begins from useful but separate systems:
 - Graph Libraries owns one executable Cluster selector, a command-wide route,
   and five operation-backed row-set routes. CLI parsing and each section's
   `-Q` projection derive from those effective routes.
-- Find exposes its Results and Members sections to discovery but currently has
-  no executable query-term or order inventory.
+- Dependency owns separate type-relationship and rooted-hierarchy profiles.
+  The type route projects the existing Source, Target, Kind, Traversal, row
+  selection, ranking, and depth semantics. Top-level and Package hierarchy
+  routes share the hierarchy profile, depth dimension, and row stages.
+- Find owns distinct Type and Member result routes over their authorized search
+  populations. Both routes share the executable Head, Tail, and Window result
+  profile and intentionally expose no query-term or order inventory.
 
 The new registry is implemented, and Package Query has replaced its
 host-local term inventories with one route-backed projection. Remaining
@@ -580,10 +586,11 @@ eight-step path:
    rows.
 4. **Implemented:** adopt Graph query surfaces and operation-backed Graph
    sections without changing Graph topology or projection semantics.
-5. Adopt Depends and operation-backed Dependency sections without changing
-   root, traversal, evidence, completion, or hierarchy semantics.
-6. Adopt Find Type and Member query capability without changing its discovery
-   grammar, scope rules, or result grains.
+5. **Implemented:** adopt Depends and operation-backed Dependency sections
+   without changing root, traversal, evidence, completion, or hierarchy
+   semantics.
+6. **Implemented:** adopt Find Type and Member query capability without changing
+   its discovery grammar, scope rules, or result grains.
 7. Add Library Query over explicit Library populations, with assembly-reference
    qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
@@ -612,6 +619,27 @@ pair query, cluster derivation, root-path composition, section selection,
 Markout lowering, completion, and failure contracts remain unchanged. Inspect
 Web has no two-Library selection surface, so this focused adoption adds no
 Browser gesture; a future Browser consumer can use the same route and plan.
+
+Dependency is the third adopter. Its operation definition remains beside the
+existing type-relationship row vocabulary and host-neutral Dependency content
+in `DotnetInspector.Sections`, so registration cannot drift into a second
+Source, Target, Kind, or Traversal implementation. The positional-Type route
+admits those existing predicates and orders, `Top`, ordinary row stages, and
+the independent Depth work dimension. Asset-mode `depends` and Package
+`Dependency Hierarchy` bind distinct subject roles to the same hierarchy
+profile, depth dimension, and row-stage contract. CLI lowering retains the
+existing Dependency acquisition, traversal, evidence, completion, hierarchy,
+failure, and rendering paths.
+
+Find is the fourth adopter. One operation binds distinct authorized Type and
+Member search-population roles to their existing result grains and row sets.
+Both routes use the same result-row profile, which admits Head, Tail, and Window
+without inventing predicates, ordering, or ranking that the Find owners do not
+define. The CLI lowers its existing semantic row-selection grammar to portable
+intent, resolves the active route before acquisition, and executes the
+owner-issued plan after the complete Type or Member search result is available.
+The existing pattern grammars, scope authorization, operation limit,
+completion, Count, diagnostics, result shapes, and rendering remain unchanged.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).
@@ -643,13 +671,14 @@ Cluster inheritance across all five row-set routes, canonical CLI intent,
 atomic rejection of unsupported terms, and the existing cluster-scoped command
 behavior and visible unavailable-cluster failures.
 
-Remaining adopter slices must add Release gates for:
+Dependency's Release gates cover exact type-route projection, executable
+predicate/order/Top lowering, hierarchy command/Package-section equivalence,
+automatic `-Q` inheritance, separation of Depth work from result-row stages,
+pre-acquisition rejection, and the existing visible acquisition, decode,
+traversal, and row-resolution failures.
 
-- command and operation-backed-section equivalence for one Dependency
-  scenario;
-- separation of candidate work bounds from result-row selection;
-- visible acquisition, decode, traversal, and row-resolution failures; and
-- Package and Library reference qualification at their distinct result grains.
+Remaining adopter slices must add Release gates for Package and Library
+reference qualification at their distinct result grains.
 
 Adopter-specific owners name the authentic package, assembly, or repository
 fixtures that establish their behavior. This pattern does not manufacture a

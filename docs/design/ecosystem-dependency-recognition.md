@@ -67,9 +67,9 @@ mean that the dependency belongs to no external ecosystem.
 
 ## User value
 
-Package and Library inspection currently expose exact dependency declarations
-but leave users to recognize product families from Package and assembly names.
-The target experience adds a compact answer backed by inspectable evidence:
+Package inspection exposes a compact product-relative ecosystem rollup backed
+by pair-grain Package-declaration and selected compile-Library reference
+evidence. Library inspection remains the next adoption step:
 
 ```text
 Package Info
@@ -829,12 +829,12 @@ same typed recognition Document, not a second classifier.
 [#7818](https://github.com/richlander/dotnet-inspect/issues/7818) is the
 end-to-end tracker. The current plan has eight steps:
 
-1. Lock this focused recognition contract.
-2. Implement the product profile, recognition operation, envelope, and
+1. **Complete:** Lock this focused recognition contract.
+2. **Complete:** Implement the product profile, recognition operation, envelope, and
    reusable classification part with contract tests in
    `DotnetInspector.Ecosystems`.
-3. Adopt Package direct-dependency observations and CLI Package Info/detail
-   presentation.
+3. **Complete:** Adopt Package direct-dependency observations and CLI Package
+   Info/detail presentation from the exact PackageHouse compile realization.
 4. Adopt Library direct-reference observations and CLI Library Info/detail
    presentation.
 5. Adopt baseline pair-grain recognition, typed ecosystem selection, and

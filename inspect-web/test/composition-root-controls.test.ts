@@ -401,10 +401,10 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*data-package-framework[\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateFields\(\) \{\s*return `\$\{packageVersionField\(\)\}\$\{packageFrameworkField\(\)\}`;\s*\}/);
-  assert.match(
+    /function packageVersionField\(\)[\s\S]*id="package-version"/);
+  assert.doesNotMatch(
     appSource,
-    /function packageVersionField\(\)[\s\S]*id="package-version"[\s\S]*function packageFrameworkField\(\)[\s\S]*id="framework"/);
+    /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -560,7 +560,33 @@ test("typed package view owns package navigation bindings", () => {
     /if \(!library\) return;[\s\S]*if \(!selectLibrarySubject\(library\)\) return;[\s\S]*if \(kind\) \{\s*state\.atLibraryRoot = false;\s*state\.kindFilter = kind;/);
   assert.match(
     appSource,
-    /function selectLibrarySubject\(key: string,[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+    /function selectLibrarySubject\([\s\S]*preserveLens\?: boolean[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*if \(!options\.preserveLens\) state\.libraryLens = "overview";[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+  assert.match(
+    appSource,
+    /function bindLibrarySubjectNavEvents\(\) \{[\s\S]*selectAggregateLibrarySubject\(\{ preserveLens: true \}\)[\s\S]*selectLibrarySubject\(id, \{ preserveLens: true \}\)/);
+  assert.match(
+    appSource,
+    /function enterMemberScope\([\s\S]*preserveAggregate\?: boolean[\s\S]*options\.preserveAggregate \?\? aggregateLibrarySubjectIsActive\(\);[\s\S]*if \(!preserveAggregate\)\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
+  assert.match(
+    appSource,
+    /function enterRetainedLibrarySubject\([\s\S]*state\.libraryScope === null[\s\S]*selectAggregateLibrarySubject\(options\)[\s\S]*selectLibrarySubject\(selectedLibrary\(\)\?\.id \?\? "", options\)/);
+  assert.match(
+    appSource,
+    /function drillIn\(\)[\s\S]*if \(state\.atPackageRoot\) \{\s*if \(!enterRetainedLibrarySubject\(\)\) return;/);
+  assert.match(
+    appSource,
+    /async function pickSpotlightMember[\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)[\s\S]*enterMemberScope\(\{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*enterTypeSubject\(type, \{ preserveAggregate \}\)/);
+  for (const spotlightEntry of [
+    appSource.match(/async function pickSpotlightMember[\s\S]*?\n}/)?.[0] ?? "",
+    appSource.match(/async function pickSpotlight\([\s\S]*?\n}/)?.[0] ?? "",
+  ]) {
+    assert.doesNotMatch(
+      spotlightEntry,
+      /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
+  }
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
@@ -900,7 +926,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /unavailableLabel:[\s\S]*not uniquely available in the loaded Workspace surfaces/);
   assert.match(
     appSource,
-    /function navigateToWorkspaceType\([\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target\)/);
+    /function navigateToWorkspaceType\([\s\S]*navigationPreservesAggregateLibraryScope\(pkg\)[\s\S]*selectWorkspacePackage\(pkg, \{ renderSelection: false \}\);[\s\S]*navigateToType\(target, \{ preserveAggregate \}\)/);
+  assert.match(
+    appSource,
+    /function navigateToType\([\s\S]*preserveAggregate\?: boolean[\s\S]*enterTypeSubject\(target, options\)/);
   assert.match(
     typeGraph,
     /const candidate = graphNode\.role === "self"[\s\S]*\{ pkg: currentPackage\(\), type: currentType \}[\s\S]*uniqueWorkspaceTypeByQueryId<AppTypeSurface, AppPackage>\([\s\S]*state\.packages,[\s\S]*fullName\)/);
@@ -1236,7 +1265,7 @@ test("typed scope bar owns its rendered control bindings", () => {
                 if: 'target === "library"',
                 whenTrue: [
                   {
-                    if: '!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })',
+                    if: "!enterRetainedLibrarySubject({ preserveView: true })",
                     whenTrue: ["statement:ReturnStatement:return;"],
                     whenFalse: [],
                   },

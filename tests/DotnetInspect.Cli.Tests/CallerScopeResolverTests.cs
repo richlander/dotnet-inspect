@@ -9,7 +9,7 @@ namespace DotnetInspect.Cli.Tests;
 public class CallerScopeResolverTests
 {
     [Fact]
-    public async Task ResolveAsync_HardLinkedAssembliesAreScannedOnce()
+    public async Task ResolveAsync_HardLinkedAssembliesRemainDistinctPaths()
     {
         string directory = Directory.CreateTempSubdirectory(
             "caller-scope-hard-link-").FullName;
@@ -32,7 +32,9 @@ public class CallerScopeResolverTests
                     httpClient,
                     new VerboseLogger(enabled: false));
 
-            Assert.Single(assemblySet.Assemblies);
+            Assert.Equal(2, assemblySet.Assemblies.Count);
+            Assert.Contains(Path.GetFullPath(original), assemblySet.Assemblies);
+            Assert.Contains(Path.GetFullPath(alias), assemblySet.Assemblies);
         }
         finally
         {
@@ -41,7 +43,7 @@ public class CallerScopeResolverTests
     }
 
     [Fact]
-    public async Task ResolveAsync_HardLinkedOwnAssemblyIsExcluded()
+    public async Task ResolveAsync_HardLinkedOwnAssemblyAliasRemainsIncluded()
     {
         string directory = Directory.CreateTempSubdirectory(
             "caller-scope-own-hard-link-").FullName;
@@ -64,7 +66,9 @@ public class CallerScopeResolverTests
                     httpClient,
                     new VerboseLogger(enabled: false));
 
-            Assert.Empty(assemblySet.Assemblies);
+            Assert.Equal(
+                Path.GetFullPath(alias),
+                Assert.Single(assemblySet.Assemblies));
         }
         finally
         {

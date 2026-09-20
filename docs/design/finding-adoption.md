@@ -206,8 +206,9 @@ matching with the producer rather than inventing correspondence for the
 judgment.
 
 **Model.** Performance Triage keeps ranking and fix guidance as downstream
-judgments. Exact rows retain the `analysis.allocation` or
-`analysis.call-site` descriptor and identity fingerprint together with the
+judgments. Exact rows retain the `analysis.allocation`,
+`analysis.call-site`, or `analysis.string-materialization` descriptor and
+identity fingerprint together with the
 version-local MethodDef token, IL offset, occurrence ordinal, operation, and
 operand token. `Provenance` distinguishes `exact`, `aggregate`, and `unmatched`
 rows rather than relying on empty fields as an implicit signal. `Candidate` is
