@@ -1,9 +1,10 @@
 using System.Reflection.Metadata;
+using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
 
-namespace DotnetInspector.PlatformHouse.Tests;
+namespace DotnetInspector.PlatformHouse.Installed.Tests;
 
 public sealed class PlatformSelectedReferencePopulationExecutorTests
 {
