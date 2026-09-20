@@ -61,7 +61,7 @@ public sealed class PackagePlatformRealPackageTests
             elapsed: TimeSpan.Zero);
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferencePopulationAsync(
                         request,
@@ -189,7 +189,7 @@ public sealed class PackagePlatformRealPackageTests
             elapsed: TimeSpan.Zero);
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,
@@ -342,7 +342,7 @@ public sealed class PackagePlatformRealPackageTests
             elapsed: TimeSpan.Zero);
 
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeReferenceAndImplementationPopulationAsync(
                         request,
@@ -715,7 +715,7 @@ public sealed class PackagePlatformRealPackageTests
             targetComparisons: 0,
             elapsed: TimeSpan.Zero);
         var completed = Assert.IsType<
-            PackagePlatformPopulationMaterializationResult.Completed>(
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
                 await PackagePlatformLibraryMaterializer
                     .MaterializeImplementationPopulationAsync(
                         request,

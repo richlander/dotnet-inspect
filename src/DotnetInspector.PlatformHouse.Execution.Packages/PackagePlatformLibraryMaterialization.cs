@@ -122,59 +122,6 @@ public abstract class PackagePlatformLibraryMaterializationResult
 }
 
 /// <summary>
-/// Result of materializing authoritative package-backed populations.
-/// </summary>
-public abstract class PackagePlatformPopulationMaterializationResult
-{
-    private protected PackagePlatformPopulationMaterializationResult(
-        PlatformPopulationRealizationResult realization) =>
-        Realization = realization;
-
-    public PlatformPopulationRealizationResult Realization { get; }
-
-    /// <summary>
-    /// Transfers every Library owner and the adjacent Artifact authority only
-    /// through complete population settlement.
-    /// </summary>
-    public sealed class Completed :
-        PackagePlatformPopulationMaterializationResult
-    {
-        internal Completed(
-            PlatformPopulationRealizationResult.Completed population,
-            ArtifactSetSession artifacts)
-            : base(population)
-        {
-            ArgumentNullException.ThrowIfNull(artifacts);
-            Population = population;
-            Artifacts = artifacts;
-        }
-
-        public PlatformPopulationRealizationResult.Completed Population
-        {
-            get;
-        }
-
-        public ArtifactSetSession Artifacts { get; }
-    }
-
-    /// <summary>
-    /// Retains only resource-free terminal evidence after population cleanup.
-    /// </summary>
-    public sealed class Terminal :
-        PackagePlatformPopulationMaterializationResult
-    {
-        internal Terminal(
-            PlatformPopulationRealizationResult.Terminal realization)
-            : base(realization) =>
-            TerminalRealization = realization;
-
-        public PlatformPopulationRealizationResult.Terminal
-            TerminalRealization
-        { get; }
-    }
-}
-
-/// <summary>
 /// Selects successful package-backed source snapshots for the shared Artifact
 /// and exact one-Library ownership handoff.
 /// </summary>
@@ -240,7 +187,7 @@ public static class PackagePlatformLibraryMaterializer
     /// Materializes one authoritative package-backed reference population.
     /// </summary>
     public static async ValueTask<
-        PackagePlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeReferencePopulationAsync(
             PlatformHouseRequest request,
             PackagePlatformHouseResult<
@@ -267,7 +214,7 @@ public static class PackagePlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToPackagePopulationResult(outcome);
+        return outcome;
     }
 
     /// <summary>
@@ -275,7 +222,7 @@ public static class PackagePlatformLibraryMaterializer
     /// populations through PlatformHouse-issued view correspondence.
     /// </summary>
     public static async ValueTask<
-        PackagePlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeReferenceAndImplementationPopulationAsync(
             PlatformHouseRequest request,
             PackagePlatformHouseResult<
@@ -313,7 +260,7 @@ public static class PackagePlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToPackagePopulationResult(outcome);
+        return outcome;
     }
 
     /// <summary>
@@ -321,7 +268,7 @@ public static class PackagePlatformLibraryMaterializer
     /// population.
     /// </summary>
     public static async ValueTask<
-        PackagePlatformPopulationMaterializationResult>
+        PlatformPopulationArtifactMaterializationOutcome>
         MaterializeImplementationPopulationAsync(
             PlatformHouseRequest request,
             PackagePlatformHouseResult<
@@ -348,7 +295,7 @@ public static class PackagePlatformLibraryMaterializer
                     consumedWork,
                     PopulationIdentityPrefix)
                 .ConfigureAwait(false);
-        return ToPackagePopulationResult(outcome);
+        return outcome;
     }
 
     static async ValueTask<PackagePlatformLibraryMaterializationResult>
@@ -843,24 +790,6 @@ public static class PackagePlatformLibraryMaterializer
             library.ContentLength,
             _ => library.OpenRead());
     }
-
-    static PackagePlatformPopulationMaterializationResult
-        ToPackagePopulationResult(
-            PlatformPopulationArtifactMaterializationOutcome outcome) =>
-        outcome switch
-        {
-            PlatformPopulationArtifactMaterializationOutcome.Completed
-                completed =>
-                new PackagePlatformPopulationMaterializationResult.Completed(
-                    completed.Population,
-                    completed.Artifacts),
-            PlatformPopulationArtifactMaterializationOutcome.Terminal
-                terminal =>
-                new PackagePlatformPopulationMaterializationResult.Terminal(
-                    terminal.TerminalRealization),
-            _ => throw new InvalidOperationException(
-                "Unknown Platform population Artifact materialization outcome."),
-        };
 
     static bool ValidContribution(
         PlatformHouseRequest request,
