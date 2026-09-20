@@ -34,6 +34,20 @@ public enum ImplementationComplexityChangeKind
 }
 
 /// <summary>
+/// Finding descriptors for Research-owned implementation-complexity context.
+/// </summary>
+public static class ImplementationComplexityFindings
+{
+    /// <summary>
+    /// Identifies an exact local structural direction cohort.
+    /// </summary>
+    public static readonly FindingDescriptor StructuralCohortDescriptor =
+        new(
+            "research.complexity.structural-cohort",
+            "Structural complexity cohort");
+}
+
+/// <summary>
 /// Where one change's absolute normal-flow complexity delta falls within the
 /// local comparison population: every change in the same
 /// <see cref="ImplementationComplexityComparisonRequest"/> that has a

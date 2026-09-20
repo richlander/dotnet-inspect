@@ -340,8 +340,34 @@ uses global qualification for concrete types and contextual escaping for a type
 parameter, which has no globally qualified form. This scope does not apply to
 independently imported body-only documents.
 Unchanged arithmetic and branches remain the responsibility of the existing
-body pipeline. Body-only documents and native projections do not opt into this
-declaration-scoped spelling.
+body pipeline. Body-only documents do not opt into this declaration-scoped
+spelling. A body consumer that constructs the owning property may explicitly
+pass its selected-property descriptor to typed body production, applying the
+same binding before raising. Selected composition separately materializes the
+complete automatic-getter body proof: a compiler marker alone cannot authorize
+discarding a computed body in favor of `get;`. That body proof requires the
+complete trivial getter, exact private compiler field, matching staticness,
+readonly storage and own ordered generic instantiation. Selected-source
+declaration eligibility is a separate question: its unsafe-signature, storage
+layout, field-flag and attribute restrictions do not change the body decision.
+Native reconstruction retains its existing automatic getter-body handling when
+the native shell can represent the declaration, including pointer and function-
+pointer automatic properties. This does not expand selected-source recovery or
+claim reconstruction of custom field attributes or explicit storage layout.
+
+Native compile-back adopts this explicit context for the selected getter under
+both Selected and Full body policies. It consumes the shared storage and
+automatic-getter proofs; it does not recognize backing fields or rewrite source
+to implement this binding. Its owning property shell remains a CSharp product
+artifact. This adoption fixes the compiler-marked `get => field + 1` case that
+previously lost its addition, and the published docopt getter that previously
+called its own property instead of reading storage. It does not expand proof
+eligibility, reconstruct initializers, or change non-target closure-body policy.
+The containing shell consumes the existing readonly type and field metadata
+facts: a readonly struct cannot become an ordinary struct without changing the
+compiler-generated field flags. A bound accessor load does not request a
+separate field declaration from native closure planning; C# synthesizes that
+storage as part of the property.
 
 Stores, addresses, other field targets or receivers, foreign generic storage,
 nested functions, exception regions, unsupported field signatures/attributes,
@@ -388,6 +414,19 @@ separate pre-merge evidence.
 Losing a getter operation, changing the field target or flags, introducing
 recursion, or printing `field` outside its property envelope falsifies the claim.
 Native compile-back remains a separate evidence lens.
+`MemberBodyProducerTypedBodyTests.ProduceBody_OptsIntoProvenGetterStorageOnlyWithPropertyContext`
+gates explicit body binding and unchanged independent production.
+`ReturnToSenderPrototypeTests.NativeGetterRetainsItsStorageAndComputation`
+and `PublishedDocoptNativeGetterRetainsItsStorageAndNullFallback` run native
+reconstruction with repair floors disabled, comparing complete getter opcodes,
+resolved operands and storage flags in the emitted artifact. They inherit the
+native suite's Slow classification and run as focused pre-merge evidence.
+`NativeAutomaticGetterPreservesBodyWhenSelectedDeclarationDeclines` covers
+instance/static pointer and function-pointer automatic properties plus an
+explicit-layout integer neighbor in the C# legacy-rules compiler fixture.
+`ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility`
+keeps the corresponding selected-source declines while retaining the complete
+automatic-body decision.
 
 [field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
 [docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32

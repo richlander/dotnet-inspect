@@ -192,7 +192,7 @@ public static class TypeShellProducer
     /// The consumer supplies member discovery, body policies, and the C# spelling of
     /// the type's name/base/interfaces; this seam owns assembling the
     /// <see cref="ApiType"/> — kind text, generic parameters, custom attributes, and
-    /// abstract/sealed/static modifiers read straight from metadata — and recursing
+    /// abstract/sealed/static/readonly modifiers read straight from metadata — and recursing
     /// into nested shells. SRM-only, Roslyn-free, and NativeAOT-friendly.
     /// </summary>
     public static CSharpTypePrintRequest BuildPrintRequest(MetadataReader reader, CSharpTypeShellSpec spec)
@@ -224,6 +224,9 @@ public static class TypeShellProducer
                 && (typeDef.Attributes & TypeAttributes.Interface) == 0,
             IsSealed = (typeDef.Attributes & TypeAttributes.Sealed) != 0,
             IsStatic = IsStaticType(typeDef),
+            IsReadOnly = spec.Kind == CSharpTypeShellKind.Struct
+                && AttributeReader.HasAttribute(
+                    reader, typeDef.GetCustomAttributes(), KnownAttributeNames.IsReadOnlyAttribute),
             EnumUnderlyingType = spec.Kind == CSharpTypeShellKind.Enum
                 ? EnumUnderlyingType(reader, typeDef)
                 : null,

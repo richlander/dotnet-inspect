@@ -48,8 +48,8 @@ and `@SourceLink`; the resolved broad, overload, or exact-member catalog
 determines which authored members each door exposes.
 Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
 Diff`, and `Implementation Diff` views. Its focused, non-composable
-`Complexity Context` and `Finding Transitions` views remain standalone
-exact-name sections.
+`Complexity Context`, `Structural Context`, and `Finding Transitions` views
+remain standalone exact-name sections.
 Project uses `@Project` as its base category for package-authored `Skills` and
 `Package README file` documents from restored direct dependencies. Bare `-S`
 retains `Skills`; selecting `@Project` explicitly requests both inventories.

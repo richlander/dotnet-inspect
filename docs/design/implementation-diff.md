@@ -332,12 +332,17 @@ presentation motivates preserving metric-level evidence, but its source-level
 constructs, fixed thresholds, and maintainability conclusions do not transfer
 to this compiled-IL diff contract.
 
-The Research result is the first half of a two-slice production path tracked by
-issue #7696. A following CLI slice may project the vector and cohort facts from
-`ImplementationComparisonQuery`; this slice does not change `Complexity
-Context`, default output, or any quality interpretation. The same host-neutral
-result remains available to a future browser consumer without reimplementing
-cohort assignment.
+The Research result and the explicit CLI `Structural Context` section form the
+two-slice production path tracked by issue #7696. `Structural Context` reuses
+`ImplementationComparisonQuery`, remains outside `@Diff` and default
+disclosure, and renders every eligible complete, unambiguous pair, including
+the all-Unchanged cohort. It exposes each signed vector dimension, its seven
+direction fields, population size, cohort size, and a stable
+`research.complexity.structural-cohort` Kind. Dedicated typed fields make the
+cohort criteria queryable without parsing display or Evidence text. As with
+the Research result, a singleton cohort is not an outlier or quality judgment.
+The same host-neutral result remains available to a future browser consumer
+without reimplementing cohort assignment.
 
 The exact-name `Complexity Context` section projects non-unchanged complexity
 observations as a focused table with nullable numeric `Old`, `New`, `Delta`,
