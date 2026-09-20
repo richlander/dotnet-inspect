@@ -20,12 +20,29 @@ public sealed class LibraryQueryView
 }
 
 [MarkoutSerializable]
-public sealed record LibraryQuerySummaryRow(
-    int Population,
-    int Scanned,
-    int Matches,
-    int Failures,
-    string Completion);
+public sealed class LibraryQuerySummaryRow
+{
+    public LibraryQuerySummaryRow(
+        int population,
+        int scanned,
+        int matches,
+        int failures,
+        string completion)
+    {
+        Population = population;
+        Scanned = scanned;
+        Matches = matches;
+        Failures = failures;
+        CompletionText = new(TextPolicy.Field, completion);
+    }
+
+    public int Population { get; }
+    public int Scanned { get; }
+    public int Matches { get; }
+    public int Failures { get; }
+    [MarkoutIgnore] public InertString CompletionText { get; }
+    public string Completion => CompletionText.ToString();
+}
 
 [MarkoutSerializable(TitleProperty = nameof(Title))]
 public sealed class EmptyLibraryQueryView
