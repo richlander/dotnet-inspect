@@ -8,6 +8,8 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class ResourceTriageQueryTests
 {
     const string ReadBeforeReturn = "RentReadBeforeReturn";
+    const string NormalAndExceptionalExit =
+        "RentAcrossNormalAndExceptionalExit";
 
     [Fact]
     public void Execute_ReturnsLifecycleFindingsAndTypedAssessments()
@@ -53,6 +55,11 @@ public sealed class ResourceTriageQueryTests
 
         var available =
             Assert.IsType<ResourceTriageResult.Available>(result);
+        Assert.DoesNotContain(
+            available.Assessments,
+            candidate =>
+                candidate.Source.Payload.Method.Name
+                    == NormalAndExceptionalExit);
         ResourceTriageAssessment assessment = Assert.Single(
             available.Assessments,
             candidate =>

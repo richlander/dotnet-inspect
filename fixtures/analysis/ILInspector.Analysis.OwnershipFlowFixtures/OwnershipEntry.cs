@@ -290,6 +290,8 @@ public static class Entry
 
     static byte[]? s_rentedArray;
     static int s_ownershipProbe;
+    static readonly Exception s_lifecycleException =
+        new InvalidOperationException();
 
     static void StoreRentedArray(byte[] buffer) =>
         s_rentedArray = buffer;
@@ -429,10 +431,12 @@ public static class Entry
     public static void RentAcrossNormalAndExceptionalExit(bool fail)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
-        ObserveResource(buffer);
-        if (fail)
-            throw new InvalidOperationException();
-        s_ownershipProbe += buffer.Length;
+        for (int index = 0; index < buffer.Length; index++)
+        {
+            if (fail)
+                throw s_lifecycleException;
+            s_ownershipProbe += buffer[index];
+        }
     }
 
     public static void RentAcrossConditionalFinally(

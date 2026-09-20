@@ -195,6 +195,11 @@ The query projects only `ExceptionalCleanupMissing` outcomes into its existing
 
 Other generic lifecycle outcomes remain Analysis evidence in this slice. The
 later generalized Resource Triage product work decides how to expose them.
+When one root has both normal and exceptional unreleased terminal exits, the
+generic result retains both facts while Resource Triage preserves the legacy
+normal-first terminal precedence and does not project a terminal-only
+exceptional-cleanup Finding. An independently discovered throwing-call
+boundary remains projectable.
 
 Typed producer failures remain failed query outcomes. Root-local limitations
 remain visible on the focused Analysis result while sound positive
@@ -259,6 +264,8 @@ establish:
 
 - unchanged complete Resource Triage Finding population, payload, boundary
   sequence, and candidate identity;
+- legacy normal-first Resource Triage projection for simultaneous normal and
+  exceptional terminal leaks;
 - one shared body-analysis execution for selected migrated sections; and
 - no `LibraryBodyIndex` materialization by Resource Triage.
 

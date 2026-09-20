@@ -102,9 +102,9 @@ public static class ResourceLifecycleAnalysis
                 .. from method in result.Methods
                    from root in method.Roots
                    from outcome in root.Outcomes
-                   where outcome.Kind
-                       == ResourceLifecycleOutcomeKind
-                           .ExceptionalCleanupMissing
+                   where ProjectsResourceTriageExceptionalCleanup(
+                       root,
+                       outcome)
                    select CreateOccurrence(
                        method.Method,
                        root.Root,
@@ -142,6 +142,17 @@ public static class ResourceLifecycleAnalysis
                 $"{ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    static bool ProjectsResourceTriageExceptionalCleanup(
+        ResourceLifecycleRootResult root,
+        ResourceLifecycleOutcome outcome) =>
+        outcome.Kind
+            == ResourceLifecycleOutcomeKind.ExceptionalCleanupMissing
+        && (!outcome.Boundaries.IsEmpty
+            || !root.Outcomes.Any(candidate =>
+                candidate.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .MissingReleaseOnNormalPath));
 
     public static FindingInspection<ResourceLifecycleOccurrence> InspectAssembly(
         string path,
