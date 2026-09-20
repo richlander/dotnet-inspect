@@ -161,6 +161,11 @@ export function createRetainedWorkspaceActivationController(
   let nextDeactivationGeneration = 0;
   let postedPublicationOrdinal = 0;
   let currentActivationReceipt: string | null = null;
+  let uncertainCancellation: {
+    readonly retainedDefinitionId: string;
+    readonly receipt: string;
+    retry: Promise<void> | null;
+  } | null = null;
   let committingDefinitionId: string | null = null;
   let commitBarrier: Promise<void> | null = null;
   let settleCommit: (() => void) | null = null;
@@ -442,6 +447,11 @@ export function createRetainedWorkspaceActivationController(
         "A retained Workspace cannot be activated while the active Workspace is being deactivated.",
       );
     }
+    if (uncertainCancellation !== null) {
+      throw new Error(
+        "A retained Workspace activation cannot begin while cancellation settlement is unknown.",
+      );
+    }
     if (committingDefinitionId !== null) {
       throw new Error(
         "A retained Workspace activation is awaiting consumer completion.",
@@ -454,6 +464,7 @@ export function createRetainedWorkspaceActivationController(
     let receipt: string | null = null;
     let commitStarted = false;
     let commitOutcomeConfirmed = false;
+    let cancellationOutcomeConfirmed = false;
     let requiresConsumerCompletion = false;
     let completionAttempted = false;
     let completionAccepted = false;
@@ -494,6 +505,7 @@ export function createRetainedWorkspaceActivationController(
               try {
                 cancellation =
                   await requestCancellation(preparedReceipt);
+                cancellationOutcomeConfirmed = true;
               } catch (cancellationError) {
                 throw new AggregateError(
                   [error, cancellationError],
@@ -521,6 +533,7 @@ export function createRetainedWorkspaceActivationController(
             }
             if (!accepted || generation !== selectionGeneration) {
               result = await requestCancellation(preparedReceipt);
+              cancellationOutcomeConfirmed = true;
               break;
             }
 
@@ -697,9 +710,19 @@ export function createRetainedWorkspaceActivationController(
       }
       throw error;
     } finally {
-      const releaseTransaction = !commitStarted
+      const releaseTransaction = (!commitStarted
+          && (receipt === null || cancellationOutcomeConfirmed))
         || (commitOutcomeConfirmed && !requiresConsumerCompletion)
         || completionAccepted;
+      if (!releaseTransaction
+        && !commitStarted
+        && receipt !== null) {
+        uncertainCancellation = {
+          retainedDefinitionId: definition.id,
+          receipt,
+          retry: null,
+        };
+      }
       if (commitStarted && releaseTransaction) {
         committingDefinitionId = null;
         settleCommit?.();
@@ -717,6 +740,37 @@ export function createRetainedWorkspaceActivationController(
   function cancelPending(): boolean {
     if (committingDefinitionId !== null
       || soleDeactivationIntent !== null) return false;
+    if (uncertainCancellation !== null) {
+      const intent = uncertainCancellation;
+      if (intent.retry !== null) return true;
+      intent.retry = requestCancellation(intent.receipt).then(
+        result => {
+          cancellationRequests.delete(intent.receipt);
+          if (uncertainCancellation !== intent) return undefined;
+          uncertainCancellation = null;
+          if (currentActivationReceipt === intent.receipt) {
+            currentActivationReceipt = null;
+          }
+          endActivation(intent.retainedDefinitionId);
+          if (result.status === "failed") {
+            lastFailure = result.failure?.message
+              ?? "Retained Workspace cancellation failed.";
+          }
+          return undefined;
+        },
+        (error: unknown) => {
+          cancellationRequests.delete(intent.receipt);
+          if (uncertainCancellation === intent) {
+            intent.retry = null;
+            lastFailure = error instanceof Error
+              ? error.message
+              : "Retained Workspace cancellation failed.";
+          }
+          return undefined;
+        },
+      );
+      return true;
+    }
     const cancelledGeneration = selectionGeneration;
     selectionGeneration++;
     pendingDefinitionId = null;

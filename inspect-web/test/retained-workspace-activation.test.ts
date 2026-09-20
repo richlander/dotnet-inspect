@@ -190,6 +190,9 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     failure: string | null;
   }> = [];
   readonly cancelledReceipts: string[] = [];
+  readonly cancellationResponses: Array<
+    Promise<BrowserRetainedWorkspaceActivationResult>
+  > = [];
   cancellationResponse: BrowserRetainedWorkspaceActivationResult | null =
     null;
   activationCompletionError: Error | null = null;
@@ -284,6 +287,8 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
   ): Promise<BrowserRetainedWorkspaceActivationResult> {
     this.cancelledReceipts.push(receipt);
     this.activationResults.delete(receipt);
+    const queuedResponse = this.cancellationResponses.shift();
+    if (queuedResponse !== undefined) return queuedResponse;
     return Promise.resolve(this.cancellationResponse ?? {
       status: "superseded",
       posting: null,
@@ -486,6 +491,51 @@ test("consumer rejection cancels before cutover", async () => {
   assert.deepEqual(fixture.posted, []);
   assert.deepEqual(fixture.client.cancelledReceipts, ["receipt-1"]);
   assert.deepEqual(fixture.client.activationCompletions, []);
+});
+
+test("unknown cancellation outcome retains deletion barrier until retry", async () => {
+  const fixture = createFixture();
+  const cancellation =
+    deferred<BrowserRetainedWorkspaceActivationResult>();
+  fixture.client.cancellationResponses.push(cancellation.promise);
+  const definition = fixture.controller.retain({
+    label: "A",
+    canonicalLocation: "/a",
+    canonicalPacket: "packet-a",
+  });
+
+  const activation = fixture.controller.activate(
+    definition.id,
+    () => false,
+  );
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-1"),
+    failure: null,
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  cancellation.reject(new Error("Cancellation response was lost."));
+
+  await assert.rejects(activation, /Cancellation response was lost/);
+  assert.deepEqual(
+    fixture.controller.state.unsettledDefinitionIds,
+    [definition.id],
+  );
+  await assert.rejects(
+    fixture.controller.delete(definition.id),
+    /cannot be deleted until its activation settles/,
+  );
+
+  assert.equal(fixture.controller.cancelPending(), true);
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(
+    fixture.client.cancelledReceipts,
+    ["receipt-1", "receipt-1"],
+  );
+  assert.deepEqual(fixture.controller.state.unsettledDefinitionIds, []);
+  await fixture.controller.delete(definition.id);
+  assert.deepEqual(fixture.controller.state.definitions, []);
 });
 
 test("cancellation before preparation prevents cutover", async () => {
