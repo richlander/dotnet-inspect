@@ -121,7 +121,10 @@ substrates, and inspection producers that will extend that space.
   query binds one physical Package Root selection to dependency evidence
   projected from that exact retained content and selection intent. Package
   Dependency Traversal retains that complete context as a typed root source
-  without moving asset, group, destination, or traversal policy. The
+  without moving its package-local asset or group selection, retains one
+  traversal target for compatible candidate-manifest selection, and leaves
+  Platform-pruned route composition to the Workspace operation that selected
+  the relevant ecosystem. The
   [assembly reference resolution ladder](design/assembly-reference-resolution-ladder.md)
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued

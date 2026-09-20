@@ -561,7 +561,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         var issuer = new PackageAcquisitionCandidateIssuer();
         PackageSourceAuthorization authorization = Authorize("authority-a");
-        PackageAcquisitionCandidate child = Pinned(issuer, authorization, "child", "1.0.0");
+        PackageAcquisitionCandidate child = Pinned(
+            issuer,
+            authorization,
+            "child",
+            "1.0.0");
         var resolver = new StubCandidateResolver();
         resolver.SetResponse("shared", "child", () => Resolved(child));
         var acquirer = new StubManifestAcquirer();
@@ -628,11 +632,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
     }
 
     [Fact]
-    public async Task Traversal_FrameworkModeIsStructuralCurrency()
+    public async Task Traversal_TargetPolicyIsStructuralCurrency()
     {
         // The root's own selection is fixed at construction time (a mismatched
-        // "net472" request), but the traversal's typed framework mode -- never that
-        // retained inert request text -- drives every transitive manifest
+        // "net472" request), but the traversal's typed target policy -- never that
+        // retained source selection -- drives every transitive manifest
         // projection's group selection.
         PackageDependencyTraversalRootOccurrence root = Root(
             "roota",
@@ -648,38 +652,38 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageSourceAuthorization authorization = Authorize("authority-a");
         PackageAcquisitionCandidate child = Pinned(issuer, authorization, "child", "1.0.0");
 
-        PackageDependencyTraversalFrameworkMode.TryCreateExact(
-            "net6.0",
-            out PackageDependencyTraversalFrameworkMode.Exact exact);
-        Assert.Empty(
-            typeof(PackageDependencyTraversalFrameworkMode.Exact)
-                .GetConstructors());
-        var exactResolver = new StubCandidateResolver();
-        exactResolver.SetResponse("roota", "child", () => Resolved(child));
-        exactResolver.SetResponse(
+        var configured = new TraversalTargetFrameworkPolicy("net6.0");
+        var configuredResolver = new StubCandidateResolver();
+        configuredResolver.SetResponse("roota", "child", () => Resolved(child));
+        configuredResolver.SetResponse(
             "child",
             "net6-dep",
             () => new PackageDependencyTraversalCandidateResult.Failed(
                 new PackageDependencyTraversalCandidateFailure.NoMatchingVersion()));
-        var exactAcquirer = new StubManifestAcquirer();
-        exactAcquirer.SetManifest(child,
+        var configuredAcquirer = new StubManifestAcquirer();
+        configuredAcquirer.SetManifest(child,
             ManifestBytes("child", "1.0.0", childDependencies));
-        PackageDependencyTraversalOutcome exactOutcome = await ExecuteAsync(
+        PackageDependencyTraversalOutcome configuredOutcome = await ExecuteAsync(
             [root],
-            exactResolver,
-            exactAcquirer,
-            frameworkMode: exact);
-        PackageDependencyEvidenceRoot childEvidenceExact = FindProjectionEvidence(
-            exactOutcome,
-            child.Coordinate);
+            configuredResolver,
+            configuredAcquirer,
+            traversalTargetPolicy: configured);
+        PackageDependencyEvidenceRoot childEvidenceConfigured =
+            FindProjectionEvidence(
+                configuredOutcome,
+                child.Coordinate);
+        Assert.Same(configured, configuredOutcome.TraversalTargetPolicy);
         Assert.Equal(
             "net6.0",
-            childEvidenceExact.Selection.SelectedFramework?.ToString());
+            childEvidenceConfigured.Selection.RequestedFramework?.ToString());
+        Assert.Equal(
+            "net6.0",
+            childEvidenceConfigured.Selection.SelectedFramework?.ToString());
         Assert.Contains(
-            exactOutcome.Edges,
+            configuredOutcome.Edges,
             edge => edge.Declaration.CanonicalPackageId == "net6-dep");
         Assert.DoesNotContain(
-            exactOutcome.Edges,
+            configuredOutcome.Edges,
             edge => edge.Declaration.CanonicalPackageId == "net8-dep");
 
         var defaultResolver = new StubCandidateResolver();
@@ -696,10 +700,17 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             defaultResolver,
             defaultAcquirer,
-            frameworkMode: new PackageDependencyTraversalFrameworkMode.ManifestDefault());
+            traversalTargetPolicy:
+                TraversalTargetFrameworkPolicy.ProductDefault);
         PackageDependencyEvidenceRoot childEvidenceDefault = FindProjectionEvidence(
             defaultOutcome,
             child.Coordinate);
+        Assert.Same(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            defaultOutcome.TraversalTargetPolicy);
+        Assert.Equal(
+            "net12.0",
+            childEvidenceDefault.Selection.RequestedFramework?.ToString());
         Assert.Equal(
             "net8.0",
             childEvidenceDefault.Selection.SelectedFramework?.ToString());
@@ -712,7 +723,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
     }
 
     [Fact]
-    public async Task Traversal_ManifestDefaultUsesOwnerNoRequestSelection()
+    public async Task Traversal_ProductDefaultDoesNotReselectRoot()
     {
         string dependencies =
             Dependency("low", "[1.0.0]", "net6.0")
@@ -737,8 +748,13 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             resolver,
             acquirer,
-            frameworkMode: new PackageDependencyTraversalFrameworkMode.ManifestDefault());
+            traversalTargetPolicy:
+                TraversalTargetFrameworkPolicy.ProductDefault);
 
+        Assert.Same(
+            TraversalTargetFrameworkPolicy.ProductDefault,
+            outcome.TraversalTargetPolicy);
+        Assert.Null(rootEvidence.Selection.RequestedFramework);
         Assert.Equal("net8.0", rootEvidence.Selection.SelectedFramework?.ToString());
         Assert.Contains(
             outcome.Edges,
@@ -749,7 +765,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
     }
 
     [Fact]
-    public async Task Traversal_ExactFrameworkNoMatchRemainsVisible()
+    public async Task Traversal_ConfiguredTargetNoMatchRemainsVisible()
     {
         string dependencies = Dependency("dep", "[1.0.0]", "net8.0");
         PackageDependencyEvidenceRoot rootEvidence = BuildRoot(
@@ -760,9 +776,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalRootOccurrence root = new(
             rootEvidence,
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
-        PackageDependencyTraversalFrameworkMode.TryCreateExact(
-            "net472",
-            out PackageDependencyTraversalFrameworkMode.Exact exact);
+        var configured = new TraversalTargetFrameworkPolicy("net472");
 
         var resolver = new StubCandidateResolver();
         var acquirer = new StubManifestAcquirer();
@@ -770,8 +784,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             resolver,
             acquirer,
-            frameworkMode: exact);
+            traversalTargetPolicy: configured);
 
+        Assert.Same(configured, outcome.TraversalTargetPolicy);
         Assert.Empty(outcome.Edges);
         Assert.Equal(
             PackageDependencyEvidenceSelectionStatus.NoMatchingTargetFramework,
@@ -1613,10 +1628,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
         int? maxDepth = null,
         int maxManifestProjections = DefaultManifestBudget,
         int maxDeclarationResolutions = DefaultDeclarationBudget,
-        PackageDependencyTraversalFrameworkMode? frameworkMode = null) =>
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
         new(
             roots,
-            frameworkMode ?? new PackageDependencyTraversalFrameworkMode.ManifestDefault(),
+            traversalTargetPolicy
+                ?? TraversalTargetFrameworkPolicy.ProductDefault,
             resolver,
             acquirer,
             new PackageDependencyTraversalWorkBudget(
@@ -1631,7 +1647,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
         int? maxDepth = null,
         int maxManifestProjections = DefaultManifestBudget,
         int maxDeclarationResolutions = DefaultDeclarationBudget,
-        PackageDependencyTraversalFrameworkMode? frameworkMode = null) =>
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
         PackageDependencyTraversalQuery.ExecuteAsync(
             BuildRequest(
                 roots,
@@ -1640,7 +1656,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 maxDepth,
                 maxManifestProjections,
                 maxDeclarationResolutions,
-                frameworkMode),
+                traversalTargetPolicy),
             TestContext.Current.CancellationToken);
 
     private static PackageDependencyTraversalCandidateResult.Resolved Resolved(

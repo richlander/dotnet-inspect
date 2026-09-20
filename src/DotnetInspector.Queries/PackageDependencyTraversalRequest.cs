@@ -65,68 +65,6 @@ public abstract record PackageDependencyTraversalRootSource
     }
 }
 
-/// <summary>
-/// The typed framework-selection mode for candidate-acquired manifest
-/// projections. Realized roots retain their Root-owned source selection
-/// independently.
-/// </summary>
-public abstract record PackageDependencyTraversalFrameworkMode
-{
-    private PackageDependencyTraversalFrameworkMode()
-    {
-    }
-
-    /// <summary>Gets the requested framework text to project each candidate-acquired
-    /// manifest against, or <see langword="null"/> for
-    /// <see cref="ManifestDefault"/>.</summary>
-    internal abstract string? RequestedFramework { get; }
-
-    /// <summary>One validated canonical NuGet framework identity.</summary>
-    public sealed record Exact :
-        PackageDependencyTraversalFrameworkMode
-    {
-        internal Exact(string canonicalFramework)
-        {
-            CanonicalFramework = canonicalFramework;
-        }
-
-        public string CanonicalFramework { get; }
-
-        internal override string? RequestedFramework => CanonicalFramework;
-    }
-
-    /// <summary>
-    /// Each candidate-acquired manifest uses the package dependency-group owner's
-    /// explicit no-request selection policy; the result retains each node's
-    /// independently selected framework rather than claiming one graph-wide target
-    /// framework.
-    /// </summary>
-    public sealed record ManifestDefault : PackageDependencyTraversalFrameworkMode
-    {
-        internal static ManifestDefault Instance { get; } = new();
-
-        internal override string? RequestedFramework => null;
-    }
-
-    /// <summary>
-    /// Validates and canonicalizes <paramref name="framework"/> through the same
-    /// canonical NuGet framework identity every other exact-framework request uses.
-    /// </summary>
-    public static bool TryCreateExact(string framework, out Exact mode)
-    {
-        if (NuGetTargetFrameworkIdentity.TryNormalize(
-                framework,
-                out string canonical))
-        {
-            mode = new Exact(canonical);
-            return true;
-        }
-
-        mode = null!;
-        return false;
-    }
-}
-
 /// <summary>One admitted package root and the expansion authority it carries.</summary>
 public sealed record PackageDependencyTraversalRootOccurrence
 {
@@ -223,7 +161,7 @@ public sealed record PackageDependencyTraversalRequest
 {
     public PackageDependencyTraversalRequest(
         ImmutableArray<PackageDependencyTraversalRootOccurrence> roots,
-        PackageDependencyTraversalFrameworkMode frameworkMode,
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
         IPackageDependencyTraversalCandidateResolver candidateResolver,
         IPackageDependencyTraversalManifestAcquirer manifestAcquirer,
         PackageDependencyTraversalWorkBudget workBudget,
@@ -236,7 +174,7 @@ public sealed record PackageDependencyTraversalRequest
                 nameof(roots));
         }
 
-        ArgumentNullException.ThrowIfNull(frameworkMode);
+        ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         ArgumentNullException.ThrowIfNull(candidateResolver);
         ArgumentNullException.ThrowIfNull(manifestAcquirer);
         ArgumentNullException.ThrowIfNull(workBudget);
@@ -249,7 +187,7 @@ public sealed record PackageDependencyTraversalRequest
         }
 
         Roots = roots;
-        FrameworkMode = frameworkMode;
+        TraversalTargetPolicy = traversalTargetPolicy;
         CandidateResolver = candidateResolver;
         ManifestAcquirer = manifestAcquirer;
         WorkBudget = workBudget;
@@ -258,7 +196,7 @@ public sealed record PackageDependencyTraversalRequest
 
     public ImmutableArray<PackageDependencyTraversalRootOccurrence> Roots { get; }
 
-    public PackageDependencyTraversalFrameworkMode FrameworkMode { get; }
+    public TraversalTargetFrameworkPolicy TraversalTargetPolicy { get; }
 
     public IPackageDependencyTraversalCandidateResolver CandidateResolver { get; }
 

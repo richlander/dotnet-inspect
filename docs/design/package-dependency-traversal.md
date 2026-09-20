@@ -42,6 +42,13 @@ It does not own the facts or effects it composes:
   Context](realized-package-dependency-context.md) owns the association between
   one physical Package Root selection and dependency evidence projected from
   that exact retained content and selection intent.
+- [Traversal target-framework policy](traversal-target-framework-policy.md)
+  owns the one product-default or configured target that governs newly reached
+  participants.
+- [Platform/package pruning](platform-package-pruning.md) owns the exact
+  target-relative fact that a Platform supplies a requested package version.
+  A consumer with the .NET Runtime Ecosystem composes that fact before
+  admitting a package route.
 - [Package Dependency Candidate Resolution](package-dependency-candidate-resolution.md),
   tracked by [#5765](https://github.com/richlander/dotnet-inspect/issues/5765),
   owns the
@@ -91,7 +98,8 @@ The realized-package adoption tracked by
 [#7401](https://github.com/richlander/dotnet-inspect/issues/7401) reuses this
 query rather than adding another traversal. A realized package context is an
 explicit root source retained by the graph. Destination realization and
-Workspace-default target policy remain the separate #6424 adoption step.
+Platform-aware route composition remain the separate #6424 and #6228 adoption
+steps.
 
 The design may land before #5765, but the traversal implementation must not
 replace that prerequisite with an ad hoc resolver. In particular,
@@ -175,7 +183,7 @@ claim.
 ```text
 ordered admitted exact package roots
   + projected dependency evidence or realized package contexts
-  + typed framework-selection mode
+  + TraversalTargetFrameworkPolicy
   + per-root expansion authority
   + exact-candidate resolver capability from #5765
   + exact manifest acquisition and projection capability
@@ -237,40 +245,53 @@ A failed root without exact package identity is not a traversal input. The
 host retains that failed attempt beside the query result in its enclosing
 dependency document.
 
-### Framework-selection mode
+### Traversal target policy
 
-The request carries one typed framework-selection mode:
+The request carries one non-null
+`TraversalTargetFrameworkPolicy`. Omitted host configuration uses
+`ProductDefault(net12.0)`; an explicit traversal TFM produces `Configured`.
+The result retains that exact policy so consumers do not infer operation
+intent from selected asset or dependency-group frameworks.
 
-- `Exact`, with one validated canonical NuGet framework identity; or
-- `ManifestDefault`, meaning each manifest uses the package dependency-group
-  owner's explicit no-request selection policy.
+The policy is structural request currency. It is formed before traversal and
+is not reconstructed from
+`PackageDependencyEvidenceSelection.RequestedFramework`, which remains source
+selection evidence. Every candidate-acquired manifest uses the
+dependency-group owner's compatible selection against the policy target. A
+selected lower framework remains visible, but it never replaces the governing
+target on the next edge.
 
-The mode is structural request currency. It is formed before traversal and is
-not reconstructed from
-`PackageDependencyEvidenceSelection.RequestedFramework`, which remains inert
-presentation evidence.
+A `ProjectedEvidence` root's adapter owns the relationship between its supplied
+source selection and the operation. A `RealizedPackage` root retains the
+package-local selection already made for the website or another host. An
+explicitly selected `netstandard2.0` package/member can therefore contribute
+its exact declarations while `ProductDefault(net12.0)` governs newly reached
+participants. Traversal does not reselect or relabel the root.
 
-For `Exact`, the existing package evidence owner keeps its exact-or-universal
-selection contract. It does not silently enable the legacy compatible-TFM
-fallback. `NoMatchingTargetFramework` is therefore a complete selection
-outcome for the exact question, but it remains visible and must not be
-described as a package proven to have no dependency declarations.
+Package-local selection and traversal are separate contracts. Inspect Web's
+ordinary package TFM chooses the root package/member; its package call-graph
+page will expose an independent traversal-TFM selector defaulting to
+`net12.0`. Destination Package Root realization under that target remains
+Issue #6424's contract.
 
-For `ManifestDefault`, each node retains the framework group chosen by the
-owner's no-request policy. The result explicitly describes a per-manifest
-default traversal and does not claim one graph-wide target framework.
+### Declaration evidence and Platform-pruned composition
 
-The mode governs every candidate-acquired transitive manifest projection. A
-`ProjectedEvidence` root's adapter supplies its relationship to that mode
-directly; the query does not validate trusted in-process callers by comparing
-display text.
+This query retains every selected normalized declaration edge as package
+authorship evidence. It has no Workspace ecosystem selection or Platform
+inventory input and therefore does not itself classify an edge as
+Platform-subsumed.
 
-A `RealizedPackage` root instead retains the Root-owned source selection in its
-context. That source selection may differ from the traversal mode: an
-explicitly selected `netstandard2.0` hub can contribute its exact declarations
-while a `net11.0` traversal mode governs newly reached manifests. The traversal
-does not reselect or relabel the realized root. Destination Package Root
-selection under the Workspace default remains #6424's contract.
+A curated call-graph operation that includes the .NET Runtime Ecosystem
+composes the query's declaration evidence with the exact target's
+Platform/package pruning result before admitting a package route. A
+`Subsumed` declaration resolves through the Platform and requires neither
+package acquisition nor recursive package traversal. Only the non-subsumed
+remainder becomes package traversal in that composed operation.
+
+Package-mode `depends` may instead retain the package-authored route because it
+answers a dependency-definition question. Both consumers retain the same raw
+declaration evidence; neither treats the raw edge count as the final
+Platform-aware call-graph edge count.
 
 ### Per-root expansion authority
 
@@ -584,10 +605,10 @@ distinct:
 - no matching target framework.
 
 All normalized groups may remain available in package evidence, but traversal
-does not merge declarations from non-selected groups. Every transitive
-manifest uses the request's typed selection mode. `ManifestDefault` retains
-each node's independently selected framework; it is never relabeled as an
-exact-TFM graph.
+does not merge declarations from non-selected groups. Every candidate-acquired
+manifest uses compatible selection against the request's retained traversal
+target. The selected framework remains separate evidence and never replaces
+that target.
 
 ### Per-declaration resolution
 
@@ -770,7 +791,7 @@ It has no Markout, DOM, command-line, console, or filesystem-path dependency.
 The CLI:
 
 - decides whether selected sections request traversal;
-- supplies roots, source context, target framework, depth, and budgets;
+- supplies roots, source context, traversal target policy, depth, and budgets;
 - composes package traversal with other dependency producers;
 - lowers the result through Markout; and
 - derives diagnostics and exit status from the complete document.
@@ -778,7 +799,10 @@ The CLI:
 Browser/Wasm:
 
 - supplies the same typed capabilities through the managed engine boundary;
-- owns user gestures, operation lifetime, and interactive state; and
+- owns the package call-graph traversal-TFM selector independently from the
+  package/member selection TFM;
+- defaults that traversal selector to `ProductDefault(net12.0)`;
+- owns operation lifetime and interactive state; and
 - renders typed graph data through its DOM path without duplicating traversal.
 
 The reusable query must remain SRM-only where metadata is involved,
@@ -860,14 +884,20 @@ correspond.
 ### Realized source intent and traversal intent
 
 An explicitly selected `Polly.Core@8.8.0` `netstandard2.0` context contributes
-its four selected source declarations even when the traversal mode is exact
-`net11.0`. The traversal mode governs candidate-acquired destination manifests;
-it does not reselect the root to Polly.Core's empty `net8.0` group.
+its four selected source declarations while the call graph uses
+`ProductDefault(net12.0)`. The traversal target governs candidate-acquired
+destination manifests; it does not reselect the package/member root to
+Polly.Core's empty `net8.0` group.
 
-A separately realized compatible `net11.0` Polly.Core context retains its
+A separately realized compatible `net12.0` Polly.Core context retains its
 selected-empty `net8.0` group and completes without edges. Equal package
 coordinates do not exchange the contexts: independently realized generations
 remain distinct root projections beneath one semantic package node.
+
+The four edges in the first result are raw package declaration evidence, not
+the final Platform-aware call-graph package edge count. A later composed
+operation with the .NET Runtime Ecosystem prunes any exact dependency version
+subsumed by the selected `net12.0` Platform inventory.
 
 ## Evidence
 
@@ -887,12 +917,12 @@ The implementation adds focused Release gates for:
 | Failed recursive resolution retains the declaration edge without inventing an exact target. | `Traversal_FailedResolutionRetainsDeclarationEdge` |
 | Per-root edge admission intersects depth with expansion authority. | `Traversal_EdgeAdmissionRespectsRootAuthority` |
 | Repeated direct roots remain distinct without typed correspondence. | `Traversal_RepeatedDirectRootRequiresCorrespondenceToCoalesce` |
-| Typed framework mode, never inert text, controls candidate-acquired group selection while realized roots retain their Root-owned source selection. | `Traversal_FrameworkModeIsStructuralCurrency`; `Traversal_RealizedPollyContextsPreserveSourceSelectionAcrossTraversalMode` |
+| One retained traversal target, never selected participant provenance, controls compatible candidate-acquired group selection while realized roots retain their package-local selection. | `Traversal_TargetPolicyIsStructuralCurrency`; `Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget` |
 | Equal-coordinate realized contexts remain distinct root sources beneath one semantic package node. | `Traversal_EqualCoordinateRealizedContextsRemainDistinct` |
 | Realized contexts survive root-relative revisits and cycles without losing their source association. | `Traversal_RootRelativeDepthDoesNotUseGlobalVisitedSet`; `Traversal_CycleRetainsClosingEdgeAndTerminates` |
 | A realized incomplete context retains both its surviving declaration edge and typed failure. | `Traversal_RealizedIncompleteContextRetainsSurvivingEdgeAndFailure` |
-| Manifest-default traversal exercises the package-group owner's no-request query path. | `Traversal_ManifestDefaultUsesOwnerNoRequestSelection` |
-| Exact selection retains no-match without compatible fallback. | `Traversal_ExactFrameworkNoMatchRemainsVisible` |
+| Omitted host configuration uses `ProductDefault(net12.0)` without reselecting an explicit root. | `Traversal_ProductDefaultDoesNotReselectRoot` |
+| A configured target with no compatible dependency group remains visible. | `Traversal_ConfiguredTargetNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
 | A shared operation deadline marks only roots with unfinished source work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots` |
 | Candidate resolver incompleteness is preserved without reinterpretation. | `Traversal_CandidateResolverIncompleteOutcomeRemainsVisible` |

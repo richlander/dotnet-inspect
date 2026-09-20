@@ -9,7 +9,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
 {
     [Fact]
     public async Task
-        Traversal_RealizedPollyContextsPreserveSourceSelectionAcrossTraversalMode()
+        Traversal_RealizedPollyContextsPreservePackageSelectionUnderDefaultTarget()
     {
         byte[] nupkg = File.ReadAllBytes(
             Path.Combine(
@@ -28,7 +28,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 nupkg,
                 "polly.core",
                 "8.8.0",
-                "net11.0",
+                "net12.0",
                 compatible: true);
 
         var issuer = new PackageAcquisitionCandidateIssuer();
@@ -53,9 +53,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 () => Resolved(candidate));
         }
 
-        PackageDependencyTraversalFrameworkMode.TryCreateExact(
-            "net11.0",
-            out PackageDependencyTraversalFrameworkMode.Exact traversalMode);
+        TraversalTargetFrameworkPolicy traversalTargetPolicy =
+            TraversalTargetFrameworkPolicy.ProductDefault;
         var acquirer = new StubManifestAcquirer();
         PackageDependencyTraversalOutcome exactOutcome = await ExecuteAsync(
             [
@@ -65,7 +64,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
             resolver,
             acquirer,
             maxDepth: 1,
-            frameworkMode: traversalMode);
+            traversalTargetPolicy: traversalTargetPolicy);
         PackageDependencyTraversalOutcome compatibleOutcome = await ExecuteAsync(
             [
                 new PackageDependencyTraversalRootOccurrence(
@@ -74,7 +73,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
             ],
             new StubCandidateResolver(),
             new StubManifestAcquirer(),
-            frameworkMode: traversalMode);
+            traversalTargetPolicy: traversalTargetPolicy);
 
         Assert.Equal(
             ".NETStandard2.0",
@@ -104,9 +103,15 @@ public sealed partial class PackageDependencyTraversalQueryTests
             Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
                 exactOutcome.Roots[0].Occurrence.Source).Context);
         Assert.Same(
+            traversalTargetPolicy,
+            exactOutcome.TraversalTargetPolicy);
+        Assert.Same(
             compatibleContext,
             Assert.IsType<PackageDependencyTraversalRootSource.RealizedPackage>(
                 compatibleOutcome.Roots[0].Occurrence.Source).Context);
+        Assert.Same(
+            traversalTargetPolicy,
+            compatibleOutcome.TraversalTargetPolicy);
         Assert.Equal(0, acquirer.CallCount);
     }
 

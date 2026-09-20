@@ -2461,6 +2461,68 @@ public sealed class DependsAssetCommandTests
 #endif
 
     [Fact]
+    public async Task
+        PackageHierarchyJson_UsesDefaultTraversalTargetWithoutReselectingRoot()
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Root",
+            "1.0.0",
+            Dependency("Contoso.Child", "[1.0.0]"));
+        WriteLocalSourcePackage(
+            source,
+            "Contoso.Child",
+            "1.0.0",
+            """
+            <group targetFramework="net6.0">
+              <dependency id="Contoso.Legacy" version="[1.0.0]" />
+            </group>
+            <group targetFramework="net8.0" />
+            """);
+
+        using JsonDocument document = await HierarchyJsonAsync(
+        [
+            "--package",
+            "Contoso.Root@1.0.0",
+            "--source",
+            source,
+        ]);
+
+        JsonElement[] projections =
+        [
+            .. document.RootElement.GetProperty("dependency_hierarchy")
+                .GetProperty("package_projections")
+                .EnumerateArray(),
+        ];
+        JsonElement acquired = Assert.Single(
+            projections,
+            projection =>
+                projection.GetProperty("kind").GetString()
+                    == "CandidateAcquired");
+        JsonElement supplied = Assert.Single(
+            projections,
+            projection =>
+                projection.GetProperty("kind").GetString()
+                    == "RootSupplied");
+
+        JsonElement acquiredEvidence = acquired.GetProperty("evidence");
+        Assert.Equal(
+            TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
+            acquiredEvidence.GetProperty("requested_framework").GetString());
+        Assert.Equal(
+            "net8.0",
+            acquiredEvidence.GetProperty("selected_framework").GetString());
+
+        JsonElement suppliedEvidence = supplied.GetProperty("evidence");
+        Assert.False(
+            suppliedEvidence.TryGetProperty("requested_framework", out _));
+        Assert.Equal(
+            "net8.0",
+            suppliedEvidence.GetProperty("selected_framework").GetString());
+    }
+
+    [Fact]
     public async Task PackageDepthBoundary_RetainsAllAffectedRootOccurrences()
     {
         string source = CreateTemporaryDirectory();
