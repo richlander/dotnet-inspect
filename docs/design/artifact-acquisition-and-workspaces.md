@@ -4262,6 +4262,47 @@ workspace
 The query owns session use. A host or presentation layer cannot open raw
 readers and invoke producers around the query registry.
 
+Workspace also accepts an already materialized, session-backed Library batch
+without reconstructing assembly-context participants. The neutral admission
+operation consumes one exact `ArtifactSetSession` and a non-empty ordered set
+of `LibraryContentOwner` values whose content all belongs to that session
+generation. It validates the caller's exact current
+`WorkspaceRegistrationRevision` and commits the whole batch under the same
+Workspace gate that serializes registration replacement and close. Argument
+validation and duplicate-session misuse occur before ownership transfer; once
+the operation returns an outcome, Workspace has either accepted every supplied
+authority or settled every Library owner and then the Artifact session.
+
+Acceptance issues one `WorkspaceLibraryAdmissionReceipt` and one distinct
+`WorkspaceLibraryOccurrence` per submitted Library. These values record
+physical Workspace admission only. They do not add logical scope membership,
+choose order or replacement, identify an Ecosystem contribution, or change
+Navigation. Repeated admission may therefore issue distinct physical
+occurrences even when source coordinates compare equal. The accepted
+registration revision is historical correspondence for the commit; a later
+registration replacement does not revoke direct use of the admitted Library.
+
+The Workspace issues a `LibraryOperationLease` only for an exact occurrence it
+admitted and only while it remains open. Issuance and close are serialized:
+leases issued before close drain normally, while closing rejects new issuance.
+Workspace close requests retirement of every Library owner in an admission
+before retiring that admission's Artifact session, attempts every owner even
+when another retirement fails, and retains owner and Artifact cleanup failures
+in the terminal close report. A foreign or stale registration revision, or a
+closing Workspace, rejects the whole batch and applies the same ordered
+settlement. Cleanup failure is a typed failed outcome rather than a
+success-shaped rejection.
+
+`WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts`,
+`WorkspaceAdmission_RejectsStaleRevisionAndSettlesTransferredResources`,
+`WorkspaceAdmission_RejectsForeignRevisionAndSettlesTransferredResources`, and
+`WorkspaceAdmission_RegistrationChangesDoNotRevokeAcceptedOccurrence` gate
+the accepted and clean-rejection paths through the public API.
+`WorkspaceAdmission_DuplicateSessionMisuseDoesNotRetireAcceptedResources`
+gates the pre-transfer duplicate-session boundary.
+`WorkspaceAdmission_CleanupFailureProducesTypedFailedOutcome` directly gates
+failure visibility.
+
 For an accepted analysis plan,
 [analysis universe realization](analysis-universe-realization.md) owns the
 operation-scoped binding from the plan's exact finite universe description to
