@@ -389,6 +389,11 @@ public static class InspectionCommandDefinitions
         {
             Description = "Metadata root for @Metadata sections: cli or r2r-manifest"
         };
+        var detailsOption = new Option<bool>("--details")
+        {
+            Description =
+                "With -D: add structurally supported output formats (offline)"
+        };
         var extractResourcesOption = new Option<string?>("--extract-resources")
         {
             Description = "Extract embedded resources beneath a directory without overwriting files"
@@ -406,6 +411,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmTfmOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(metadataRootOption);
+        assemblyCommand.Options.Add(detailsOption);
         assemblyCommand.Options.Add(opts.PreferRenderedUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
         assemblyCommand.Options.Add(outOption);
@@ -429,6 +435,17 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
+            bool discoverDetails =
+                parseResult.GetValue(detailsOption);
+            string[]? discover =
+                opts.ParseDiscover(parseResult);
+            if (discoverDetails && discover is null)
+            {
+                CommandError.Write(
+                    "--details requires -D/--discover.");
+                return 1;
+            }
+
             var source = parseResult.GetValue(assemblyPathArg);
             if (!IntegrationQueryOptions.TryExtract(
                     parseResult.GetValue(opts.RowWhere) ?? [],
@@ -474,7 +491,8 @@ public static class InspectionCommandDefinitions
             NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             bool structuralDiscovery =
                 opts.IsDiscoveryMode(parseResult)
-                && opts.ParseSchema(parseResult);
+                && (opts.ParseSchema(parseResult)
+                    || discoverDetails);
 
             if (structuralDiscovery)
             {
@@ -690,7 +708,8 @@ public static class InspectionCommandDefinitions
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
-                Discover = opts.ParseDiscover(parseResult),
+                Discover = discover,
+                DiscoverDetails = discoverDetails,
                 Effective = parseResult.GetValue(opts.Effective),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
@@ -719,7 +738,8 @@ public static class InspectionCommandDefinitions
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
-                Schema = opts.ParseSchema(parseResult),
+                Schema = opts.ParseSchema(parseResult)
+                    || discoverDetails,
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 OutputPath = parseResult.GetValue(outOption),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

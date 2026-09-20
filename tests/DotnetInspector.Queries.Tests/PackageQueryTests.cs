@@ -200,6 +200,46 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public void TermDescriptors_SeparateAcquisitionAndExecutionClass()
+    {
+        Assert.Equal(
+            [
+                ("package", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("prefix", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("prerelease", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("dependencies", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("dependency-target", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("depends", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("depends-ecosystem", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("license", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("downloads", PackageQueryAcquisitionTier.SearchMetadata, PackageQueryExecutionClass.SearchMetadata),
+                ("readme", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("tool", PackageQueryAcquisitionTier.Nuspec, PackageQueryExecutionClass.Nuspec),
+                ("tool-format", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+                ("references", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.Metadata),
+                ("skill", PackageQueryAcquisitionTier.PackageContent, PackageQueryExecutionClass.PackageContent),
+            ],
+            PackageQuery.Terms.Select(term =>
+                (term.Key, term.Tier, term.ExecutionClass)));
+        Assert.DoesNotContain(
+            PackageQuery.Terms,
+            term => term.ExecutionClass is
+                PackageQueryExecutionClass.NuspecExpensive
+                or PackageQueryExecutionClass.MetadataExpensive);
+        Assert.Equal(
+            [
+                "search-metadata",
+                "nuspec",
+                "nuspec-expensive",
+                "package-content",
+                "metadata",
+                "metadata-expensive",
+            ],
+            Enum.GetValues<PackageQueryExecutionClass>()
+                .Select(PackageQuery.ExecutionClassIdentity));
+    }
+
+    [Fact]
     public void TermDescriptors_ExposeClosedAndFreeValueShapes()
     {
         PackageQueryTermDescriptor depends = PackageQuery.Terms.Single(

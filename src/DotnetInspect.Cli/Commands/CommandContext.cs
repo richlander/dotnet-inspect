@@ -42,4 +42,12 @@ public class CommandContext
     internal DesktopPackageSourceComposition
         CreatePackageSourceComposition() =>
         _createPackageSourceComposition?.Invoke() ?? new(HttpClient.Timeout);
+
+    internal CommandContext WithVerboseLogging(bool enabled) =>
+        Logger.Enabled == enabled
+            ? this
+            : new(
+                enabled,
+                HttpClient,
+                _createPackageSourceComposition);
 }

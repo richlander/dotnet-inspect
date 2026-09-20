@@ -1309,6 +1309,80 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_StructuralContext_ProjectsTypedCohortFields()
+    {
+        var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var newPath = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-S", "Structural Context",
+            "--columns",
+            "Member,State,InstructionDelta,ComplexityDelta,LoopDelta,"
+                + "AllocationDelta,InstructionDirection,CohortSize,"
+                + "PopulationSize,Kind",
+            "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        string changedLine = Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                JsonElement root = document.RootElement;
+                return root.TryGetProperty("member", out JsonElement member)
+                    && member.GetString()!.Contains(
+                        "RegressesAllocInLoop",
+                        StringComparison.Ordinal);
+            });
+        using var changedDocument = JsonDocument.Parse(changedLine);
+        JsonElement changed = changedDocument.RootElement;
+        Assert.Equal("13", changed.GetProperty("instruction_delta").GetString());
+        Assert.Equal("1", changed.GetProperty("complexity_delta").GetString());
+        Assert.Equal("1", changed.GetProperty("loop_delta").GetString());
+        Assert.Equal("1", changed.GetProperty("allocation_delta").GetString());
+        Assert.Equal(
+            "increased",
+            changed.GetProperty("instruction_direction").GetString());
+        Assert.Equal(
+            ImplementationComplexityFindings.StructuralCohortDescriptor.Id,
+            changed.GetProperty("kind").GetString());
+        Assert.True(
+            int.Parse(changed.GetProperty("population_size").GetString()!)
+                > 1);
+        Assert.InRange(
+            int.Parse(changed.GetProperty("cohort_size").GetString()!),
+            1,
+            int.Parse(changed.GetProperty("population_size").GetString()!));
+
+        var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+            "diff", "--library", $"{oldPath}..{newPath}",
+            "-t", "DiffFixtureSample.DiffSample",
+            "-S", "Structural Context",
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(jsonError);
+        using var jsonDocument = JsonDocument.Parse(jsonOutput);
+        JsonElement jsonRow = Assert.Single(
+            jsonDocument.RootElement
+                .GetProperty("structural_context")
+                .EnumerateArray(),
+            row => row.GetProperty("member").GetString()!.Contains(
+                "RegressesAllocInLoop",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            JsonValueKind.Number,
+            jsonRow.GetProperty("instruction_delta").ValueKind);
+        Assert.Equal(13, jsonRow.GetProperty("instruction_delta").GetInt32());
+        Assert.Equal(
+            JsonValueKind.Number,
+            jsonRow.GetProperty("cohort_size").ValueKind);
+    }
+
+    [Fact]
     public async Task Diff_FindingTransitions_ConfirmsAllocationIntroduction()
     {
         var oldPath = FixtureCatalog.DiffPair.OldAssemblyPath();
@@ -1550,6 +1624,27 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Diff_StructuralContext_RejectsCompositionBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", "missing-old.dll..missing-new.dll",
+            "-t", "Sample.Widget",
+            "-S", "Structural Context",
+            "-S", "Implementation Diff",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Structural Context must be selected by itself",
+            error);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Diff_FindingTransitions_ImpliedSelectionRejectsCompositionBeforeAcquisition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -1584,6 +1679,7 @@ public partial class CommandExecutionTests
         Assert.Empty(discoverError);
         Assert.Contains("Finding Transitions", discoverOutput);
         Assert.Contains("Complexity Context", discoverOutput);
+        Assert.Contains("Structural Context", discoverOutput);
         Assert.Equal(0, selectExit);
         Assert.Empty(selectError);
         Assert.Contains("PairFinding.Present", selectOutput);
