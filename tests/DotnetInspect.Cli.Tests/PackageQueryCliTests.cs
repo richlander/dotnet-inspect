@@ -998,6 +998,24 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task QueryDiscovery_RejectsInheritedParentExecutionGesture()
+    {
+        var result = await Run(
+            "package",
+            "--depth",
+            "2",
+            "query",
+            "-Q",
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--depth cannot be combined with query discovery",
+            result.Error);
+    }
+
+    [Fact]
     public async Task PatternlessFindPrefix_UsesPackageQueryGuidance()
     {
         var result = await Run("find", "--package-prefix", "Contoso.");

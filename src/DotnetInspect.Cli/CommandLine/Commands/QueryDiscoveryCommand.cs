@@ -141,17 +141,18 @@ internal static class QueryDiscoveryCommand
                 }
             }
         }
-        foreach (Option option in result.CommandResult.Command.Options.Where(
-                     option => option.Name == "--depth"))
+        Option? depthOption =
+            CliArgumentOwnership.FindOption(
+                result.CommandResult,
+                "--depth");
+        if (depthOption is not null
+            && result.GetResult(depthOption) is { Implicit: false })
         {
-            if (result.GetResult(option) is { Implicit: false })
-            {
-                CommandError.Write(
-                    "--depth cannot be combined with query discovery; "
-                    + "it does not execute a data query.");
-                exitCode = 1;
-                return true;
-            }
+            CommandError.Write(
+                "--depth cannot be combined with query discovery; "
+                + "it does not execute a data query.");
+            exitCode = 1;
+            return true;
         }
         if (query is not null && result.GetValue(options.Schema))
         {
