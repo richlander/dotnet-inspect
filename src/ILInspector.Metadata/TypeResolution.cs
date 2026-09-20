@@ -982,6 +982,19 @@ public readonly record struct MetadataTypeDefinitionAddress(
     TypeDefinitionToken Definition)
 {
     /// <summary>
+    /// Creates a durable address from a TypeDef row in the supplied module.
+    /// </summary>
+    public static MetadataTypeDefinitionAddress FromHandle(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return new(
+            reader.GetGuid(reader.GetModuleDefinition().Mvid),
+            TypeDefinitionToken.FromHandle(reader, handle));
+    }
+
+    /// <summary>
     /// Resolves this durable address against a live reader only after checking
     /// its module MVID, token table, and TypeDef row bounds.
     /// </summary>

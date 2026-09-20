@@ -335,6 +335,17 @@ public enum BrowserPackageQueryAcquisitionTier
     Assembly,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryExecutionClass>))]
+public enum BrowserPackageQueryExecutionClass
+{
+    SearchMetadata,
+    Nuspec,
+    NuspecExpensive,
+    PackageContent,
+    Metadata,
+    MetadataExpensive,
+}
+
 public sealed record BrowserPackageQueryPresetDescriptor(
     string Key,
     string Operator,
@@ -343,6 +354,7 @@ public sealed record BrowserPackageQueryPresetDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryExecutionClass ExecutionClass,
     string? SelectionGroupId,
     bool CombinesWithinSelectionGroup,
     string? ReplacementGroupId,
@@ -359,6 +371,7 @@ public sealed record BrowserPackageQueryTermDescriptor(
     string Summary,
     int Weight,
     BrowserPackageQueryAcquisitionTier Tier,
+    BrowserPackageQueryExecutionClass ExecutionClass,
     string[] Operators,
     string ValueKind,
     string Example);

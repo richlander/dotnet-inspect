@@ -52,6 +52,8 @@ export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "C
 
 export type BrowserPackageQueryEvidenceScope = "Package" | "Query" | number;
 
+export type BrowserPackageQueryExecutionClass = "SearchMetadata" | "Nuspec" | "NuspecExpensive" | "PackageContent" | "Metadata" | "MetadataExpensive" | number;
+
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | "AssemblyAcquisition" | "AssemblyEvaluation" | number;
 
 export type BrowserPackageQueryManifestFailureReason = "MalformedXml" | "UnsupportedDocumentShape" | "IdentityMismatch" | "InvalidDependencyContract" | "ConfiguredLimitExceeded" | "InvalidIdentityContract" | number;
@@ -870,6 +872,7 @@ export interface BrowserPackageQueryPresetDescriptor {
   readonly summary: string;
   readonly weight: number;
   readonly tier: BrowserPackageQueryAcquisitionTier;
+  readonly executionClass: BrowserPackageQueryExecutionClass;
   readonly selectionGroupId: string | null;
   readonly combinesWithinSelectionGroup: boolean;
   readonly replacementGroupId: string | null;
@@ -921,6 +924,7 @@ export interface BrowserPackageQueryTermDescriptor {
   readonly summary: string;
   readonly weight: number;
   readonly tier: BrowserPackageQueryAcquisitionTier;
+  readonly executionClass: BrowserPackageQueryExecutionClass;
   readonly operators: ReadonlyArray<string>;
   readonly valueKind: string;
   readonly example: string;

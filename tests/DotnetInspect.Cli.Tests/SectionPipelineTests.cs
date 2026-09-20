@@ -691,7 +691,7 @@ public partial class SectionPipelineTests
             Failures: [],
             DependencyGroups: [],
             RestoredPackages: [],
-            Evidence: null);
+            Enriched: null);
     }
 
     private static object[] DiscoverableCase<TModel>(

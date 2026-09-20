@@ -96,6 +96,8 @@ public class DiffDocumentView(
     InertString? analysisDiffNoteText,
     InertString? implementationDiffSummaryText,
     InertString? implementationDiffNoteText,
+    InertString? complexityContextSummaryText,
+    InertString? complexityContextNoteText,
     InertString? findingTransitionsSummaryText,
     InertString? inspectionFailuresSummaryText)
 {
@@ -106,6 +108,8 @@ public class DiffDocumentView(
     [MarkoutIgnore, JsonIgnore] public InertString? AnalysisDiffNoteText { get; } = analysisDiffNoteText;
     [MarkoutIgnore, JsonIgnore] public InertString? ImplementationDiffSummaryText { get; } = implementationDiffSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? ImplementationDiffNoteText { get; } = implementationDiffNoteText;
+    [MarkoutIgnore, JsonIgnore] public InertString? ComplexityContextSummaryText { get; } = complexityContextSummaryText;
+    [MarkoutIgnore, JsonIgnore] public InertString? ComplexityContextNoteText { get; } = complexityContextNoteText;
     [MarkoutIgnore, JsonIgnore] public InertString? FindingTransitionsSummaryText { get; } = findingTransitionsSummaryText;
     [MarkoutIgnore, JsonIgnore] public InertString? InspectionFailuresSummaryText { get; } = inspectionFailuresSummaryText;
 
@@ -116,6 +120,8 @@ public class DiffDocumentView(
     [MarkoutSkipNull] public string? AnalysisDiffNote => AnalysisDiffNoteText?.ToString();
     [MarkoutSkipNull] public string? ImplementationDiffSummary => ImplementationDiffSummaryText?.ToString();
     [MarkoutSkipNull] public string? ImplementationDiffNote => ImplementationDiffNoteText?.ToString();
+    [MarkoutSkipNull] public string? ComplexityContextSummary => ComplexityContextSummaryText?.ToString();
+    [MarkoutSkipNull] public string? ComplexityContextNote => ComplexityContextNoteText?.ToString();
     [MarkoutSkipNull] public string? FindingTransitionsSummary => FindingTransitionsSummaryText?.ToString();
     [MarkoutSkipNull] public string? InspectionFailuresSummary => InspectionFailuresSummaryText?.ToString();
 
@@ -127,6 +133,9 @@ public class DiffDocumentView(
 
     [MarkoutSection(Name = "Implementation Diff")]
     public List<ImplementationDiffRow>? ImplementationDiff { get; set; }
+
+    [MarkoutSection(Name = "Complexity Context")]
+    public List<ComplexityContextRow>? ComplexityContext { get; set; }
 
     [MarkoutSection(Name = "Finding Transitions")]
     public List<FindingTransitionRow>? FindingTransitions { get; set; }
@@ -360,6 +369,66 @@ public class ImplementationDiffView(
     public List<ImplementationDiffRow>? Rows { get; set; }
 }
 
+[MarkoutSerializable(
+    TitleProperty = nameof(Title),
+    FieldLayout = FieldLayout.Table)]
+public class ComplexityContextView(
+    InertString titleText,
+    InertString versionsText,
+    InertString summaryText)
+{
+    [MarkoutIgnore, JsonIgnore] public InertString TitleText { get; } = titleText;
+    [MarkoutIgnore, JsonIgnore] public InertString VersionsText { get; } = versionsText;
+    [MarkoutIgnore, JsonIgnore] public InertString SummaryText { get; } = summaryText;
+    [MarkoutIgnore] public string Title => TitleText.ToString();
+    public string Versions => VersionsText.ToString();
+    public string Summary => SummaryText.ToString();
+    public Callout Status { get; set; }
+
+    [MarkoutSection(Name = "Complexity Context")]
+    public List<ComplexityContextRow>? Rows { get; set; }
+}
+
+[MarkoutSerializable]
+public sealed class ComplexityContextRow
+{
+    public ComplexityContextRow(
+        string member,
+        string state,
+        int? old,
+        int? @new,
+        int? delta,
+        int? populationSize,
+        double? percentileRank,
+        string evidence,
+        string kind)
+    {
+        MemberText = DiffViewText.Field(member);
+        StateText = DiffViewText.Field(state);
+        Old = old;
+        New = @new;
+        Delta = delta;
+        PopulationSize = populationSize;
+        PercentileRank = percentileRank;
+        EvidenceText = DiffViewText.Field(evidence);
+        KindText = DiffViewText.Field(kind);
+    }
+
+    [MarkoutIgnore, JsonIgnore] public InertString MemberText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString StateText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString EvidenceText { get; }
+    [MarkoutIgnore, JsonIgnore] public InertString KindText { get; }
+    public string Member => MemberText.ToString();
+    public string State => StateText.ToString();
+    [MarkoutSkipNull] public int? Old { get; }
+    [MarkoutSkipNull] public int? New { get; }
+    [MarkoutSkipNull] public int? Delta { get; }
+    [MarkoutSkipNull] public int? PopulationSize { get; }
+    [MarkoutSkipNull] public double? PercentileRank { get; }
+    public string Evidence => EvidenceText.ToString();
+    public string Kind => KindText.ToString();
+}
+
 [MarkoutSerializable]
 public record ImplementationDiffRow(
     [property: MarkoutIgnore, JsonIgnore] InertString MemberText,
@@ -424,6 +493,8 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(AnalysisDiffRow))]
 [MarkoutContext(typeof(ImplementationDiffView))]
 [MarkoutContext(typeof(ImplementationDiffRow))]
+[MarkoutContext(typeof(ComplexityContextView))]
+[MarkoutContext(typeof(ComplexityContextRow))]
 public partial class DiffViewContext : MarkoutSerializerContext
 {
 }

@@ -53,6 +53,7 @@ const catalog: BrowserPackageQueryCatalog = {
   presets: [{
     key: "readme", operator: "eq", value: "true",
     label: "Embedded README", summary: "Package declares an embedded README.", weight: 2, tier: "Nuspec",
+    executionClass: "Nuspec",
     selectionGroupId: null, combinesWithinSelectionGroup: false,
     replacementGroupId: null,
     displayGroupId: "package", displayGroupLabel: "Package",
@@ -63,6 +64,7 @@ const catalog: BrowserPackageQueryCatalog = {
     summary: "Matches a direct dependency.",
     weight: 10,
     tier: "Nuspec",
+    executionClass: "Nuspec",
     operators: ["eq"],
     valueKind: "package-id",
     example: "Microsoft.Extensions.Hosting",
@@ -280,6 +282,10 @@ test("startup decoders preserve extra JSON data and reject invalid DTO shapes", 
   })).kind, "decoded");
   assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
     presets: [{ ...catalog.presets[0], tier: "not-a-tier" }],
+    terms: catalog.terms,
+  })).kind, "rejected");
+  assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({
+    presets: [{ ...catalog.presets[0], executionClass: "not-a-class" }],
     terms: catalog.terms,
   })).kind, "rejected");
   assert.equal(engineStartupOperations.listPackageQueryCatalog.value.decode(JSON.stringify({

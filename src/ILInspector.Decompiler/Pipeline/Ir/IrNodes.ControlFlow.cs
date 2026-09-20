@@ -749,7 +749,7 @@ public sealed class ForeachStatement : IrNode
 /// </summary>
 public sealed class LabelAnchor : IrNode
 {
-    internal bool RetainsPdbLocalScope { get; init; }
+    internal bool RetainsPdbLocalScope { get; set; }
 
     public override string Describe() => "LabelAnchor";
 }

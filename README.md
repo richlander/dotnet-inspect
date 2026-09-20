@@ -613,7 +613,8 @@ vocabulary covers package metadata, direct dependencies, cross-prefix and
 ecosystem dependency classification, downloads, README presence, .NET tools
 and their CLI v1/v2 format, assembly references, skill packages, and nuspec
 license identity. Discover the admitted keys and values before constructing a
-query:
+query. Discovery also reports the product-owned execution class independently
+from the acquisition tier:
 
 ```bash
 dotnet-inspect package query -Q Packages
@@ -1076,9 +1077,27 @@ Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Finding Transitions` remains an exact-name section because its
-focused endpoint-confirmation semantics do not compose with those comparison
+Diff` views. `Complexity Context` and `Finding Transitions` remain exact-name
+sections because their focused semantics do not compose with those comparison
 views.
+
+Select `Implementation Diff` directly to inspect body-level C#, IL, and
+normal-flow complexity evidence. Select `Complexity Context` directly for a
+focused view with nullable `Old`, `New`, `Delta`, `Population Size`, and
+`Percentile Rank` fields. The rank is the inclusive percentage of
+delta-bearing methods in this diff whose absolute complexity delta is no
+greater than the row's. It is positional context, not an unusualness or
+quality judgment; an all-equal population gives every row 100. Use column
+projection with JSON Lines to emit dedicated cells instead of parsing
+`Evidence`:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Complexity Context" \
+  --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
+  --jsonl
+```
 
 ### Structural matching
 
@@ -1337,14 +1356,20 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call
-sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete physical call sites before
+Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use `--lines`
+for explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
+`Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
 Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category.
+does not compose with the pair-wide category. These summary, cluster, path,
+wildcard, category, and multi-section views retain rendered-line `-n` because
+their independent row schemas do not form one semantic sequence.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

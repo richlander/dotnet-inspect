@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -155,7 +156,8 @@ public static class DiffOutputFormatter
         AnalysisDiffView? analysisDiff,
         ImplementationDiffView? implementationDiff,
         FindingTransitionsView? findingTransitions,
-        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures)
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
+        ComplexityContextView? complexityContext = null)
         => new(
             DiffViewText.Field($"Diff: {name}"),
             DiffViewText.Field($"{fromVersion} -> {toVersion}"),
@@ -164,6 +166,8 @@ public static class DiffOutputFormatter
             DistinctStatusMessage(analysisDiff),
             implementationDiff?.SummaryText,
             DistinctStatusMessage(implementationDiff),
+            complexityContext?.SummaryText,
+            DistinctStatusMessage(complexityContext),
             findingTransitions is null
                 ? null
                 : DiffViewText.Field(findingTransitions.Status.Message),
@@ -177,6 +181,7 @@ public static class DiffOutputFormatter
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows,
+            ComplexityContext = complexityContext?.Rows,
             FindingTransitions = findingTransitions?.Rows,
             InspectionFailures =
                 BuildInspectionFailureRows(inspectionFailures),
@@ -232,6 +237,51 @@ public static class DiffOutputFormatter
                 view.ImplementationDiff?.Select(row => new[]
                 {
                     row.Member, row.Mechanism, row.Difference, row.Change, row.Evidence, row.Kind
+                }));
+        }
+
+        if (view.ComplexityContextSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Complexity Context",
+                view.ComplexityContextSummary,
+                view.ComplexityContextNote,
+                [
+                    "Member",
+                    "State",
+                    "Old",
+                    "New",
+                    "Delta",
+                    "Population Size",
+                    "Percentile Rank",
+                    "Evidence",
+                    "Kind",
+                ],
+                [
+                    "member",
+                    "state",
+                    "old",
+                    "new",
+                    "delta",
+                    "population_size",
+                    "percentile_rank",
+                    "evidence",
+                    "kind",
+                ],
+                view.ComplexityContext?.Select(row => new[]
+                {
+                    MarkoutInline.Code(row.MemberText),
+                    row.State,
+                    row.Old?.ToString(CultureInfo.InvariantCulture) ?? "",
+                    row.New?.ToString(CultureInfo.InvariantCulture) ?? "",
+                    row.Delta?.ToString(CultureInfo.InvariantCulture) ?? "",
+                    row.PopulationSize?.ToString(
+                        CultureInfo.InvariantCulture) ?? "",
+                    row.PercentileRank?.ToString(
+                        CultureInfo.InvariantCulture) ?? "",
+                    row.Evidence,
+                    row.Kind,
                 }));
         }
 
@@ -317,6 +367,11 @@ public static class DiffOutputFormatter
             : null;
 
     private static InertString? DistinctStatusMessage(ImplementationDiffView? view)
+        => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
+            ? DiffViewText.Prose(view.Status.Message)
+            : null;
+
+    private static InertString? DistinctStatusMessage(ComplexityContextView? view)
         => view is not null && !string.Equals(view.Status.Message, view.Summary, StringComparison.Ordinal)
             ? DiffViewText.Prose(view.Status.Message)
             : null;
@@ -602,6 +657,55 @@ public static class DiffOutputFormatter
                         ? "C# is decompiled evidence; PDB Source is checksum-verified PDB-mapped evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility."
                         : "C# and IL implementation evidence is body-level evidence, not public API compatibility."),
             Rows = rows.Count > 0 ? rows : null
+        };
+    }
+
+    public static ComplexityContextView BuildComplexityContextView(
+        string name,
+        ImplementationComplexityDiff complexity,
+        string fromVersion,
+        string toVersion)
+    {
+        List<ComplexityContextRow> rows = complexity.IsAvailable
+            ? [
+                .. complexity.Changes
+                    .Where(change => change.Kind
+                        is not ImplementationComplexityChangeKind.Unchanged)
+                    .Select(change => new ComplexityContextRow(
+                        change.Subject.Display,
+                        change.Kind.ToString().ToLowerInvariant(),
+                        change.OldValue,
+                        change.NewValue,
+                        change.Delta,
+                        change.PopulationContext?.PopulationSize,
+                        change.PopulationContext?.PercentileRank,
+                        change.Kind == ImplementationComplexityChangeKind.Incomplete
+                            ? $"old complete={change.OldIsComplete}; "
+                              + $"new complete={change.NewIsComplete}"
+                            : "",
+                        AnalysisFindings.ComplexityDescriptor.Id)),
+            ]
+            : [];
+        string summary = !complexity.IsAvailable
+            ? $"Complexity context unavailable: {complexity.UnavailableReason}"
+            : rows.Count == 0
+                ? "No normal-flow complexity changes detected."
+                : $"{rows.Count} normal-flow complexity change"
+                  + (rows.Count == 1 ? "." : "s.");
+
+        return new ComplexityContextView(
+            DiffViewText.Field($"Complexity Context: {name}"),
+            DiffViewText.Field($"{fromVersion} -> {toVersion}"),
+            DiffViewText.Field(summary))
+        {
+            Status = new Callout(
+                CalloutSeverity.Note,
+                complexity.IsAvailable
+                    ? "Percentile Rank is the inclusive position of |Delta| "
+                      + "within all delta-bearing methods in this comparison; "
+                      + "it is not an unusualness or quality judgment."
+                    : summary),
+            Rows = rows.Count > 0 ? rows : null,
         };
     }
 
@@ -1183,6 +1287,13 @@ public static class DiffOutputFormatter
     }
 
     public static string RenderImplementationDiffView(ImplementationDiffView view, MarkoutWriterOptions? options = null)
+    {
+        var writer = new MarkoutWriter(new MarkdownFormatter(), options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.Complete().TrimEnd();
+    }
+
+    public static string RenderComplexityContextView(ComplexityContextView view, MarkoutWriterOptions? options = null)
     {
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         DiffViewContext.Default.Serialize(view, writer);

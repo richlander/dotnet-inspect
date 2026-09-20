@@ -59,6 +59,14 @@ public sealed class InstalledImplementationPlatformSourceTests
         Assert.DoesNotContain(
             succeeded.Value.Libraries,
             library => library.ManifestCoordinate.FileName == "Unlisted.dll");
+        Assert.Equal(
+            new FileInfo(first).Length
+            + new FileInfo(second).Length
+            + new FileInfo(
+                Path.Combine(
+                    directory,
+                    "Microsoft.NETCore.App.deps.json")).Length,
+            succeeded.Value.ConsumedBytes);
 
         File.Delete(first);
         File.Delete(second);

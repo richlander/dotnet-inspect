@@ -104,12 +104,13 @@ public sealed class PackagePlatformHouseAdapterTests
         PlatformTargetDiscoverySource source =
             PackagePlatformTargetDiscovery.CreateSource(
                 adapter,
-                current =>
+                (current, remainingWork) =>
                 {
                     operationIssued = true;
                     return environment.IssueOperation(
                         current.CancellationToken,
-                        current.Work.MaxDuration);
+                        operationTimeout:
+                            remainingWork.MaxDuration);
                 });
         Assert.Same(adapter.TargetDiscovery, source.Capability);
         Assert.False(operationIssued);
@@ -831,6 +832,11 @@ public sealed class PackagePlatformHouseAdapterTests
     public async Task ImplementationLibraryDemandRequiresExactClosureMember()
     {
         byte[] image = PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] runtimeConfiguration =
+            PackagePlatformTestData.RuntimeConfiguration();
+        byte[] dependencyManifest =
+            PackagePlatformTestData.DependencyManifest(
+                "System.Runtime.dll");
         await using PackagePlatformTestEnvironment environment =
             PackagePlatformTestEnvironment.Create(
             [
@@ -844,9 +850,8 @@ public sealed class PackagePlatformHouseAdapterTests
                         .RuntimeImplementationPackageId,
                     entries: PackagePlatformTestData.RuntimePackEntries(
                         "Microsoft.NETCore.App",
-                        PackagePlatformTestData.RuntimeConfiguration(),
-                        PackagePlatformTestData.DependencyManifest(
-                            "System.Runtime.dll"),
+                        runtimeConfiguration,
+                        dependencyManifest,
                         ("System.Runtime.dll", image))),
             ]);
         PackagePlatformHouseAdapter adapter = CreateAdapter(environment);
@@ -881,6 +886,13 @@ public sealed class PackagePlatformHouseAdapterTests
         Assert.Equal(
             PlatformSourceContributionKind.Unavailable,
             result.Contribution.Kind);
+        Assert.NotNull(result.SourceWork);
+        Assert.Equal(1, result.SourceWork.Assemblies);
+        Assert.Equal(
+            image.LongLength
+            + runtimeConfiguration.LongLength
+            + dependencyManifest.LongLength,
+            result.SourceWork.Bytes);
         await environment.AssertSettledAsync();
     }
 
