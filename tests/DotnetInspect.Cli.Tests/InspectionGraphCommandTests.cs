@@ -1563,6 +1563,110 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task LibrariesCommand_SemanticTailSelectsTheSameClusterAcrossFormats()
+    {
+        string[] pair =
+        [
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "-S",
+            LibraryCallUseSections.DirectUseClusters,
+        ];
+        const string columns =
+            "Cluster;Anchor Source Token;Anchor Target Token";
+        var complete = await RunCliAsync(
+            [.. pair, "--jsonl", "--columns", columns]);
+        JsonElement expected;
+        using (var document = JsonDocument.Parse(
+            complete.Output
+                .ReplaceLineEndings("\n")
+                .Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Last()))
+        {
+            expected = document.RootElement.Clone();
+        }
+        string sourceToken =
+            expected.GetProperty("anchor_source_token").GetString()!;
+        string targetToken =
+            expected.GetProperty("anchor_target_token").GetString()!;
+
+        string[] selection =
+        [
+            .. pair,
+            "-n",
+            "1",
+            "--tail",
+            "--columns",
+            columns,
+        ];
+        var markdown = await RunCliAsync(selection);
+        var table = await RunCliAsync([.. selection, "--table"]);
+        var tsv = await RunCliAsync(
+            [.. selection, "--tsv", "--no-headers"]);
+        var jsonl = await RunCliAsync([.. selection, "--jsonl"]);
+        var json = await RunCliAsync([.. selection, "--json"]);
+        var count = await RunCliAsync([.. selection, "--count"]);
+        var jsonCount = await RunCliAsync(
+            [.. selection, "--count", "--json"]);
+
+        foreach (var result in new[]
+        {
+            complete,
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+            count,
+            jsonCount,
+        })
+        {
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+        })
+        {
+            Assert.Contains(
+                sourceToken,
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                targetToken,
+                result.Output,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        using var jsonDocument = JsonDocument.Parse(json.Output);
+        JsonProperty section =
+            Assert.Single(jsonDocument.RootElement.EnumerateObject());
+        Assert.Single(section.Value.EnumerateArray());
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal("1", jsonCount.Output.Trim());
+    }
+
+    [Fact]
     public async Task LibrariesCommand_StrictUnavailableWindowWithholdsOutput()
     {
         var captured = await RunCliAsync(
@@ -1581,6 +1685,93 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains(
             "Library call-site row selection stage 1 requires call site 1000, "
                 + "but only ",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Direct Use Clusters")]
+    [InlineData("Direct Use Clusters;Direct Use Clusters")]
+    public async Task LibrariesCommand_StrictUnavailableClusterWindowWithholdsOutput(
+        string sectionSelection)
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "-S",
+            sectionSelection,
+            "--rows",
+            "999..1000",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Library direct-use cluster row selection stage 1 requires cluster "
+                + "1000, but only ",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_SemanticClusterSelectionPreservesIncompleteEvidence()
+    {
+        string consumer =
+            FixtureCatalog.AnalysisAsyncSiblingFriend.AssemblyPath();
+        string provider = Path.Combine(
+            Path.GetDirectoryName(consumer)!,
+            "ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.dll");
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            consumer,
+            "--library",
+            provider,
+            "-S",
+            LibraryCallUseSections.DirectUseClusters,
+            "-n",
+            "1",
+            "--jsonl");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Single(
+            captured.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains(
+            "Pairwise call-use evidence is incomplete.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterScopePrecedesSemanticWindow()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+            "--library",
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
+            "--where",
+            "Cluster=3",
+            "-S",
+            LibraryCallUseSections.DirectUseClusters,
+            "--rows",
+            "2..2",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Library direct-use cluster row selection stage 1 requires cluster "
+                + "2, but only 1 direct-use clusters are available.",
             captured.Error,
             StringComparison.Ordinal);
     }
@@ -1828,14 +2019,25 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task LibrariesCommand_RejectsLegacyCountRows()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Direct Use Clusters")]
+    public async Task LibrariesCommand_RejectsLegacyCountRows(string? section)
     {
-        var captured = await RunCliAsync(
+        var args = new List<string>
+        {
             "graph",
             "libraries",
-            "--rows",
-            "1");
+        };
+        if (section is not null)
+        {
+            args.Add("-S");
+            args.Add(section);
+        }
+        args.Add("--rows");
+        args.Add("1");
+
+        var captured = await RunCliAsync([.. args]);
 
         Assert.Equal(1, captured.ExitCode);
         Assert.Empty(captured.Output);
@@ -1903,10 +2105,11 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(null)]
+    [InlineData("Call Sites")]
+    [InlineData("Direct Use Clusters")]
     public async Task LibrariesCommand_HeadAllowsCompleteJsonBeforeRequiredInputs(
-        bool explicitCallSites)
+        string? section)
     {
         var args = new List<string>
         {
@@ -1916,10 +2119,10 @@ public sealed class InspectionGraphCommandTests
             "1",
             "--json",
         };
-        if (explicitCallSites)
+        if (section is not null)
         {
             args.Add("-S");
-            args.Add(LibraryCallUseSections.CallSites);
+            args.Add(section);
         }
 
         var captured = await RunCliAsync([.. args]);
@@ -1932,6 +2135,30 @@ public sealed class InspectionGraphCommandTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibrariesCommand_ClusterMultiSectionRetainsRenderedLineFallback()
+    {
+        var captured = await RunCliAsync(
+            "graph",
+            "libraries",
+            "-S",
+            "Call Sites,Direct Use Clusters",
+            "-n",
+            "1",
+            "--json");
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Empty(captured.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output.",
+            captured.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Exactly two --library values are required.",
             captured.Error,
             StringComparison.Ordinal);
     }

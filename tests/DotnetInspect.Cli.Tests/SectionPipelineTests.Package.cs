@@ -75,6 +75,7 @@ public partial class SectionPipelineTests
                 PackageSections.TargetFrameworks,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
@@ -85,6 +86,7 @@ public partial class SectionPipelineTests
             [
                 PackageSections.DependencyHierarchy,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.RuntimeDependencies,
             ],
             categories[SectionCategoryNames.Dependencies]);
@@ -187,6 +189,7 @@ public partial class SectionPipelineTests
                 PackageSections.FilesSkills,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies
             }.OrderBy(name => name, StringComparer.Ordinal),
@@ -205,6 +208,7 @@ public partial class SectionPipelineTests
                 PackageSections.FilesSkills,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies
@@ -226,7 +230,7 @@ public partial class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(23, pipeline.AllSectionNames.Length);
+        Assert.Equal(24, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -248,6 +252,7 @@ public partial class SectionPipelineTests
         Assert.Contains("Statistics", names);
         Assert.Contains(PackageSections.DependencyHierarchy, names);
         Assert.Contains("Dependencies", names);
+        Assert.Contains(PackageSections.EcosystemDependencies, names);
         Assert.Contains("Package files", names);
         Assert.Contains("Package skill files", names);
         Assert.Contains(PackageSections.SourceLinkFiles, names);

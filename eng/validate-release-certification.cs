@@ -5,6 +5,9 @@ const string CertificationWorkflow = ".github/workflows/deep-inspect.yml";
 const string TargetWorkflow = ".github/workflows/ci.yml";
 const string CertificationJob = "Release certification";
 const string TestJob = "Test lane";
+const string WindowsPlatformJob = "Platform test (win-x64)";
+const string MacOSPlatformJob = "Platform test (osx-arm64)";
+const string LinuxPlatformJob = "Platform test (linux-x64)";
 const string CorpusJob = "Decompiler corpus lane";
 const string TargetCiJob = "ci-required";
 
@@ -74,16 +77,25 @@ static ValidationResult Validate(
 
     JobInfo certificationJob = RequireSuccessfulJob(certificationJobs, CertificationJob);
     JobInfo testJob = RequireSuccessfulJob(certificationJobs, TestJob);
+    JobInfo windowsPlatformJob = RequireSuccessfulJob(certificationJobs, WindowsPlatformJob);
+    JobInfo macOSPlatformJob = RequireSuccessfulJob(certificationJobs, MacOSPlatformJob);
+    JobInfo linuxPlatformJob = RequireSuccessfulJob(certificationJobs, LinuxPlatformJob);
     JobInfo corpusJob = RequireSuccessfulJob(certificationJobs, CorpusJob);
     JobInfo targetCiJob = RequireSuccessfulJob(targetJobs, TargetCiJob);
 
     RequireFresh(testJob, maxAge, now);
+    RequireFresh(windowsPlatformJob, maxAge, now);
+    RequireFresh(macOSPlatformJob, maxAge, now);
+    RequireFresh(linuxPlatformJob, maxAge, now);
     RequireFresh(corpusJob, maxAge, now);
     if (certificationJob.CompletedAt < testJob.CompletedAt ||
+        certificationJob.CompletedAt < windowsPlatformJob.CompletedAt ||
+        certificationJob.CompletedAt < macOSPlatformJob.CompletedAt ||
+        certificationJob.CompletedAt < linuxPlatformJob.CompletedAt ||
         certificationJob.CompletedAt < corpusJob.CompletedAt)
     {
         throw new InvalidOperationException(
-            "Release certification predates a slow validation job; rerun the complete test lane.");
+            "Release certification predates a required validation job; rerun the complete test lane.");
     }
     if (targetCiJob.CompletedAt < target.UpdatedAt.AddMinutes(-5))
     {
@@ -275,6 +287,9 @@ static void RunSelfTest()
     JobInfo[] successfulJobs =
     [
         new(TestJob, "completed", "success", now.AddHours(-1)),
+        new(WindowsPlatformJob, "completed", "success", now.AddMinutes(-58)),
+        new(MacOSPlatformJob, "completed", "success", now.AddMinutes(-57)),
+        new(LinuxPlatformJob, "completed", "success", now.AddMinutes(-56)),
         new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
         new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
     ];
@@ -320,11 +335,11 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
-            [
-                new(TestJob, "completed", "success", now.AddHours(-37)),
-                new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
-                new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
-            ],
+            successfulJobs
+                .Select(job => job.Name == TestJob
+                    ? job with { CompletedAt = now.AddHours(-37) }
+                    : job)
+                .ToArray(),
             exactTarget,
             successfulTargetJobs,
             new("identical", certifiedSha),
@@ -335,18 +350,18 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
-            [
-                new(TestJob, "completed", "success", now.AddMinutes(-10)),
-                new(CorpusJob, "completed", "success", now.AddMinutes(-9)),
-                new(CertificationJob, "completed", "success", now.AddHours(-1)),
-            ],
+            successfulJobs
+                .Select(job => job.Name == LinuxPlatformJob
+                    ? job with { CompletedAt = now.AddMinutes(-10) }
+                    : job)
+                .ToArray(),
             exactTarget,
             successfulTargetJobs,
             new("identical", certifiedSha),
             false,
             TimeSpan.FromHours(36),
             now),
-        "predates a slow validation job");
+        "predates a required validation job");
     ExpectFailure(
         () => Validate(
             certification,
@@ -361,11 +376,11 @@ static void RunSelfTest()
     ExpectFailure(
         () => Validate(
             certification,
-            [
-                new(TestJob, "completed", "failure", now.AddHours(-1)),
-                new(CorpusJob, "completed", "success", now.AddMinutes(-50)),
-                new(CertificationJob, "completed", "success", now.AddMinutes(-49)),
-            ],
+            successfulJobs
+                .Select(job => job.Name == TestJob
+                    ? job with { Conclusion = "failure" }
+                    : job)
+                .ToArray(),
             exactTarget,
             successfulTargetJobs,
             new("identical", certifiedSha),
@@ -373,6 +388,43 @@ static void RunSelfTest()
             TimeSpan.FromHours(36),
             now),
         "not completed/success");
+    ExpectFailure(
+        () => Validate(
+            certification,
+            successfulJobs.Where(job => job.Name != WindowsPlatformJob).ToArray(),
+            exactTarget,
+            successfulTargetJobs,
+            new("identical", certifiedSha),
+            false,
+            TimeSpan.FromHours(36),
+            now),
+        WindowsPlatformJob);
+    ExpectFailure(
+        () => Validate(
+            certification,
+            successfulJobs
+                .Select(job => job.Name == MacOSPlatformJob
+                    ? job with { Conclusion = "failure" }
+                    : job)
+                .ToArray(),
+            exactTarget,
+            successfulTargetJobs,
+            new("identical", certifiedSha),
+            false,
+            TimeSpan.FromHours(36),
+            now),
+        "not completed/success");
+    ExpectFailure(
+        () => Validate(
+            certification,
+            [.. successfulJobs, successfulJobs.Single(job => job.Name == LinuxPlatformJob)],
+            exactTarget,
+            successfulTargetJobs,
+            new("identical", certifiedSha),
+            false,
+            TimeSpan.FromHours(36),
+            now),
+        "expected one");
     ExpectFailure(
         () => Validate(
             certification,
@@ -419,7 +471,7 @@ static void RunSelfTest()
         File.WriteAllText(
             certificationJobsPath,
             """
-            {"total_count":3,"jobs":[{"name":"Test lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Decompiler corpus lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Release certification","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"}]}
+            {"total_count":6,"jobs":[{"name":"Test lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Platform test (win-x64)","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Platform test (osx-arm64)","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Platform test (linux-x64)","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Decompiler corpus lane","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"},{"name":"Release certification","status":"completed","conclusion":"success","completed_at":"$COMPLETED_AT$"}]}
             """
             .Replace("$COMPLETED_AT$", completedAt, StringComparison.Ordinal));
         File.WriteAllText(

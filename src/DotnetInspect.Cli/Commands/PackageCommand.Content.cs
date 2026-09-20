@@ -344,7 +344,14 @@ public partial class PackageCommand
             string resolvedPackageName =
                 resolution.PackageName ?? target.PackageName;
 
-            var nuspec = DotnetInspector.Services.NuspecParser.FindAndParse(extractPath);
+            bool wantsEcosystemDependencies =
+                RequestsPackageEcosystemDependencies(
+                    producerOptions,
+                    pipeline);
+            NuspecData? nuspec = FindPackageNuspecForInspection(
+                extractPath,
+                resolution,
+                wantsEcosystemDependencies);
 
             long? packageSize = null;
             if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
@@ -389,6 +396,15 @@ public partial class PackageCommand
                 packageSize,
                 options.Tfm,
                 logger.Log);
+            if (wantsEcosystemDependencies)
+            {
+                await ApplyPackageEcosystemDependenciesAsync(
+                    result,
+                    resolution,
+                    RequiresPackageEcosystemDiagnosticDisclosure(
+                        producerOptions),
+                    logger.Log);
+            }
 
             await PopulatePackageSignatureAsync(
                 result,

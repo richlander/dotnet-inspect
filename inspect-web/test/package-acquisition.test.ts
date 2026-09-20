@@ -12,6 +12,7 @@ import {
   PackageVersionSettlementError,
   retainGraphOnlyImplementationBody,
   resolvePackageLibrary,
+  resolveReplacementPackageLibrary,
   runtimeAssemblyIsResident,
   type AppPackage,
   type PackageAcquisitionDependencies,
@@ -77,6 +78,54 @@ test("library selection prefers exact asset identity and rejects ambiguous names
   assert.equal(resolvePackageLibrary(libraries, "Shared.dll"), null);
   assert.equal(resolvePackageLibrary(libraries, "EMPTY.dll"), empty);
   assert.equal(resolvePackageLibrary(libraries, "missing"), null);
+});
+
+test("replacement Library selection follows one product compile-asset correspondence", () => {
+  const left = {
+    ...assembly("compile:lib/net9.0/left/Shared.dll", "Shared"),
+    asset: "lib/net9.0/left/Shared.dll",
+  };
+  const right = {
+    ...assembly("compile:lib/net9.0/right/Shared.dll", "Shared"),
+    asset: "lib/net9.0/right/Shared.dll",
+  };
+  assert.equal(resolveReplacementPackageLibrary([left, right], {
+    id: "compile:lib/net10.0/right/Shared.dll",
+    name: "Shared",
+    asset: "lib/net10.0/right/Shared.dll",
+  }), right);
+});
+
+test("replacement Library selection refuses ambiguous compile-asset correspondence", () => {
+  const first = {
+    ...assembly("compile:lib/net9.0/right/Shared.dll", "Shared"),
+    asset: "lib/net9.0/right/Shared.dll",
+  };
+  const second = {
+    ...assembly("compile:ref/net9.0/right/Shared.dll", "Shared"),
+    asset: "ref/net9.0/right/Shared.dll",
+  };
+  assert.equal(resolveReplacementPackageLibrary([first, second], {
+    id: "compile:lib/net10.0/right/Shared.dll",
+    name: "Shared",
+    asset: "lib/net10.0/right/Shared.dll",
+  }), null);
+});
+
+test("replacement Library selection retains nested lib path identity", () => {
+  const left = {
+    ...assembly("compile:lib/net9.0/left/lib/Shared.dll", "Shared"),
+    asset: "lib/net9.0/left/lib/Shared.dll",
+  };
+  const right = {
+    ...assembly("compile:lib/net9.0/right/lib/Shared.dll", "Shared"),
+    asset: "lib/net9.0/right/lib/Shared.dll",
+  };
+  assert.equal(resolveReplacementPackageLibrary([left, right], {
+    id: "compile:lib/net10.0/right/lib/Shared.dll",
+    name: "Shared",
+    asset: "lib/net10.0/right/lib/Shared.dll",
+  }), right);
 });
 
 function memberSurface(): BrowserMemberSurface {

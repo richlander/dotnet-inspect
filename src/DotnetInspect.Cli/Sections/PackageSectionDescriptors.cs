@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Views;
 
@@ -84,6 +85,9 @@ public static class PackageSectionDescriptors
             // transitive dependency evidence; rendering remains gated by CanRender.
             .Add<DependencyHierarchy>(static _ => true)
             .Add<Dependencies>()
+            // Discovery advertises the pair-grain schema before PackageHouse realization;
+            // rendering remains gated by EcosystemDependencies.CanRender.
+            .Add<EcosystemDependencies>(static _ => true)
             .Add<Vulnerabilities>()
             .Add<Manifest>()
             .Add<RuntimeDependencies>()
@@ -100,6 +104,7 @@ public static class PackageSectionDescriptors
                 PackageSections.TargetFrameworks,
                 PackageSections.Signature,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.Vulnerabilities,
                 PackageSections.Manifest,
                 PackageSections.RuntimeDependencies,
@@ -112,6 +117,7 @@ public static class PackageSectionDescriptors
                 SectionCategoryNames.Dependencies,
                 PackageSections.DependencyHierarchy,
                 PackageSections.Dependencies,
+                PackageSections.EcosystemDependencies,
                 PackageSections.RuntimeDependencies)
             .AddCategory(
                 SectionCategoryNames.Audit,
@@ -363,6 +369,26 @@ public static class PackageSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool CanRender(InspectionResult model)
             => model.DependencyGroups is { Count: > 0 };
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<InspectionResult>
+    {
+        public static string Name =>
+            PackageSections.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Informative;
+        public static bool CanRender(InspectionResult model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
     }
 
     public sealed class Manifest : ISectionDescriptor<InspectionResult>

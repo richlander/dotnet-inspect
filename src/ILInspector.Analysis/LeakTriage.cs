@@ -216,7 +216,7 @@ public static class LeakTriageAnalyzer
         try
         {
             catchAllCleanup =
-                ArrayPoolExceptionPathAnalyzer
+                ResourceExceptionPathAnalyzer
                     .ComputeCreditableCatchCleanup(
                         exceptionRegions,
                         resolveCatchType);
@@ -251,7 +251,7 @@ public static class LeakTriageAnalyzer
                 reaching,
                 calls,
                 (releases, boundaries) =>
-                    ArrayPoolExceptionPathAnalyzer
+                    ResourceExceptionPathAnalyzer
                         .UnprotectedThrowingBoundaries(
                             graph,
                             exceptionRegions,
@@ -349,7 +349,7 @@ public static class LeakTriageAnalyzer
         try
         {
             catchAllCleanup =
-                ArrayPoolExceptionPathAnalyzer
+                ResourceExceptionPathAnalyzer
                     .ComputeCreditableCatchCleanup(
                         body.ExceptionRegionCatalog,
                         resolveCatchType);
@@ -385,7 +385,7 @@ public static class LeakTriageAnalyzer
                 reaching,
                 calls,
                 (releases, boundaries) =>
-                    ArrayPoolExceptionPathAnalyzer
+                    ResourceExceptionPathAnalyzer
                         .UnprotectedThrowingBoundaries(
                             decoded.Blocks,
                             exceptionFlow,
@@ -562,7 +562,7 @@ public static class LeakTriageAnalyzer
                         if ((classification.NonThrowingSetupBoundary
                                 || ArrayPoolUseClassifier.IsTransparentWrapperBoundary(
                                     boundary.Operation))
-                            && ArrayPoolExceptionPathAnalyzer.FindBoundaryAfterSetup(
+                            &&                             ResourceExceptionPathAnalyzer.FindBoundaryAfterSetup(
                             instructions,
                             reaching,
                             calls,
@@ -617,18 +617,18 @@ public static class LeakTriageAnalyzer
         // Multiple releases often encode correlated branch predicates (`if (c) return; if (!c) return`).
         // Without predicate facts, fail closed on leaks and only keep same-block misuse shapes below.
         var exitKind = releaseOffsets.Length <= 1
-            ? ArrayPoolExceptionPathAnalyzer.PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets)
-            : ArrayPoolExceptionPathAnalyzer.LeakExitKind.None;
-        if (exitKind != ArrayPoolExceptionPathAnalyzer.LeakExitKind.None)
+            ? ResourceExceptionPathAnalyzer.PathExitsWithoutRelease(instructions, graph, calls, rent.StoreOffset, releaseOffsets)
+            : ResourceExceptionPathAnalyzer.LeakExitKind.None;
+        if (exitKind != ResourceExceptionPathAnalyzer.LeakExitKind.None)
         {
             ArrayPoolUseClassifier.AddCandidate(
                 candidates,
                 method,
-                exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception ? "exception-path-leak-candidate" : "normal-path-leak-candidate",
-                $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception ? "exception" : "normal")} exit.",
+                exitKind == ResourceExceptionPathAnalyzer.LeakExitKind.Exception ? "exception-path-leak-candidate" : "normal-path-leak-candidate",
+                $"ArrayPool<T>.Shared.Rent at IL_{rent.RentOffset:X4} reaches an unreleased {(exitKind == ResourceExceptionPathAnalyzer.LeakExitKind.Exception ? "exception" : "normal")} exit.",
                 rent.RentOffset,
                 rent.RentOffset);
-            if (exitKind == ArrayPoolExceptionPathAnalyzer.LeakExitKind.Exception)
+            if (exitKind == ResourceExceptionPathAnalyzer.LeakExitKind.Exception)
             {
                 exceptionPathCandidates.Add(
                     new ArrayPoolExceptionPathCandidate(method, rent.RentOffset, []));
@@ -644,9 +644,9 @@ public static class LeakTriageAnalyzer
 
         // Same-block reachability avoids inventing impossible paths across correlated branches.
         if (releaseOffsets.Length > 0
-            && safeUseOffsets.Any(use => releaseOffsets.Any(release => ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))))
+            && safeUseOffsets.Any(use => releaseOffsets.Any(release => ResourceExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))))
         {
-            int useAfterReturn = safeUseOffsets.Where(use => releaseOffsets.Any(release => ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))).Min();
+            int useAfterReturn = safeUseOffsets.Where(use => releaseOffsets.Any(release => ResourceExceptionPathAnalyzer.ReachesInSameBlock(graph, release, use))).Min();
             ArrayPoolUseClassifier.AddCandidate(
                 candidates,
                 method,
@@ -664,7 +664,7 @@ public static class LeakTriageAnalyzer
         }
 
         if (releaseOffsets.Length > 1
-            && releaseOffsets.Any(first => releaseOffsets.Any(second => first != second && ArrayPoolExceptionPathAnalyzer.ReachesInSameBlock(graph, first, second))))
+            && releaseOffsets.Any(first => releaseOffsets.Any(second => first != second && ResourceExceptionPathAnalyzer.ReachesInSameBlock(graph, first, second))))
         {
             ArrayPoolUseClassifier.AddCandidate(
                 candidates,

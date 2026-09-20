@@ -82,6 +82,10 @@ public class PackageQueryCliTests
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.DependenciesTermKey).Values);
         Assert.Equal(
+            ["2", "3", "4"],
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.DependencyDepthTermKey).Values);
+        Assert.Equal(
             ["any", "MIT", "OSMF"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.LicenseTermKey).Values);
@@ -119,6 +123,40 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void TransitiveDependencyTerms_LowerToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "depends-transitive=Microsoft.Extensions.Primitives",
+                    "dependency-target=net10.0",
+                    "dependency-depth=2",
+                ],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        Assert.True(options!.Plan.RequiresDependencyTraversal);
+        Assert.Equal(2, options.Plan.DependencyDepth);
+        Assert.Equal(
+            "net10.0",
+            options.Plan.DependencyTarget.RequestedTargetFramework);
+        Assert.Equal(
+            PackageQuery.MaximumNuspecExpensiveCandidates,
+            options.Plan.MaximumCandidates);
+        Assert.Equal(
+            PackageQueryExecutionClass.NuspecExpensive,
+            PackageQuery.Terms.Single(term =>
+                term.Key == PackageQuery.DependsTransitiveTermKey)
+                .ExecutionClass);
     }
 
     [Fact]
@@ -1004,6 +1042,24 @@ public class PackageQueryCliTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("does not execute", result.Error);
+    }
+
+    [Fact]
+    public async Task QueryDiscovery_RejectsInheritedParentExecutionGesture()
+    {
+        var result = await Run(
+            "package",
+            "--depth",
+            "2",
+            "query",
+            "-Q",
+            "Packages");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "--depth cannot be combined with query discovery",
+            result.Error);
     }
 
     [Fact]
