@@ -113,7 +113,7 @@ operand:
 
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \
-  --where "depends prefix Microsoft.Extensions."
+  --where "depends starts-with Microsoft.Extensions."
 
 dotnet-inspect library query ./artifacts \
   --where "references=System.Runtime"
@@ -127,7 +127,7 @@ The spellings are illustrative until their CLI owner adopts them. They show the
 shared semantics:
 
 - `depends` and `references` are facets, not operator-specific keys;
-- `prefix` and `contains` are explicit operators rather than wildcard
+- `starts-with` and `contains` are explicit operators rather than wildcard
   conventions embedded in equality;
 - operation qualification and row filtering remain distinct even when a host
   presents both through one `--where` gesture; and
@@ -155,7 +155,7 @@ systems:
 | --- | --- | --- |
 | LINQ query providers | Query composition is separate from provider execution. | The portable and resolved structural plans are inspectable; source capability and completion are not hidden behind provider type tests. |
 | GraphQL schema and introspection | One executable schema drives validation, discovery, and generated clients. | Query Space composes operation and row stages instead of exposing one graph field language. |
-| OData query options | Filtering, ordering, selection, and Count are distinct operations, with explicit text operations such as prefix and contains. | HTTP syntax and provider pushdown do not define product semantics. |
+| OData query options | Filtering, ordering, selection, and Count are distinct operations, with explicit text operations such as starts-with and contains. | HTTP syntax and provider pushdown do not define product semantics. |
 | Substrait and relational planners | Stable logical operations remain separate from physical execution. | Query Space is a small product algebra rather than a general relational plan. |
 | NLinq | Source-specific static execution and fold lowering avoid opaque runtime type tests. | Runtime-authored queries remain structural data rather than nested generic pipeline types. |
 
@@ -276,7 +276,8 @@ A **row facet binding** declares:
 The same facet definition may support different bindings in different
 effective query spaces when its value domain and operator meanings remain
 equivalent. The bindings may still differ in quantification, evidence,
-completion, and failure behavior. For example, `references prefix System.` may
+completion, and failure behavior. For example,
+`references starts-with System.` may
 mean that a Package candidate has at least one matching reference across its
 admitted Libraries, while another route's References row space evaluates each
 declared reference row.
@@ -342,8 +343,8 @@ The initial canonical predicate operators are:
 
 - Equals;
 - NotEquals;
-- Prefix;
-- NotPrefix;
+- StartsWith;
+- NotStartsWith;
 - Contains;
 - NotContains;
 - AtLeast; and
@@ -351,8 +352,8 @@ The initial canonical predicate operators are:
 
 Portable identity texts and host spellings remain owned by their respective
 contracts. `=` and `!=` are appropriate CLI spellings for equality and
-inequality. Prefix and contains remain named because no terse shell-safe symbol
-has sufficiently consistent meaning.
+inequality. StartsWith and Contains remain named because no terse shell-safe
+symbol has sufficiently consistent meaning.
 
 Comparison behavior belongs to the facet's typed value domain. The generic
 substrate does not impose one text comparison, normalization, culture, or case
@@ -737,7 +738,7 @@ The eventual implementation and adopter gates must preserve these cases:
   neither cohort publishes Row-outcomes.
 - A generated consumer omits a control. The runtime descriptor remains
   complete and another host can expose the capability.
-- A source advertises prefix filtering but cannot preserve the required
+- A source advertises starts-with filtering but cannot preserve the required
   comparison or order. Its adoption fails equivalence rather than silently
   returning plausible rows.
 - A consumer changes the query while retaining an old continuation. The
@@ -749,8 +750,8 @@ The eventual implementation and adopter gates must preserve these cases:
 Implementation proceeds as focused owner adoptions:
 
 1. Lock this composition contract and its owner map.
-2. Extend Portable Query Intent with the explicit Prefix, NotPrefix, Contains,
-   and NotContains identities.
+2. Extend Portable Query Intent with the explicit StartsWith, NotStartsWith,
+   Contains, and NotContains identities.
 3. Have Query Operation Infrastructure introduce the host-neutral query-space
    request, compose the operation intent with ordered row-intent associations,
    project an operation-only query vocabulary, move existing operation-level
@@ -760,7 +761,7 @@ Implementation proceeds as focused owner adoptions:
    beside local executable bindings.
 5. Extend Source Delegation through a separate focused continuation-receipt
    design and implementation.
-6. Rework #7944 onto the shared `depends prefix VALUE` operator model.
+6. Rework #7944 onto the shared `depends starts-with VALUE` operator model.
 7. Use #7945 as the focused Library Query operation adoption, then restack the
    Browser work from #7872 onto its settled query space.
 8. Add the References row space and Assembly Reference Prefixes summary over
