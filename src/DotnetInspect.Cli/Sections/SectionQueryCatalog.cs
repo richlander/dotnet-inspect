@@ -127,7 +127,7 @@ public sealed record SectionQueryCatalog(
                         ? "An exact Cluster=... equality predicate selects one direct-use component before public roots and local paths are inspected. Name this section explicitly; wildcard selection does not opt into it."
                         : "An exact Cluster=... equality predicate scopes the pair occurrence population "
                             + "before every selected projection. Without -S, the scoped result is exact Call Sites.",
-                    [LibraryCallUseQueryOptions.QueryKey]));
+                    LibraryCallUseQueryOptions.QueryKeys(section)));
             }
         }
 

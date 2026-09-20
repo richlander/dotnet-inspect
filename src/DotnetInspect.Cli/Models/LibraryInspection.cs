@@ -328,6 +328,13 @@ public class LibraryInspection
     }
 
     [JsonIgnore]
+    internal IReadOnlyList<AssemblyReference>? AssemblyReferenceDisplayOrder
+    {
+        get;
+        set;
+    }
+
+    [JsonIgnore]
     internal DependsAssetProjection? ReferenceHierarchyProjection
     {
         get;

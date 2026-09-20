@@ -150,7 +150,7 @@ stderr rather than mixed into structured output.
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
-| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
+| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
@@ -328,8 +328,11 @@ shows the exact synchronous-completion structure without claiming that runtime
 blocking was measured. Selecting a proven classic `await` explains its inline
 and suspension/resume paths, while selecting an exception-related allocation
 distinguishes a thrown value from an allocation inside a catch, filter, or
-fault handler. Both are compiled-structure evidence and make no runtime path or
-frequency claim.
+fault handler. A relationship can also show a bounded direct-call path to a
+method containing an Analysis-proven local `throw new`, including its exception
+type and physical construction and throw offsets. These are compiled-structure
+claims only: they do not prove that a path ran, that a throw escapes, or that an
+exception propagates to the selected method.
 
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
@@ -530,6 +533,29 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
+Use `dependencies=cross-prefix` to find packages with a direct dependency from a
+different first dot-delimited package-ID segment. It uses the same
+`dependency-target` scope and remains nuspec-only:
+
+```bash
+dotnet-inspect package query 'Azure.*' \
+  --where "dependencies=cross-prefix"
+```
+
+Use `references=<simple-assembly-name>` to find packages whose managed `ref/`
+or `lib/` assemblies declare that `AssemblyRef` across any target-framework
+group:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where "references=Microsoft.Extensions.DependencyInjection.Abstractions" \
+  --take 20 -n 5
+```
+
+This package-content term matches simple names case-insensitively and reports
+the matching framework and archive path. It does not resolve or traverse the
+reference.
+
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
 without reading a license document: SPDX expressions match their exact
@@ -566,9 +592,12 @@ content is an explicit package projection and never informs license identity.
 Add `--where "key=value"` to select product-owned Package Query terms, with one
 matched package per row and semantic answers. Structured evidence remains
 available in unprojected JSON and the inspection envelope. The initial CLI
-vocabulary covers package metadata, dependencies, downloads, README presence,
-.NET tools and their CLI v1/v2 format, skill packages, and nuspec license
-identity. Discover the admitted keys and values before constructing a query:
+vocabulary covers package metadata, direct dependencies, cross-prefix and
+ecosystem dependency classification, downloads, README presence, .NET tools
+and their CLI v1/v2 format, assembly references, skill packages, and nuspec
+license identity. Discover the admitted keys and values before constructing a
+query. Discovery also reports the product-owned execution class independently
+from the acquisition tier:
 
 ```bash
 dotnet-inspect package query -Q Packages
@@ -894,6 +923,7 @@ dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Finding Census" --json
 dotnet-inspect member JsonElement --package System.Text.Json DeepEquals:1 -S Facts --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls
+dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Calls -n 1 --tail --json
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S Callers
 dotnet-inspect member System.ThrowHelper --platform System.Private.CoreLib --all \
   -m ThrowArgumentNullException:1 -S Callers -n 1 --tail --json
@@ -913,14 +943,23 @@ assembly-level companion evidence such as Type forwarders remains visible. Add
 shape, match, and ambiguous commandless modes retain rendered-line fallback.
 Numeric `-t` is a literal Type filter, not a row-count spelling.
 
+With exact `member -S Calls`, `-n`, `--tail`, and strict `--rows A..B`
+select complete direct call-site rows after analysis of the selected overload
+and its generated evidence methods. Repeated calls to the same target remain
+distinct. Markdown, table, TSV, JSONL, structured JSON, and Count observe the
+same selected call sites in their existing IL-offset order. Add `--lines` only
+to clip rendered text. `Callers`, `Call Graph`, `@Calls`, mixed sections,
+discovery, and Calls included only by verbosity retain their existing row
+contracts or rendered-line fallback.
+
 With exact `member -S Callers`, `-n`, `--tail`, and strict `--rows A..B`
 select complete deduplicated caller-site rows after the selected target
 overload and all authorized caller scopes have been scanned. Markdown, table,
 TSV, JSONL, structured JSON, and Count observe the same selected call sites,
 including Source when the completed caller rows came from multiple assemblies.
-Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`, mixed
-sections, discovery, and scope-implied Callers without the exact selector retain
-their existing row contracts or rendered-line fallback.
+Add `--lines` only to clip rendered text. `Calls`, `Call Graph`, `@Calls`,
+mixed sections, discovery, and scope-implied Callers without the exact selector
+retain their existing row contracts or rendered-line fallback.
 
 Focused member `-S "Source Locations" --json` reports `member`, `document`, and
 `pdb_span` without fetching source text or adding generic section/row wrappers.
@@ -1021,9 +1060,44 @@ Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Finding Transitions` remains an exact-name section because its
-focused endpoint-confirmation semantics do not compose with those comparison
-views.
+Diff` views. `Complexity Context`, `Structural Context`, and `Finding
+Transitions` remain exact-name sections because their focused semantics do not
+compose with those comparison views.
+
+Select `Implementation Diff` directly to inspect body-level C#, IL, and
+normal-flow complexity evidence. Select `Complexity Context` directly for a
+focused view with nullable `Old`, `New`, `Delta`, `Population Size`, and
+`Percentile Rank` fields. The rank is the inclusive percentage of
+delta-bearing methods in this diff whose absolute complexity delta is no
+greater than the row's. It is positional context, not an unusualness or
+quality judgment; an all-equal population gives every row 100. Use column
+projection with JSON Lines to emit dedicated cells instead of parsing
+`Evidence`:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Complexity Context" \
+  --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
+  --jsonl
+```
+
+Select `Structural Context` directly to inspect signed instruction, complexity,
+loop, exception-region, direct-call, allocation, and async deltas with their
+direction signature and exact local cohort frequency. It includes complete,
+unambiguous pairs, including all-Unchanged pairs; added, removed, incomplete,
+and ambiguous pairs do not appear. `Cohort Size` is a local frequency, not an
+outlier or quality judgment. Use the stable `Kind` value
+`research.complexity.structural-cohort` and dedicated fields for structured
+automation:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Structural Context" \
+  --columns Member,InstructionDelta,ComplexityDelta,InstructionDirection,CohortSize,PopulationSize,Kind \
+  --jsonl
+```
 
 ### Structural matching
 
@@ -1282,14 +1356,20 @@ show `4.3.2` and `4.3.1`, respectively, the disposition is
 
 `graph libraries` evaluates both directions in the pair; every row still names
 its directed source and target. Omitting `-S` preserves the exact physical call
-sites. Bare `-S` shows `Consumer Use Sites` and `Provider API Types`: the local
+sites. In that default view, and with exact `-S "Call Sites"`, `-n`, bare
+`-N`, `--tail`, and strict `--rows` select complete physical call sites before
+Markdown, plaintext, table, TSV, JSONL, JSON, or Count lowering. Use `--lines`
+for explicit rendered-line clipping. Bare `-S` shows `Consumer Use Sites` and
+`Provider API Types`: the local
 methods containing direct calls, and the provider declaring types selected by
 those calls. These are direct-use surfaces, not semantic feature clusters,
 public-entrypoint reachability, or a list of configured ecosystem Integrations.
 Select `@Libraries` to compose `Call Sites`, `Consumer Use Sites`, `Direct Use
 Clusters`, and `Provider API Types` in alphabetical section order. `Public Root
 Paths` remains an exact-name section because its required cluster coordinate
-does not compose with the pair-wide category.
+does not compose with the pair-wide category. These summary, cluster, path,
+wildcard, category, and multi-section views retain rendered-line `-n` because
+their independent row schemas do not form one semantic sequence.
 
 `-S "Direct Use Clusters"` partitions the exact directed call rows into
 connected components of source and target methods. Each explicit row retains

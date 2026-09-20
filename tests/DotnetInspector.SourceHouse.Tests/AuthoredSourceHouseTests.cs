@@ -640,6 +640,53 @@ public sealed partial class AuthoredSourceHouseTests
 
     [Fact]
     public async Task
+        CompilerGeneratedMember_UsesBoundedProjectionAndReturnsExactSlice()
+    {
+        RealAsset asset = EmbeddedSourceComparisonAsset();
+        SourceHouseTarget.MemberTarget target =
+            CompilerGeneratedMemberTarget(
+                asset.AssemblyPath,
+                "SourceDiffFixture.Counter",
+                "g__Adjust|");
+        await using LibraryFixture library =
+            await LibraryFixture.CreateAsync(asset.AssemblyPath);
+        byte[] sourceBytes = File.ReadAllBytes(asset.SourcePath);
+
+        SourceHouseOutcome.Available available =
+            Assert.IsType<SourceHouseOutcome.Available>(
+                await ExecuteAsync(
+                    library,
+                    Request(
+                        library,
+                        target,
+                        [
+                            Capability(
+                                "embedded-source",
+                                SourceHouseCapabilityCategory.Local,
+                                (_, _, _) =>
+                                    ValueTask.FromResult<
+                                        SourceHouseCapabilityOutcome>(
+                                            new SourceHouseCapabilityOutcome
+                                                .Available(sourceBytes))),
+                        ])));
+
+        Assert.Equal(
+            SourceHousePdbContributionKind.Embedded,
+            available.PdbContribution.Kind);
+        Assert.Contains(
+            "int Adjust(int input) => input + 2;",
+            available.Source.Text,
+            StringComparison.Ordinal);
+        SourceHouseAuthoredMapping.Member mapping =
+            Assert.IsType<SourceHouseAuthoredMapping.Member>(
+                available.Source.Mapping);
+        Assert.Equal(
+            target.MetadataToken,
+            mapping.Observation.MetadataToken);
+    }
+
+    [Fact]
+    public async Task
         EmbeddedPdb_UsesStricterHouseLimitAndChargesDeclaredBytes()
     {
         RealAsset asset = EmbeddedSourceComparisonAsset();
@@ -1932,7 +1979,9 @@ public sealed partial class AuthoredSourceHouseTests
         int maximumTargetMappings = 10_000,
         int maximumCandidateAttempts = 10,
         int maximumSourceBytes = 16 * 1024 * 1024,
-        int maximumSourceTextCharacters = 16 * 1024 * 1024) =>
+        int maximumSourceTextCharacters = 16 * 1024 * 1024,
+        int maximumAttestationContributions = 16,
+        int maximumPhysicalDeclarationCharacters = 1_000_000) =>
         new(
             maximumAssemblyBytes,
             maximumPortablePdbBytes,
@@ -1947,7 +1996,9 @@ public sealed partial class AuthoredSourceHouseTests
             maximumTargetMappings,
             maximumCandidateAttempts,
             maximumSourceBytes,
-            maximumSourceTextCharacters);
+            maximumSourceTextCharacters,
+            maximumAttestationContributions,
+            maximumPhysicalDeclarationCharacters);
 
     private static async Task<SourceHouseOutcome> ExecuteAsync(
         LibraryFixture library,
@@ -2222,6 +2273,39 @@ public sealed partial class AuthoredSourceHouseTests
             member.MetadataToken!.Value);
     }
 
+    private static SourceHouseTarget.MemberTarget
+        CompilerGeneratedMemberTarget(
+            string assemblyPath,
+            string typeName,
+            string methodNameFragment)
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(assemblyPath);
+        ApiSurface surface = Assert.IsType<
+                ApiSurfaceExtractionResult.Extracted>(
+                session.BoundedApiSurface(
+                    ApiSurfaceExtractionScope.IncludeAll,
+                    s_targetBounds,
+                    includeCompilerGenerated: true))
+            .Surface;
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate =>
+                candidate.DefinitionName?.ToMetadataFullName()
+                    == typeName);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Name.Contains(
+                    methodNameFragment,
+                    StringComparison.Ordinal)
+                && candidate.MetadataToken is not null);
+        return new(
+            type.DefinitionName!,
+            ApiMemberIdentity.GetMemberAnchor(type, member),
+            member.MetadataToken!.Value);
+    }
+
     private static AssemblyReferenceIdentity ReadAssemblyIdentity(
         string assemblyPath)
     {
@@ -2393,7 +2477,7 @@ public sealed partial class AuthoredSourceHouseTests
                 ReadAssemblyIdentity(assemblyPath));
         }
 
-        private static async Task<LibraryFixture> CreateAsync(
+        public static async Task<LibraryFixture> CreateAsync(
             byte[] assembly,
             byte[]? pdb,
             AssemblyReferenceIdentity declaredIdentity)

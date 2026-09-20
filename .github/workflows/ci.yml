@@ -1011,6 +1011,14 @@ jobs:
           'DotnetInspect.Cli.Tests.I*'
           --filter-not-trait "Speed=Slow"
 
+      - name: Run Debug dependency sidecar contracts (Release)
+        if: matrix.shard == 'cli-d-i'
+        run: >-
+          dotnet run --project tests/DotnetInspect.Cli.Tests -c Release
+          --no-restore -p:DefineConstants=DEBUG --
+          --filter-class 'DotnetInspect.Cli.Tests.DependsAssetCommandTests'
+          --filter-not-trait "Speed=Slow"
+
       - name: Run CLI Markout and Match tests (fast)
         if: matrix.shard == 'cli-ma'
         run: >-

@@ -169,8 +169,14 @@ been scanned. Markdown, table, TSV, JSONL, JSON, and Count consume that same
 selected vector. Add `--lines` only for rendered-text clipping; `@Calls`, mixed
 sections, and scope-implied Callers retain rendered-line fallback.
 
+With exactly `-S Calls`, the same selectors operate on complete direct
+call-site occurrences after the selected method and its generated evidence
+methods have been analyzed. Repeated calls remain distinct, all output formats
+consume the same selected vector, and neighboring `@Calls`, mixed-section,
+discovery, and verbosity-implied modes retain rendered-line fallback.
+
 ```bash
-dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls
+dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls -n 1 --tail --json
 dnx dotnet-inspect -y -- member string -m IndexOf~147d84bbd7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
@@ -256,7 +262,10 @@ or depth. Markdown is an edge table by default; `--tree`, `--mermaid`, `--json`,
 graph is built and before those formats; use `--lines` only for explicit
 rendered-line clipping. Row selection does not reduce package acquisition or
 hide retained graph failures. `graph libraries` remains a separate
-multi-section command and keeps rendered-line `-n` behavior.
+multi-section command: its default and exact `Call Sites` views apply the same
+semantic gestures to complete physical call sites, while its independent
+summary, cluster, path, wildcard, category, and multi-section views retain
+rendered-line `-n`.
 Missing `api.extension` or `integration.observed` endpoints whose assemblies are
 absent from the explicit package set remain outside the induced graph; add the
 owning package to admit those relationships. A missing

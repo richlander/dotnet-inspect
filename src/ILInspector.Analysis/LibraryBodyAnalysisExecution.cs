@@ -47,6 +47,23 @@ public sealed record LibraryImplementationProfileAnalysisResult(
 }
 
 /// <summary>
+/// Detached terminal-resource facts produced from one resolution and body
+/// acquisition generation.
+/// </summary>
+public sealed record LibraryResourceOccurrenceAnalysisResult(
+    LibraryBodyAnalysisReceipt Receipt,
+    bool WasRequested,
+    ResourceEffectAdmissionReceipt? AdmissionReceipt,
+    ImmutableArray<ResourceOccurrenceAnalysisResult> Methods,
+    ImmutableArray<ResourceOccurrenceLimitation> Limitations)
+{
+    public bool IsComplete =>
+        WasRequested
+        && Limitations.IsEmpty
+        && Methods.All(method => method.IsComplete);
+}
+
+/// <summary>
 /// Explicit focused results produced by one shared library-body Analysis
 /// execution.
 /// </summary>
@@ -99,6 +116,12 @@ public sealed class LibraryBodyAnalysisExecution
             analysis,
             CallGraph,
             generatedFrameworkTypes);
+        ResourceOccurrences = new(
+            Receipt,
+            plan.IncludesResourceOccurrences,
+            plan.ResourceEffects?.Receipt,
+            analysis.ResourceOccurrences?.Methods ?? [],
+            analysis.ResourceOccurrences?.Limitations ?? []);
     }
 
     /// <summary>
@@ -115,7 +138,8 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused implementation-profile result.</summary>
     public LibraryImplementationProfileAnalysisResult
-        ImplementationProfiles { get; }
+        ImplementationProfiles
+    { get; }
 
     /// <summary>Focused optimization-opportunity result.</summary>
     public LibraryOptimizationAnalysisResult Optimization { get; }
@@ -125,6 +149,13 @@ public sealed class LibraryBodyAnalysisExecution
 
     /// <summary>Focused whole-library leverage result.</summary>
     public LibraryLeverageAnalysisResult Leverage { get; }
+
+    /// <summary>Focused root-bound Resource Occurrence result.</summary>
+    public LibraryResourceOccurrenceAnalysisResult ResourceOccurrences
+    { get; }
+
+    internal bool HasMaterializedCompatibilityIndex =>
+        _compatibilityIndex is not null;
 
     /// <summary>
     /// Creates the transitional <see cref="LibraryBodyIndex"/> adapter used by

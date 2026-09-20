@@ -123,7 +123,9 @@ public abstract class PlatformTargetDiscoveryAttempt
 }
 
 public delegate ValueTask<PlatformTargetDiscoveryAttempt>
-    PlatformTargetDiscoveryOperation(PlatformHouseRequest request);
+    PlatformTargetDiscoveryOperation(
+        PlatformHouseRequest request,
+        PlatformHouseWorkBudget remainingWork);
 
 /// <summary>One lazily invoked target-discovery capability.</summary>
 public sealed class PlatformTargetDiscoverySource
@@ -132,17 +134,21 @@ public sealed class PlatformTargetDiscoverySource
 
     public PlatformTargetDiscoverySource(
         PlatformSourceCapabilityIdentity capability,
-        PlatformTargetDiscoveryOperation discover)
+        PlatformTargetDiscoveryOperation discover,
+        PlatformSourceAssociationRouteIdentity? associationRoute = null)
     {
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(discover);
         Capability = capability;
+        AssociationRoute = associationRoute;
         _discover = discover;
     }
 
     public PlatformSourceCapabilityIdentity Capability { get; }
+    public PlatformSourceAssociationRouteIdentity? AssociationRoute { get; }
 
     internal ValueTask<PlatformTargetDiscoveryAttempt> DiscoverAsync(
-        PlatformHouseRequest request) =>
-        _discover(request);
+        PlatformHouseRequest request,
+        PlatformHouseWorkBudget remainingWork) =>
+        _discover(request, remainingWork);
 }

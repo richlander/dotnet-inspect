@@ -97,7 +97,7 @@ internal static class NavigationScopeEvaluation
                 {
                     case NavigationRestorationPreparationResult.Prepared prepared:
                         snapshot =
-                            prepared.Initialization.State.InstalledSnapshot;
+                            prepared.Initialization.State.CurrentSnapshot;
                         resolution =
                             prepared.Initialization.Result
                                 .LensResolution?.Activation;

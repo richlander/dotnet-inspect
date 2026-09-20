@@ -58,13 +58,16 @@ public sealed record PackageQueryOptions : IProjectionOptions
             [.. term.Operators.Select(Comparison)],
             term.Descriptor.ValueKind,
             [.. term.Descriptor.Options.Select(option => option.Value)],
-            $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"")),
+            $"--where \"{term.Descriptor.Key}={term.Descriptor.ExampleValue}\"",
+            PackageQuery.ExecutionClassIdentity(
+                term.Descriptor.ExecutionClass))),
     ];
 
     public static string DiscoverySummary =>
         "Use package query with repeated --where terms. "
         + "Terms are ANDed; repeated tool-format values are ORed. "
         + "depends=<package ID> matches a direct declared dependency; "
+        + "dependencies=cross-prefix matches a dependency from another first ID segment; "
         + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
         + "dependency-target=all|<TFM> selects its manifest-group scope. "
         + "--take bounds package candidates; -n and --rows select final matching package rows. "

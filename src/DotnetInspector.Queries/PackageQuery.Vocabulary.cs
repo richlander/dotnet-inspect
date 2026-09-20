@@ -35,6 +35,7 @@ public sealed record PackageQueryTermDescriptor(
     string Summary,
     int Weight,
     PackageQueryAcquisitionTier Tier,
+    PackageQueryExecutionClass ExecutionClass,
     ImmutableArray<string> Operators,
     string ValueKind,
     string ExampleValue,
@@ -55,6 +56,7 @@ internal enum PackageQueryPredicateKind
     Prefix,
     Prerelease,
     NoDependencies,
+    CrossPrefixDependencies,
     DependencyTarget,
     Depends,
     DependsEcosystem,
@@ -63,6 +65,7 @@ internal enum PackageQueryPredicateKind
     Readme,
     Tool,
     ToolFormat,
+    AssemblyReference,
     Skill,
 }
 
@@ -75,6 +78,7 @@ internal sealed record PackageQueryPredicate(
 {
     internal bool RequiresPackageContent =>
         Kind is PackageQueryPredicateKind.ToolFormat
+            or PackageQueryPredicateKind.AssemblyReference
             or PackageQueryPredicateKind.Skill;
 }
 
@@ -125,6 +129,7 @@ internal sealed class PackageQueryVocabulary
     internal const string VocabularyIdentity = "package-query/v1";
     internal const string PopulationFamily = "population";
     internal const string PrereleaseFamily = "prerelease";
+    internal const string DependenciesFamily = "dependencies";
     internal const string DependencyTargetFamily = "dependency-target";
     internal const string DownloadsFamily = "downloads";
     internal const string ToolFormatFamily = "tool-format";

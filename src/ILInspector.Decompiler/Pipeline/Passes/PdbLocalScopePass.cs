@@ -82,11 +82,26 @@ public sealed class PdbLocalScopePass : IIrPass
         if (first == 0 && last == block.Children.Count - 1
             && block.Parent is not BlockContainer)
         {
+            RetainExistingBlockLabels(
+                function,
+                index,
+                sameName,
+                declaration,
+                block,
+                context);
             return;
         }
 
         var range = block.Children.Skip(first).Take(last - first + 1).ToArray();
-        if (!CanRetainRange(function, index, sameName, range))
+        if (!CanRetainRange(
+                function,
+                index,
+                sameName,
+                range,
+                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                    function,
+                    declaration,
+                    block)))
         {
             return;
         }
@@ -167,7 +182,15 @@ public sealed class PdbLocalScopePass : IIrPass
         if (retainedLabels.TryGetValue(lastBlock, out LabelAnchor? rangeLastAnchor))
             range.Add(rangeLastAnchor);
         range.AddRange(blocks[lastBlock].Children.Take(lastStatement.ChildIndex + 1));
-        if (!CanRetainRange(function, index, sameName, range))
+        if (!CanRetainRange(
+                function,
+                index,
+                sameName,
+                range,
+                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                    function,
+                    declaration,
+                    declarationBlock)))
             return;
 
         int declarationPosition = declaration.ChildIndex;
@@ -212,13 +235,66 @@ public sealed class PdbLocalScopePass : IIrPass
         context.Stepper.StepOver($"retain cross-block scope for local {index}", lexical);
     }
 
+    static void RetainExistingBlockLabels(
+        IrFunction function,
+        int index,
+        int[] sameName,
+        IrNode declaration,
+        Block block,
+        PassContext context)
+    {
+        IrNode[] range = [.. block.Children];
+        if (!CanRetainRange(
+                function,
+                index,
+                sameName,
+                range,
+                CSharpPrinter.PdbLocalEntryLabelsPrintedOutside(
+                    function,
+                    declaration,
+                    block)))
+        {
+            return;
+        }
+
+        HashSet<int> branchTargets = ReferenceOwnership.CollectBranchTargets(function);
+        int[] targetedLabels = block.Children
+            .Skip(declaration.ChildIndex + 1)
+            .SelectMany(statement =>
+                statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+            .Where(node => node.OwnsSourceLabel
+                && node.SourceOffset >= 0
+                && branchTargets.Contains(node.SourceOffset))
+            .Select(node => node.SourceOffset)
+            .Distinct()
+            .ToArray();
+        if (targetedLabels.Length == 0)
+            return;
+
+        var anchors = block.Children
+            .OfType<LabelAnchor>()
+            .Where(anchor => targetedLabels.Contains(anchor.SourceOffset))
+            .ToDictionary(anchor => anchor.SourceOffset);
+        if (targetedLabels.Any(target => !anchors.ContainsKey(target)))
+            return;
+
+        foreach (var anchor in anchors.Values)
+            anchor.RetainsPdbLocalScope = true;
+        context.Stepper.StepOver($"retain existing scope for local {index}", block);
+    }
+
     static bool CanRetainRange(
         IrFunction function,
         int index,
         int[] sameName,
-        IReadOnlyList<IrNode> range)
+        IReadOnlyList<IrNode> range,
+        IReadOnlySet<int>? bodyLabelsRetainedOutside)
     {
-        if (ReferenceOwnership.RewriteWouldInvalidateLabels(function, range, []))
+        if (ReferenceOwnership.RewriteWouldInvalidateLabels(
+                function,
+                range,
+                [],
+                bodyLabelsRetainedOutside))
             return false;
         bool Inside(IrNode node) => range.Any(
             statement => ExactLocalNameAllocation.Contains(statement, node));

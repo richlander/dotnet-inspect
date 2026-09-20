@@ -158,6 +158,7 @@ public sealed partial class PackagePlatformSource
         private readonly PackagePlatformSourceGeneration _generation;
         private readonly PackageSourceOperationLease _operation;
         private readonly List<PackageAuthorityFailure> _packageFailures = [];
+        private readonly long _initialBytes;
         private long _remainingBytes;
         private int _remainingManifestLibraries;
         private int _remainingManifestAssets;
@@ -176,7 +177,9 @@ public sealed partial class PackagePlatformSource
             _work = work;
             _generation = generation;
             _operation = operation;
-            _remainingBytes = Math.Min(work.MaxBytes, source.Limits.MaxBytes);
+            _initialBytes =
+                Math.Min(work.MaxBytes, source.Limits.MaxBytes);
+            _remainingBytes = _initialBytes;
             _remainingManifestLibraries = Math.Min(
                 work.MaxManifestLibraries,
                 source.Limits.MaxManifestLibraries);
@@ -286,7 +289,8 @@ public sealed partial class PackagePlatformSource
                 _coordinate,
                 [.. frameworks.Select(
                     static framework => framework.Evidence)],
-                libraries);
+                libraries,
+                _initialBytes - _remainingBytes);
         }
 
         private async Task<FrameworkPayload> AcquireExactFrameworkAsync(

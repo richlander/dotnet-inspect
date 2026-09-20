@@ -25,6 +25,467 @@ public sealed class PackagePlatformLibraryMaterializerTests
 
     [Fact]
     public async Task
+        UnmeasuredPackageFailureConsumesDelegatedWorkBeforeFallback()
+    {
+        const string version = "10.0.12";
+        const string assemblyPath =
+            "ref/net10.0/System.Text.Json.dll";
+        const string documentationPath =
+            "ref/net10.0/System.Text.Json.xml";
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        KeyValuePair<string, byte[]>[] entries =
+        [
+            PackagePlatformTestData.Entry(assemblyPath, image),
+            PackagePlatformTestData.Entry(
+                documentationPath,
+                [1, 2, 3]),
+        ];
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        version,
+                        entries)),
+            ]);
+        var content = new TrackingPackageContent(
+            environment.Clients[0].Source.Producer.Key,
+            entries,
+            [documentationPath],
+            path => new IOException(
+                $"Entry {path} could not be opened."));
+        environment.Store = new StaticPackageStore(content);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformSourceCapabilityIdentity fallbackReference =
+            PlatformSourceCapabilityIdentity.Create(
+                "fallback-reference");
+        long maximumBytes = image.LongLength + 3;
+        PlatformHouseRequest request =
+            SelectedPackageReferenceFailureRequest(
+                adapter,
+                fallbackReference,
+                PackagePlatformTestData.Identity(image),
+                maximumBytes,
+                cancellationToken);
+        int fallbackInvocations = 0;
+        var realizationFallback =
+            new PlatformLibraryRealizationSource(
+                fallbackReference,
+                PlatformSourceFacet.Reference,
+                (operation, target, _, _) =>
+                {
+                    fallbackInvocations++;
+                    PlatformLibraryRealizationSourceAttempt attempt =
+                        new PlatformLibraryRealizationSourceAttempt
+                            .NotSucceeded(
+                                new PlatformSourceContribution
+                                    .Unavailable(
+                                        PlatformSourceFacet.Reference,
+                                        fallbackReference,
+                                        operation.Snapshot,
+                                        PlatformSourceGeneration.Create(
+                                            "fallback-reference-generation"),
+                                        target,
+                                        PlatformSourceUnavailabilityKind
+                                            .Absent));
+                    return ValueTask.FromResult(attempt);
+                });
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                    request,
+                    [
+                        PackagePlatformTargetDiscovery.CreateSource(
+                            adapter,
+                            (operation, remainingWork) =>
+                                environment.IssueOperation(
+                                    operation.CancellationToken,
+                                    operationTimeout:
+                                        remainingWork.MaxDuration)),
+                    ],
+                    [
+                        PackagePlatformSelectedLibraryRealization
+                            .CreateReferenceSource(
+                                adapter,
+                                (operation, remainingWork) =>
+                                    environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration),
+                                PlatformHouseCandidateIdentity.Create(
+                                    "package-reference-candidate")),
+                        realizationFallback,
+                    ],
+                    "package-selected-library"));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Incomplete>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, fallbackInvocations);
+        Assert.Contains(assemblyPath, content.OpenedEntries);
+        Assert.Contains(documentationPath, content.OpenedEntries);
+        PlatformHouseReceipt receipt =
+            terminal.TerminalRealization.Outcome.Receipt;
+        Assert.Contains(
+            receipt.SourceSettlements,
+            settlement =>
+                settlement.Contribution
+                    is PlatformSourceContribution.Failed
+                && ReferenceEquals(
+                    adapter.ReferenceRealization,
+                    settlement.Contribution.Capability));
+        PlatformHouseConsumedWork consumed = receipt.ConsumedWork;
+        Assert.Equal(1, consumed.Assemblies);
+        Assert.Equal(1, consumed.XmlDocuments);
+        Assert.Equal(maximumBytes, consumed.Bytes);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        PackageImplementationManifestBytesConsumeAllowanceBeforeFallback()
+    {
+        const string version = "10.0.12";
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] requested =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        byte[] available =
+            PackagePlatformTestData.Assembly("System.Runtime");
+        byte[] runtimeConfiguration =
+            PackagePlatformTestData.RuntimeConfiguration();
+        byte[] dependencyManifest =
+            PackagePlatformTestData.DependencyManifestForTarget(
+                ".NETCoreApp,Version=v10.0/linux-x64",
+                "System.Runtime.dll");
+        IReadOnlyList<KeyValuePair<string, byte[]>> entries =
+            PackagePlatformTestData.RuntimePackEntries(
+                "Microsoft.NETCore.App",
+                "net10.0",
+                runtimeConfiguration,
+                dependencyManifest,
+                ("System.Runtime.dll", available));
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net10.0/System.Runtime.dll",
+                                available),
+                        ]),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        version,
+                        entries)),
+            ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformSourceCapabilityIdentity fallbackImplementation =
+            PlatformSourceCapabilityIdentity.Create(
+                "fallback-implementation");
+        long maximumBytes =
+            available.LongLength
+            + runtimeConfiguration.LongLength
+            + dependencyManifest.LongLength;
+        PlatformHouseRequest request =
+            ImplementationFallbackRequest(
+                adapter,
+                fallbackImplementation,
+                PackagePlatformTestData.Identity(requested),
+                maximumBytes,
+                cancellationToken);
+        int fallbackInvocations = 0;
+        var realizationFallback =
+            new PlatformLibraryRealizationSource(
+                fallbackImplementation,
+                PlatformSourceFacet.Implementation,
+                (operation, target, _, _) =>
+                {
+                    fallbackInvocations++;
+                    PlatformLibraryRealizationSourceAttempt attempt =
+                        new PlatformLibraryRealizationSourceAttempt
+                            .NotSucceeded(
+                                new PlatformSourceContribution
+                                    .Unavailable(
+                                        PlatformSourceFacet.Implementation,
+                                        fallbackImplementation,
+                                        operation.Snapshot,
+                                        PlatformSourceGeneration.Create(
+                                            "fallback-implementation-generation"),
+                                        target,
+                                        PlatformSourceUnavailabilityKind
+                                            .Absent));
+                    return ValueTask.FromResult(attempt);
+                });
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                    request,
+                    [
+                        PackagePlatformTargetDiscovery.CreateSource(
+                            adapter,
+                            (operation, remainingWork) =>
+                                environment.IssueOperation(
+                                    operation.CancellationToken,
+                                    operationTimeout:
+                                        remainingWork.MaxDuration)),
+                    ],
+                    [
+                        PackagePlatformSelectedLibraryRealization
+                            .CreateImplementationSource(
+                                adapter,
+                                "linux-x64",
+                                (operation, remainingWork) =>
+                                    environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration),
+                                PlatformHouseCandidateIdentity.Create(
+                                    "package-implementation-candidate")),
+                        realizationFallback,
+                    ],
+                    "package-selected-library"));
+
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Incomplete>(
+                    terminal.TerminalRealization.Outcome);
+        Assert.Equal(0, fallbackInvocations);
+        PlatformHouseConsumedWork consumed =
+            terminal.TerminalRealization.Outcome.Receipt.ConsumedWork;
+        Assert.Equal(1, consumed.Assemblies);
+        Assert.Equal(maximumBytes, consumed.Bytes);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        SelectedPackageAssociationCompletesPairedSystemTextJson()
+    {
+        const string version = "10.0.12";
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        await using PackagePlatformTestEnvironment environment =
+            PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimePackageId,
+                        version,
+                        [
+                            PackagePlatformTestData.Entry(
+                                "ref/net10.0/System.Text.Json.dll",
+                                image),
+                        ]),
+                    (
+                        PackagePlatformTestEnvironment
+                            .RuntimeImplementationPackageId,
+                        version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.NETCore.App",
+                            "net10.0",
+                            PackagePlatformTestData.RuntimeConfiguration(),
+                            PackagePlatformTestData
+                                .DependencyManifestForTarget(
+                                    ".NETCoreApp,Version=v10.0/linux-x64",
+                                    "System.Text.Json.dll"),
+                            ("System.Text.Json.dll", image)))),
+            ]);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = SelectedPackageRequest(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken);
+
+        PlatformLibraryArtifactMaterializationOutcome outcome =
+            await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                    request,
+                    [
+                        PackagePlatformTargetDiscovery.CreateSource(
+                            adapter,
+                            (operation, remainingWork) =>
+                                environment.IssueOperation(
+                                    operation.CancellationToken,
+                                    operationTimeout:
+                                        remainingWork.MaxDuration)),
+                    ],
+                    [
+                        PackagePlatformSelectedLibraryRealization
+                            .CreateReferenceSource(
+                                adapter,
+                                (operation, remainingWork) =>
+                                    environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration),
+                                PlatformHouseCandidateIdentity.Create(
+                                    "package-reference-candidate")),
+                        PackagePlatformSelectedLibraryRealization
+                            .CreateImplementationSource(
+                                adapter,
+                                "linux-x64",
+                                (operation, remainingWork) =>
+                                    environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration),
+                                PlatformHouseCandidateIdentity.Create(
+                                    "package-implementation-candidate")),
+                    ],
+                    "package-selected-library");
+        if (outcome
+            is PlatformLibraryArtifactMaterializationOutcome.Terminal
+                terminal)
+        {
+            PlatformHouseReceipt receipt =
+                terminal.TerminalRealization.Outcome.Receipt;
+            string detail = receipt.Termination
+                is PlatformHouseTermination.Rejected
+                {
+                    Rejection:
+                        PlatformHouseRejection.OwnerEvidence owner,
+                }
+                    ? $"{owner.Kind}:{owner.Evidence.Name}"
+                    : receipt.Termination?.GetType().Name ?? "none";
+            Assert.Fail(
+                $"Unexpected {receipt.SettlementKind}: {detail}; "
+                + string.Join(
+                    ", ",
+                    receipt.SourceSettlements.Select(
+                        settlement =>
+                            $"{settlement.Contribution.Facet}/"
+                            + $"{settlement.Contribution.Kind}/"
+                            + $"{settlement.Disposition}")));
+        }
+        var completed = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Completed>(
+                outcome);
+
+        Assert.Equal(
+            version,
+            completed.Library.Outcome.Receipt.TargetSettlement
+                .SettledTarget!.Version.Value);
+        Assert.Equal(
+            3,
+            completed.Library.Outcome.Receipt.SourceSettlements.Count);
+        LibraryReference library = completed.Library.Value.Reference;
+        Assert.NotNull(library.ImplementationAssembly);
+        using (LibraryOperationLease operation =
+            Issued(completed.Library.Owner, library))
+        {
+            Assert.Equal(
+                ((byte)'M', (byte)'M'),
+                operation.SnapshotPair(
+                    library.ApiAssembly,
+                    library.ImplementationAssembly!,
+                    static (view, _) =>
+                        (view.First.Content[0],
+                            view.Second.Content[0]),
+                    cancellationToken));
+        }
+
+        await environment.AssertSettledAsync();
+        Task artifactRetirement =
+            completed.Artifacts.DisposeAsync().AsTask();
+        await completed.Library.Owner.DisposeAsync();
+        await artifactRetirement.WaitAsync(cancellationToken);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task
+        ForeignAssociationOrRouteRejectsBeforePackageOperation(
+            bool matchingRoute)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image =
+            PackagePlatformTestData.Assembly("System.Text.Json");
+        await using PackagePlatformTestEnvironment environment =
+            Environment(image);
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = SelectedPackageReferenceRequest(
+            adapter,
+            PackagePlatformTestData.Identity(image),
+            cancellationToken);
+        PlatformFamilyTarget target = new(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse("net10.0"),
+            PlatformVersion.Parse("10.0.12"));
+        int issuedOperations = 0;
+        var foreignDiscovery = new PlatformTargetDiscoverySource(
+            adapter.TargetDiscovery,
+            (operation, _) =>
+            {
+                var contribution =
+                    new PlatformSourceContribution.TargetDiscovery(
+                        adapter.TargetDiscovery,
+                        operation.Snapshot,
+                        PlatformSourceGeneration.Create(
+                            "foreign-package-generation"),
+                        [target]);
+                PlatformTargetDiscoveryAttempt attempt =
+                    new PlatformTargetDiscoveryAttempt.Succeeded(
+                        contribution,
+                        [
+                            new PlatformTargetDiscoveryCandidate<
+                                ForeignAssociation>(
+                                    target,
+                                    new()),
+                        ]);
+                return ValueTask.FromResult(attempt);
+            },
+            matchingRoute
+                ? adapter.AssociationRoute
+                : PlatformSourceAssociationRouteIdentity.Create(
+                    "foreign-package-route"));
+
+        var terminal = Assert.IsType<
+            PlatformLibraryArtifactMaterializationOutcome.Terminal>(
+                await PlatformHouseSelectedLibraryExecutor.ExecuteAsync(
+                    request,
+                    [foreignDiscovery],
+                    [
+                        PackagePlatformSelectedLibraryRealization
+                            .CreateReferenceSource(
+                                adapter,
+                                (operation, remainingWork) =>
+                                {
+                                    issuedOperations++;
+                                    return environment.IssueOperation(
+                                        operation.CancellationToken,
+                                        operationTimeout:
+                                            remainingWork.MaxDuration);
+                                },
+                                PlatformHouseCandidateIdentity.Create(
+                                    "package-reference-candidate")),
+                    ],
+                    "package-selected-library"));
+
+        Assert.Equal(0, issuedOperations);
+        Assert.IsType<
+            PlatformHouseOutcome<
+                PlatformLibraryRealizationValue>.Rejected>(
+                    terminal.TerminalRealization.Outcome);
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
         PackageReferencePopulation_TransfersOrderedLibraryAuthorities()
     {
         CancellationToken cancellationToken =
@@ -1453,6 +1914,240 @@ public sealed class PackagePlatformLibraryMaterializerTests
         PackagePlatformTestEnvironment environment) =>
         new(environment.CreateSource(), "package-materializer");
 
+    static PlatformHouseRequest ImplementationFallbackRequest(
+        PackagePlatformHouseAdapter adapter,
+        PlatformSourceCapabilityIdentity fallbackImplementation,
+        AssemblyReferenceIdentity identity,
+        long maximumBytes,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "package-implementation-fallback"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred: null,
+                    new PlatformTargetDiscoveryStage(
+                        new PlatformTargetDiscoveryScope.ExactFramework(
+                            PlatformTargetFramework.Parse("net10.0")),
+                        [adapter.TargetDiscovery])),
+                new PlatformTargetDiscoveryBudget(32, 128)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "package-implementation-fallback")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformViewDemand.Implementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "package-implementation-fallback-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.TargetDiscovery,
+                        PlatformSourceSelectionMode.Fallback,
+                        [adapter.TargetDiscovery]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Fallback,
+                        [
+                            adapter.ImplementationRealization,
+                            fallbackImplementation,
+                        ]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 3,
+                maxTargetCandidates: 32,
+                maxAssemblies: 2,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: maximumBytes,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
+    static PlatformHouseRequest SelectedPackageReferenceFailureRequest(
+        PackagePlatformHouseAdapter adapter,
+        PlatformSourceCapabilityIdentity fallbackReference,
+        AssemblyReferenceIdentity identity,
+        long maximumBytes,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "selected-package-reference-failure"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred: null,
+                    new PlatformTargetDiscoveryStage(
+                        new PlatformTargetDiscoveryScope.ExactFramework(
+                            PlatformTargetFramework.Parse("net10.0")),
+                        [adapter.TargetDiscovery])),
+                new PlatformTargetDiscoveryBudget(32, 128)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "selected-package-reference-failure")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformViewDemand.Reference,
+                PlatformLibraryContentDemand
+                    .CompiledXmlDocumentation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "selected-package-reference-failure-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.TargetDiscovery,
+                        PlatformSourceSelectionMode.Fallback,
+                        [adapter.TargetDiscovery]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Fallback,
+                        [
+                            adapter.ReferenceRealization,
+                            fallbackReference,
+                        ]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 3,
+                maxTargetCandidates: 32,
+                maxAssemblies: 1,
+                maxXmlDocuments: 1,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: maximumBytes,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
+    static PlatformHouseRequest SelectedPackageReferenceRequest(
+        PackagePlatformHouseAdapter adapter,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "selected-package-reference"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred: null,
+                    new PlatformTargetDiscoveryStage(
+                        new PlatformTargetDiscoveryScope.ExactFramework(
+                            PlatformTargetFramework.Parse("net10.0")),
+                        [adapter.TargetDiscovery])),
+                new PlatformTargetDiscoveryBudget(32, 128)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "selected-package-reference")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformViewDemand.Reference),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "selected-package-reference-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.TargetDiscovery,
+                        PlatformSourceSelectionMode.Fallback,
+                        [adapter.TargetDiscovery]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 4,
+                maxTargetCandidates: 32,
+                maxAssemblies: 8,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 256L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
+    static PlatformHouseRequest SelectedPackageRequest(
+        PackagePlatformHouseAdapter adapter,
+        AssemblyReferenceIdentity identity,
+        CancellationToken cancellationToken) =>
+        new(
+            PlatformHouseRequestIdentity.Create(
+                "selected-package-library"),
+            new PlatformTargetDemand.FamilyDefault(
+                PlatformFamily.DotNetRuntime,
+                new PlatformVersionlessRuntimeTargetPolicy(
+                    PlatformTargetSelectionPolicyIdentity.Create(
+                        "versionless-runtime-default"),
+                    PlatformTargetSelectionPolicyGeneration.Create(
+                        "generation-1"),
+                    PlatformVersion.Parse("10.0.1"),
+                    preferred: null,
+                    new PlatformTargetDiscoveryStage(
+                        new PlatformTargetDiscoveryScope.ExactFramework(
+                            PlatformTargetFramework.Parse("net10.0")),
+                        [adapter.TargetDiscovery])),
+                new PlatformTargetDiscoveryBudget(
+                    maxCandidates: 32,
+                    maxComparisons: 128)),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "selected-package-library")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.Assembly(identity)),
+                PlatformViewDemand.ReferenceAndImplementation),
+            new PlatformSourcePlan(
+                PlatformSourcePlanIdentity.Create(
+                    "selected-package-sources"),
+                PlatformSourcePolicyGeneration.Create("generation-1"),
+                [
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.TargetDiscovery,
+                        PlatformSourceSelectionMode.Fallback,
+                        [adapter.TargetDiscovery]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
+                    new PlatformSourceSelection(
+                        PlatformSourceFacet.Implementation,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ImplementationRealization]),
+                ]),
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 8,
+                maxTargetCandidates: 32,
+                maxAssemblies: 16,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: 256L * 1024 * 1024,
+                maxForwardingHops: 0,
+                maxDuration: TimeSpan.FromSeconds(30)),
+            cancellationToken);
+
     static PlatformHouseRequest Request(
         PackagePlatformHouseAdapter adapter,
         AssemblyReferenceIdentity identity,
@@ -1701,4 +2396,6 @@ public sealed class PackagePlatformLibraryMaterializerTests
         Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
                 owner.IssueOperationLease(reference))
             .Lease;
+
+    sealed class ForeignAssociation;
 }

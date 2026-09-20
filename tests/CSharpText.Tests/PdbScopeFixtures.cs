@@ -100,6 +100,70 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int SequentialScopeLocalsWithEntryLabels(bool secondPath, int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int same = value;
+            Increment(ref same);
+            total += same;
+        }
+        if (total < value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            string same = value.ToString();
+            KeepAlive(ref same);
+            total += same.Length;
+        }
+        if (total < value)
+            goto First;
+    Done:
+        return total;
+    }
+
+    public static int SequentialScopeLocalsWithEntryAndInternalLabels(
+        bool secondPath,
+        int value)
+    {
+        int total = 0;
+        if (secondPath)
+            goto Second;
+    First:
+        {
+            int same = value;
+            goto FirstCheck;
+        FirstIncrement:
+            Increment(ref same);
+        FirstCheck:
+            if (same < value + 2)
+                goto FirstIncrement;
+            total += same;
+        }
+        if (total < value)
+            goto Second;
+        goto Done;
+    Second:
+        {
+            string same = value.ToString();
+            goto SecondCheck;
+        SecondKeep:
+            KeepAlive(ref same);
+        SecondCheck:
+            if (same.Length <= value)
+                goto SecondKeep;
+            total += same.Length;
+        }
+        if (total < value)
+            goto First;
+    Done:
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;
