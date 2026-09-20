@@ -2099,6 +2099,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("@Audit (category)", output);
         Assert.Contains("@Performance (category)", output);
+        Assert.Contains(
+            "   ├─ References\n   │  ├─ Name (column)",
+            output.ReplaceLineEndings("\n"));
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
         Assert.DoesNotContain("@All", output);

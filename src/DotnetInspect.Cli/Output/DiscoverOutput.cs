@@ -1170,8 +1170,7 @@ public static class DiscoverOutput
                         includeKind: identity.Kind
                             == DiscoveryResourceKind.Category,
                         sectionCostAnnotations,
-                        includeMembers: identity.Kind
-                            == DiscoveryResourceKind.Category)),
+                        includeMembers: true)),
             ];
         }
 
