@@ -222,7 +222,7 @@ Partial product adoption is expressed only by a different whole domain. The
 first slice adopts the complete Library structural domain from its
 `DiscoveryDocument`; it does not adopt Query Space or Product Vocabulary.
 Within that structural domain, an adapter cannot silently omit a newly added
-category, section, field, column, membership, or structural ownership edge.
+category, section, item kind, item, membership, or structural ownership edge.
 Later owner adoptions add their complete declared domains rather than
 cherry-picking resources by name.
 
@@ -249,7 +249,7 @@ Representative paths are:
 library
 library/sections
 library/sections/reference-hierarchy
-library/sections/reference-hierarchy/columns/name
+library/sections/reference-hierarchy/items/column/name
 library/categories/dependencies
 library/query-spaces/library-query
 library/query-spaces/library-query/facets/references
@@ -376,16 +376,28 @@ resource-detail variants that do not match the registered kind.
 Common framing supports graph navigation. Resource details remain a closed
 discriminated set for the adopted owners. The target contract admits:
 
-- structural catalog, category, section, field, and column details;
+- structural catalog, category, section, and item details;
 - query-space, query-scope, row-space, facet, operator, terminal, and effect
   details;
 - value-vocabulary and value-field-schema details; and
 - collection details.
 
-The first implementation slice contains navigation-collection and structural
-variants. Query, value-vocabulary, envelope-contract, and subject-affordance
-variants enter through focused versioned owner adoptions rather than one
-cross-owner implementation sweep.
+One structural-item variant preserves the `DiscoveryResourceIdentity` owner,
+section, item name, and opaque owner-issued `itemKind`. Its canonical path is:
+
+```text
+<section-path>/items/<item-kind-segment>/<item-segment>
+```
+
+`field`, `column`, `filterable`, `sortable`, `default-order`, `order-step`, and
+later Schema Query item kinds use the same variant. Safe path segments are
+explicit registrations; they are not derived from item-kind or item display
+text.
+
+The first implementation slice contains navigation-collection and those
+structural variants. Query, value-vocabulary, envelope-contract, and
+subject-affordance variants enter through focused versioned owner adoptions
+rather than one cross-owner implementation sweep.
 
 The variants preserve native types such as counts, booleans, operator IDs,
 output-capability IDs, terminal kinds, and effect kinds. They do not lower
@@ -507,12 +519,16 @@ Structural adaptation must preserve:
 
 - category and section identity as separate kinds;
 - one section identity across all category memberships;
-- field and column identity as the owning section plus item kind plus name;
+- every item identity as the owning section plus opaque owner-issued item kind
+  plus name;
 - sections with no item-level vocabulary; and
 - addressed resource identity separately from compact projected rows.
 
-A column named `References` does not become a query facet named `references`.
-A shared label does not establish correspondence.
+A `filterable` or `sortable` item remains a Schema Query structural-discovery
+fact. It does not become a Query Space facet, binding, operator, stage, or
+effect unless a separately adopted `QuerySpaceDescriptor` supplies that typed
+resource and correspondence. Likewise, a column named `References` does not
+become a query facet named `references`; a shared label establishes nothing.
 
 Output capabilities appear as typed direct facts. Explanation of a format's
 global behavior requires a separately owner-issued output-format descriptor;
