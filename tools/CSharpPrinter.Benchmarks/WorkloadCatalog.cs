@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -28,15 +29,15 @@ internal static class WorkloadCatalog
         new(
             "representative",
             "representative",
-            typeof(CSharpPrinter).Assembly.Location,
-            typeof(CSharpPrinter).FullName!,
-            "AppendContainer"),
+            typeof(JsonSerializer).Assembly.Location,
+            "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver",
+            "PopulatePolymorphismMetadata"),
         new(
             "large",
             "large",
-            typeof(CSharpPrinter).Assembly.Location,
-            typeof(CSharpPrinter).FullName!,
-            "AppendStatementCore"),
+            typeof(JsonSerializer).Assembly.Location,
+            "System.Text.Json.Schema.JsonSchemaExporter",
+            "MapJsonSchemaCore"),
     ];
 
     public static IEnumerable<string> Ids => s_all.Select(workload => workload.Id);
@@ -100,6 +101,7 @@ internal static class WorkloadValidator
 {
     public static int Run(TextWriter output)
     {
+        CSharpPrinterAllocationBenchmarks.ValidateOutputGuard();
         output.WriteLine(
             "workload\tassembly\ttype\tmethod\tmvid\tmethod_token\t"
             + "output_chars\toutput_sha256");

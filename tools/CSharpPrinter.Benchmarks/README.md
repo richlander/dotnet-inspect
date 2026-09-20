@@ -23,8 +23,14 @@ The workloads are real compiled methods:
 | Workload | Scale | Method |
 | --- | --- | --- |
 | `small` | Small | `List<T>.get_Count` from CoreLib |
-| `representative` | Representative | `CSharpPrinter.AppendContainer` |
-| `large` | Large | `CSharpPrinter.AppendStatementCore` |
+| `representative` | Representative | `DefaultJsonTypeInfoResolver.PopulatePolymorphismMetadata` from `System.Text.Json` |
+| `large` | Large | `JsonSchemaExporter.MapJsonSchemaCore` from `System.Text.Json` |
+
+The runtime-library workloads are independent of the printer implementation, so
+editing `CSharpPrinter` cannot also mutate the input IR being compared. They
+also preserve the cross-component text-producer comparison that motivated the
+benchmark. Validation fingerprints bind a before/after pair to the same runtime
+build and rendered output.
 
 The benchmark uses the repository's selected Release SDK, BenchmarkDotNet's
 calibrated in-process job, and `MemoryDiagnoser`. BenchmarkDotNet 0.15.8 does
@@ -49,7 +55,8 @@ twice through the product path, then verifies that rendering the already raised
 IR produces identical output. Each configured type and method name must resolve
 to exactly one MethodDef, and every import must return that token. A missing or
 ambiguous method, failed render, unstable output, or path mismatch fails
-visibly.
+visibly. Validation also directly verifies that a successful result containing
+an empty string is rejected rather than accepted as benchmark evidence.
 
 ## Run the benchmark
 

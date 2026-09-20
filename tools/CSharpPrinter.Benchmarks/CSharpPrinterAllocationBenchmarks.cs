@@ -85,7 +85,27 @@ public class CSharpPrinterAllocationBenchmarks
     }
 
     internal static string RequireOutput(DecompilerResult result)
-        => result.Succeeded && result.Output is { } output
+        => result.Succeeded && result.Output is { Length: > 0 } output
             ? output
-            : throw new InvalidOperationException("C# printer did not produce output.");
+            : throw new InvalidOperationException(
+                "C# printer did not produce non-empty output.");
+
+    internal static void ValidateOutputGuard()
+    {
+        try
+        {
+            RequireOutput(
+                new DecompilerResult(
+                    "",
+                    DecompilationFidelity.Full,
+                    []));
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "C# printer empty-output validation did not fail.");
+    }
 }
