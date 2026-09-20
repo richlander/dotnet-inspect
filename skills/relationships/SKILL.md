@@ -114,6 +114,10 @@ dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
   -S Dependencies
 dnx dotnet-inspect -y -- package Microsoft.Extensions.Hosting@10.0.0 \
   -S "Dependency Hierarchy" --tree
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D @Dependencies --details
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -D "Reference Hierarchy" --details
 dnx dotnet-inspect -y -- library System.Text.Json -S References
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "Reference Hierarchy" --tree
@@ -127,7 +131,9 @@ the same Depends operation, while `--tree` only chooses its projection.
 On `library`, `References` remains direct assembly metadata and
 `Reference Hierarchy` invokes that same occurrence-addressed Depends operation
 for the exact assembly; `--depth` controls traversal and `--tree` remains only
-a projection choice.
+a projection choice. Use `-D @Dependencies --details` to compare the complete
+category with its members before choosing the exact hierarchy section for tree
+or Mermaid output.
 
 `--envelope` is a presence-only service-output selector implemented only for
 positional `depends <type>`. It implies JSON and emits
