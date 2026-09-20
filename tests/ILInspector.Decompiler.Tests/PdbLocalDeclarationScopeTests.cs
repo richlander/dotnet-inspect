@@ -502,6 +502,87 @@ public sealed class PdbLocalDeclarationScopeTests
         Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
     }
 
+    [Fact]
+    public void OmittedBlockStartLabels_CloseTransitivelyWithinExactPdbScope()
+    {
+        var declaration = new Block(10);
+        var firstStore = new StoreLocal(0, Int32, new Constant(1, Int32));
+        firstStore.SetSourceOffset(10);
+        declaration.Add(firstStore);
+
+        var use = new Block(20);
+        use.Add(Marker(21, 0));
+
+        var firstTail = new Block(30);
+        IrNode firstTransfer = Transfer("conditional", 20);
+        firstTransfer.SetSourceOffset(31);
+        firstTail.Add(firstTransfer);
+
+        var secondTail = new Block(40);
+        IrNode secondTransfer = Transfer("branch", 30);
+        secondTransfer.SetSourceOffset(41);
+        secondTail.Add(secondTransfer);
+
+        var second = new Block(50);
+        var secondStore = new StoreLocal(1, Int32, new Constant(2, Int32));
+        secondStore.SetSourceOffset(50);
+        second.Add(secondStore);
+        second.Add(Observe(1));
+
+        var body = new BlockContainer();
+        body.Add(declaration);
+        body.Add(use);
+        body.Add(firstTail);
+        body.Add(secondTail);
+        body.Add(second);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(Void, [], false, 0),
+            [Int32, Int32],
+            body)
+        {
+            LocalNames = ["same", "same"],
+            LocalDeclaredInNestedScope = [true, true],
+            LocalDeclarationBindings =
+            [
+                new PdbLocalDeclaration(
+                    1,
+                    1,
+                    0,
+                    "same",
+                    new LocalSlotScope(10, 42),
+                    System.Reflection.Metadata.LocalVariableAttributes.None),
+                new PdbLocalDeclaration(
+                    2,
+                    2,
+                    1,
+                    "same",
+                    new LocalSlotScope(50, 60),
+                    System.Reflection.Metadata.LocalVariableAttributes.None),
+            ],
+        };
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Contains(
+            function.Descendants.OfType<LabelAnchor>(),
+            anchor => anchor.SourceOffset == 20 && anchor.RetainsPdbLocalScope);
+        Assert.Contains(
+            function.Descendants.OfType<LabelAnchor>(),
+            anchor => anchor.SourceOffset == 30 && anchor.RetainsPdbLocalScope);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Equal(2, result.Output!.Split(
+            "int same =", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("V_", result.Output);
+
+        new PdbLocalScopePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        Assert.Equal(result.Output, CSharpPrinter.Print(function).Output);
+    }
+
     [Theory]
     [InlineData(9, 10, 31)]
     [InlineData(30, 10, 30)]

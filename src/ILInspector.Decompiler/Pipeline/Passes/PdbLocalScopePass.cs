@@ -278,6 +278,13 @@ public sealed class PdbLocalScopePass : IIrPass
                 .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
                 .Select(node => node.SourceOffset)
                 .ToHashSet();
+            for (int blockIndex = firstBlock + 1; blockIndex <= lastBlock; blockIndex++)
+            {
+                // An omitted leading instruction can leave the target identity
+                // only on a basic block consumed by the lexical range.
+                if (blocks[blockIndex].StartOffset >= 0)
+                    bodyLabels.Add(blocks[blockIndex].StartOffset);
+            }
             if (labelsPrintedOutside is not null)
                 bodyLabels.ExceptWith(labelsPrintedOutside);
 
