@@ -164,6 +164,36 @@ public static class PdbScopeFixtures
         return total;
     }
 
+    public static int SequentialScopeLocalsWithTrailingTransfer(
+        bool repeat,
+        int value)
+    {
+        int total = 0;
+        {
+            int same = value;
+            if (repeat)
+                goto Increment;
+        Record:
+            total += value;
+            if (total >= value)
+                goto Done;
+            goto Increment;
+        Increment:
+            Increment(ref same);
+            repeat = false;
+            if (value > 0)
+                goto Record;
+        Done:
+            ;
+        }
+        {
+            string same = value.ToString();
+            KeepAlive(ref same);
+            total += same.Length;
+        }
+        return total;
+    }
+
     public static int SequentialStackCarry(int value)
     {
         int total = 0;
