@@ -528,23 +528,17 @@ public static class PackageEcosystemDependencyRecognitionInspection
                         participant.Participant.Assembly.Identity,
                         out PortableLibraryIdentity? library))
                 {
-                    EcosystemDependencyInputIssueIdentity issue =
-                        AddIssue(
-                            issues,
-                            diagnostics,
-                            ref nextIssue,
-                            EcosystemDependencyInputRole
-                                .SelectedCompileLibraryEnumeration,
-                            "ecosystem-dependency-recognition.package-library-identity-unavailable",
-                            "One selected Package compile Library does not have a portable exact assembly identity.",
-                            new EcosystemDependencyInputIssueSource.Package(
-                                subject));
-                    return new(
-                        new EcosystemDependencyInputComponent<
-                            EcosystemDependencyPackageCompileSelection>
-                            .Unavailable(issue),
-                        [],
-                        nextIssue);
+                    _ = AddIssue(
+                        issues,
+                        diagnostics,
+                        ref nextIssue,
+                        EcosystemDependencyInputRole
+                            .SelectedCompileLibraryEnumeration,
+                        "ecosystem-dependency-recognition.package-library-identity-unavailable",
+                        "One selected Package compile Library does not have a portable exact assembly identity.",
+                        new EcosystemDependencyInputIssueSource.Package(
+                            subject));
+                    continue;
                 }
 
                 selectedLibraries.Add(

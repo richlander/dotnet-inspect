@@ -1241,6 +1241,62 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageCommand_MalformedSiblingRetainsValidEcosystemEvidence()
+    {
+        string id = $"Pinned.PartialEcosystem.{Guid.NewGuid():N}";
+        byte[] validLibrary = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreatePackage(
+            id,
+            "partial ecosystem package",
+            library: validLibrary,
+            libraryName: "A.Valid.dll",
+            extraEntries:
+            [
+                ("lib/net11.0/Z.Invalid.dll", new byte[17]),
+            ],
+            dependencies:
+            [
+                ("ThirdParty.Unrecognized", "1.0.0"),
+            ]);
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            ["package", $"{id}@{Version}", "--source", FirstFeed,
+                "-S", PackageSections.EcosystemDependencies,
+                "--json", "--tips", "q"]);
+
+        Assert.True(result.Exit == 0, $"Exit {result.Exit}: {result.Error}");
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement recognition = document.RootElement.GetProperty(
+            "ecosystem_dependencies");
+        Assert.Equal(
+            "incomplete",
+            recognition.GetProperty("status").GetString());
+        Assert.Equal(
+            1,
+            recognition.GetProperty("issue_count").GetInt32());
+        JsonElement[] dependencies = recognition.GetProperty("dependencies")
+            .EnumerateArray()
+            .ToArray();
+        Assert.NotEmpty(dependencies);
+        Assert.Contains(
+            dependencies,
+            static dependency =>
+                dependency.GetProperty("kind").GetString()
+                    == "Assembly reference"
+                && dependency.GetProperty("coverage").GetString()
+                    == "Incomplete");
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task PackageCommand_DuplicateCompileIdentityDisclosesIncompleteRecognition()
     {
         string id = $"Pinned.DuplicateIdentity.{Guid.NewGuid():N}";
