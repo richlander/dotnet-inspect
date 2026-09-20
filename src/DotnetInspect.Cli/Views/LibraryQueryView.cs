@@ -105,3 +105,20 @@ public sealed class EmptyLibraryQueryView
     [MarkoutSection(Name = LibraryQuerySections.QuerySummaryName)]
     public required List<LibraryQuerySummaryRow> QuerySummary { get; init; }
 }
+
+[MarkoutSerializable(TitleProperty = nameof(Title))]
+public sealed class EmptyLibraryQueryStructuredView
+{
+    [MarkoutIgnore]
+    public string Title => "Library Query";
+
+    [MarkoutSection(Name = LibraryQuerySections.LibrariesName)]
+    [MarkoutIgnoreInTable]
+    public MarkoutTable Results { get; } = new(
+        ["Occurrence", "Library", "Version", "Source", "Answer"],
+        ["occurrence", "library", "version", "source", "answer"],
+        []);
+
+    [MarkoutSection(Name = LibraryQuerySections.QuerySummaryName)]
+    public required List<LibraryQuerySummaryRow> QuerySummary { get; init; }
+}

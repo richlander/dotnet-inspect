@@ -91,6 +91,28 @@ public sealed class LibraryQueryCliTests
     }
 
     [Fact]
+    public async Task ProjectedJson_EmptyOccurrenceProjectionReturnsEmptyArray()
+    {
+        string path = typeof(LibraryQueryCliTests).Assembly.Location;
+
+        var result = await RunAsync(
+            "library",
+            "query",
+            path,
+            "--where",
+            "references=No.Such.Reference",
+            "--json",
+            "--columns",
+            "Occurrence");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Empty(
+            json.RootElement.GetProperty("libraries").EnumerateArray());
+    }
+
+    [Fact]
     public async Task Directory_PreservesMatchBesideInvalidCandidate()
     {
         string directory = Path.Combine(

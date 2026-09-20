@@ -127,6 +127,13 @@ internal static class LibraryQueryCommand
                     QuerySummary = view.QuerySummary,
                 }
                 : null;
+        EmptyLibraryQueryStructuredView? emptyStructured =
+            view.Results.Count == 0
+                ? new()
+                {
+                    QuerySummary = view.QuerySummary,
+                }
+                : null;
         LibraryQueryStructuredView structured =
             LibraryQueryStructuredView.From(view);
 
@@ -162,7 +169,7 @@ internal static class LibraryQueryCommand
             MarkoutWriterOptions writerOptions)
         {
             writerOptions.IncludeSections = includeSections;
-            if (empty is null)
+            if (emptyStructured is null)
             {
                 MarkoutSerializer.Serialize(
                     structured,
@@ -174,7 +181,7 @@ internal static class LibraryQueryCommand
             else
             {
                 MarkoutSerializer.Serialize(
-                    empty,
+                    emptyStructured,
                     writer,
                     formatter,
                     SearchViewContext.Default,

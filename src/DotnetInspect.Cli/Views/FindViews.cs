@@ -219,6 +219,7 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(LibraryQueryRow))]
 [MarkoutContext(typeof(LibraryQuerySummaryRow))]
 [MarkoutContext(typeof(EmptyLibraryQueryView))]
+[MarkoutContext(typeof(EmptyLibraryQueryStructuredView))]
 [MarkoutContext(typeof(PackageAssemblySemanticQueryView))]
 [MarkoutContext(typeof(PackageAssemblySemanticQueryRow))]
 [MarkoutContext(typeof(ImplementsResultView))]
