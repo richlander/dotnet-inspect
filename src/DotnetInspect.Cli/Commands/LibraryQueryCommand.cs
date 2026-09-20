@@ -79,6 +79,15 @@ internal static class LibraryQueryCommand
             return wrote && document.Summary.IsExact ? 0 : 1;
         }
 
+        if (options.Count && !document.Summary.IsExact)
+        {
+            CommandError.Write(
+                "Library Query cannot produce an exact count because "
+                + $"completion is {document.Summary.Completion}.");
+            WriteDiagnostics(document);
+            return 1;
+        }
+
         if (!CliSemanticRowSelection.TrySelect(
                 options.RowSelection,
                 document.Results,
@@ -91,18 +100,6 @@ internal static class LibraryQueryCommand
 
         if (options.Count)
         {
-            if (!CliSemanticRowSelection.ProvidesExactCount(
-                    options.RowSelection,
-                    document.Results.Length,
-                    document.Summary.IsExact))
-            {
-                CommandError.Write(
-                    "Library Query cannot produce an exact count because "
-                    + $"completion is {document.Summary.Completion}.");
-                WriteDiagnostics(document);
-                return 1;
-            }
-
             CountOutput.WriteCount(selected.Count);
             return 0;
         }

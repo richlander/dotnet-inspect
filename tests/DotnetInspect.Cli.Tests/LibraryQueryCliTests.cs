@@ -188,6 +188,74 @@ public sealed class LibraryQueryCliTests
             result.Error);
     }
 
+    [Fact]
+    public async Task CandidateLimitCannotBecomeExactCountThroughHeadSelection()
+    {
+        string path = typeof(LibraryQueryCliTests).Assembly.Location;
+
+        var result = await RunAsync(
+            "library",
+            "query",
+            path,
+            path,
+            "--where",
+            "references=System.Runtime",
+            "--take",
+            "1",
+            "-n",
+            "1",
+            "--head",
+            "--count");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "cannot produce an exact count",
+            result.Error);
+        Assert.Contains("CandidateLimitReached", result.Error);
+    }
+
+    [Fact]
+    public async Task EvaluationFailureCannotBecomeExactCountThroughHeadSelection()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"library-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(directory, "A.Invalid.dll"),
+                "not a managed assembly",
+                TestContext.Current.CancellationToken);
+            File.Copy(
+                typeof(LibraryQueryCliTests).Assembly.Location,
+                Path.Combine(directory, "B.Valid.dll"));
+
+            var result = await RunAsync(
+                "library",
+                "query",
+                directory,
+                "--where",
+                "references=System.Runtime",
+                "-n",
+                "1",
+                "--head",
+                "--count");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "cannot produce an exact count",
+                result.Error);
+            Assert.Contains("EvaluationFailures", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static Task<(int ExitCode, string Output, string Error)> RunAsync(
         params string[] arguments) =>
         ConsoleCapture.RunAsync(() =>
