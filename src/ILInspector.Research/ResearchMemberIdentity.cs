@@ -255,9 +255,19 @@ public static class ResearchMemberIdentity
         bool positionalGenericParameters)
         => type.Kind switch
         {
-            TypeRefKind.Definition => type.Namespace.Length == 0
-                ? type.Name.Replace("+", ".", StringComparison.Ordinal)
-                : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
+            TypeRefKind.Definition =>
+                positionalGenericParameters
+                    && type.Resolution?.Type is { } exactName
+                    ? BodyDefinitionTypeName(exactName)
+                    : type.Namespace.Length == 0
+                        ? type.Name.Replace(
+                            "+",
+                            ".",
+                            StringComparison.Ordinal)
+                        : $"{type.Namespace}.{type.Name.Replace(
+                            "+",
+                            ".",
+                            StringComparison.Ordinal)}",
             TypeRefKind.GenericInstance =>
                 $"{BodyTypeName(type.ElementType!, positionalGenericParameters)}"
                 + $"<{string.Join(",", type.TypeArguments.Select(argument =>
@@ -315,6 +325,12 @@ public static class ResearchMemberIdentity
         if (definition.DefinitionName is not { } name)
             return definition.FullName.Replace("+", ".", StringComparison.Ordinal);
 
+        return BodyDefinitionTypeName(name);
+    }
+
+    static string BodyDefinitionTypeName(
+        MetadataTypeDefinitionName name)
+    {
         string segments = string.Join(
             "+",
             name.Segments.Select(

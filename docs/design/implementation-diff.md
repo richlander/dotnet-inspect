@@ -2032,12 +2032,13 @@ signature includes return type. Research detects the same collision in IL and
 Analysis populations and issues the matching full-signature
 `ResearchSubjectKey`. Return-qualified identities use structural metadata
 spelling, including positional `!n` type parameters and `!!n` method
-parameters, rather than source generic-parameter names. Implementation Diff
-target resolution adds the same return-qualified alias while preserving the
-ordinary body identity used by other operations. Non-colliding members retain
-their API anchor currency, so API and body evidence continue to group without
-changing API selectors. Valid ECMA-335 return-type-only overloads remain
-distinct.
+parameters rather than source generic-parameter names, and exact `+`-separated
+nested metadata segments rather than display-oriented dotted nesting.
+Implementation Diff target resolution adds the same return-qualified alias
+while preserving the ordinary body identity used by other operations.
+Non-colliding members retain their API anchor currency, so API and body
+evidence continue to group without changing API selectors. Valid ECMA-335
+return-type-only overloads remain distinct.
 
 IL offsets, operation-array ordinals, and source spans are local evidence and
 display hints, never the durable selector. The durable selector is always the

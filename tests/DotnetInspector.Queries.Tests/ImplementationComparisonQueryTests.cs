@@ -735,6 +735,166 @@ public sealed class ImplementationComparisonQueryTests
                 == ResearchChangeMechanism.IlBody);
     }
 
+    [Fact]
+    public void DocumentQuery_CorrelatesNestedReturnTypeCollision()
+    {
+        ImplementationDiffDocument unfiltered =
+            CompareNestedReturnTypeOverloads();
+        ImplementationDiffDocumentMember[] members =
+        [
+            .. unfiltered.Members.Where(member =>
+                member.Subject.MemberName == "Changed"),
+        ];
+
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.CSharp);
+                Assert.Contains(
+                    member.Evidence,
+                    evidence => evidence.Mechanism
+                        == ResearchChangeMechanism.IlBody);
+            });
+        ImplementationDiffDocumentMember leftMember = Assert.Single(
+            members,
+            member => member.Evidence.Any(evidence =>
+                evidence.CSharpRow?.BodyAnchor?.CanonicalSignature
+                    .EndsWith(
+                        "~NestedReturnTypes+Left",
+                        StringComparison.Ordinal)
+                    == true));
+
+        string selectedId = leftMember.Subject.Id;
+        int returnSeparator = selectedId.LastIndexOf('~');
+        Assert.True(returnSeparator > 0);
+        ImplementationDiffDocument filtered =
+            CompareNestedReturnTypeOverloads(
+                new HashSet<string>(
+                    [selectedId[..returnSeparator], selectedId],
+                    StringComparer.Ordinal));
+
+        ImplementationDiffDocumentMember selected = Assert.Single(
+            filtered.Members,
+            member => member.Subject.MemberName == "Changed");
+        Assert.Equal(selectedId, selected.Subject.Id);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.CSharp);
+        Assert.Contains(
+            selected.Evidence,
+            evidence => evidence.Mechanism
+                == ResearchChangeMechanism.IlBody);
+    }
+
+    static ImplementationDiffDocument CompareNestedReturnTypeOverloads(
+        IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-nested-return-overloads-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string oldPath = Path.Combine(directory, "before.dll");
+            string newPath = Path.Combine(directory, "after.dll");
+            EmitNestedReturnTypeOverloads(
+                oldPath,
+                constructReturnValue: false);
+            EmitNestedReturnTypeOverloads(
+                newPath,
+                constructReturnValue: true);
+            return ImplementationDiffDocumentQuery.Execute(
+                new ImplementationComparisonInput(
+                    [StreamBackedInput(oldPath, "before.dll")],
+                    [StreamBackedInput(newPath, "after.dll")],
+                    TypeFilters: new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        "NestedReturnSample",
+                    },
+                    MemberTargetIdentities: memberTargetIdentities));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void EmitNestedReturnTypeOverloads(
+        string path,
+        bool constructReturnValue)
+    {
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("NestedReturnOverloadFixture"),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule("NestedReturnOverloadFixture");
+        TypeBuilder returnTypes = module.DefineType(
+            "NestedReturnTypes",
+            TypeAttributes.Public | TypeAttributes.Class);
+        TypeBuilder left = returnTypes.DefineNestedType(
+            "Left",
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Class
+                | TypeAttributes.Sealed);
+        ConstructorBuilder leftConstructor =
+            left.DefineDefaultConstructor(MethodAttributes.Public);
+        TypeBuilder right = returnTypes.DefineNestedType(
+            "Right",
+            TypeAttributes.NestedPublic
+                | TypeAttributes.Class
+                | TypeAttributes.Sealed);
+        ConstructorBuilder rightConstructor =
+            right.DefineDefaultConstructor(MethodAttributes.Public);
+
+        TypeBuilder host = module.DefineType(
+            "NestedReturnSample",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        EmitNestedReturnMethod(
+            host,
+            left,
+            leftConstructor,
+            constructReturnValue);
+        EmitNestedReturnMethod(
+            host,
+            right,
+            rightConstructor,
+            constructReturnValue);
+
+        left.CreateType();
+        right.CreateType();
+        returnTypes.CreateType();
+        host.CreateType();
+        assembly.Save(path);
+    }
+
+    static void EmitNestedReturnMethod(
+        TypeBuilder host,
+        TypeBuilder returnType,
+        ConstructorBuilder constructor,
+        bool constructReturnValue)
+    {
+        MethodBuilder method = host.DefineMethod(
+            "Changed",
+            MethodAttributes.Public | MethodAttributes.Static,
+            returnType,
+            Type.EmptyTypes);
+        ILGenerator il = method.GetILGenerator();
+        if (constructReturnValue)
+            il.Emit(OpCodes.Newobj, constructor);
+        else
+            il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+    }
+
     static ImplementationDiffDocument CompareGenericReturnTypeOverloads(
         IReadOnlySet<string>? memberTargetIdentities = null)
     {
