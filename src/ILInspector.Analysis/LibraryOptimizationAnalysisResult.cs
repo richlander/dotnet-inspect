@@ -28,6 +28,8 @@ public sealed class LibraryOptimizationAnalysisResult
     private ImmutableArray<OptimizationOpportunity> _opportunities;
     private ImmutableArray<OptimizationOpportunity>
         _allocationFanoutOpportunities;
+    private readonly ImmutableArray<StringMaterializationOccurrence>
+        _stringMaterializations;
     private IReadOnlyDictionary<int, CallerLoopEvidence>?
         _directCallerLoops;
     private Dictionary<int, int>? _rootReachByToken;
@@ -46,6 +48,8 @@ public sealed class LibraryOptimizationAnalysisResult
         _directCalls = analysis.Methods.DirectCalls;
         _allocationOccurrences = analysis.Allocations.Occurrences;
         _rawOpportunities = analysis.Optimizations.Opportunities;
+        _stringMaterializations =
+            analysis.Optimizations.StringMaterializations;
         _suppressedOpportunityTokens =
             analysis.Optimizations.SuppressedMethodTokens;
         _scopeExcludedOpportunityTokens =
@@ -158,6 +162,10 @@ public sealed class LibraryOptimizationAnalysisResult
                                     _suppressedOpportunityTokens,
                                     reachByToken,
                                     DeclaredMethodMap)
+                                .Select(OptimizationOpportunityAnalysis
+                                    .AddFallbackMetadata),
+                            .. StringMaterializationOpportunities(
+                                    reachByToken)
                                 .Select(OptimizationOpportunityAnalysis
                                     .AddFallbackMetadata),
                         ]
@@ -352,11 +360,24 @@ public sealed class LibraryOptimizationAnalysisResult
         var callSiteFindings =
             new Dictionary<int,
                 ImmutableArray<Finding<DirectCall>>>();
+        var stringMaterializationFindings =
+            new Dictionary<int,
+                ImmutableArray<
+                    Finding<StringMaterializationOccurrence>>>();
         Dictionary<int, ImmutableArray<DirectCall>>
             physicalCallsByCaller =
                 PhysicalDirectCalls
                     .GroupBy(call =>
                         call.Caller.MetadataToken)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.ToImmutableArray());
+        Dictionary<int,
+            ImmutableArray<StringMaterializationOccurrence>>
+            stringMaterializationsByMethod =
+                StringMaterializations
+                    .GroupBy(occurrence =>
+                        occurrence.EvidenceMethod.MetadataToken)
                     .ToDictionary(
                         group => group.Key,
                         group => group.ToImmutableArray());
@@ -371,6 +392,8 @@ public sealed class LibraryOptimizationAnalysisResult
         {
             Finding<AllocationOccurrence>? allocation = null;
             Finding<DirectCall>? callSite = null;
+            Finding<StringMaterializationOccurrence>?
+                stringMaterialization = null;
             Finding<DirectCall>? supportingCallSite = null;
             bool attachFinding =
                 opportunity.Shape
@@ -383,7 +406,43 @@ public sealed class LibraryOptimizationAnalysisResult
                 int evidenceMethodToken =
                     opportunity.EvidenceMethodToken
                         ?? methodToken;
-                if (opportunity.Shape != "sync-call-in-async"
+                if (opportunity.Shape
+                        == "string-materialization"
+                    && stringMaterializationsByMethod.TryGetValue(
+                        evidenceMethodToken,
+                        out ImmutableArray<
+                            StringMaterializationOccurrence>
+                            materializations))
+                {
+                    if (!stringMaterializationFindings.TryGetValue(
+                            evidenceMethodToken,
+                            out ImmutableArray<
+                                Finding<
+                                    StringMaterializationOccurrence>>
+                                findings))
+                    {
+                        findings =
+                            AnalysisFindings
+                                .InspectStringMaterializations(
+                                    materializations,
+                                    FindingSubjectFor(
+                                        DeclaredMethod(
+                                            evidenceMethodToken)
+                                            ?? opportunity.Method));
+                        stringMaterializationFindings[
+                            evidenceMethodToken] = findings;
+                    }
+
+                    stringMaterialization =
+                        SingleFindingAtOffset(
+                            findings,
+                            offset,
+                            static occurrence =>
+                                occurrence.ILOffset);
+                }
+
+                if (stringMaterialization is null
+                    && opportunity.Shape != "sync-call-in-async"
                     && _allocationOccurrences.TryGetValue(
                         evidenceMethodToken,
                         out ImmutableArray<AllocationOccurrence>
@@ -413,7 +472,8 @@ public sealed class LibraryOptimizationAnalysisResult
                             occurrence.ILOffset);
                 }
 
-                if (allocation is null
+                if (stringMaterialization is null
+                    && allocation is null
                     && physicalCallsByCaller.TryGetValue(
                         evidenceMethodToken,
                         out ImmutableArray<DirectCall> calls))
@@ -468,13 +528,18 @@ public sealed class LibraryOptimizationAnalysisResult
             }
 
             string? sourceFinding =
-                allocation?.Descriptor.Id
+                stringMaterialization?.Descriptor.Id
+                    ?? allocation?.Descriptor.Id
                     ?? callSite?.Descriptor.Id
                     ?? opportunity.SourceFinding;
             FindingKey? findingKey =
-                allocation?.Key ?? callSite?.Key;
+                stringMaterialization?.Key
+                    ?? allocation?.Key
+                    ?? callSite?.Key;
             int? ordinal =
-                allocation?.Ordinal ?? callSite?.Ordinal;
+                stringMaterialization?.Ordinal
+                    ?? allocation?.Ordinal
+                    ?? callSite?.Ordinal;
             int fingerprintLength =
                 PerformanceTriageCandidateId
                     .InitialFingerprintLength;
@@ -508,11 +573,18 @@ public sealed class LibraryOptimizationAnalysisResult
             {
                 CandidateId = candidateId,
                 SourceFinding = sourceFinding,
-                Operation = allocation is null
-                    ? CallOperation(callSite?.Payload)
-                    : AllocationOperation(allocation.Payload),
+                Operation =
+                    stringMaterialization is not null
+                        ? AnalysisFindings
+                            .StringMaterializationOperation(
+                                stringMaterialization.Payload.Kind)
+                        : allocation is null
+                            ? CallOperation(callSite?.Payload)
+                            : AllocationOperation(allocation.Payload),
                 OperandToken =
-                    allocation?.Payload.OperandToken
+                    stringMaterialization
+                        ?.Payload.OperandToken
+                        ?? allocation?.Payload.OperandToken
                         ?? callSite?.Payload.OperandToken,
                 SupportingCallSite =
                     opportunity.SupportingCallSite is not
@@ -545,6 +617,44 @@ public sealed class LibraryOptimizationAnalysisResult
         }
 
         return builder.MoveToImmutable();
+    }
+
+    private ImmutableArray<StringMaterializationOccurrence>
+        StringMaterializations => _stringMaterializations;
+
+    private IEnumerable<OptimizationOpportunity>
+        StringMaterializationOpportunities(
+            IReadOnlyDictionary<int, int> reachByToken)
+    {
+        foreach (StringMaterializationOccurrence occurrence in
+            StringMaterializations)
+        {
+            string strategy =
+                AnalysisFindings.StringMaterializationOperation(
+                    occurrence.Kind);
+            yield return new OptimizationOpportunity(
+                occurrence.Method,
+                "string-materialization",
+                $"Potential string materialization via {strategy} ({occurrence.Operation.ToQualifiedDisplayString()}).",
+                "Confirm realized allocation bytes and frequency with a representative workload before changing this construction strategy.",
+                "high",
+                occurrence.InLoop,
+                occurrence.ILOffset,
+                "This is exact static IL evidence that an operation can produce a string result; it does not prove a new allocation, runtime frequency, retained bytes, or optimization safety.",
+                reachByToken.GetValueOrDefault(
+                    occurrence.Method.MetadataToken))
+            {
+                EvidenceMethodToken =
+                    occurrence.EvidenceMethod.MetadataToken
+                        == occurrence.Method.MetadataToken
+                            ? null
+                            : occurrence.EvidenceMethod.MetadataToken,
+                Multiplicity =
+                    OptimizationOpportunityAnalysis
+                        .FormatMultiplicity(
+                            occurrence.Multiplicity),
+            };
+        }
     }
 
     private static FindingSubject FindingSubjectFor(

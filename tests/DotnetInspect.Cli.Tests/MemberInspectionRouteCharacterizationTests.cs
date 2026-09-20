@@ -265,7 +265,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-single-library",
                 "schema-static-before-package-acquisition/"
                     + "effective-after-package-acquisition",
-                "Library[schema:131:E3EBE5FFA45B]",
+                "Library[schema:133:CBA3C1F6F8A4]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -277,7 +277,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "package-all-libraries",
                 "schema-static-before-package-acquisition/"
                     + "render-after-package-acquisition",
-                "Library[schema:131:E3EBE5FFA45B]",
+                "Library[schema:133:CBA3C1F6F8A4]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"
@@ -287,7 +287,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "direct-library",
                 "schema-static-without-target/effective-with-target",
-                "Library[schema:133:265B9C37918E]",
+                "Library[schema:135:0B284A8E156E]",
                 "focus=Library Info->Classified methods,"
                     + "Library Info->Custom attributes,"
                     + "Library Info->Extension methods,Library Info->Resources,"

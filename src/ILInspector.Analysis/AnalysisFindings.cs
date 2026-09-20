@@ -14,6 +14,12 @@ public static class AnalysisFindings
     public static readonly FindingDescriptor CallSiteDescriptor =
         new("analysis.call-site", "Direct call site");
 
+    public static readonly FindingDescriptor
+        StringMaterializationDescriptor =
+            new(
+                "analysis.string-materialization",
+                "String materialization operation");
+
     public static readonly FindingDescriptor UnsafetyDescriptor =
         new("analysis.unsafety", "Unsafe operation");
 
@@ -177,6 +183,83 @@ public static class AnalysisFindings
         AppendMemberIdentity(key, callee);
         return key.ToString();
     }
+
+    /// <summary>
+    /// Projects one method's string-producing operations into IL order. The
+    /// construction strategy and operation signature establish
+    /// correspondence; version-local IL coordinates remain payload evidence.
+    /// </summary>
+    public static ImmutableArray<Finding<StringMaterializationOccurrence>>
+        InspectStringMaterializations(
+            IEnumerable<StringMaterializationOccurrence> occurrences,
+            FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(occurrences);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        var ordered = occurrences
+            .OrderBy(static occurrence => occurrence.ILOffset)
+            .ThenBy(
+                GetStringMaterializationIdentityKey,
+                StringComparer.Ordinal)
+            .ToImmutableArray();
+        var findings =
+            ImmutableArray.CreateBuilder<
+                Finding<StringMaterializationOccurrence>>(
+                    ordered.Length);
+        for (int i = 0; i < ordered.Length; i++)
+        {
+            StringMaterializationOccurrence occurrence = ordered[i];
+            findings.Add(
+                new Finding<StringMaterializationOccurrence>(
+                    subject,
+                    StringMaterializationDescriptor,
+                    new FindingKey(
+                        GetStringMaterializationIdentityKey(
+                            occurrence)),
+                    occurrence,
+                    Ordinal: i,
+                    Detail: StringMaterializationOperation(
+                        occurrence.Kind)));
+        }
+
+        return findings.MoveToImmutable();
+    }
+
+    public static string GetStringMaterializationIdentityKey(
+        StringMaterializationOccurrence occurrence)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        var key = new StringBuilder();
+        AppendKeyPart(
+            key,
+            ((int)occurrence.Kind).ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+        AppendMemberIdentity(key, occurrence.Operation);
+        return key.ToString();
+    }
+
+    internal static string StringMaterializationOperation(
+        StringMaterializationKind kind)
+        => kind switch
+        {
+            StringMaterializationKind.Concatenation =>
+                "string.concat",
+            StringMaterializationKind.Join => "string.join",
+            StringMaterializationKind.Format => "string.format",
+            StringMaterializationKind.Create => "string.create",
+            StringMaterializationKind.Constructor =>
+                "string.constructor",
+            StringMaterializationKind
+                .InterpolatedStringHandlerFinalization =>
+                    "string.interpolation-handler",
+            StringMaterializationKind.StringBuilderFinalization =>
+                "string.builder-finalization",
+            StringMaterializationKind.EncodingDecode =>
+                "string.encoding-decode",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind)),
+        };
 
     /// <summary>
     /// Projects exception-path resource lifecycle observations into acquisition order. Identity

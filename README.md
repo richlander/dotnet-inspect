@@ -158,7 +158,7 @@ stderr rather than mixed into structured output.
 | Direct dependency evidence | `depends -S Dependencies` | `depends` combines explicit roots, traversal, and normalized declaration/restored evidence in one sectioned document. |
 | Package pruning policy | `depends -S Pruning` | Explicitly compares source-authorized direct dependency candidates with an exact installed runtime or ASP.NET Core platform inventory, without changing graph traversal. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
-| Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Performance analysis *(experimental)* | `library -S @Performance`, `library -S "Performance: Strings"`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, exact string-materialization operations, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library coordinate "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-package N` on the direct inventory route for structural Library, Type, Member, and lens descriptors. |
@@ -308,6 +308,7 @@ workflow in more depth.
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json -T q
+dotnet-inspect library System.Text.Json -S "Performance: Strings" --json -T q
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 

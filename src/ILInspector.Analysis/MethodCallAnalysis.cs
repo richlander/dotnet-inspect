@@ -65,6 +65,7 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<UnsafeEvidence>.Builder unsafeEvidence,
         bool includeIndirectOpcodes,
         bool includeCallValueFlow = true,
+        bool includeReceiverSources = false,
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
@@ -178,7 +179,9 @@ internal static partial class MethodCallAnalysis
         bool includeLocalThrows = localThrows is not null
             && context.Instructions.Instructions.Any(static instruction =>
                 instruction.OpCode is ILOpCode.Throw or ILOpCode.Rethrow);
-        if (includeCallValueFlow || includeLocalThrows)
+        if (includeCallValueFlow
+            || includeReceiverSources
+            || includeLocalThrows)
         {
             var callsByOffset = calls.ToDictionary(call => call.ILOffset);
             var sources = new StackValueSourceResolver(
@@ -193,6 +196,7 @@ internal static partial class MethodCallAnalysis
                     reachability,
                     calls);
                 CollectArgumentSources(calls, sources);
+                CollectReceiverSources(calls, sources);
                 CollectResolvedValues(calls, sources);
                 if (resultSinks is not null)
                 {
@@ -230,6 +234,10 @@ internal static partial class MethodCallAnalysis
                         returnFlows);
                 }
                 reaching = sources.ReachingDefinitions;
+            }
+            else if (includeReceiverSources)
+            {
+                CollectReceiverSources(calls, sources);
             }
             if (includeLocalThrows
                 && localThrows is not null
@@ -429,17 +437,6 @@ internal static partial class MethodCallAnalysis
                     source.IsComplete));
             }
 
-            CallReceiverSource? receiver = null;
-            if (call.Kind is not CallKind.NewObject && call.Callee.HasThis)
-            {
-                SourceSet source = sources.CallReceiverSource(
-                    call.ILOffset,
-                    call.Callee.ParameterTypes.Length);
-                receiver = new(
-                    source.CallOffsets,
-                    source.IsComplete);
-            }
-
             calls[index] = call with
             {
                 ArgumentSources = new(
@@ -451,7 +448,34 @@ internal static partial class MethodCallAnalysis
                             call.ILOffset,
                             call.Callee.ParameterTypes.Length,
                             argumentIndex: 0),
-                ReceiverSource = receiver,
+            };
+        }
+    }
+
+    static void CollectReceiverSources(
+        ImmutableArray<DirectCall>.Builder calls,
+        StackValueSourceResolver sources)
+    {
+        if (!sources.IsComplete)
+            return;
+
+        for (int index = 0; index < calls.Count; index++)
+        {
+            DirectCall call = calls[index];
+            if (call.Kind is CallKind.NewObject
+                || !call.Callee.HasThis)
+            {
+                continue;
+            }
+
+            SourceSet source = sources.CallReceiverSource(
+                call.ILOffset,
+                call.Callee.ParameterTypes.Length);
+            calls[index] = call with
+            {
+                ReceiverSource = new(
+                    source.CallOffsets,
+                    source.IsComplete),
             };
         }
     }

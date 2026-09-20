@@ -103,7 +103,7 @@ public partial class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(49 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(50 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
         Assert.Contains(IntegrationSectionNames.Integrations, pipeline.AllSectionNames);
         Assert.Contains("Context: Callsite", pipeline.AllSectionNames);

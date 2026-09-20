@@ -2339,7 +2339,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, countExit);
         Assert.Empty(countError);
-        Assert.Equal("10", countOutput.Trim());
+        Assert.Equal("11", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
         AssertOnlyPerformanceAnalysisWarnings(effectiveError);

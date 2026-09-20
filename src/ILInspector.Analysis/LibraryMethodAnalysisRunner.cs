@@ -167,6 +167,8 @@ internal sealed class LibraryMethodAnalysisResult
     public bool HasBody;
     public ImmutableArray<UnsafeEvidence> UnsafeEvidence;
     public ImmutableArray<DirectCall> Calls;
+    public ImmutableArray<StringMaterializationOccurrence>
+        StringMaterializations;
     public ImmutableArray<MethodResultSink> ResultSinks;
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
@@ -1029,6 +1031,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                         || hasUnsafeLocals,
                     includeCallValueFlow:
                         includeCallValueFlow,
+                    includeReceiverSources:
+                        includeOpportunities,
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
@@ -1060,6 +1064,28 @@ internal sealed class LibraryMethodAnalysisRunner(
                     DeclaringType: caller.DeclaringType,
                     SourceDeclaringType:
                         result.DeclaredSource?.DeclaringType);
+            }
+            if (includeOpportunities)
+            {
+                result.StringMaterializations =
+                    StringMaterializationAnalysis.Collect(
+                        calls);
+                if (!includeCallValueFlow)
+                {
+                    for (int index = 0;
+                        index < calls.Count;
+                        index++)
+                    {
+                        if (calls[index].ReceiverSource is not
+                            null)
+                        {
+                            calls[index] = calls[index] with
+                            {
+                                ReceiverSource = null,
+                            };
+                        }
+                    }
+                }
             }
             if (asyncBody is not null
                 && resultSinks is not null)
