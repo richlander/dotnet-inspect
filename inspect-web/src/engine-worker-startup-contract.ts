@@ -7,6 +7,7 @@ import type {
   BrowserPackageChangesPackageSetCatalog,
   BrowserPackageQueryCatalog,
   BrowserPackageQueryAcquisitionTier,
+  BrowserPackageQueryExecutionClass,
 } from "./facades/inspect-web-package.d.ts";
 import type { BoundedPayloadDecoder } from "./worker-runtime-protocol.ts";
 
@@ -49,6 +50,16 @@ function array<T>(value: unknown, parse: (entry: unknown) => T): T[] {
 
 function tier(value: unknown): BrowserPackageQueryAcquisitionTier {
   if (value === "Nuspec" || value === "PackageContent" || value === "SearchMetadata") return value;
+  return number(value);
+}
+
+function executionClass(value: unknown): BrowserPackageQueryExecutionClass {
+  if (value === "SearchMetadata"
+    || value === "Nuspec"
+    || value === "NuspecExpensive"
+    || value === "PackageContent"
+    || value === "Metadata"
+    || value === "MetadataExpensive") return value;
   return number(value);
 }
 
@@ -159,6 +170,7 @@ export const engineStartupOperations = {
             summary: text(preset.summary),
             weight: number(preset.weight),
             tier: tier(preset.tier),
+            executionClass: executionClass(preset.executionClass),
             selectionGroupId: nullableText(preset.selectionGroupId),
             combinesWithinSelectionGroup: boolean(
               preset.combinesWithinSelectionGroup),
@@ -176,6 +188,7 @@ export const engineStartupOperations = {
             summary: text(term.summary),
             weight: number(term.weight),
             tier: tier(term.tier),
+            executionClass: executionClass(term.executionClass),
             operators: array(term.operators, text),
             valueKind: text(term.valueKind),
             example: text(term.example),

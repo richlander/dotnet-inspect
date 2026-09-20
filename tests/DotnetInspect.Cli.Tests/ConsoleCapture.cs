@@ -25,7 +25,12 @@ static class ConsoleCapture
     // Serialize captures within the assembly-exclusive collections.
     private static readonly SemaphoreSlim _lock = new(1, 1);
 
-    public static async Task<(int ExitCode, string Output, string Error)> RunAsync(Func<Task<int>> action)
+    public static Task<(int ExitCode, string Output, string Error)> RunAsync(
+        Func<Task<int>> action) =>
+        RunAsync(_ => action());
+
+    public static async Task<(int ExitCode, string Output, string Error)> RunAsync(
+        Func<TextWriter, Task<int>> action)
     {
         EnsureAssemblyExclusive();
         await _lock.WaitAsync();
@@ -40,7 +45,7 @@ static class ConsoleCapture
         Console.SetError(errWriter);
         try
         {
-            var exitCode = await action();
+            var exitCode = await action(errWriter);
             return (exitCode, outWriter.ToString(), errWriter.ToString());
         }
         finally
