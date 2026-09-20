@@ -4269,9 +4269,12 @@ of `LibraryContentOwner` values whose content all belongs to that session
 generation. It validates the caller's exact current
 `WorkspaceRegistrationRevision` and commits the whole batch under the same
 Workspace gate that serializes registration replacement and close. Argument
-validation and duplicate-session misuse occur before ownership transfer; once
-the operation returns an outcome, Workspace has either accepted every supplied
-authority or settled every Library owner and then the Artifact session.
+validation and duplicate submission of a session already owned by the
+receiving Workspace occur before ownership transfer. Acceptance transfers the
+supplied authorities to that Workspace; callers must not resubmit them to
+another Workspace. Once the operation returns an outcome, Workspace has either
+accepted every supplied authority or settled every Library owner and then the
+Artifact session.
 
 Acceptance issues one `WorkspaceLibraryAdmissionReceipt` and one distinct
 `WorkspaceLibraryOccurrence` per submitted Library. These values record

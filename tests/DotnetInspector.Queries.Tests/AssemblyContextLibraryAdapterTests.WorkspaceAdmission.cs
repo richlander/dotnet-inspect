@@ -234,7 +234,7 @@ public sealed partial class AssemblyContextLibraryAdapterTests
 
     [Fact]
     public async Task
-        WorkspaceAdmission_DuplicateSessionMisuseDoesNotRetireAcceptedResources()
+        WorkspaceAdmission_SameWorkspaceDuplicateDoesNotRetireAcceptedResources()
     {
         AssemblySource source =
             AssemblySource.FromPathlessRuntimeImage();
