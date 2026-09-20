@@ -447,6 +447,278 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ReferenceRows_SemanticTailSelectsTheSameReferenceAcrossFormats()
+    {
+        var baseline = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--json",
+            "--tips",
+            "q");
+        Assert.Equal(0, baseline.Exit);
+        Assert.Empty(baseline.Error);
+        using var baselineDocument = JsonDocument.Parse(baseline.Output);
+        string[] referenceNames =
+        [
+            .. baselineDocument.RootElement
+                .GetProperty("assembly_info")
+                .GetProperty("references")
+                .EnumerateArray()
+                .Select(reference =>
+                    reference.GetProperty("name").GetString()!)
+                .OrderBy(static name => name, StringComparer.Ordinal),
+        ];
+        Assert.True(referenceNames.Length > 1);
+        string selectedName = referenceNames[^1];
+        string excludedName = referenceNames[0];
+
+        string[] args =
+        [
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "-n",
+            "1",
+            "--tail",
+            "--tips",
+            "q",
+        ];
+        var markdown = await RunAppAsync(args);
+        var table = await RunAppAsync([.. args, "--table"]);
+        var tsv = await RunAppAsync([.. args, "--tsv", "--no-headers"]);
+        var jsonl = await RunAppAsync([.. args, "--jsonl"]);
+        var json = await RunAppAsync([.. args, "--json"]);
+        var aliasJson = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "--references",
+            "-n",
+            "1",
+            "--tail",
+            "--json",
+            "--tips",
+            "q");
+        var count = await RunAppAsync([.. args, "--count"]);
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+            json,
+            aliasJson,
+            count,
+        })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        foreach (var result in new[]
+        {
+            markdown,
+            table,
+            tsv,
+            jsonl,
+        })
+        {
+            Assert.Contains(selectedName, result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain(excludedName, result.Output, StringComparison.Ordinal);
+        }
+
+        Assert.Single(
+            tsv.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Single(
+            jsonl.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        foreach (string jsonOutput in new[] { json.Output, aliasJson.Output })
+        {
+            using var document = JsonDocument.Parse(jsonOutput);
+            JsonElement reference = Assert.Single(
+                document.RootElement
+                    .GetProperty("assembly_info")
+                    .GetProperty("references")
+                    .EnumerateArray());
+            Assert.Equal(
+                selectedName,
+                reference.GetProperty("name").GetString());
+        }
+        Assert.Equal("1", count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceRows_UnavailableWindowWithholdsOutput()
+    {
+        var result = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--rows",
+            "999..1000",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Library reference row selection stage 1 requires row 1000",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "direct reference rows are available",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceRows_PackageBackedSelectionUsesTheCompleteReferenceVector()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            string[] args =
+            [
+                "library",
+                "Latest.One.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net10.0",
+                "-S",
+                SectionNames.References,
+                "--json",
+                "--tips",
+                "q",
+            ];
+            var baseline = await RunAppAsync(args);
+            var selected = await RunAppAsync(
+                [.. args, "-n", "1", "--tail"]);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Equal(0, selected.Exit);
+            Assert.Empty(baseline.Error);
+            Assert.Empty(selected.Error);
+            using var baselineDocument = JsonDocument.Parse(baseline.Output);
+            string expected =
+                baselineDocument.RootElement
+                    .GetProperty("assembly_info")
+                    .GetProperty("references")
+                    .EnumerateArray()
+                    .Select(reference =>
+                        reference.GetProperty("name").GetString()!)
+                    .OrderBy(static name => name, StringComparer.Ordinal)
+                    .Last();
+            using var selectedDocument = JsonDocument.Parse(selected.Output);
+            JsonElement reference = Assert.Single(
+                selectedDocument.RootElement
+                    .GetProperty("assembly_info")
+                    .GetProperty("references")
+                    .EnumerateArray());
+            Assert.Equal(
+                expected,
+                reference.GetProperty("name").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceRows_ExplicitLinesClipsRenderedText()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--table",
+            "--lines",
+            "-n",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ReferenceRows_ExplicitLinesRejectJsonBeforeAcquisition()
+    {
+        string missingLibrary = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-reference-rows-{Guid.NewGuid():N}.dll");
+        var result = await RunAppAsync(
+            "library",
+            missingLibrary,
+            "-S",
+            SectionNames.References,
+            "-n",
+            "1",
+            "--lines",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Rendered-line selection cannot be combined with JSON output",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            missingLibrary,
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCommand_ReferenceRows_SynthesizedMixedSelectionRetainsRenderedLineFallback(
+        bool legacyAlias)
+    {
+        string[] selector = legacyAlias
+            ? ["--references"]
+            : ["-S", SectionNames.References];
+        string[] args =
+        [
+            "library",
+            "System.Text.Json",
+            .. selector,
+            "-t",
+            "Json",
+            "-n",
+            "1",
+            "--tips",
+            "q",
+        ];
+        var inferredLines = await RunAppAsync(args);
+        var explicitLines = await RunAppAsync([.. args, "--lines"]);
+
+        Assert.Equal(explicitLines, inferredLines);
+        Assert.Equal(0, inferredLines.Exit);
+        Assert.Single(
+            inferredLines.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
     public async Task LibraryIdentifierConfusionAudit_CollectsDirectAndTransitiveReferenceNames()
     {
         var (rootPath, tempDir) = CreateIdentifierConfusionReferenceGraph();
@@ -952,6 +1224,220 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverDetails_BareCatalogAddsFormats()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| @Dependencies | category | --markdown, --plaintext |",
+            output);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            output);
+        Assert.DoesNotContain("File not found", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_CategoryIsStructuralAndComplete()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "@Dependencies",
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "| @Dependencies | category | --markdown, --plaintext |",
+            output);
+        Assert.Contains(
+            "| Reference Hierarchy | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl, --tree, --mermaid |",
+            output);
+        Assert.Contains(
+            "| References | section | --markdown, --plaintext, --json, --table, --tsv, --jsonl |",
+            output);
+        Assert.DoesNotContain("File not found", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_JsonPreservesFormatArray()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            missingPath,
+            "-D",
+            "reference hierarchy",
+            "--details",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document =
+            JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(
+            SectionNames.ReferenceHierarchy,
+            row.GetProperty("name").GetString());
+        Assert.Equal(
+            "section",
+            row.GetProperty("kind").GetString());
+        Assert.Equal(
+            [
+                "--markdown",
+                "--plaintext",
+                "--json",
+                "--table",
+                "--tsv",
+                "--jsonl",
+                "--tree",
+                "--mermaid",
+            ],
+            row.GetProperty("formats")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_ExactSectionKeepsOrdinaryDrillIn()
+    {
+        var ordinary = await RunAppAsync(
+            "library",
+            "-D",
+            SectionNames.ReferenceHierarchy,
+            "--tips",
+            "q");
+        var detailed = await RunAppAsync(
+            "library",
+            "-D",
+            SectionNames.ReferenceHierarchy,
+            "--details",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, ordinary.Exit);
+        Assert.Empty(ordinary.Error);
+        Assert.Contains("| Root | column |", ordinary.Output);
+        Assert.DoesNotContain("| Formats |", ordinary.Output);
+
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(detailed.Error);
+        Assert.Contains(
+            "| Reference Hierarchy | section |",
+            detailed.Output);
+        Assert.DoesNotContain("| Root | column |", detailed.Output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverDetails_CountAppliesRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "-D",
+            "@Dependencies",
+            "--details",
+            "--rows",
+            "2..3",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("2", output.Trim());
+    }
+
+    [Theory]
+    [InlineData(new string[] { "--details" }, "--details requires -D/--discover")]
+    [InlineData(new string[] { "-D", "References", "-D", "Signals", "--details" }, "expects a single argument")]
+    [InlineData(new string[] { "-D", "Reference*", "--details" }, "--details requires an exact category or section selector")]
+    [InlineData(new string[] { "-D", "References", "--details", "--tree" }, "Tree and Mermaid are reported capabilities")]
+    [InlineData(new string[] { "-D", "References", "--details", "-S", "References" }, "--details cannot be combined with -S/--select")]
+    [InlineData(new string[] { "-D", "References", "--details", "--effective" }, "--effective cannot be combined with --schema")]
+    [InlineData(new string[] { "-D", "References", "--formats" }, "Unrecognized command or argument '--formats'")]
+    public async Task LibraryCommand_DiscoverDetails_RejectsAmbiguousRequests(
+        string[] arguments,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["library", "System.Text.Json", .. arguments, "--tips", "q"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_MermaidRequiresReferenceHierarchy()
+    {
+        var direct = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--mermaid",
+            "--tips",
+            "q");
+        var hierarchy = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.ReferenceHierarchy,
+            "--mermaid",
+            "--depth",
+            "1",
+            "--tips",
+            "q");
+        var count = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            SectionNames.References,
+            "--count",
+            "--mermaid",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Empty(direct.Output);
+        Assert.Contains(
+            "References is direct evidence and has no Mermaid topology.",
+            direct.Error);
+        Assert.Equal(0, hierarchy.Exit);
+        Assert.Empty(hierarchy.Error);
+        Assert.Contains("graph TD", hierarchy.Output);
+        Assert.Equal(0, count.Exit);
+        Assert.Empty(count.Error);
+        Assert.True(int.Parse(count.Output.Trim()) > 0);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectedReferenceHierarchy_TreeResolvesBareRelativePath()
     {
         var (_, tempDir) = CreateIdentifierConfusionReferenceGraph();
@@ -1338,6 +1824,18 @@ public partial class CommandExecutionTests
             Assert.Equal(1, count.Exit);
             Assert.Equal("0" + Environment.NewLine, count.Output);
             Assert.Equal(result.Error, count.Error);
+
+            var semantic = await RunAppAsync(
+                "library",
+                rootPath,
+                "-S",
+                SectionNames.References,
+                "-n",
+                "1",
+                "--tips",
+                "q");
+
+            Assert.Equal(result, semantic);
         }
         finally
         {

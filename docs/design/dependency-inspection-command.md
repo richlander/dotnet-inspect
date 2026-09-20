@@ -15,8 +15,10 @@ and retire `depends`; those passages remain historical input for focused
 Dependency adoption rather than target grammar.
 The host-neutral dependency settlement operation and ordinary CLI adoption are
 implemented under
-[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug
-sidecar serialization and Browser/Wasm adoption remain proposed.
+[#7117](https://github.com/richlander/dotnet-inspect/issues/7117). Debug CLI
+sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 
 ## Owner and claim
 
@@ -800,8 +802,9 @@ demonstration that diagnostic registration disappears from retail compilation.
 **Status:** partially implemented under
 [#7117](https://github.com/richlander/dotnet-inspect/issues/7117). The
 host-neutral ordinary and enriched settlement entry points and ordinary CLI
-cutover are implemented. Debug sidecar serialization and Browser/Wasm adoption
-remain proposed.
+cutover are implemented. Debug CLI sidecar delivery is implemented under
+[#7293](https://github.com/richlander/dotnet-inspect/issues/7293);
+Browser/Wasm adoption remains proposed.
 This section owns the dependency inspection service's concrete `TEvidence`,
 capture request, and association with baseline Content. The generic
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
@@ -837,8 +840,8 @@ baseline consumer to understand `TEvidence`.
 
 The typed Content, evidence Document, root-occurrence currency,
 same-execution association, selected-plan settlement operation, and ordinary
-CLI consumption, and closed generated serialization are implemented. Generated
-sidecar serialization and Browser/Wasm adoption remain proposed.
+CLI consumption, closed generated serialization, and Debug CLI sidecar
+delivery are implemented. Browser/Wasm adoption remains proposed.
 
 The dependency service issues one named settled Document:
 
@@ -925,6 +928,13 @@ Package Dependency Evidence or dependency graphs. Rendering or serialization
 consumes the settled values and never reopens an archive, assets file, package
 source, or traversal.
 
+When an explicit package Share request settles an exact package coordinate and
+source authorization, evidence capture consumes that same settlement rather
+than resolving the original selector again. Evidence-only acquisition may add
+typed Evidence, but its verbose and network-traffic logs do not enter the
+ordinary Share stderr stream. A nonprojectable Share remains governed by the
+ordinary sidecar ordering and refusal contract.
+
 ### Thin Debug views and Browser adoption
 
 The four diagnostic sections remain useful Debug views but no longer own
@@ -1000,6 +1010,9 @@ pathological fixtures. They cover:
 - equal extracted baselines for ordinary and enriched execution, including an
   evidence-only producer failure and complete envelope equality for one
   settled request;
+- exact and `@latest` package Share requests reuse the settled coordinate and
+  authorization for evidence acquisition, with evidence-only verbose and
+  network-traffic logging excluded from ordinary Share stderr;
 - selected-plan exclusion of graph, traversal, pruning, and their failures
   when a host adapter supplies values for an unselected phase;
 - one execution, detached lifetime, and serialization without acquisition or

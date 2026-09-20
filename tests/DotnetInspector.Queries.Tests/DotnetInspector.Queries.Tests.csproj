@@ -21,6 +21,10 @@
                      Version="[10.0.10];[11.0.0-preview.7.26381.103]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
                      Version="[10.0.10]" />
+    <PackageDownload Include="Microsoft.Extensions.Http"
+                     Version="[10.0.0]" />
+    <PackageDownload Include="PCLStorage"
+                     Version="[1.0.2]" />
     <PackageDownload Include="Markout"
                      Version="[0.35.2]" />
     <PackageDownload Include="System.Memory.Data"
@@ -30,6 +34,7 @@
     <PackageDownload Include="System.Text.Json"
                      Version="[11.0.0-preview.7.26381.103];[8.0.6];[9.0.0];[10.0.0]" />
     <PackageDownload Include="Avalonia" Version="[11.3.14];[12.1.2]" />
+    <PackageDownload Include="Polly.Core" Version="[8.8.0]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -93,6 +98,15 @@
     <None Include="$(NuGetPackageRoot)markout/0.35.2/lib/net10.0/Markout.dll"
           Link="RealAssets/VersionCell/Markout.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.extensions.http/10.0.0/lib/net10.0/Microsoft.Extensions.Http.dll"
+          Link="RealAssets/PackageQueryReferences/net10.0/Microsoft.Extensions.Http.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.extensions.http/10.0.0/lib/net462/Microsoft.Extensions.Http.dll"
+          Link="RealAssets/PackageQueryReferences/net462/Microsoft.Extensions.Http.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)pclstorage/1.0.2/lib/portable-win8+wpa81/PCLStorage.dll"
+          Link="RealAssets/PackageQueryReferences/portable-win8+wpa81/PCLStorage.dll"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/8.0.6/system.text.json.8.0.6.nupkg"
           Link="RealAssets/ApiMatching/system.text.json.8.0.6.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
@@ -113,6 +127,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)avalonia/12.1.2/avalonia.12.1.2.nupkg"
           Link="RealAssets/ApiMatching/avalonia.12.1.2.nupkg"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)polly.core/8.8.0/polly.core.8.8.0.nupkg"
+          Link="RealAssets/RealizedPackageDependencyContext/polly.core.8.8.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.memory.data/11.0.0-preview.7.26381.103/lib/net10.0/System.Memory.Data.dll"
           Link="RealAssets/BindingComposition/package/System.Memory.Data.dll"

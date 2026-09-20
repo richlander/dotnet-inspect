@@ -389,7 +389,9 @@ public static class PlatformHouseLibraryRealizer
             implementationLease: null,
             correspondence: null,
             consumedWork,
-            priorContributions);
+            priorContributions,
+            targetSelection: null,
+            retainedSettlements: null);
 
     /// <summary>Realizes one Library with separate API and runtime views.</summary>
     /// <remarks>
@@ -419,7 +421,9 @@ public static class PlatformHouseLibraryRealizer
             implementationLease,
             correspondence,
             consumedWork,
-            priorContributions);
+            priorContributions,
+            targetSelection: null,
+            retainedSettlements: null);
 
     /// <summary>Realizes one implementation content item in both roles.</summary>
     /// <remarks>
@@ -445,7 +449,9 @@ public static class PlatformHouseLibraryRealizer
             implementationLease,
             declarationSurface,
             consumedWork,
-            priorContributions);
+            priorContributions,
+            targetSelection: null,
+            retainedSettlements: null);
 
     internal static PlatformLibraryRealizationResult
         RealizeReferenceWithCompanion(
@@ -466,7 +472,9 @@ public static class PlatformHouseLibraryRealizer
             implementationLease: null,
             correspondence: null,
             consumedWork,
-            priorContributions: null);
+            priorContributions: null,
+            targetSelection: null,
+            retainedSettlements: null);
 
     internal static PlatformLibraryRealizationResult
         RealizeReferenceAndImplementationWithCompanion(
@@ -490,7 +498,89 @@ public static class PlatformHouseLibraryRealizer
             implementationLease,
             correspondence,
             consumedWork,
-            priorContributions: null);
+            priorContributions: null,
+            targetSelection: null,
+            retainedSettlements: null);
+
+    internal static PlatformLibraryRealizationResult
+        RealizeSelectedReferenceWithCompanion(
+            PlatformHouseRequest request,
+            PlatformLibraryContentSelection reference,
+            ArtifactContentLease referenceLease,
+            ArtifactContentReference? compiledXmlDocumentation,
+            ArtifactContentLease? compiledXmlDocumentationLease,
+            PlatformHouseConsumedWork consumedWork,
+            PlatformTargetSelectionContext targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>
+                retainedSettlements) =>
+        Realize(
+            request,
+            PlatformViewDemand.Reference,
+            reference,
+            referenceLease,
+            compiledXmlDocumentation,
+            compiledXmlDocumentationLease,
+            implementation: null,
+            implementationLease: null,
+            correspondence: null,
+            consumedWork,
+            priorContributions: null,
+            targetSelection,
+            retainedSettlements);
+
+    internal static PlatformLibraryRealizationResult
+        RealizeSelectedReferenceAndImplementationWithCompanion(
+            PlatformHouseRequest request,
+            PlatformLibraryContentSelection reference,
+            ArtifactContentLease referenceLease,
+            PlatformLibraryContentSelection implementation,
+            ArtifactContentLease implementationLease,
+            ArtifactContentReference? compiledXmlDocumentation,
+            ArtifactContentLease? compiledXmlDocumentationLease,
+            PlatformLibraryViewCorrespondence correspondence,
+            PlatformHouseConsumedWork consumedWork,
+            PlatformTargetSelectionContext targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>
+                retainedSettlements) =>
+        Realize(
+            request,
+            PlatformViewDemand.ReferenceAndImplementation,
+            reference,
+            referenceLease,
+            compiledXmlDocumentation,
+            compiledXmlDocumentationLease,
+            implementation,
+            implementationLease,
+            correspondence,
+            consumedWork,
+            priorContributions: null,
+            targetSelection,
+            retainedSettlements);
+
+    internal static PlatformLibraryRealizationResult
+        RealizeSelectedImplementation(
+            PlatformHouseRequest request,
+            PlatformLibraryContentSelection implementation,
+            ArtifactContentLease implementationLease,
+            PlatformLibraryViewCorrespondence declarationSurface,
+            PlatformHouseConsumedWork consumedWork,
+            PlatformTargetSelectionContext targetSelection,
+            IReadOnlyList<PlatformSourceSettlement>
+                retainedSettlements) =>
+        Realize(
+            request,
+            PlatformViewDemand.Implementation,
+            reference: null,
+            referenceLease: null,
+            compiledXmlDocumentation: null,
+            compiledXmlDocumentationLease: null,
+            implementation,
+            implementationLease,
+            declarationSurface,
+            consumedWork,
+            priorContributions: null,
+            targetSelection,
+            retainedSettlements);
 
     static PlatformLibraryRealizationResult Realize(
         PlatformHouseRequest request,
@@ -503,13 +593,31 @@ public static class PlatformHouseLibraryRealizer
         ArtifactContentLease? implementationLease,
         PlatformLibraryViewCorrespondence? correspondence,
         PlatformHouseConsumedWork consumedWork,
-        IEnumerable<PlatformSourceContribution>? priorContributions)
+        IEnumerable<PlatformSourceContribution>? priorContributions,
+        PlatformTargetSelectionContext? targetSelection,
+        IReadOnlyList<PlatformSourceSettlement>?
+            retainedSettlements)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(consumedWork);
         request.CancellationToken.ThrowIfCancellationRequested();
 
-        if (request.Target is not PlatformTargetDemand.Exact exact
+        PlatformFamilyTarget? target = request.Target switch
+        {
+            PlatformTargetDemand.Exact exact
+                when targetSelection is null
+                    && retainedSettlements is null => exact.Target,
+            PlatformTargetDemand.FamilyDefault demand
+                when targetSelection is not null
+                    && retainedSettlements is not null
+                    && ReferenceEquals(
+                        targetSelection.TargetSettlement.Demand,
+                        demand)
+                    && retainedSettlements.Count != 0 =>
+                targetSelection.Target,
+            _ => null,
+        };
+        if (target is null
             || request.Operation is not PlatformHouseOperation.Realize operation
             || operation.View != expectedView
             || operation.Population
@@ -519,24 +627,28 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidRequest,
-                "platform-library.invalid-request");
+                "platform-library.invalid-request",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         if (ExceedsBudget(consumedWork, request))
         {
             return Incomplete(
                 request,
                 consumedWork,
-                "platform-library.work-incomplete");
+                "platform-library.work-incomplete",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         if (!ValidSelection(
                 request,
-                exact.Target,
+                target,
                 PlatformSourceFacet.Reference,
                 reference,
                 referenceLease)
             || !ValidSelection(
                 request,
-                exact.Target,
+                target,
                 PlatformSourceFacet.Implementation,
                 implementation,
                 implementationLease))
@@ -545,7 +657,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
-                "platform-library.invalid-content");
+                "platform-library.invalid-content",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         if (!ValidCompiledXmlDocumentation(
                 request,
@@ -557,7 +671,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
-                "platform-library.invalid-compiled-xml-content");
+                "platform-library.invalid-compiled-xml-content",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         if (expectedView == PlatformViewDemand.Implementation
             && correspondence is null)
@@ -566,7 +682,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 implementation!.Contribution,
-                "platform-library.api-role-unavailable");
+                "platform-library.api-role-unavailable",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         if (!ValidCorrespondence(
                 expectedView,
@@ -578,7 +696,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
-                "platform-library.invalid-correspondence");
+                "platform-library.invalid-correspondence",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
 
         PlatformSourceContribution[] prior =
@@ -597,7 +717,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidRetainedEvidence,
-                "platform-library.invalid-prior-evidence");
+                "platform-library.invalid-prior-evidence",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
 
         PlatformLibraryContentSelection api = reference ?? implementation!;
@@ -631,34 +753,54 @@ public static class PlatformHouseLibraryRealizer
             library = LibraryReference.CreateFromSource(
                 new ExactLibrarySourceCoordinate.Platform(
                     new PlatformLibraryPopulationDeclaration(
-                        exact.Target.Family),
+                        target.Family),
                     api.AssemblyIdentity),
                 assemblyCorrespondence,
                 companions);
 
-            var settlements = new List<PlatformSourceSettlement>(
-                prior.Length + 2);
-            settlements.AddRange(
-                prior.Select(
-                    contribution => new PlatformSourceSettlement(
-                        contribution,
-                        PlatformSourceSettlementDisposition.OutcomeRelevant)));
-            if (reference is not null)
+            var settlements = retainedSettlements is null
+                ? new List<PlatformSourceSettlement>(prior.Length + 2)
+                : [.. retainedSettlements];
+            if (retainedSettlements is null)
             {
-                settlements.Add(
-                    new PlatformSourceSettlement(
-                        reference.Contribution,
-                        PlatformSourceSettlementDisposition.Selected));
-            }
-            if (implementation is not null
-                && !ReferenceEquals(
-                    implementation.Contribution,
-                    reference?.Contribution))
-            {
-                settlements.Add(
-                    new PlatformSourceSettlement(
+                settlements.AddRange(
+                    prior.Select(
+                        contribution => new PlatformSourceSettlement(
+                            contribution,
+                            PlatformSourceSettlementDisposition
+                                .OutcomeRelevant)));
+                if (reference is not null)
+                {
+                    settlements.Add(
+                        new PlatformSourceSettlement(
+                            reference.Contribution,
+                            PlatformSourceSettlementDisposition.Selected));
+                }
+                if (implementation is not null
+                    && !ReferenceEquals(
                         implementation.Contribution,
-                        PlatformSourceSettlementDisposition.Selected));
+                        reference?.Contribution))
+                {
+                    settlements.Add(
+                        new PlatformSourceSettlement(
+                            implementation.Contribution,
+                            PlatformSourceSettlementDisposition.Selected));
+                }
+            }
+            else if (!SelectionIsRetained(
+                    settlements,
+                    reference)
+                || !SelectionIsRetained(
+                    settlements,
+                    implementation))
+            {
+                return Rejected(
+                    request,
+                    consumedWork,
+                    PlatformHouseRejectionKind.InvalidRetainedEvidence,
+                    "platform-library.missing-selected-evidence",
+                    targetSelection!.TargetSettlement,
+                    retainedSettlements);
             }
 
             completion = new PlatformHouseCompletion.Realization(
@@ -666,11 +808,16 @@ public static class PlatformHouseLibraryRealizer
                     request.Snapshot.Operation,
                 settlements.Where(
                     settlement => settlement.Disposition
-                        == PlatformSourceSettlementDisposition.Selected),
+                            == PlatformSourceSettlementDisposition.Selected
+                        && settlement.Contribution
+                            is PlatformSourceContribution.Realization),
                 correspondence);
             receipt = new PlatformHouseReceipt(
                 request.Snapshot,
-                new PlatformTargetSettlement.Exact(exact),
+                (PlatformTargetSettlement?)
+                    targetSelection?.TargetSettlement
+                    ?? new PlatformTargetSettlement.Exact(
+                        (PlatformTargetDemand.Exact)request.Target),
                 settlements,
                 consumedWork,
                 completion);
@@ -687,7 +834,9 @@ public static class PlatformHouseLibraryRealizer
                         request,
                         consumedWork,
                         PlatformHouseRejectionKind.InvalidOwnerResult,
-                        "platform-library.duplicate-content-authority");
+                        "platform-library.duplicate-content-authority",
+                        targetSelection?.TargetSettlement,
+                        retainedSettlements);
                 }
                 children = [referenceLease ?? implementationLease!];
             }
@@ -712,7 +861,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidRetainedEvidence,
-                "platform-library.invalid-retained-evidence");
+                "platform-library.invalid-retained-evidence",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
 
         request.CancellationToken.ThrowIfCancellationRequested();
@@ -727,7 +878,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
-                "platform-library.released-content");
+                "platform-library.released-content",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
         catch (ArgumentException)
         {
@@ -735,7 +888,9 @@ public static class PlatformHouseLibraryRealizer
                 request,
                 consumedWork,
                 PlatformHouseRejectionKind.InvalidOwnerResult,
-                "platform-library.invalid-content-authority");
+                "platform-library.invalid-content-authority",
+                targetSelection?.TargetSettlement,
+                retainedSettlements);
         }
 
         var value = new PlatformLibraryRealizationValue(library);
@@ -861,6 +1016,18 @@ public static class PlatformHouseLibraryRealizer
             _ => false,
         };
 
+    static bool SelectionIsRetained(
+        IReadOnlyList<PlatformSourceSettlement> settlements,
+        PlatformLibraryContentSelection? selection) =>
+        selection is null
+        || settlements.Any(
+            settlement =>
+                ReferenceEquals(
+                    settlement.Contribution,
+                    selection.Contribution)
+                && settlement.Disposition
+                    == PlatformSourceSettlementDisposition.Selected);
+
     internal static bool ExceedsBudget(
         PlatformHouseConsumedWork consumed,
         PlatformHouseRequest request) =>
@@ -883,7 +1050,9 @@ public static class PlatformHouseLibraryRealizer
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformHouseRejectionKind kind,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>? retainedSettlements = null)
     {
         var termination = new PlatformHouseTermination.Rejected(
             new PlatformHouseRejection.OwnerEvidence(
@@ -892,8 +1061,8 @@ public static class PlatformHouseLibraryRealizer
                     evidenceName)));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            TargetSettlement(request.Target),
-            [],
+            targetSettlement ?? TargetSettlement(request.Target),
+            retainedSettlements ?? [],
             consumedWork,
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
@@ -908,18 +1077,23 @@ public static class PlatformHouseLibraryRealizer
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
         PlatformSourceContribution contribution,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>? retainedSettlements = null)
     {
         var termination = new PlatformHouseTermination.Unavailable(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            TargetSettlement(request.Target),
-            [
-                new PlatformSourceSettlement(
-                    contribution,
-                    PlatformSourceSettlementDisposition.OutcomeRelevant),
-            ],
+            targetSettlement ?? TargetSettlement(request.Target),
+            retainedSettlements is null
+                ?
+                [
+                    new PlatformSourceSettlement(
+                        contribution,
+                        PlatformSourceSettlementDisposition.OutcomeRelevant),
+                ]
+                : retainedSettlements,
             consumedWork,
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
@@ -933,14 +1107,16 @@ public static class PlatformHouseLibraryRealizer
     internal static PlatformLibraryRealizationResult Incomplete(
         PlatformHouseRequest request,
         PlatformHouseConsumedWork consumedWork,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>? retainedSettlements = null)
     {
         var termination = new PlatformHouseTermination.Incomplete(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName));
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            TargetSettlement(request.Target),
-            [],
+            targetSettlement ?? TargetSettlement(request.Target),
+            retainedSettlements ?? [],
             consumedWork,
             termination: termination);
         return new PlatformLibraryRealizationResult.Terminal(
@@ -957,21 +1133,25 @@ public static class PlatformHouseLibraryRealizer
         IEnumerable<PlatformSourceContribution> contributions,
         IEnumerable<PlatformHouseFailureKind> failures,
         bool cancellationObserved,
-        string evidenceName)
+        string evidenceName,
+        PlatformTargetSettlement? targetSettlement = null,
+        IReadOnlyList<PlatformSourceSettlement>? retainedSettlements = null)
     {
         ArgumentNullException.ThrowIfNull(contributions);
-        var settlements = contributions.Select(
-                contribution => new PlatformSourceSettlement(
-                    contribution,
-                    PlatformSourceSettlementDisposition.OutcomeRelevant))
-            .ToArray();
+        PlatformSourceSettlement[] settlements =
+            retainedSettlements?.ToArray()
+            ?? contributions.Select(
+                    contribution => new PlatformSourceSettlement(
+                        contribution,
+                        PlatformSourceSettlementDisposition.OutcomeRelevant))
+                .ToArray();
         var termination = new PlatformHouseTermination.Failed(
             PlatformHouseTerminalEvidenceIdentity.Create(evidenceName),
             failures,
             cancellationObserved);
         var receipt = new PlatformHouseReceipt(
             request.Snapshot,
-            TargetSettlement(request.Target),
+            targetSettlement ?? TargetSettlement(request.Target),
             settlements,
             consumedWork,
             termination: termination);

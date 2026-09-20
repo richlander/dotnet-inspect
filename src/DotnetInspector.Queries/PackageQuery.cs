@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Xml;
@@ -9,7 +10,9 @@ using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
 using InertText;
+using NuGet.Frameworks;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -20,6 +23,17 @@ public enum PackageQueryAcquisitionTier
     Nuspec,
     PackageContent,
     SearchMetadata,
+}
+
+/// <summary>The UI and disclosure class for one package-query term.</summary>
+public enum PackageQueryExecutionClass
+{
+    SearchMetadata,
+    Nuspec,
+    NuspecExpensive,
+    PackageContent,
+    Metadata,
+    MetadataExpensive,
 }
 
 /// <summary>A bounded package-query request over one package input.</summary>
@@ -221,6 +235,7 @@ public sealed class PackageQueryPlan
     internal bool HasDependencyPredicate =>
         BoundTerms.Any(term =>
             term.Predicate.Kind is PackageQueryPredicateKind.NoDependencies
+                or PackageQueryPredicateKind.CrossPrefixDependencies
                 or PackageQueryPredicateKind.Depends
                 or PackageQueryPredicateKind.DependsEcosystem);
     internal bool HasExplicitDependencyTarget =>
@@ -438,6 +453,15 @@ internal sealed record PackageQueryDependencyMatch(
     DeclaredPackageDependencyGroup Group,
     DeclaredPackageDependency Dependency);
 
+internal sealed record PackageQueryAssemblyReferenceOccurrence(
+    string TargetFramework,
+    string Path,
+    string ReferenceName);
+
+internal sealed record PackageQueryAssemblyAsset(
+    string TargetFramework,
+    string Path);
+
 internal sealed record PackageQueryEcosystemDependencyMatch(
     DeclaredPackageDependencyGroup Group,
     DeclaredPackageDependency Dependency,
@@ -446,7 +470,8 @@ internal sealed record PackageQueryEcosystemDependencyMatch(
 
 internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
-    string? ToolSettingsVersion);
+    string? ToolSettingsVersion,
+    ImmutableArray<PackageQueryAssemblyReferenceOccurrence> AssemblyReferences);
 
 /// <summary>
 /// Plans and executes product-owned manifest and package-content terms over a
@@ -456,10 +481,32 @@ public static partial class PackageQuery
 {
     private const int RequiredPortableTermCount = 2;
 
+    public static string ExecutionClassIdentity(
+        PackageQueryExecutionClass executionClass) =>
+        executionClass switch
+        {
+            PackageQueryExecutionClass.SearchMetadata =>
+                "search-metadata",
+            PackageQueryExecutionClass.Nuspec => "nuspec",
+            PackageQueryExecutionClass.NuspecExpensive =>
+                "nuspec-expensive",
+            PackageQueryExecutionClass.PackageContent =>
+                "package-content",
+            PackageQueryExecutionClass.Metadata => "metadata",
+            PackageQueryExecutionClass.MetadataExpensive =>
+                "metadata-expensive",
+            _ => throw new InvalidOperationException(
+                "Unknown Package Query execution class."),
+        };
+
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
     public const int MaximumCandidates = 1_000;
     public const int MaximumPackageContentCandidates = 20;
+    public const int MaximumAssemblyReferenceAssets = 256;
+    public const int MaximumAssemblyReferenceRows = 16_384;
+    public const int MaximumAssemblyReferenceEntryBytes = 16 * 1024 * 1024;
+    public const int MaximumAssemblyReferenceTotalBytes = 32 * 1024 * 1024;
     public const int MaximumInspectionTerms =
         PortableQueryPayloadCodec.MaxTerms - RequiredPortableTermCount;
     public const int MaximumToolSettingsBytes = 64 * 1024;
@@ -481,6 +528,7 @@ public static partial class PackageQuery
     public const string ReadmeTermKey = "readme";
     public const string ToolTermKey = "tool";
     public const string ToolFormatTermKey = "tool-format";
+    public const string ReferencesTermKey = "references";
     public const string SkillTermKey = "skill";
     public const string ToolReplacementGroupId =
         "package.query.replacement.dotnet-tool";
@@ -498,6 +546,7 @@ public static partial class PackageQuery
             "Selects one exact package ID.",
             10,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "NuGet package ID",
             "Newtonsoft.Json",
@@ -512,6 +561,7 @@ public static partial class PackageQuery
             "Selects package IDs beginning with one literal prefix.",
             20,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "NuGet package ID prefix",
             "Microsoft.Extensions.",
@@ -526,6 +576,7 @@ public static partial class PackageQuery
             "Selects stable versions or includes prerelease versions.",
             30,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "closed value",
             "include",
@@ -545,21 +596,27 @@ public static partial class PackageQuery
         new(
             DependenciesTermKey,
             "dependencies",
-            "Matches packages with no dependencies in the selected dependency scope.",
+            "Matches dependency absence or package-ID boundary in the selected scope.",
             100,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "closed value",
             "none",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Toggle)
+            PackageQueryTermControlKind.Choice)
         {
+            SelectionGroupId = PackageQueryVocabulary.DependenciesFamily,
             Options =
             [
                 new(
                     "none",
                     "no dependencies",
                     "The selected dependency scope declares no dependencies."),
+                new(
+                    "cross-prefix",
+                    "cross-prefix dependency",
+                    "The selected dependency scope declares a package from another first dot-delimited ID segment."),
             ],
         },
         new(
@@ -568,6 +625,7 @@ public static partial class PackageQuery
             "Scopes dependency terms to all manifest groups or one TFM-selected group.",
             150,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "all or NuGet target framework",
             "net8.0",
@@ -583,6 +641,7 @@ public static partial class PackageQuery
             "Matches a direct dependency in the selected dependency scope.",
             200,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "NuGet package ID",
             "Microsoft.Extensions.DependencyInjection",
@@ -594,6 +653,7 @@ public static partial class PackageQuery
             "Matches a direct dependency in a registered ecosystem package population.",
             210,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "canonical ecosystem ID",
             "ecosystem.aspire",
@@ -605,6 +665,7 @@ public static partial class PackageQuery
             "Matches license presence or a closed license identity derived from nuspec metadata.",
             250,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "closed value",
             "MIT",
@@ -627,6 +688,7 @@ public static partial class PackageQuery
             "Matches a closed lifetime-download threshold reported by the package source.",
             300,
             PackageQueryAcquisitionTier.SearchMetadata,
+            PackageQueryExecutionClass.SearchMetadata,
             EqualityOperator,
             "closed value",
             "100k",
@@ -647,6 +709,7 @@ public static partial class PackageQuery
             "Matches a package manifest that declares an embedded README.",
             400,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "boolean",
             "true",
@@ -664,6 +727,7 @@ public static partial class PackageQuery
             "Matches the .NET tool package type from the package manifest.",
             500,
             PackageQueryAcquisitionTier.Nuspec,
+            PackageQueryExecutionClass.Nuspec,
             EqualityOperator,
             "boolean",
             "true",
@@ -684,6 +748,7 @@ public static partial class PackageQuery
             "Downloads the package and matches its .NET tool CLI format.",
             510,
             PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.PackageContent,
             EqualityOperator,
             "closed value",
             "v2",
@@ -702,11 +767,24 @@ public static partial class PackageQuery
             DisplayGroupLabel = ".NET tool",
         },
         new(
+            ReferencesTermKey,
+            "references assembly",
+            "Downloads the package and matches AssemblyRef simple names across managed ref and lib assets.",
+            550,
+            PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.Metadata,
+            EqualityOperator,
+            "assembly simple name",
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            PackageQueryTermRole.Inspection,
+            PackageQueryTermControlKind.Input),
+        new(
             SkillTermKey,
             "embedded SKILL.md",
             "Downloads the package and matches a skills/SKILL.md or skills/**/SKILL.md file.",
             600,
             PackageQueryAcquisitionTier.PackageContent,
+            PackageQueryExecutionClass.PackageContent,
             EqualityOperator,
             "boolean",
             "true",
@@ -748,6 +826,7 @@ public static partial class PackageQuery
         Key(ToolTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Tool)),
         Key(ToolFormatTermKey, BindToolFormat),
+        Key(ReferencesTermKey, BindAssemblyReference),
         Key(SkillTermKey, static (op, value) =>
             BindBoolean(op, value, PackageQueryPredicateKind.Skill)),
     ]);
@@ -961,13 +1040,22 @@ public static partial class PackageQuery
 
     private static PortableQueryBinding<PackageQueryPredicate> BindDependencies(
         PortableQueryOperator @operator,
-        string value) =>
-        @operator == PortableQueryOperator.Equal
-        && value.Equals("none", StringComparison.OrdinalIgnoreCase)
-            ? PortableQueryBinding<PackageQueryPredicate>.Bound(
+        string value)
+    {
+        if (@operator != PortableQueryOperator.Equal)
+            return PortableQueryBinding<PackageQueryPredicate>.Rejected;
+        return value.ToLowerInvariant() switch
+        {
+            "none" => PortableQueryBinding<PackageQueryPredicate>.Bound(
                 "dependencies:none",
-                new(PackageQueryPredicateKind.NoDependencies))
-            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+                new(PackageQueryPredicateKind.NoDependencies)),
+            "cross-prefix" =>
+                PortableQueryBinding<PackageQueryPredicate>.Bound(
+                    "dependencies:cross-prefix",
+                    new(PackageQueryPredicateKind.CrossPrefixDependencies)),
+            _ => PortableQueryBinding<PackageQueryPredicate>.Rejected,
+        };
+    }
 
     private static PortableQueryBinding<PackageQueryPredicate> BindDepends(
         PortableQueryOperator @operator,
@@ -1098,6 +1186,23 @@ public static partial class PackageQuery
         };
     }
 
+    private static PortableQueryBinding<PackageQueryPredicate>
+        BindAssemblyReference(
+            PortableQueryOperator @operator,
+            string value) =>
+        @operator == PortableQueryOperator.Equal
+        && !string.IsNullOrWhiteSpace(value)
+        && value.AsSpan().Trim().Length == value.Length
+        && !value.Contains(',')
+        && !value.Contains('/')
+        && !value.Contains('\\')
+        && InertString.IsPermitted(TextPolicy.Field, value)
+            ? Bound(
+                PackageQueryPredicateKind.AssemblyReference,
+                value,
+                Normalize(value))
+            : PortableQueryBinding<PackageQueryPredicate>.Rejected;
+
     private static PortableQueryBinding<PackageQueryPredicate> Bound(
         PackageQueryPredicateKind kind,
         string value,
@@ -1113,6 +1218,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Prefix => PrefixTermKey,
             PackageQueryPredicateKind.Prerelease => PrereleaseTermKey,
             PackageQueryPredicateKind.NoDependencies => DependenciesTermKey,
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                DependenciesTermKey,
             PackageQueryPredicateKind.DependencyTarget =>
                 DependencyTargetTermKey,
             PackageQueryPredicateKind.Depends => DependsTermKey,
@@ -1123,6 +1230,8 @@ public static partial class PackageQuery
             PackageQueryPredicateKind.Readme => ReadmeTermKey,
             PackageQueryPredicateKind.Tool => ToolTermKey,
             PackageQueryPredicateKind.ToolFormat => ToolFormatTermKey,
+            PackageQueryPredicateKind.AssemblyReference =>
+                ReferencesTermKey,
             PackageQueryPredicateKind.Skill => SkillTermKey,
             _ => throw new InvalidOperationException(
                 "Unknown Package Query predicate kind."),
@@ -1327,6 +1436,7 @@ public static partial class PackageQuery
                         catch (Exception ex) when (
                             ex is IOException
                                 or InvalidDataException
+                                or BadImageFormatException
                                 or DecoderFallbackException
                                 or NotSupportedException
                                 or UnauthorizedAccessException
@@ -1569,6 +1679,8 @@ public static partial class PackageQuery
             term.Predicate.Kind == PackageQueryPredicateKind.Skill);
         bool needsToolSettings = terms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.ToolFormat);
+        bool needsAssemblyReferences = terms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.AssemblyReference);
         PackageQueryEvidenceSummary? skills = needsSkills
             ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
             : null;
@@ -1578,7 +1690,163 @@ public static partial class PackageQuery
                 entries,
                 cancellationToken).ConfigureAwait(false)
             : null;
-        return new PackageContentFacts(skills, toolVersion);
+        ImmutableArray<PackageQueryAssemblyReferenceOccurrence>
+            assemblyReferences = needsAssemblyReferences
+                ? await ReadAssemblyReferencesAsync(
+                    content,
+                    entries,
+                    terms,
+                    cancellationToken).ConfigureAwait(false)
+                : [];
+        return new PackageContentFacts(
+            skills,
+            toolVersion,
+            assemblyReferences);
+    }
+
+    static async ValueTask<
+        ImmutableArray<PackageQueryAssemblyReferenceOccurrence>>
+        ReadAssemblyReferencesAsync(
+            IPackageContent content,
+            IReadOnlyCollection<string> entries,
+            ImmutableArray<BoundPackageQueryTerm> terms,
+            CancellationToken cancellationToken)
+    {
+        PackageQueryAssemblyAsset[] assets =
+        [
+            .. entries
+                .Select(ParseAssemblyReferenceAsset)
+                .OfType<PackageQueryAssemblyAsset>()
+                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
+        ];
+        if (assets.Length > MaximumAssemblyReferenceAssets)
+        {
+            throw new InvalidDataException(
+                "The package contains too many managed library candidates.");
+        }
+
+        var requestedNames = terms
+            .Where(term =>
+                term.Predicate.Kind
+                    == PackageQueryPredicateKind.AssemblyReference)
+            .Select(term => term.Predicate.Text!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var matches =
+            ImmutableArray.CreateBuilder<PackageQueryAssemblyReferenceOccurrence>();
+        long totalBytes = 0;
+        int referenceRows = 0;
+        foreach (PackageQueryAssemblyAsset asset in assets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!content.TryOpenEntry(
+                asset.Path,
+                MaximumAssemblyReferenceEntryBytes,
+                out Stream? stream))
+            {
+                throw new IOException(
+                    "A selected package library entry is unavailable.");
+            }
+
+            await using (stream.ConfigureAwait(false))
+            {
+                byte[] image = await BoundedContentReader.ReadAllBytesAsync(
+                    stream,
+                    MaximumAssemblyReferenceEntryBytes,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                totalBytes += image.LongLength;
+                if (totalBytes > MaximumAssemblyReferenceTotalBytes)
+                {
+                    throw new InvalidDataException(
+                        "The package library inventory exceeds its total-image budget.");
+                }
+
+                using var imageStream = new MemoryStream(image, writable: false);
+                using var peReader = new PEReader(imageStream);
+                AssemblyIdentityNames names =
+                    AssemblyIdentityScanner.Scan(peReader);
+                if (string.IsNullOrEmpty(names.Name)
+                    || !names.ReferencesComplete)
+                {
+                    throw new InvalidDataException(
+                        "A package library has incomplete assembly-reference metadata.");
+                }
+
+                referenceRows += names.ReferenceNames.Length;
+                if (referenceRows > MaximumAssemblyReferenceRows)
+                {
+                    throw new InvalidDataException(
+                        "The package contains too many assembly-reference rows.");
+                }
+
+                foreach (string referenceName in names.ReferenceNames)
+                {
+                    if (requestedNames.Contains(referenceName))
+                    {
+                        matches.Add(new(
+                            asset.TargetFramework,
+                            asset.Path,
+                            referenceName));
+                    }
+                }
+            }
+        }
+
+        return matches.ToImmutable();
+    }
+
+    static PackageQueryAssemblyAsset? ParseAssemblyReferenceAsset(
+        string entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
+            return null;
+
+        string[] parts = entry.Split('/');
+        if (parts.Length < 3
+            || parts.Any(part =>
+                string.IsNullOrEmpty(part)
+                || part is "." or "..")
+            || (!parts[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
+                && !parts[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            || !parts[^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty(
+                Path.GetFileNameWithoutExtension(parts[^1]))
+            || IsSatelliteAssemblyPath(parts)
+            || !IsNuGetFrameworkFolder(parts[1]))
+        {
+            return null;
+        }
+
+        return new PackageQueryAssemblyAsset(parts[1], entry);
+    }
+
+    static bool IsSatelliteAssemblyPath(IReadOnlyList<string> parts) =>
+        parts.Count >= 4
+        && parts[^1].EndsWith(
+            ".resources.dll",
+            StringComparison.OrdinalIgnoreCase)
+        && TfmResolver.IsCultureFolderName(parts[^2]);
+
+    static bool IsNuGetFrameworkFolder(string value)
+    {
+        try
+        {
+            NuGetFramework framework =
+                NuGetFramework.ParseFolder(Uri.UnescapeDataString(value));
+            return !framework.IsUnsupported;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (FrameworkException)
+        {
+            return false;
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
     }
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(
@@ -1703,6 +1971,13 @@ public static partial class PackageQuery
                     ?? throw new InvalidOperationException(
                         "Dependency matching requires one dependency selection."))
                     .Length > 0,
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                MatchingCrossPrefixDependencies(
+                    match,
+                    dependencySelection
+                    ?? throw new InvalidOperationException(
+                        "Dependency matching requires one dependency selection."))
+                    .Length > 0,
             PackageQueryPredicateKind.DependsEcosystem =>
                 MatchingEcosystemDependencies(
                     term,
@@ -1723,6 +1998,7 @@ public static partial class PackageQuery
                 match.RequiredManifest.IsToolPackage,
             PackageQueryPredicateKind.ToolFormat =>
                 match.RequiredManifest.IsToolPackage,
+            PackageQueryPredicateKind.AssemblyReference => true,
             PackageQueryPredicateKind.Skill => true,
             _ => throw new InvalidOperationException(
                 "A structural Package Query term reached manifest evaluation."),
@@ -1786,11 +2062,24 @@ public static partial class PackageQuery
         {
             PackageQueryPredicateKind.ToolFormat =>
                 content.ToolSettingsVersion == term.Predicate.Text,
+            PackageQueryPredicateKind.AssemblyReference =>
+                MatchingAssemblyReferences(term, content).Length > 0,
             PackageQueryPredicateKind.Skill =>
                 content.SkillDocuments is { Count: > 0 },
             _ => throw new InvalidOperationException(
                 "A non-content Package Query term reached content evaluation."),
         };
+
+    static PackageQueryAssemblyReferenceOccurrence[]
+        MatchingAssemblyReferences(
+            BoundPackageQueryTerm term,
+            PackageContentFacts content) =>
+        [
+            .. content.AssemblyReferences.Where(reference =>
+                reference.ReferenceName.Equals(
+                    term.Predicate.Text,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
 
     static PackageQueryDependencyMatch[] MatchingDependencies(
         BoundPackageQueryTerm term,
@@ -1807,6 +2096,30 @@ public static partial class PackageQuery
                             group,
                             dependency))),
         ];
+
+    static PackageQueryDependencyMatch[] MatchingCrossPrefixDependencies(
+        PackageQueryPackage package,
+        PackageQueryDependencySelection selection) =>
+        [
+            .. SelectedDependencyGroups(selection)
+                .SelectMany(group => group.Dependencies
+                    .Where(dependency =>
+                        !FirstPackageIdSegment(package.PackageId).Equals(
+                            FirstPackageIdSegment(dependency.Id),
+                            StringComparison.OrdinalIgnoreCase))
+                    .Select(dependency =>
+                        new PackageQueryDependencyMatch(
+                            group,
+                            dependency))),
+        ];
+
+    static ReadOnlySpan<char> FirstPackageIdSegment(string packageId)
+    {
+        int separator = packageId.IndexOf('.');
+        return separator < 0
+            ? packageId.AsSpan()
+            : packageId.AsSpan(0, separator);
+    }
 
     static PackageQueryEcosystemDependencyMatch[]
         MatchingEcosystemDependencies(
@@ -1885,6 +2198,11 @@ public static partial class PackageQuery
             + match.Dependency.VersionRange;
     }
 
+    static string DescribeAssemblyReference(
+        PackageQueryAssemblyReferenceOccurrence occurrence) =>
+        $"{occurrence.TargetFramework}: {occurrence.Path} -> "
+        + occurrence.ReferenceName;
+
     static string DescribeEcosystemDependencyMatch(
         PackageQueryEcosystemDependencyMatch match)
     {
@@ -1920,6 +2238,26 @@ public static partial class PackageQuery
             ]);
     }
 
+    static PackageQueryEvidenceSummary SummarizeDependencyMatches(
+        IReadOnlyCollection<PackageQueryDependencyMatch> matches)
+    {
+        PackageQueryEvidenceSummary preview =
+            SummarizeItems(
+                matches.Select(DescribeDependencyMatch),
+                StringComparer.Ordinal);
+        return preview with { Count = matches.Count };
+    }
+
+    static PackageQueryEvidenceSummary SummarizeAssemblyReferences(
+        IReadOnlyCollection<PackageQueryAssemblyReferenceOccurrence> matches)
+    {
+        PackageQueryEvidenceSummary preview =
+            SummarizeItems(
+                matches.Select(DescribeAssemblyReference),
+                StringComparer.Ordinal);
+        return preview with { Count = matches.Count };
+    }
+
     static PackageQueryTermResult CreateTermResult(
         BoundPackageQueryTerm term,
         PackageQueryPackage package,
@@ -1933,6 +2271,8 @@ public static partial class PackageQuery
                 term.Predicate.Kind switch
                 {
                     PackageQueryPredicateKind.NoDependencies => "none",
+                    PackageQueryPredicateKind.CrossPrefixDependencies =>
+                        "cross-prefix",
                     PackageQueryPredicateKind.DependencyTarget =>
                         term.Predicate.Text
                         ?? throw new InvalidOperationException(
@@ -1957,6 +2297,10 @@ public static partial class PackageQuery
                     PackageQueryPredicateKind.Readme => "true",
                     PackageQueryPredicateKind.Tool => "true",
                     PackageQueryPredicateKind.ToolFormat => term.Term.Value,
+                    PackageQueryPredicateKind.AssemblyReference =>
+                        term.Predicate.Text
+                        ?? throw new InvalidOperationException(
+                            "Assembly-reference answers require a bound simple name."),
                     PackageQueryPredicateKind.Skill => "true",
                     _ => throw new InvalidOperationException(
                         "A structural Package Query term reached answer production."),
@@ -1995,6 +2339,22 @@ public static partial class PackageQuery
                                 "Dependency evidence requires one dependency selection."))
                             .Select(DescribeDependencyMatch),
                         StringComparer.Ordinal),
+                },
+            PackageQueryPredicateKind.CrossPrefixDependencies =>
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeDependencyMatches(
+                        MatchingCrossPrefixDependencies(
+                            package,
+                            dependencySelection
+                            ?? throw new InvalidOperationException(
+                                "Dependency evidence requires one dependency selection."))),
+                    Properties =
+                    [
+                        Property(
+                            "package-prefix",
+                            FirstPackageIdSegment(package.PackageId).ToString()),
+                    ],
                 },
             PackageQueryPredicateKind.DependsEcosystem =>
                 new PackageQueryEvidence(term.Descriptor.Key)
@@ -2049,6 +2409,16 @@ public static partial class PackageQuery
                             ?? throw new InvalidOperationException(
                                 ".NET tool format evidence requires package-content facts.")),
                     ],
+                },
+            PackageQueryPredicateKind.AssemblyReference =>
+                new PackageQueryEvidence(term.Descriptor.Key)
+                {
+                    Summary = SummarizeAssemblyReferences(
+                        MatchingAssemblyReferences(
+                            term,
+                            content
+                            ?? throw new InvalidOperationException(
+                                "Assembly-reference evidence requires package-content facts."))),
                 },
             PackageQueryPredicateKind.Skill =>
                 new PackageQueryEvidence(term.Descriptor.Key)

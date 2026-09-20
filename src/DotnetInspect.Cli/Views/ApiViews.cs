@@ -1351,6 +1351,31 @@ public class MemberCodeView
 
 }
 
+[MarkoutSerializable(AutoFields = false)]
+public sealed class EmptyMemberCallsView
+{
+    [MarkoutSection(Name = SectionNames.Calls)]
+    [MarkoutIgnoreInTable]
+    public MarkoutTable Calls { get; } = new(
+        [
+            "IL Offset",
+            "Opcode",
+            "Call Kind",
+            "Callee",
+            "Operand Token",
+            "Return Address",
+        ],
+        [
+            "il_offset",
+            "opcode",
+            "call_kind",
+            "callee",
+            "operand_token",
+            "return_address",
+        ],
+        []);
+}
+
 [MarkoutContext(typeof(TypeShapeView))]
 public partial class TypeViewContext : MarkoutSerializerContext
 {
@@ -1367,6 +1392,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
 [MarkoutContext(typeof(ExtensionMethodsView))]
 [MarkoutContext(typeof(MemberCodeView))]
+[MarkoutContext(typeof(EmptyMemberCallsView))]
 [MarkoutContext(typeof(CallSiteRow))]
 [MarkoutContext(typeof(ExceptionRegionRow))]
 [MarkoutContext(typeof(CallerSiteRow))]

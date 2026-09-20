@@ -162,10 +162,10 @@ internal sealed class BrowserNavigationStateSlot
         }
     }
 
-    internal NavigationAuthorityResult RecordConsumerInstallation(
+    internal NavigationAuthorityResult RecordConsumerPosting(
         NavigationEffectAuthority authority) =>
         ApplyAuthority(
-            state => NavigationTransitions.RecordConsumerInstallation(
+            state => NavigationTransitions.RecordConsumerPosting(
                 state,
                 authority),
             settlesAuthority: false);

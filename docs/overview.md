@@ -116,9 +116,9 @@ substrates, and inspection producers that will extend that space.
   target [package dependency traversal](design/package-dependency-traversal.md)
   owner composes normalized declarations, exact source-authorized candidates,
   and exact manifest results into one depth-bounded graph with root-relative
-  reachability. The proposed
+  reachability.   The
   [realized package dependency context](design/realized-package-dependency-context.md)
-  owner binds one physical Package Root selection to dependency evidence
+  query binds one physical Package Root selection to dependency evidence
   projected from that exact retained content and selection intent, producing
   detached source evidence for realized-package traversal without moving asset,
   group, or traversal policy. The
@@ -404,6 +404,15 @@ substrates, and inspection producers that will extend that space.
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
   not reference it. The
+  [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md)
+  owner now implements the product-authored Package and assembly association
+  profile, classification of already-issued direct-dependency observations,
+  and Package/Library recognition Documents and envelopes. The later
+  application-owned dependency-inspection composition will pair exact lower
+  Content with the same classification while preserving the existing
+  dependency direction. Recognition performs no traversal, provenance
+  inference, or reinterpretation of discovery metadata.
+  The
   [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md)
   is the focused one-way projection from a selected application pack and the
   Ecosystems-owned curated manifest into lower immutable declarations and one
@@ -837,6 +846,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   static shipped-pack manifest that compose package-set identity, typed
   package-prefix requests, and opaque Integration-owned semantic-scanner
   bindings without making reusable infrastructure depend on the catalog.
+- [Ecosystem Dependency Recognition](design/ecosystem-dependency-recognition.md):
+  the product-authored Package ID and assembly-name association profile,
+  direct-observation matching, overlap evidence, completion, counts, and
+  detached cross-host outcome.
 - [Workspace Ecosystem Registration Handoff](design/workspace-ecosystem-registration-handoff.md):
   explicit application-pack correspondence, lower immutable retrieval,
   population, and Integration contributions, typed projection outcomes, and

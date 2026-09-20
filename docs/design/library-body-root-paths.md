@@ -17,6 +17,9 @@ sites. Metadata owns the exact public MethodDef root inventory under
 compose those roots with pairwise call-use destinations under
 [#7390](https://github.com/richlander/dotnet-inspect/issues/7390), and the CLI
 and Browser/Wasm hosts will consume that shared composition under #6313.
+Research Queries may also compose one exact selected MethodDef root with
+Analysis-issued local-throw destinations for Annotated Source. That consumer
+does not change this operation's path, identity, or completion contract.
 
 ## Motivating asset
 
@@ -175,7 +178,7 @@ This operation does not:
 
 ## Production adoption
 
-The end-to-end plan remains three steps:
+The package-use end-to-end plan remains three steps:
 
 1. this Analysis operation supplies exact bounded root-to-use-site witnesses;
 2. issue #7390 composes Metadata-issued public roots, pairwise direct-use
@@ -186,3 +189,10 @@ The end-to-end plan remains three steps:
 The later completed host boundary will use `InspectionEnvelope<TContent>`.
 This Analysis result is an internal owner-issued input to that composition, not
 a host result by itself.
+
+Annotated Source is a second production consumer. It supplies the selected
+physical MethodDef as the only root, supplies exact same-index MethodDefs with
+proven local throws as destinations, and joins returned first-edge physical
+receipts to the existing `call.edge` Findings. Research Queries owns that join,
+its local-throw completeness state, and Browser/Wasm transport. Analysis still
+does not claim exception propagation or runtime execution.

@@ -23,23 +23,25 @@ public sealed class SelectedPropertyAccessorSource
     readonly string _accessorKind;
     readonly IReadOnlyList<string> _valueAttributes;
     readonly bool _automaticGetter;
+    readonly SelectedGetterStorage? _getterStorage;
 
     public IReadOnlyList<string> Attributes { get; private init; } = [];
 
     SelectedPropertyAccessorSource(
         ApiMember property, string accessorKind, IReadOnlyList<string> valueAttributes,
-        bool automaticGetter = false)
+        bool automaticGetter = false, SelectedGetterStorage? getterStorage = null)
     {
         _property = property;
         _accessorKind = accessorKind;
         _valueAttributes = valueAttributes;
         _automaticGetter = automaticGetter;
+        _getterStorage = getterStorage;
     }
 
     /// <summary>
     /// Returns null for methods without an owning property, indexers, and
     /// properties whose backing storage is not a proven getter-only
-    /// auto-property, or whose selected override has narrowed accessibility.
+    /// automatic or field-bodied property, or whose selected override has narrowed accessibility.
     /// The handle must already be resolved in this reader.
     /// </summary>
     public static SelectedPropertyAccessorSource? Create(
@@ -50,7 +52,7 @@ public sealed class SelectedPropertyAccessorSource
         var selected = Create(source, handle, method);
         return selected is null ? null : new(
             selected._property, selected._accessorKind, selected._valueAttributes,
-            selected._automaticGetter)
+            selected._automaticGetter, selected._getterStorage)
         {
             Attributes = includeAttributes
                 ? AttributeReader.RenderMethodAttributes(source.Reader, handle)
@@ -60,9 +62,46 @@ public sealed class SelectedPropertyAccessorSource
 
     internal static SelectedPropertyAccessorSource? Create(
         MetadataSource source,
+        MethodDefinitionHandle methodHandle)
+        => Create(source, methodHandle, out _);
+
+    internal static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
+        MethodDefinitionHandle methodHandle,
+        out bool automaticGetterBody)
+    {
+        var reader = source.Reader;
+        var method = reader.GetMethodDefinition(methodHandle);
+        var type = reader.GetTypeDefinition(method.GetDeclaringType());
+        var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+        bool explicitImplementation = declaration.MetadataName.Contains('.', StringComparison.Ordinal);
+        return Create(source, methodHandle, new ApiMember
+        {
+            Name = declaration.MetadataName,
+            Kind = explicitImplementation ? "explicit-interface-implementation" : "method",
+            SignatureModel = declaration.Signature,
+            Accessibility = declaration.Accessibility,
+            IsStatic = declaration.IsStatic,
+            IsVirtual = declaration.IsVirtual,
+            IsAbstract = declaration.IsAbstract,
+            IsOverride = declaration.IsOverride,
+            IsSealed = declaration.IsSealed,
+        }, out automaticGetterBody);
+    }
+
+    internal static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
         MethodDefinitionHandle methodHandle,
         ApiMember method)
+        => Create(source, methodHandle, method, out _);
+
+    static SelectedPropertyAccessorSource? Create(
+        MetadataSource source,
+        MethodDefinitionHandle methodHandle,
+        ApiMember method,
+        out bool automaticGetterBody)
     {
+        automaticGetterBody = false;
         var reader = source.Reader;
         var definition = reader.GetMethodDefinition(methodHandle);
         var type = reader.GetTypeDefinition(definition.GetDeclaringType());
@@ -156,29 +195,46 @@ public sealed class SelectedPropertyAccessorSource
                     ],
                 },
             };
-            if (hasBackingStorage
-                && !IsAutomaticGetter(source, handle, methodHandle, selectedProperty))
-                return null;
-            return new(selectedProperty, keyword, valueAttributes, hasBackingStorage);
+            FieldDefinitionHandle backingField = default;
+            var fieldScope = GenericScope.Empty;
+            automaticGetterBody = hasBackingStorage
+                && IsAutomaticGetterBody(
+                    source, handle, methodHandle, selectedProperty, out backingField, out fieldScope);
+            var automaticFieldFlags = FieldAttributes.Private | FieldAttributes.InitOnly
+                | (selectedProperty.IsStatic ? FieldAttributes.Static : 0);
+            bool automaticGetter = automaticGetterBody
+                && !selectedProperty.IsUnsafe
+                && HasSupportedBackingField(reader, backingField, fieldScope, automaticFieldFlags);
+            SelectedGetterStorage? getterStorage = null;
+            if (hasBackingStorage && !automaticGetter)
+            {
+                getterStorage = SelectedGetterStorage.TryCreate(
+                    source, handle, methodHandle, selectedProperty);
+                if (getterStorage is null)
+                    return null;
+            }
+            return new(selectedProperty, keyword, valueAttributes, automaticGetter, getterStorage);
         }
         return null;
     }
 
-    static bool IsAutomaticGetter(
+    static bool IsAutomaticGetterBody(
         MetadataSource source, PropertyDefinitionHandle propertyHandle,
-        MethodDefinitionHandle methodHandle, ApiMember property)
+        MethodDefinitionHandle methodHandle, ApiMember property,
+        out FieldDefinitionHandle backingFieldHandle, out GenericScope scope)
     {
+        backingFieldHandle = default;
+        scope = GenericScope.Empty;
         var reader = source.Reader;
         var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
-        if (accessors.Getter != methodHandle || !accessors.Setter.IsNil
-            || property.IsUnsafe)
+        if (accessors.Getter != methodHandle || !accessors.Setter.IsNil)
             return false;
         var method = reader.GetMethodDefinition(methodHandle);
         if (method.GetGenericParameters().Count != 0)
             return false;
         var typeHandle = method.GetDeclaringType();
         if (!MemberBodyProducer.IsCompilerGeneratedAutoProperty(
-                source, reader, typeHandle, property, methodHandle, null, out var backingFieldHandle))
+                source, reader, typeHandle, property, methodHandle, null, out backingFieldHandle))
             return false;
 
         var body = source.Pe.GetMethodBody(method.RelativeVirtualAddress);
@@ -201,12 +257,10 @@ public sealed class SelectedPropertyAccessorSource
         var genericNames = type.GetGenericParameters()
             .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
             .ToImmutableArray();
-        var scope = new GenericScope(genericNames, []);
+        scope = new GenericScope(genericNames, []);
         var field = IrImporter.ResolveField(
             reader, MetadataTokens.EntityHandle((int)fieldInstruction.OperandValue),
             scope);
-        if (field.Type.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(field.Type))
-            return false;
         if (field.DeclaringType.Kind == TypeRefKind.GenericInstance)
         {
             var arguments = field.DeclaringType.TypeArguments;
@@ -219,14 +273,31 @@ public sealed class SelectedPropertyAccessorSource
         else if (genericNames.Length != 0)
             return false;
 
+        return (reader.GetFieldDefinition(backingFieldHandle).Attributes & FieldAttributes.InitOnly) != 0;
+    }
+
+    internal static bool HasSupportedBackingField(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle,
+        GenericScope scope, FieldAttributes expected)
+        => HasSupportedBackingFieldShape(reader, backingFieldHandle, scope, expected)
+            && HasSupportedBackingFieldAttributes(reader, backingFieldHandle);
+
+    static bool HasSupportedBackingFieldShape(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle,
+        GenericScope scope, FieldAttributes expected)
+    {
         var definition = reader.GetFieldDefinition(backingFieldHandle);
         var fieldType = GuardedDecode.FieldType(reader, definition, scope);
-        if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers)
+        if (fieldType.ContainsUnsupported || fieldType.ContainsCustomModifiers
+            || fieldType.Kind == TypeRefKind.ByRef || UnsafeAwaitOperand.ContainsPointer(fieldType))
             return false;
-        var expected = FieldAttributes.Private | FieldAttributes.InitOnly
-            | (property.IsStatic ? FieldAttributes.Static : 0);
-        if (definition.Attributes != expected || definition.GetOffset() >= 0)
-            return false;
+        return definition.Attributes == expected && definition.GetOffset() < 0;
+    }
+
+    static bool HasSupportedBackingFieldAttributes(
+        MetadataReader reader, FieldDefinitionHandle backingFieldHandle)
+    {
+        var definition = reader.GetFieldDefinition(backingFieldHandle);
         foreach (var attributeHandle in definition.GetCustomAttributes())
         {
             var attribute = reader.GetCustomAttribute(attributeHandle);
@@ -245,6 +316,9 @@ public sealed class SelectedPropertyAccessorSource
         }
         return true;
     }
+
+    /// <summary>Materializes proven accessor-scoped storage reads before raising this body.</summary>
+    public void BindBody(IrFunction function) => _getterStorage?.BindBody(function);
 
     /// <summary>
     /// Renders only the selected accessor. Attributes are method-targeted

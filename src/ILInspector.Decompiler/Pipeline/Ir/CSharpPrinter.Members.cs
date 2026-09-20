@@ -166,6 +166,9 @@ public sealed partial class CSharpPrinter
         return $"fnptr[{type.CallingConvention}]({parameters})->{TypeKey(type.ElementType!)}";
     }
 
+    string FieldTarget(LoadField load)
+        => load.UsesAccessorStorage ? "field" : FieldTarget(load.Field, load.Instance);
+
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)

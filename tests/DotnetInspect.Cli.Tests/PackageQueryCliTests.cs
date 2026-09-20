@@ -67,15 +67,28 @@ public class PackageQueryCliTests
                             ? "="
                             : throw new InvalidOperationException()),
                 PackageQueryOptions.QueryKeys[index].Comparisons);
+            Assert.Equal(
+                PackageQuery.ExecutionClassIdentity(
+                    registeredInspectionTerms[index]
+                        .Descriptor.ExecutionClass),
+                PackageQueryOptions.QueryKeys[index].ExecutionClass);
         }
         Assert.Equal(
             ["v1", "v2"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.ToolFormatTermKey).Values);
         Assert.Equal(
+            ["none", "cross-prefix"],
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.DependenciesTermKey).Values);
+        Assert.Equal(
             ["any", "MIT", "OSMF"],
             PackageQueryOptions.QueryKeys.Single(key =>
                 key.Name == PackageQuery.LicenseTermKey).Values);
+        Assert.Equal(
+            "metadata",
+            PackageQueryOptions.QueryKeys.Single(key =>
+                key.Name == PackageQuery.ReferencesTermKey).ExecutionClass);
     }
 
     [Fact]
@@ -106,6 +119,57 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.DefaultMaximumCandidates,
             options.Plan.MaximumCandidates);
+    }
+
+    [Fact]
+    public void CrossPrefixDependenciesTerm_LowersToTheProductPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Azure.*",
+                ["dependencies=cross-prefix"],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.DependenciesTermKey, term.Key);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal("cross-prefix", term.Value);
+        Assert.True(options.Plan.RequiresManifest);
+        Assert.False(options.Plan.RequiresPackageContent);
+    }
+
+    [Fact]
+    public void ReferencesTerm_LowersToTheProductPackageContentPlan()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "references="
+                    + "Microsoft.Extensions.DependencyInjection.Abstractions",
+                ],
+                nuspecOnly: false,
+                take: PackageQuery.MaximumPackageContentCandidates,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        PortableQueryTerm term = Assert.Single(options!.Plan.Terms);
+        Assert.Equal(PackageQuery.ReferencesTermKey, term.Key);
+        Assert.Equal(PortableQueryOperator.Equal, term.Operator);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            term.Value);
+        Assert.True(options.Plan.RequiresPackageContent);
+        Assert.True(options.Plan.RequiresManifest);
     }
 
     [Fact]
@@ -375,7 +439,12 @@ public class PackageQueryCliTests
     [InlineData("facet!=package.query.dotnet-tool", "support equality")]
     [InlineData("downloads>=1000000", "support equality")]
     [InlineData("facet=package.query.unknown", "does not define term")]
+    [InlineData("depends-prefix=Microsoft.Extensions", "does not define term")]
     [InlineData("depends=not/a/package", "term value is invalid")]
+    [InlineData("dependencies=other", "term value is invalid")]
+    [InlineData(
+        "references=System.Runtime, Version=10.0.0.0",
+        "term value is invalid")]
     [InlineData("depends-ecosystem=Aspire", "term value is invalid")]
     [InlineData("depends-ecosystem=ecosystem.unknown", "Unknown ecosystem")]
     [InlineData(
@@ -706,6 +775,26 @@ public class PackageQueryCliTests
             dependencyPreviews,
             item => item
                 .Contains("Dependency.Two 2.0.0", StringComparison.Ordinal));
+        Assert.Equal(3, fixture.ManifestRequests);
+        Assert.Equal(0, fixture.PackageRequests);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task CrossPrefixDependenciesTerm_UsesManifestEvidenceWithoutPackageContent()
+    {
+        using var source = Source(out var fixture);
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("dependencies=cross-prefix"),
+                source,
+                null));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.Second", result.Output);
+        Assert.Contains("Contoso.Third", result.Output);
+        Assert.DoesNotContain("Contoso.First", result.Output);
+        Assert.Contains("cross-prefix", result.Output);
         Assert.Equal(3, fixture.ManifestRequests);
         Assert.Equal(0, fixture.PackageRequests);
         Assert.Empty(result.Error);
@@ -1846,6 +1935,28 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task ReferencesTerm_ExecutesThroughTheCliContentProvider()
+    {
+        using var source = Source(out var fixture);
+        using var operation = new NuGetOperationContext();
+        await using var provider = ContentProvider(fixture, operation);
+        PackageQueryOptions query = OptionsForInput(
+            "Contoso.First",
+            ["references=DotnetInspector.Queries"],
+            maximumCandidates: 1);
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(query, source, provider));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Contoso.First", result.Output);
+        Assert.Contains("DotnetInspector.Queries", result.Output);
+        Assert.Equal(1, fixture.PackageRequests);
+        Assert.True(fixture.Payload!.Disposed);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task ContentProvider_RetainsAuthorityStorageThroughUseAndThenCleansIt()
     {
         using var source = Source(out var fixture);
@@ -2014,7 +2125,9 @@ public class PackageQueryCliTests
         public TrackedStream? Payload { get; private set; }
         public PackageSourceResultIdentity Source => results.Source;
         public PackageSourceCapabilities Capabilities => PackageSourceCapabilities.Search
-            | PackageSourceCapabilities.Manifest | PackageSourceCapabilities.PackagePayload;
+            | PackageSourceCapabilities.Manifest
+            | PackageSourceCapabilities.PackagePayload
+            | PackageSourceCapabilities.VersionEnumeration;
 
         public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
             string prefix, int take = 100, bool prerelease = false,
@@ -2062,8 +2175,16 @@ public class PackageQueryCliTests
                 {
                     using (var manifest = zip.CreateEntry($"{packageId}.nuspec").Open())
                         manifest.Write(Manifest(packageId));
-                    using var skill = new StreamWriter(zip.CreateEntry("skills/example/SKILL.md").Open());
-                    skill.Write("A package skill.");
+                    using (var skill = new StreamWriter(
+                        zip.CreateEntry("skills/example/SKILL.md").Open()))
+                    {
+                        skill.Write("A package skill.");
+                    }
+                    using Stream assemblyEntry = zip.CreateEntry(
+                        "lib/net11.0/DotnetInspect.Cli.Tests.dll").Open();
+                    using Stream assembly = File.OpenRead(
+                        typeof(PackageQueryCliTests).Assembly.Location);
+                    assembly.CopyTo(assemblyEntry);
                 }
             }
             Payload = new TrackedStream(bytes.ToArray());
@@ -2102,8 +2223,24 @@ public class PackageQueryCliTests
         public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(string query, int take = 20,
             bool prerelease = false, CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null) => throw new NotSupportedException();
-        public Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(string packageId,
-            CancellationToken cancellationToken = default, NuGetOperationContext? operationContext = null) => throw new NotSupportedException();
+        public Task<PackageSourceOperationResult<PackageVersionResult>>
+            GetVersionsAsync(
+                string packageId,
+                CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PackageSourceCoordinate coordinate =
+                PackageSourceCoordinate.Create(packageId, "1.0.0");
+            PackageCandidateObservation candidate = results.Candidate(
+                coordinate,
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                PackageListingState.Listed);
+            return Task.FromResult(results.SucceededVersions(
+                results.Versions(
+                    [candidate],
+                    hasAuthoritativeListingState: true)));
+        }
         public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(string packageId,
             string version, CancellationToken cancellationToken = default,
             NuGetOperationContext? operationContext = null) => throw new NotSupportedException();

@@ -251,6 +251,17 @@ public static class InspectionGraphCommandDefinitions
 
         command.SetAction(async (parseResult, cancellationToken) =>
         {
+            if (!CliRowSelectionCommandRegistry
+                .TryGetPreparedSemanticIntent(
+                    parseResult,
+                    "Library call site",
+                    out RowSelectionIntent<string>? rowSelection,
+                    out string? rowSelectionError))
+            {
+                CommandError.Write(rowSelectionError!);
+                return 1;
+            }
+
             if (!LibraryCallUseQueryOptions.TryParse(
                     parseResult.GetValue(opts.RowWhere) ?? [],
                     out LibraryCallUseQueryOptions query,
@@ -267,10 +278,13 @@ public static class InspectionGraphCommandDefinitions
                 new LibraryCallUseOptions
                 {
                     Libraries = libraries,
-                    Cluster = query.Cluster,
+                    QueryPlan = query.Plan,
                     Format = opts.ResolveFormat(parseResult),
                     Count = parseResult.GetValue(opts.Count),
-                    Rows = opts.ParseRows(parseResult),
+                    RowSelection = rowSelection,
+                    Rows = rowSelection is null
+                        ? opts.ParseRows(parseResult)
+                        : null,
                     NoHeader =
                         parseResult.GetValue(opts.NoHeaders),
                     Verbose =
@@ -292,6 +306,29 @@ public static class InspectionGraphCommandDefinitions
                 },
                 cancellationToken);
         });
+
+        CliRowSelectionCommandRegistry.Register(
+            command,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: result =>
+                LibraryCallUseRowSelectionAdoption.IsActive(
+                    result,
+                    opts),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
 
         return command;
     }

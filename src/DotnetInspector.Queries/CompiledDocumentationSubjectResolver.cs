@@ -21,6 +21,47 @@ public static class CompiledDocumentationSubjectResolver
         ApiSurfaceExtractionScope scope,
         ApiSurfaceExtractionBounds bounds,
         CancellationToken cancellationToken = default)
+        => ResolveCore(
+            library,
+            owner,
+            documentationIds,
+            scope,
+            bounds,
+            requireAllSubjects: true,
+            cancellationToken);
+
+    /// <summary>
+    /// Resolves the requested IDs represented by the selected Library surface
+    /// and omits IDs that belong only to another view.
+    /// </summary>
+    public static IReadOnlyDictionary<
+        string,
+        DocumentationSubjectReference> ResolveAvailable(
+        LibraryReference library,
+        LibraryContentOwner owner,
+        IReadOnlyCollection<string> documentationIds,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        CancellationToken cancellationToken = default)
+        => ResolveCore(
+            library,
+            owner,
+            documentationIds,
+            scope,
+            bounds,
+            requireAllSubjects: false,
+            cancellationToken);
+
+    private static IReadOnlyDictionary<
+        string,
+        DocumentationSubjectReference> ResolveCore(
+        LibraryReference library,
+        LibraryContentOwner owner,
+        IReadOnlyCollection<string> documentationIds,
+        ApiSurfaceExtractionScope scope,
+        ApiSurfaceExtractionBounds bounds,
+        bool requireAllSubjects,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(owner);
@@ -101,12 +142,15 @@ public static class CompiledDocumentationSubjectResolver
             }
         }
 
-        string? missing =
-            requested.FirstOrDefault(id => !subjects.ContainsKey(id));
-        if (missing is not null)
+        if (requireAllSubjects)
         {
-            throw new InvalidOperationException(
-                $"The selected Library has no subject '{missing}'.");
+            string? missing =
+                requested.FirstOrDefault(id => !subjects.ContainsKey(id));
+            if (missing is not null)
+            {
+                throw new InvalidOperationException(
+                    $"The selected Library has no subject '{missing}'.");
+            }
         }
         return subjects;
 

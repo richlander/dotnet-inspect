@@ -1,6 +1,7 @@
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Packages;
+using DotnetInspector.SourceSelection;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
@@ -11,6 +12,14 @@ namespace DotnetInspect.Cli.Options;
 /// </summary>
 public record LibraryOptions : IProjectionOptions
 {
+    /// <summary>
+    /// Typed declaration of the one source selected for this inspection.
+    /// Empty preserves compatibility for callers that still provide the
+    /// legacy source fields below.
+    /// </summary>
+    internal SourceIntent SourceIntent { get; init; } =
+        SourceIntent.Empty;
+
     /// <summary>
     /// Assembly name within a package (positional argument).
     /// Null when inspecting via --package, --platform, or direct file path.
@@ -228,6 +237,11 @@ public record LibraryOptions : IProjectionOptions
     public string[]? Discover { get; init; }
 
     /// <summary>
+    /// Include additional structural discovery metadata.
+    /// </summary>
+    public bool DiscoverDetails { get; init; }
+
+    /// <summary>
     /// Run the producers needed to establish actual section effectiveness during discovery.
     /// </summary>
     public bool Effective { get; init; }
@@ -297,6 +311,11 @@ public record LibraryOptions : IProjectionOptions
     /// Semantic row selection for the globally ranked Clone Candidates section.
     /// </summary>
     public RowSelectionIntent<string>? CloneCandidateRowSelection { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for direct assembly references.
+    /// </summary>
+    public RowSelectionIntent<string>? ReferenceRowSelection { get; init; }
 
     /// <summary>
     /// Row predicates for the Performance Triage section.

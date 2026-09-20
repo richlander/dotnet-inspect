@@ -51,13 +51,13 @@ This section locks the target CLI boundary for
 [#6719](https://github.com/richlander/dotnet-inspect/issues/6719), including
 the [Diff envelope adoption](command-transition-model.md#envelope-complete-adoption).
 
-The envelope owner's proposed
+The envelope owner's
 [service-evidence enrichment](inspection-envelope.md#service-evidence-enrichment)
-adds a typed companion without changing that content boundary. Its planned
-`--evidence-envelope <path>` consumer is tracked by
-[#7293](https://github.com/richlander/dotnet-inspect/issues/7293), with the
-dependency value adopted under #7117. It is a Debug-only diagnostic attachment,
-not a new rung in this ladder or an already available output option.
+adds a typed companion without changing that content boundary. Its first
+`--evidence-envelope <path>` consumer is asset-mode dependency inspection,
+implemented under [#7293](https://github.com/richlander/dotnet-inspect/issues/7293)
+with the dependency value adopted under #7117. It is a Debug-only diagnostic
+attachment, not a new rung in this ladder.
 
 ### Implementation status
 
@@ -69,6 +69,12 @@ The dependency operation registers `result_kind` `type-dependencies` at
 `schema_version` `1` and uses one host-neutral
 `TypeDependencySectionJsonContext` for both Content-only `--json` and the
 Content subtree of `--envelope`.
+
+Debug asset-mode `depends` adopts `--evidence-envelope <path>` for
+`DependencyInspectionContent` and `DependencyInspectionEvidenceDocument`.
+It preserves the ordinary primary output, supports a distinct ordinary
+`--out` destination and paired baseline `--envelope`, and publishes the
+complete enriched frame atomically.
 
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
@@ -412,13 +418,20 @@ Serialization never recaptures evidence or projects Share.
 | `--json` | Reject competing primary JSON boundaries. | Retain the route's ordinary JSON contract on stdout. |
 | Markdown, plaintext, table, TSV, JSONL, tree, Mermaid, or name-only output | Reject competing primary presentations. | Retain the ordinary route's behavior. |
 | `--compact` | Change envelope JSON whitespace only. | Change attachment JSON whitespace; when paired, change both envelopes. |
-| `--share[=url\|packet]` | Preserve its existing stderr and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. |
+| `--share[=url\|packet]` | Preserve the adopting command's current output-channel and exit contract using this envelope's Share. | Preserve the same contract from the enriched value's Share. Package Dependencies retains its known scalar-stdout fast path until the coherent [existing-adopter migration](cli-workspace-sharing.md#status-and-gates); evidence transport does not partially migrate only its output channel. |
 | `--verbose`, `--trace`, `--info`, `--tips` | Retain their stderr-only role. | Retain their ordinary role; only the evidence option requests service evidence. |
 | Source, endpoints, subject, API scope, traversal, or other semantic inputs | Retain the operation owner's admission, authorization, and semantic meaning. | Retain the same meaning. |
 | `-S`, `-v`, row/query controls, or `--count` | Admit only when the operation binds their complete effect into its owner-issued service result; reject post-service shaping. | Retain ordinary shaping; semantic inputs still bind the service result. |
 | `--fields`, `--columns`, `--bare`, `--no-headers`, `--print`, `--value`, URL/path projections, or rendered-line clipping | Reject post-service presentation or projection requests. | Retain ordinary primary-output behavior without shaping the attachment. |
 | `--out <path>` | Require explicit adoption of complete baseline-envelope file output. | Admit an ordinary output destination when it is distinct from the evidence destination. |
 | Discover, schema/query help, or another content operation | Require that operation's own envelope registration. | Require that operation's own evidence registration; never fall through an early ordinary-output return. |
+
+During Package Dependencies' documented scalar-only migration window, an
+explicit Share cannot also select paired baseline `--envelope` or Debug
+`--out`; admission rejects either combination before acquisition. The scalar
+fast path cannot honor a second stdout envelope or ordinary destination, and
+evidence transport does not silently drop either modifier or partially perform
+the broader #6725 migration.
 
 When both explicit destinations are present, their normalized absolute paths
 must be distinct using ordinal-ignore-case comparison on every host. This
@@ -468,9 +481,12 @@ delivery succeeds.
 
 Successful attachment publication writes one contained locator line to stderr:
 `Evidence envelope: <effective-path>`. It appears after ordinary diagnostics
-but before an explicitly requested Share scalar that must remain the final
-non-empty stderr line. Failure writes a bounded contained error naming the
-effective path. Raw envelope JSON never enters stderr.
+but before an explicitly requested stderr Share scalar, which remains the final
+non-empty stderr line. During Package Dependencies' documented scalar-only
+migration window, an available Share retains that adopter's stdout channel and
+the locator is its final stderr line; a non-projectable refusal remains the
+final stderr line. Failure writes a bounded contained error naming the effective
+path. Raw envelope JSON never enters stderr.
 
 An owner-issued partial or non-success Content is still serializable content:
 write its complete envelope and retain the operation's exit-status policy.
@@ -485,13 +501,17 @@ status. Progress and host-only notices remain outside the value.
 `Share.NonProjectable` alone does not fail an otherwise successful inspection;
 an explicit `--share` request still follows
 [CLI Workspace sharing](cli-workspace-sharing.md#output-selection), including
-its nonzero refusal and final non-empty stderr line for an available scalar.
+its nonzero refusal and the documented existing-adopter exception for an
+available Package Dependencies scalar.
 
 ### Transport adoption gates
 
 The baseline transport is a supported public machine contract.
 `--evidence-envelope` uses the same typed, versioned framing as a supported
 Debug-only machine contract; its availability does not make it an ad-hoc dump.
+A Release-configuration PR gate explicitly defines `DEBUG` and exercises the
+adopter's public command contracts; the ordinary Release binary, where that
+host surface is absent, cannot enforce them.
 A retail registration requires the separately approved promotion defined by
 the envelope owner. Each adopter exposes only the operations it can complete.
 Baseline adoption does not wait for optional Evidence support in #7117,
@@ -654,6 +674,27 @@ single-shape contract.
 Count does not apply that eligibility test to its contributing inputs. It first
 consumes the already-bound typed reduction result, then evaluates format
 eligibility against the resulting Scalar or one count Table as defined below.
+
+### Structural format capabilities
+
+A command may publish owner-issued output-capability metadata for its selectable
+sections. Each section declares the presentation modes supported by its product
+shape, plus any mode that requires the section to be the complete selection.
+The command also declares any section family that forms one homogeneous Table
+when multiple members are selected.
+
+Detailed structural discovery evaluates each listed section, or the complete
+expansion of a listed category, against that metadata. A category supports a
+mode only when every expanded member supports it and the complete selection
+satisfies the mode's cardinality contract. In particular, a multi-section
+category does not support tree or graph output, an exclusive mode, or
+table/TSV/JSONL unless its members form one declared homogeneous Table.
+
+The resulting capability list describes the complete requested selection. It
+must not choose the first compatible section, remove incompatible members, or
+otherwise let a presentation modifier change semantic section selection.
+[`schema-query.md`](schema-query.md) owns the structural discovery surface that
+reports these owner-issued capabilities through `-D --details`.
 
 ### Coordinate carriers sit before the ladder
 

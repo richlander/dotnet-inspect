@@ -34,6 +34,30 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Empty(envelope.Diagnostics);
     }
 
+    [Theory]
+    [InlineData("SelectedFieldPropertySamples", "field + 1")]
+    [InlineData("FieldKeywordGetterSamples", "global::ILInspector.Decompiler.Fixtures.FieldKeyword.field.Keep(field)")]
+    public async Task MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition(
+        string typeName, string expression)
+    {
+        TestAssembly assembly = TestAssembly.Create(fixture: FixtureCatalog.DecompilerUnsafeLegacy);
+        var (type, property) = assembly.MemberTarget("Count", typeName);
+        var getter = Assert.Single(ApiMemberAccessors.Create(property, type));
+        using var host = QueryHost.WithoutPdb();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        var envelope = await MemberSourceInspection.ExecuteAsync(
+            group, assembly.Participant, AssemblyMemberSourceRequest.From(type, getter),
+            host.Context, TestContext.Current.CancellationToken);
+
+        var available = Assert.IsType<AssemblyMemberSourceEntry.Available>(envelope.Content);
+        var source = Assert.IsType<AssemblyMemberSource.Decompiled>(available.Source);
+        Assert.Contains($"public int Count => {expression};", source.Text);
+        Assert.DoesNotContain("get_Count()", source.Text);
+        Assert.DoesNotContain("this.Count", source.Text);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
     // These member-level production outcomes are PR-fast.
     [Fact]
     public async Task MemberSourceInspection_RealRepositoryAuthoredResultIsDetached()
@@ -103,6 +127,43 @@ public sealed partial class AssemblyContextSourceQueryTests
         else
             Assert.Single(host.SymbolRequests, uri => uri.AbsolutePath.EndsWith(".snupkg"));
         Assert.Single(host.SourceRequests);
+    }
+
+    [Fact]
+    public async Task MemberSourceInspection_AuthoredOnlyDeclarationDoesNotDecompile()
+    {
+        TestAssembly assembly =
+            TestAssembly.Create(fixture: FixtureCatalog.SourceDiffV1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            "not the checksum-verified declaration"u8.ToArray());
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([assembly.Participant]);
+        AssemblyMemberSourceRequest request =
+            assembly.MemberRequest("Value", "Counter")
+                .WithoutDecompiledFallback();
+
+        InspectionEnvelope<AssemblyMemberSourceEntry> inspection =
+            await MemberSourceInspection.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<AssemblyMemberSourceEntry.Unavailable>(
+                inspection.Content);
+        Assert.False(unavailable.Request.IncludeAuthoredParts);
+        Assert.False(unavailable.Request.AllowDecompiledFallback);
+        Assert.Equal(
+            AssemblySourceFailureKind.AuthoredMemberUnavailable,
+            unavailable.Failure.Kind);
+        Assert.Null(unavailable.DecompiledAttempt);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumMismatch,
+            unavailable.PdbAttempt!.Outcome);
     }
 
     [Theory]

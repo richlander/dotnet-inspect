@@ -560,18 +560,36 @@ stable edge row, and occurrence-specific graph target. Browser validation
 requires exact coverage between those rows and the document's `call.edge`
 Findings; it never recovers identity from labels or source text.
 
-The Annotated Source modal consumes that sidecar as a **Relationships** edge
-table. It renders one row per physical call occurrence, so repeated source
-calls that share one stable logical edge remain separate rows. Each row exposes
-the typed call kind, loop state, stable edge row, the exact `call.edge`
-Finding opener, and explicitly named **Member** and **Source** actions over the
-typed target. Coordinate disclosure adds the method-relative IL offset. The
-table is independent of annotation membership: it is present whenever the
-relationship capability is available, while **All** remains the only way to
-draw relationship annotations at source locations. Available-empty means only
-that no direct relationships were projected for that exact body; unavailable
-retains its typed capability reason. The browser does not reacquire a graph,
-collapse physical occurrences, or reconstruct identity from presentation.
+The Annotated Source modal consumes that sidecar as a **Relationships**
+projection with **Table** and **Diagram** presentations. **Table** is the
+fresh-session default. It renders one row per physical call occurrence, so
+repeated source calls that share one stable logical edge remain separate rows.
+Each row exposes the typed call kind, loop state, stable edge row, the exact
+`call.edge` Finding opener, and explicitly named **Member** and **Source**
+actions over the typed target. Coordinate disclosure adds the method-relative
+IL offset.
+
+**Diagram** is an opt-in Browser lowering over those same validated rows. It
+renders the current body as the root and one visual edge per producer-issued
+stable edge row. Repeated physical occurrences may therefore share one visual
+edge, but the Browser retains every exact `factId`, discloses the occurrence
+count, and provides an explicit path back to the physical table rows. One
+stable edge may contain occurrence-specific typed targets with different
+assembly identities; the grouped edge therefore retains every distinct typed
+target and representative relationship index rather than choosing one.
+The diagram's companion entries expose explicitly named **Member** and
+**Source** actions for each retained target; SVG text and Mermaid node
+identifiers are presentation only and never become identity. Diagram
+activation performs no Call Graph query, Analysis acquisition, target-index
+build, or source open.
+
+Both presentations are independent of annotation membership: they are
+available whenever the relationship capability is available, while **All**
+remains the only way to draw relationship annotations at source locations.
+Available-empty means only that no direct relationships were projected for
+that exact body; unavailable retains its typed capability reason. The browser
+does not reacquire a graph, silently navigate from a visual edge or node,
+discard physical occurrences, or reconstruct identity from presentation.
 
 The Finding-census operation can also request focus-cycle inspection. It keeps
 the complete depth-one focus neighborhood required by the relationship
@@ -662,6 +680,71 @@ that the branch is semantically a fallback. The motivating real shape is the
 carries `path=error-path` and `escape=throw-path`; the typed sidecar removes the
 browser's need to parse that presentation string.
 
+Annotated Source can additionally compose a bounded positive path from the
+selected exact MethodDef to a same-module MethodDef containing an
+Analysis-proven local `throw new`. Research Queries supplies the selected
+MethodDef as the only
+[library-body root](library-body-root-paths.md), supplies exact local
+destinations whose `MethodLocalThrowEvidence` contains at least one known
+site, and requests deterministic shortest witnesses with fixed depth, node,
+edge, and retained-path limits. The operation reuses the member projection's
+one `LibraryBodyIndex`; it performs no second body acquisition, source open, or
+graph build.
+
+Each projected witness retains every physical `call.edge` fact for the
+Analysis-admitted `call`, `callvirt`, and `newobj` occurrences on its first
+logical edge, one typed call-graph target for every path step, and every known
+terminal local-throw site with its exception `TypeRef`, qualified TypeDef
+address, construction offset, constructor token, and physical `throw` offset.
+Function-pointer loads and indirect calls may share the relationship
+projection's stable edge row, but they neither begin the proven direct-call
+path nor enter its physical receipt set.
+The first-edge fact ids, not a rendered path or member label, attach the
+witness to source. Repeated physical calls therefore share the same logical
+shortest path without losing their separate source occurrences. A path that
+cannot map its first edge or one of its typed methods to the retained
+projection is omitted with an explicit correspondence boundary.
+
+The root-path operation retains at most one deterministic shortest witness for
+each root/destination pair. Equal-length alternatives are therefore not a
+per-first-edge census. When the operation retains a witness elsewhere but none
+begins with the selected relationship, Finding detail says only that no
+retained deterministic shortest witness begins there; it does not claim that
+no path through that relationship exists.
+
+Research supplies only Analysis-proven local-throw destinations. When none are
+available, it does not run a synthetic root/destination search: the receipt
+reports zero destinations and zero search work while independent Analysis,
+traversal, local-throw, and correspondence boundaries still constrain empty
+use.
+
+Completeness combines the Analysis root-path boundaries with local-throw
+coverage. Positive witnesses remain valid when either operation is incomplete.
+An inspected unresolved throw site, a relevant unavailable body, exhausted
+search work, unattributed generated execution, unresolved local call, Analysis
+diagnostic, or failed source correspondence prevents an empty result from
+becoming an absence claim. A method with no managed body is not a hidden local
+IL throw site; runtime override dispatch remains outside the direct-call
+contract. The viewer may state only that no path was observed within the
+available bounded evidence.
+
+The detail wording is deliberately not exception propagation. It says that the
+selected root has a bounded static direct-call path to a method containing a
+proven local construction-fed `throw`. It does not claim that the root or any
+intermediate method throws at runtime, that the terminal throw is reached or
+escapes its method, that an exception propagates to the root, or that a caller
+catch, filter, or fault intercepts it. It also makes no frequency, latency, or
+runtime-path claim. Calls, catch declarations, `rethrow`, exception
+construction without a consuming `throw`, unresolved throw operands, and
+same-looking foreign-module identities do not create positive witnesses.
+
+The motivating real asset is CoreLib's
+`ArgumentNullException.ThrowIfNull(object, string)`, which has no local throw
+but directly calls the internal `ArgumentNullException.Throw(string)` body
+that Analysis proves constructs and throws `ArgumentNullException`. The
+composition preserves that distinction: the path is positive, the selected
+root remains locally clean, and no propagation statement is synthesized.
+
 `MemberProjection_ComposesCallRelationshipsWithTheFindingCensus` gates the
 single operation shape, and
 `MemberFindingCensus_ProjectsExactCalleeEvidenceSource` gates production
@@ -671,8 +754,8 @@ Browser/Wasm transport alongside existing callee evidence.
 `MemberProjection_OmitsGeneratedBodyCycleWithoutFailingSourceCensus`, and
 `MemberFindingCensus_ProjectsExactMutualCycleWitness` gate the cycle identity,
 physical anchoring, ordered typed path, and production Browser/Wasm transport.
-This adoption does not yet transport ownership witnesses, add a relationship
-diagram, or reuse the separately requested full member Call Graph surface.
+This adoption does not transport ownership witnesses or reuse the separately
+requested full member Call Graph surface.
 `MemberProjection_ProjectsSynchronousTaskCompletionOperations` and
 `MemberFindingCensus_ProjectsSynchronousTaskCompletionOperation` gate the
 framework identity, physical `call.edge` join, Browser/Wasm transport, and
@@ -686,6 +769,13 @@ transport, and bounded no-runtime-claim presentation.
 `MemberFindingCensus_ProjectsAllocationExceptionPath` gate the typed allocation
 payload, exact source-Finding join, thrown-value versus handler distinction,
 Browser/Wasm transport, and branch-only close negative.
+`MemberProjection_ProjectsBoundedLocalThrowPaths` gates the CoreLib
+`ThrowIfNull` path, root-local negative, terminal type and offsets, exact
+first-edge physical receipts, deterministic shortest path, and visible
+Analysis/local-throw/correspondence boundaries.
+`MemberFindingCensus_ProjectsBoundedLocalThrowPath` gates Browser/Wasm
+transport, typed path targets and exception identity, static-evidence wording,
+and unchanged Analysis-build/source-open counts.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then

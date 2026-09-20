@@ -807,7 +807,7 @@ public static class WorkspacePortableCoordinateReplacement
             {
                 derived = BuildDerivedDefinitions(
                     mutation,
-                    completed.State.InstalledSnapshot);
+                    completed.State.CurrentSnapshot);
                 ValidateDerivedDefinitions(derived);
             }
             catch (Exception failure)

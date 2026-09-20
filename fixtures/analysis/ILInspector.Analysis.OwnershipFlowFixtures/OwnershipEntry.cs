@@ -287,6 +287,49 @@ public static class Entry
     {
     }
 
+    public static void RentAndReturnDirectly()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+
+    public static void RentTwoAndReturnDirectly()
+    {
+        byte[] first = ArrayPool<byte>.Shared.Rent(16);
+        byte[] second = ArrayPool<byte>.Shared.Rent(32);
+        ArrayPool<byte>.Shared.Return(first);
+        ArrayPool<byte>.Shared.Return(second);
+    }
+
+    public static byte[] RentAndReturnToCaller() =>
+        ArrayPool<byte>.Shared.Rent(16);
+
+    public static void RentAndStoreDirectly() =>
+        s_rentedArray = ArrayPool<byte>.Shared.Rent(16);
+
+    public static void ExerciseTwoResourceDomains()
+    {
+        byte[] first = AcquireFirstResource();
+        byte[] second = AcquireSecondResource();
+        ObserveTwoResources(first, second);
+    }
+
+    public static void RentAddressThenObserve()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        ReplaceRentedArray(ref buffer);
+        ObserveResource(buffer);
+    }
+
+    static byte[] AcquireFirstResource() => [];
+    static byte[] AcquireSecondResource() => [];
+    static void ObserveResource(byte[] resource)
+    {
+    }
+    static void ObserveTwoResources(byte[] first, byte[] second)
+    {
+    }
+
     sealed class OwnershipWorker
     {
         internal void Work()

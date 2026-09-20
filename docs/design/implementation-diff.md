@@ -274,11 +274,91 @@ recoverable per-method Analysis failure (surfaced as a receipt diagnostic)
 leaves a profile missing without distinguishing it from a genuine
 addition/removal, so any diagnostic on either endpoint makes the whole
 comparison unavailable rather than reporting a possibly-spurious
-Added/Removed row. The explicit CLI Implementation Diff section renders only
+Added/Removed row. Each retained change also carries the full paired
+`MethodImplementationProfile` (old/new, when available) behind its narrow
+complexity number - the same instruction, branch, switch, loop,
+exception-region, call, allocation, and async/state-machine facts Analysis
+already collects per method - so later comparison-population or clustering
+work can build directly on this paired evidence instead of re-deriving
+correspondence. The explicit CLI Implementation Diff section renders only
 non-unchanged complexity observations alongside its existing C#, IL, and PDB
 Source evidence lanes; broad PDB-source enrichment preserves an already
-computed complexity lane rather than resetting it to unavailable. Ranking,
-clustering, and quality shades remain later consumers.
+computed complexity lane rather than resetting it to unavailable. Quality
+shades remain a later consumer.
+
+Every change with a non-null `Delta` also carries an
+`ImplementationComplexityPopulationContext` (`PopulationSize`,
+`PercentileRank`): the percentage of the local comparison population (every
+change in the same request with a delta, across all its assemblies -
+regardless of `Kind`, including `Incomplete` rows) whose absolute delta is
+less than or equal to this change's own. This is deliberately the local,
+per-request population issue #7696 calls for in diff analysis ("local
+comparison populations"), not a corpus-wide distribution across a package or
+assembly family - that broader population belongs to the separate
+library-report initiative and is intentionally out of scope here. A higher
+percentile means a greater proportion of the population has an absolute delta
+less than or equal to this change's own. It does not by itself identify an
+unusual change: when all absolute deltas are equal, every change has a
+percentile of 100. A small `PopulationSize` (for example 1-2) also limits the
+context the value provides.
+
+Every complete, unambiguous before/after profile pair also carries a structural
+change vector over seven deliberately non-overlapping or user-distinct
+dimensions: instruction count, normal-flow cyclomatic complexity, loop count,
+exception-region count, direct-call count, allocation count, and async
+state-machine presence. Exception-region count is the sum of catch, filter,
+finally, and fault regions; the retained profiles preserve those constituent
+facts. Cyclomatic complexity represents ordinary branching and switches, so
+correlated branch, switch, basic-block, IL-byte, and opcode counts do not add
+extra dimensions to the first vector.
+
+The vector retains each signed numeric delta. Its structural change signature
+reduces each dimension only to Decreased, Unchanged, or Increased. Exact
+signature equality partitions the local population of complete, unambiguous
+profile pairs into deterministic direction cohorts. Each eligible change
+carries the complete population size and the size of its own cohort. The
+population includes the all-Unchanged signature because that cohort is useful
+context for how sparse structural movement is. Added, Removed, incomplete, and
+ambiguous pairs receive no vector or cohort context.
+
+This first clustering step deliberately groups direction rather than magnitude.
+Two changes can share a cohort while retaining different numeric deltas. Cohort
+size is an exact local frequency, not an outlier probability or quality shade;
+a singleton says only that no other eligible method changed in the same
+directions. This avoids arbitrary weights, normalization, distance thresholds,
+and small-population statistics while keeping every partition explainable from
+the retained Analysis facts. NDepend's per-method metric and threshold
+presentation motivates preserving metric-level evidence, but its source-level
+constructs, fixed thresholds, and maintainability conclusions do not transfer
+to this compiled-IL diff contract.
+
+The Research result and the explicit CLI `Structural Context` section form the
+two-slice production path tracked by issue #7696. `Structural Context` reuses
+`ImplementationComparisonQuery`, remains outside `@Diff` and default
+disclosure, and renders every eligible complete, unambiguous pair, including
+the all-Unchanged cohort. It exposes each signed vector dimension, its seven
+direction fields, population size, cohort size, and a stable
+`research.complexity.structural-cohort` Kind. Dedicated typed fields make the
+cohort criteria queryable without parsing display or Evidence text. As with
+the Research result, a singleton cohort is not an outlier or quality judgment.
+The same host-neutral result remains available to a future browser consumer
+without reimplementing cohort assignment.
+
+The exact-name `Complexity Context` section projects non-unchanged complexity
+observations as a focused table with nullable numeric `Old`, `New`, `Delta`,
+`Population Size`, and `Percentile Rank` fields. Added, Removed, and one-sided
+Incomplete rows have no delta or population context. The denominator still
+includes every delta-bearing observation in the request, including Unchanged
+and two-sided Incomplete observations that the focused table may not display.
+Structured projection therefore exposes dedicated fields instead of requiring
+consumers to parse `Evidence`.
+
+`Complexity Context` reuses `ImplementationComparisonQuery` and remains
+standalone: it is outside the `@Diff` composition and automatic/default
+disclosure, and it does not invoke Implementation Diff's optional PDB-source
+or workspace/decompiler lanes. This avoids adding mostly empty population
+columns to the mixed C#/IL/PDB Source Implementation Diff table while keeping
+the same Research-owned correspondence and population contract.
 
 Each Implementation Diff row carries a `Kind` facet alongside its human-readable
 `Mechanism`/`Difference` display strings: a `FindingDescriptor`-style dotted id

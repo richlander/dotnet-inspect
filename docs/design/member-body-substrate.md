@@ -262,8 +262,9 @@ The convention is ordinary C# getter-only automatic-property syntax, as
 described by the [C# auto-property guide][automatic-properties]. The repository's
 whole-property composition is the analogous implementation; selected-member
 composition deliberately does not invent a setter to make a mutable field
-look automatic. Mutable/init properties, non-trivial field-backed bodies,
-unsafe storage, and unproven shapes retain the prior method representation.
+look automatic. Mutable/init properties, unsafe storage, and unproven shapes
+retain the prior method representation. Non-trivial getter-only field expressions
+have the separate binding contract below.
 Issue #7748 tracks those remaining storage/binding slices.
 
 The materialized decision belongs to member composition, not the body printer.
@@ -279,7 +280,7 @@ compiles unchanged product-owned projections in Release and checks that each
 getter has its own readonly storage and no invented setter. Compiler-produced
 instance, static, generic, struct, virtual/override and keyword-name neighbors
 exercise that gate. `UnsupportedBackingStorageRetainsMethodForm` gates the
-mutable/init, computed-body and field-attribute boundaries.
+mutable/init and field-attribute boundaries.
 `AutomaticGetterRetainsAccessorAttributes` gates attribute attachment.
 `ExplicitAutomaticGetterKeepsItsInterfaceBinding` compiles the interface
 implementation. `AutomaticGetterRequiresItsOwnReadonlyGenericStorage` supplies
@@ -299,6 +300,136 @@ property is a falsifier. Native compile-back evidence is measured separately
 from these source-artifact and binding gates.
 
 [automatic-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/auto-implemented-properties
+
+### Getter-only field expressions
+
+Selected composition may retain a non-trivial getter body while expressing its
+own compiler backing-storage reads with C#'s accessor-scoped `field` keyword.
+This is a binding decision, not a substitution over rendered source. The
+physical getter remains the selection and body-evidence identity.
+
+The motivating published witness is **docopt.net 0.8.3**,
+`DocoptNet.Internals.ReadOnlyList<T>.List`, a private property on a readonly
+struct. Its [release source][docopt-field-getter] reads
+`IList<T> List { get => field ?? Array.Empty<T>(); } = list;`.
+The `netstandard2.1` getter reads its own field, tests null and calls
+`Array.Empty<T>()` only on the null path; its constructor performs initialization
+separately. The property projection does not reconstruct that initializer.
+
+The supported lowering is an ordinary C# 14 getter-only field-backed property
+compiled in Release. Its complete body reads the exact private compiler field
+at the declaring type's own instantiation, through the current receiver or as
+static storage. A field-bodied getter normally has mutable storage even when
+the getter only reads it; `get;` would incorrectly invent readonly storage.
+Readonly instance storage is supported only in a readonly containing struct,
+where C# preserves that storage contract.
+
+The language convention is C#'s [field-backed property syntax][field-properties].
+The existing automatic-storage proof above supplies the analogous exact-field
+association and declaration composition; the non-trivial subset deliberately
+retains the computation instead of folding it to `get;`.
+
+The replacement consumes no blocks, edges, or sibling methods. Every admitted
+storage read retains its typed field, receiver, and IL provenance; the shared
+composition owner materializes its accessor binding before raising. The printer
+spells the materialized binding without recognizing storage or accessor names.
+Composition also establishes the accessor's `field` binding as reserved in the
+body's lexical scope. Existing type-qualifier disambiguation must preserve a
+helper type named `field` rather than capture it as the backing value. This
+uses global qualification for concrete types and contextual escaping for a type
+parameter, which has no globally qualified form. This scope does not apply to
+independently imported body-only documents.
+Unchanged arithmetic and branches remain the responsibility of the existing
+body pipeline. Body-only documents do not opt into this declaration-scoped
+spelling. A body consumer that constructs the owning property may explicitly
+pass its selected-property descriptor to typed body production, applying the
+same binding before raising. Selected composition separately materializes the
+complete automatic-getter body proof: a compiler marker alone cannot authorize
+discarding a computed body in favor of `get;`. That body proof requires the
+complete trivial getter, exact private compiler field, matching staticness,
+readonly storage and own ordered generic instantiation. Selected-source
+declaration eligibility is a separate question: its unsafe-signature, storage
+layout, field-flag and attribute restrictions do not change the body decision.
+Native reconstruction retains its existing automatic getter-body handling when
+the native shell can represent the declaration, including pointer and function-
+pointer automatic properties. This does not expand selected-source recovery or
+claim reconstruction of custom field attributes or explicit storage layout.
+
+Native compile-back adopts this explicit context for the selected getter under
+both Selected and Full body policies. It consumes the shared storage and
+automatic-getter proofs; it does not recognize backing fields or rewrite source
+to implement this binding. Its owning property shell remains a CSharp product
+artifact. This adoption fixes the compiler-marked `get => field + 1` case that
+previously lost its addition, and the published docopt getter that previously
+called its own property instead of reading storage. It does not expand proof
+eligibility, reconstruct initializers, or change non-target closure-body policy.
+The containing shell consumes the existing readonly type and field metadata
+facts: a readonly struct cannot become an ordinary struct without changing the
+compiler-generated field flags. A bound accessor load does not request a
+separate field declaration from native closure planning; C# synthesizes that
+storage as part of the property.
+
+Stores, addresses, other field targets or receivers, foreign generic storage,
+nested functions, exception regions, unsupported field signatures/attributes,
+and conflicting `field` local bindings decline to the prior method form.
+This slice does not reconstruct lazy initialization, constructors, mutable/init
+properties, or sibling accessors. Issue #7748 retains those follow-ups.
+
+The one adoption slice covers the CLI's four C# views and the shared member
+producer consumed by Source Diff and Browser/Wasm. Existing CSharp declaration,
+CSharpText layout, and Markout presentation boundaries remain unchanged.
+`SelectedPropertySourceTests.ComputedGetterPreservesItsFieldAndComputation`
+compiles unchanged product projections and checks the resulting storage contract.
+Its arithmetic cases also compare getter opcodes and non-field operands against
+the inspected input. Compiler-produced branches, checked arithmetic, repeated
+reads, generic/static storage, readonly structs, overrides, explicit interface
+implementation and accessor attributes exercise the supported boundary.
+`FieldGetterRequiresOnlyOrdinaryReadsOfItsOwnStorage` gates other receivers,
+addresses, volatile reads, additional fields and incompatible readonly storage.
+`FieldNamedPdbLocalRetainsMethodForm` covers the contextual-keyword collision.
+`FieldKeywordTypeQualifierKeepsItsStaticCallTarget` compiles unchanged product
+artifacts and compares resolved call targets and getter instructions. Its
+static helper has a same-named instance-method neighbor: compilation success
+alone would accept a changed callee. Integer, static-property, generic-type and
+constrained type-parameter neighbors cover the adjacent qualifier forms.
+`PublishedDocoptGetterKeepsItsFieldAndNullFallback` exercises the pinned published
+`netstandard2.1` image, acquired at restore time rather than over the network
+during the test. It gates selected declaration/body spelling, not whole-type
+compile-back or constructor recovery.
+The existing exact-field/generic-instantiation and custom-modifier gates also
+exercise non-trivial getters. Unsupported writes, lazy initialization, sibling
+accessors, nested functions and exception regions retain method form.
+The CLI `SelectedProperty_FieldGetterKeepsItsComputationAcrossCSharpViews` and
+`SelectedProperty_FieldBindingDoesNotReachBodyOnlyDocument` gates cover the four
+declaration views and the independent body-document lens.
+`MemberSourceInspection_SelectedFieldGetterUsesSharedStorageComposition` gates
+the completed Source operation consumed by Browser/Wasm, not a browser session.
+The Browser Source export retains the selected MethodDef when Metadata projects
+an accessor from its owning API row; it does not select a default getter or
+expand a sibling. `BrowserSourceComparisonOperationTests.MemberSourceExport_PreservesSelectedAccessor`
+gates the actual managed export for computed and automatic getters, the still-
+lowered writing getter, and a setter-only neighbor.
+These focused cases are PR-fast; native and population comparisons remain
+separate pre-merge evidence.
+Losing a getter operation, changing the field target or flags, introducing
+recursion, or printing `field` outside its property envelope falsifies the claim.
+Native compile-back remains a separate evidence lens.
+`MemberBodyProducerTypedBodyTests.ProduceBody_OptsIntoProvenGetterStorageOnlyWithPropertyContext`
+gates explicit body binding and unchanged independent production.
+`ReturnToSenderPrototypeTests.NativeGetterRetainsItsStorageAndComputation`
+and `PublishedDocoptNativeGetterRetainsItsStorageAndNullFallback` run native
+reconstruction with repair floors disabled, comparing complete getter opcodes,
+resolved operands and storage flags in the emitted artifact. They inherit the
+native suite's Slow classification and run as focused pre-merge evidence.
+`NativeAutomaticGetterPreservesBodyWhenSelectedDeclarationDeclines` covers
+instance/static pointer and function-pointer automatic properties plus an
+explicit-layout integer neighbor in the C# legacy-rules compiler fixture.
+`ProduceBody_TrivialGetterProofIsIndependentOfSelectedDeclarationEligibility`
+keeps the corresponding selected-source declines while retaining the complete
+automatic-body decision.
+
+[field-properties]: https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/field
+[docopt-field-getter]: https://github.com/docopt/docopt.net/blob/c83c86c0ea285c79d5c68611d4530dbe03da6476/src/DocoptNet/Internals/ReadOnlyList.cs#L25-L32
 
 ## Address: identity, not an ordinal
 

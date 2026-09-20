@@ -25,8 +25,9 @@ with structured evidence, separate candidate and match bounds, retained
 Head/Tail/Window stages, visible failures, and typed completion. The route
 registers the Package result grain and complete default Query Profile once.
 `PackageQuery.RegisteredTerms` projects its effective terms and operators for
-both hosts, while `PackageQuery.ResolveIntent` resolves every complete intent
-through the same profile-scoped route.
+both hosts, including each term's acquisition tier and execution class, while
+`PackageQuery.ResolveIntent` resolves every complete intent through the same
+profile-scoped route.
 The host-neutral `PackageQueryInspection` composition in
 `DotnetInspector.Sections` is the sole enumerator of Package Query execution.
 It publishes `PackageQueryEvent.Nonterminal` values through an optional
@@ -51,10 +52,10 @@ Package-content evaluation is product-gated to at most 20 candidates.
 canary.
 
 CLI and Browser now consume the same first production vocabulary:
-`dependencies=none`, `dependency-target=all|<tfm>`,
+`dependencies=none|cross-prefix`, `dependency-target=all|<tfm>`,
 `depends=<package-id>`, `downloads=10k|100k|1m`,
 `license=any|MIT|OSMF`, `readme=true`, `tool=true`, `tool-format=v1|v2`, and
-`skill=true`.
+`references=<simple-assembly-name>` and `skill=true`.
 `package=<id>`, `prefix=<literal-prefix>`, and
 `prerelease=stable|include` are structural terms authored by the shared input
 planner rather than host-visible inspection controls. Assembly-semantic
@@ -134,18 +135,32 @@ one complete `PortableQueryIntent` containing:
 
 The production inspection vocabulary is:
 
-| Term | Value | Tier | Meaning |
-| --- | --- | --- | --- |
-| `dependencies` | `none` | nuspec | No declared dependencies in the selected dependency scope |
-| `dependency-target` | `all` or NuGet TFM | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID | nuspec | Direct dependency declared in the selected dependency scope |
-| `depends-ecosystem` | canonical ecosystem ID | nuspec | Direct dependency belonging to the ecosystem's registered package population |
-| `downloads` | `10k`, `100k`, or `1m` | search metadata | Lifetime downloads meet the closed threshold |
-| `license` | `any`, `MIT`, or `OSMF` | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
-| `readme` | `true` | nuspec | The manifest declares an embedded README |
-| `tool` | `true` | nuspec | The manifest declares the .NET tool package type |
-| `tool-format` | `v1` or `v2` | package content | Tool settings use the selected format |
-| `skill` | `true` | package content | The archive contains an admitted skill document |
+| Term | Value | Acquisition | Execution class | Meaning |
+| --- | --- | --- | --- | --- |
+| `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
+| `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
+| `depends` | NuGet package ID | nuspec | nuspec | Direct dependency declared in the selected dependency scope |
+| `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
+| `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
+| `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
+| `readme` | `true` | nuspec | nuspec | The manifest declares an embedded README |
+| `tool` | `true` | nuspec | nuspec | The manifest declares the .NET tool package type |
+| `tool-format` | `v1` or `v2` | package content | package content | Tool settings use the selected format |
+| `references` | Assembly simple name | package content | metadata | At least one admitted managed `ref/` or `lib/` asset declares the requested `AssemblyRef` simple name |
+| `skill` | `true` | package content | package content | The archive contains an admitted skill document |
+
+Acquisition tier authorizes evidence access and enforces candidate bounds.
+Execution class is the product-owned discovery and UI taxonomy for the work
+performed after that evidence is available. They intentionally differ for
+`references`: the term downloads a package archive but performs managed
+metadata inspection. The complete class vocabulary is `search-metadata`,
+`nuspec`, `nuspec-expensive`, `package-content`, `metadata`, and
+`metadata-expensive`. No current term uses either expensive class; transitive
+nuspec search and call-graph or decompiler-driven metadata search remain future
+explicit work rather than behavior implied by this vocabulary.
+Execution class is descriptor metadata, not a Query Operation effect: it does
+not authorize acquisition, change planning, or substitute for a concrete work
+bound.
 
 All terms admit equality only. Independent terms AND. Repeated
 `tool-format` values OR within their combining family; `tool=true` is
@@ -221,6 +236,45 @@ requires at least one `depends`, `depends-ecosystem`, or `dependencies` term,
 applies to all such terms in the query, and does not traverse, resolve version
 ranges, or select package assets.
 
+`dependencies=cross-prefix` derives each package's comparison segment from the
+text before its first dot, or from the complete ID when no dot is present. It
+matches when the selected dependency scope contains at least one direct
+declaration whose segment differs under case-insensitive NuGet package-ID
+comparison. Evidence retains the complete matching declaration count and
+bounded previews of manifest group, dependency ID, and declared range. The term
+does not use the query population prefix, traverse dependencies, resolve
+version ranges, inspect owners, or acquire package content. `Azure.Core` is a
+motivating real package: its `Azure.*` declarations remain inside the segment
+while `Microsoft.*` declarations are cross-prefix.
+
+`references=<simple-assembly-name>` uses ordinal case-insensitive equality over
+the `AssemblyRef` simple names declared by every admitted managed `ref/` and
+`lib/` assembly in every package target-framework group. It does not resolve
+the reference, compare version, culture, or public-key token, traverse a
+dependency graph, or inspect method bodies. Product evidence counts every
+matching asset/reference occurrence and previews at most three values naming
+target framework, archive path, and the observed reference spelling.
+Framework-group admission uses NuGet framework-folder identity, including
+legacy groups such as `portable-*`, rather than the compile selector's
+compatibility policy.
+Incomplete metadata in any admitted library makes that candidate a visible
+package-content evaluation failure because neither a complete count nor a
+truthful negative answer remains available.
+
+The assembly-reference inventory admits at most 256 library assets and 16,384
+total `AssemblyRef` rows per package. Each library entry is bounded to 16 MiB,
+and total library-image bytes are bounded to 32 MiB per package. Exceeding any
+bound is a visible package-content evaluation failure, never a partial match.
+`Microsoft.Extensions.Http@10.0.0` is the motivating real package: its
+`net10.0` and `net462` library assemblies both reference
+`Microsoft.Extensions.DependencyInjection.Abstractions` while exposing
+different surrounding reference sets.
+
+`depends-prefix` is not defined by this slice. That spelling remains available
+for a future absolute query such as `depends-prefix=Microsoft.Extensions`,
+which asks a different question from the candidate-relative
+`dependencies=cross-prefix` classification.
+
 ## Adaptive result section
 
 Package Query settles package population before choosing its default rendered
@@ -267,19 +321,24 @@ identify the license. The raw declaration remains provenance and supplies the
 separate package-file inventory; explicit `--print` on that section may read
 the selected document in the same way as README and SKILL projections.
 
-Selecting `tool-format` or `skill` explicitly authorizes archive acquisition.
+Selecting `tool-format`, `references`, or `skill` explicitly authorizes archive
+acquisition.
 Such a query defaults the candidate budget to 20 and cannot bypass the
 20-candidate ceiling. `--nuspec-only` rejects it before acquisition.
 `downloads` is evaluated from source search metadata and does not force a
 manifest request. Nuspec terms acquire manifests but no package archive;
-manifest predicates run before archive acquisition.
+manifest predicates run before archive acquisition. CLI `-Q` projects the
+execution class beside every Package Query facet; it does not infer that class
+from acquisition behavior.
 
 `PackageQueryTests` gates vocabulary shape, complete intent retention,
 resolution, dependency-target default and canonical binding, compatible group
-selection, selected-empty/no-groups/no-match behavior, license identity,
-candidate/match completion, and the search-metadata/no-manifest boundary. Its
-license cases gate `any`, exact SPDX identity, the `OSMFEULA.*` nuspec filename
-pattern, and zero package-content acquisition. `PackageQueryCliTests` gates
+selection, selected-empty/no-groups/no-match behavior, evidence,
+candidate/match completion, assembly-reference matching and malformed-image
+failure against the pinned `Microsoft.Extensions.Http@10.0.0` assets, and the
+search-metadata/no-manifest boundary. Its license cases gate `any`, exact SPDX
+identity, the `OSMFEULA.*` nuspec filename pattern, and zero package-content
+acquisition. `PackageQueryCliTests` gates
 discovery, term spelling, Head/Count behavior, acquisition authorization, and
 output parity.
 
@@ -388,6 +447,8 @@ The CLI binding is gated by `PackageQueryCliTests`:
 `OutputModes_UseTheSameWindowedMatches` gate semantic row shape;
 `ContentProvider_UsesAdmittedArchiveAndDisposesTransport` exercises the
 production provider over an admitted archive and a rejected archive;
+`ReferencesTerm_ExecutesThroughTheCliContentProvider` gates assembly-reference
+matching and evidence through that same CLI provider;
 `ContentProvider_RetainsAuthorityStorageThroughUseAndThenCleansIt` gates the
 temporary storage lifetime;
 `PartialManifestFailure_RetainsMatchesAndNonzeroExit`,
@@ -403,8 +464,9 @@ term engine to ask whether an exact package or packages under a literal prefix
 satisfy selected product-owned facts available from source metadata, exact
 manifests, or an explicitly supplied package archive. `find` remains the
 type/member/API verb; its package prefix option only scopes a patterned API
-search. The promoted tier for facts that require opening an assembly remains
-separate under #6767.
+search. Assembly-semantic literal evaluation remains a separate explicit
+operation under #6767; bounded `AssemblyRef` metadata is an ordinary
+package-content term.
 This document defines where those pieces belong across the existing L1/L2/L3
 split, rather than treating the CLI project as a place to accumulate new
 bespoke logic the way it did before that split existed.
@@ -659,8 +721,8 @@ product-issued keys and values and do not reconstruct those predicates:
 - **`nuspec` tier.** `dependencies`, `depends`, `readme`, and `tool` consume
   exact manifest facts. The broad `tool=true` predicate stops at the declared
   package type; it does not open the archive merely to classify tool settings.
-- **`package-content` tier.** `tool-format` and `skill` require an explicit
-  `IPackageQueryContentProvider` and accept at most 20 candidates.
+- **`package-content` tier.** `tool-format`, `references`, and `skill` require
+  an explicit `IPackageQueryContentProvider` and accept at most 20 candidates.
   `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
   combining members, so selecting both returns either recognized settings
   format with evidence identifying the observed version.
@@ -885,6 +947,11 @@ the product's named terms as canonical for both hosts.
    plan. The opaque facet channel is removed from CLI and Browser requests;
    both hosts project the same descriptors and preserve the same execution,
    evidence, and acquisition rules.
+10. **Assembly-reference term — implemented by #7618.** `references` applies
+    bounded SRM-only `AssemblyRef` inspection across all admitted managed
+    `ref/` and `lib/` framework groups. CLI and Browser project the same free
+    term, package-grain match, count-plus-preview evidence, and visible
+    package-content failures.
 
 Each step should name its own gating tests as it lands, per this project's
 "asserted properties name their gate" rule — this document is not itself a

@@ -51,7 +51,8 @@ internal static class LibraryApiDiffOutput
                     DiffViewText.Field($"Diff: {name}"),
                     DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
                     DiffViewText.Field(reason),
-                    null, null, null, null, null,
+                    null, null, null, null, null, null, null,
+                    null, null,
                     failures.Count == 0 ? null : DiffViewText.Prose(reason))
                 {
                     InspectionFailures = failures.Count == 0 ? null : failures,

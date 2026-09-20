@@ -63,14 +63,20 @@ public class QueryDiscoveryTests
         Assert.Equal("integer", rootReach.GetProperty("value_kind").GetString());
     }
 
-    [Fact]
-    public async Task GraphLibrariesQuery_ExposesClusterWithoutAcquiringPair()
+    [Theory]
+    [InlineData("Consumer Use Sites")]
+    [InlineData("Provider API Types")]
+    [InlineData("Direct Use Clusters")]
+    [InlineData("Call Sites")]
+    [InlineData("Public Root Paths")]
+    public async Task GraphLibrariesQuery_ExposesInheritedClusterWithoutAcquiringPair(
+        string sectionName)
     {
         var result = await Run(
             "graph",
             "libraries",
             "-Q",
-            "Call Sites",
+            sectionName,
             "--json");
 
         Assert.Equal(0, result.ExitCode);
@@ -79,7 +85,7 @@ public class QueryDiscoveryTests
         JsonElement section = Assert.Single(
             json.RootElement.GetProperty("sections").EnumerateArray());
         Assert.Equal(
-            "Call Sites",
+            sectionName,
             section.GetProperty("section").GetString());
         JsonElement cluster = Assert.Single(
             section.GetProperty("facets").EnumerateArray());
@@ -104,7 +110,7 @@ public class QueryDiscoveryTests
             "graph",
             "libraries",
             "-S",
-            "Query: Call Sites",
+            $"Query: {sectionName}",
             "--json");
         Assert.Equal(0, companion.ExitCode);
         Assert.Empty(companion.Error);
@@ -363,6 +369,15 @@ public class QueryDiscoveryTests
             ["v1", "v2"],
             toolFormat.GetProperty("values").EnumerateArray()
                 .Select(value => value.GetString()));
+        Assert.Equal(
+            "package-content",
+            toolFormat.GetProperty("execution_class").GetString());
+        Assert.Equal(
+            "metadata",
+            facets.Single(facet =>
+                facet.GetProperty("name").GetString()
+                    == PackageQuery.ReferencesTermKey)
+                .GetProperty("execution_class").GetString());
         Assert.Equal(
             "NuGet package ID",
             facets.Single(facet =>

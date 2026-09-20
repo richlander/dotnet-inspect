@@ -18,6 +18,7 @@ using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.SourceSelection;
 using Markout;
 using System.Diagnostics;
 using System.Globalization;
@@ -26,6 +27,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InertText;
+using Inspector.Findings;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -123,8 +125,18 @@ public partial class LibraryCommand
 
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
+        if (!LibrarySourceAdapter.TryBind(
+                options,
+                out LibrarySourceBinding? source,
+                out string? sourceError))
+        {
+            CommandError.Write(sourceError!);
+            return 1;
+        }
+
+        options = source!.ApplyTo(options);
         if (!options.Trace)
-            return await ExecuteCoreAsync(options, trace: null);
+            return await ExecuteCoreAsync(options, source, trace: null);
 
         // Rendered in a finally so a failed run still reports the work it did before failing —
         // which is exactly when "what did this actually scan?" is worth knowing.
@@ -137,16 +149,12 @@ public partial class LibraryCommand
                     : "library"),
             Target = new InertString(
                 TextPolicy.Field,
-                Path.GetFileName(
-                    options.AssemblyName
-                        ?? options.PackagePath
-                        ?? options.PlatformAssembly
-                        ?? string.Empty)),
+                source.Target),
         };
 
         try
         {
-            return await ExecuteCoreAsync(options, trace);
+            return await ExecuteCoreAsync(options, source, trace);
         }
         finally
         {
@@ -181,7 +189,10 @@ public partial class LibraryCommand
                 : options;
     }
 
-    private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
+    private static async Task<int> ExecuteCoreAsync(
+        LibraryOptions options,
+        LibrarySourceBinding source,
+        InspectionTrace? trace)
     {
         if (options.IntegrationQuery.HasFilter
             && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
@@ -201,7 +212,7 @@ public partial class LibraryCommand
                 "Integration ecosystem queries support section rows, columns, and counts, not coordinate or extraction operations.");
             return 1;
         }
-        var assemblyPath = options.AssemblyName;
+        var assemblyPath = source.AssemblyName;
         var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
@@ -209,9 +220,7 @@ public partial class LibraryCommand
         var groupQueryCatalog = catalog.GroupQueryCatalog;
 
         var schemaMap = CreateStructuralSchema();
-        bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
-            || !string.IsNullOrEmpty(options.PackagePath)
-            || !string.IsNullOrEmpty(options.PlatformAssembly);
+        bool hasInputSource = source.Selector is not null;
 
         // Hex table aliases are resolved before anything reads a selector — including the static
         // discovery return below — so every consumer of Select/Discover sees canonical names. That
@@ -498,12 +507,23 @@ public partial class LibraryCommand
 
         if (options.JsonOutput
             && !options.Count
-            && options.IncludeSections?
-                .Contains(SectionNames.ImplementationProfiles) == true)
+            && options.IncludeSections is { Count: > 0 }
+            && !LibraryOutputCapabilities.Catalog.Supports(
+                OutputMode.Json,
+                options.IncludeSections))
         {
-            CommandError.Write(
-                "Document --json cannot represent Implementation Profiles analysis. "
-                + "Use --jsonl, --tsv, or --table.");
+            if (options.IncludeSections.Contains(
+                    SectionNames.ImplementationProfiles))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Implementation Profiles analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+            }
+            else
+            {
+                CommandError.Write(
+                    "Document --json with Reference Hierarchy requires that section to be selected alone.");
+            }
             return 1;
         }
 
@@ -529,9 +549,9 @@ public partial class LibraryCommand
 
         if (options.Tree && options.Discover == null)
         {
-            if (options.IncludeSections is not { Count: 1 }
-                || !options.IncludeSections.Contains(
-                    SectionNames.ReferenceHierarchy))
+            if (!LibraryOutputCapabilities.Catalog.Supports(
+                    OutputMode.Tree,
+                    options.IncludeSections))
             {
                 CommandError.Write(
                     options.IncludeSections is { Count: 1 }
@@ -541,6 +561,22 @@ public partial class LibraryCommand
                         : "--tree requires exactly '-S \"Reference Hierarchy\"'.");
                 return 1;
             }
+        }
+
+        if (options.Format == OutputFormat.Mermaid
+            && options.Discover == null
+            && !options.Count
+            && !LibraryOutputCapabilities.Catalog.Supports(
+                OutputMode.Mermaid,
+                options.IncludeSections))
+        {
+            CommandError.Write(
+                options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(
+                    SectionNames.References)
+                    ? "References is direct evidence and has no Mermaid topology. Use '-S \"Reference Hierarchy\" --mermaid'."
+                    : "--mermaid requires exactly '-S \"Reference Hierarchy\"'.");
+            return 1;
         }
 
         if (options.Tree && options.Discover == null)
@@ -576,14 +612,6 @@ public partial class LibraryCommand
         {
             CommandError.Write(
                 "--columns/--fields with Reference Hierarchy requires that section to be selected alone.");
-            return 1;
-        }
-        if (referenceHierarchySelected
-            && options.JsonOutput
-            && options.IncludeSections is { Count: > 1 })
-        {
-            CommandError.Write(
-                "Document --json with Reference Hierarchy requires that section to be selected alone.");
             return 1;
         }
         if (referenceHierarchySelected
@@ -745,7 +773,12 @@ public partial class LibraryCommand
         if (options.Discover == null
             && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(
-                options.TabularExplicitlySet, options.IncludeSections))
+                options.TabularExplicitlySet,
+                options.IncludeSections,
+                sections =>
+                    LibraryOutputCapabilities.Catalog.Supports(
+                        OutputMode.Table,
+                        sections)))
             return 1;
 
         // Warn if tabular output is combined with detailed verbosity without section selector
@@ -823,9 +856,7 @@ public partial class LibraryCommand
         }
 
         // Check for valid input source
-        if (string.IsNullOrEmpty(assemblyPath) &&
-            string.IsNullOrEmpty(options.PackagePath) &&
-            string.IsNullOrEmpty(options.PlatformAssembly))
+        if (source.Selector is null)
         {
             CommandError.Write("Library path, package name, or --platform required.");
             CommandError.WriteLine("Run 'dotnet-inspect library --help' for usage.");
@@ -838,18 +869,14 @@ public partial class LibraryCommand
 
         try
         {
-            // Parse package name and version for symbol package download
             string? packageName = null;
             string? packageVersion = null;
-            if (!string.IsNullOrEmpty(options.PackagePath))
-            {
-                (packageName, packageVersion) = PackageExtractor.ParsePackageReference(options.PackagePath);
-            }
 
-            if (!string.IsNullOrEmpty(options.PlatformAssembly))
+            if (source.Selector
+                is SourceSelector.PlatformLibrary platform)
             {
                 var (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    options.PlatformAssembly,
+                    platform.Name,
                     context.HttpClient,
                     logger.Log,
                     options.PlatformFramework,
@@ -993,6 +1020,8 @@ public partial class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
+                if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1018,11 +1047,14 @@ public partial class LibraryCommand
                         pipeline,
                         inspection));
             }
-            else if (!string.IsNullOrEmpty(options.PackagePath))
+            else if (source.Selector
+                is SourceSelector.PackageSource)
             {
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
-                    assemblyPath, options.PackagePath, options.Tfm,
+                    assemblyPath,
+                    source.PackageTarget!,
+                    options.Tfm,
                     options.SourceOptions, options.IncludePrerelease, logger, context.HttpClient);
                 if (extractResult == null)
                 {
@@ -1232,6 +1264,13 @@ public partial class LibraryCommand
                                 inspectedContentHash,
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
+                if (inspections.Count == 1
+                    && !TrySelectAssemblyReferences(
+                        inspections[0],
+                        options.ReferenceRowSelection))
+                {
+                    return 1;
+                }
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -1420,6 +1459,8 @@ public partial class LibraryCommand
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
+                if (!TrySelectAssemblyReferences(inspection, options.ReferenceRowSelection))
+                    return 1;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -1731,7 +1772,21 @@ public partial class LibraryCommand
             population.Records;
 
         var rows = new List<ILCoordinateBatchRow>();
-        using var service = subject.OpenSourceLink(logger.Log);
+        var analysisOptions = options with
+        {
+            IncludeSections = sections,
+        };
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(analysisOptions),
+            logger.Log);
+        ILOffsetAnalysisPreparation analysis =
+            ILOffsetQuery.PrepareAnalysis(
+                service,
+                analysisOptions,
+                records
+                    .OfType<
+                        ILCoordinatePopulationRecord.Coordinate>()
+                    .Select(record => record.MethodToken));
         foreach (ILCoordinatePopulationRecord record in records)
         {
             if (record is ILCoordinatePopulationRecord.Malformed malformed)
@@ -1758,7 +1813,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 options,
                 httpClient,
-                logger);
+                logger,
+                analysis: analysis);
             rows.Add(resolved.Result is { } result
                 ? BuildILCoordinateBatchRow(coordinate, result)
                 : new ILCoordinateBatchRow(
@@ -1830,7 +1886,8 @@ public partial class LibraryCommand
         LibraryOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool allowNonBoundaryContextAbsence = false)
+        bool allowNonBoundaryContextAbsence = false,
+        ILOffsetAnalysisPreparation? analysis = null)
     {
         var queryOptions = options with
         {
@@ -1856,7 +1913,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 queryOptions,
                 httpClient,
-                logger)
+                logger,
+                analysis)
             : ILOffsetQuery.ResolveBatchAsync(
                 service,
                 packageName,
@@ -1864,7 +1922,8 @@ public partial class LibraryCommand
                 isPlatformAssembly,
                 queryOptions,
                 httpClient,
-                logger);
+                logger,
+                analysis);
     }
 
     private static ILCoordinateBatchRow BuildILCoordinateBatchRow(
@@ -2225,6 +2284,46 @@ public partial class LibraryCommand
         };
     }
 
+    private static bool TrySelectAssemblyReferences(
+        LibraryInspection inspection,
+        RowSelectionIntent<string>? intent)
+    {
+        if (intent is null
+            || inspection.AssemblyReferenceInspection?.Value
+                is not FindingInspection<AssemblyReference>.Complete complete)
+        {
+            return true;
+        }
+
+        AssemblyReference[] references =
+        [
+            .. complete.Findings
+                .Select(static finding => finding.Payload)
+                .OrderBy(
+                    static reference => reference.Name,
+                    StringComparer.Ordinal),
+        ];
+        if (!CliSemanticRowSelection.TrySelect(
+                intent,
+                references,
+                "Library references",
+                failure =>
+                    $"Library reference row selection stage "
+                    + $"{failure.Failure.StageNumber} requires row "
+                    + $"{failure.Failure.RequiredPosition}, but only "
+                    + $"{failure.Failure.AvailableCount} direct reference "
+                    + $"{(failure.Failure.AvailableCount == 1 ? "row is" : "rows are")} available.",
+                out IReadOnlyList<AssemblyReference> selected))
+        {
+            return false;
+        }
+
+        inspection.AssemblyReferenceDisplayOrder = selected;
+        if (inspection.AssemblyInfo is not null)
+            inspection.AssemblyInfo.References = [.. selected];
+        return true;
+    }
+
     /// <summary>
     /// Rewrites hex table spellings in <c>-S</c> and <c>-D</c> to canonical section names, so
     /// <c>-S "Metadata: 0x02"</c> and <c>-S "Metadata: TypeDef"</c> reach the same section.
@@ -2422,7 +2521,9 @@ public partial class LibraryCommand
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
-        using var service = subject.OpenSourceLink(logger.Log);
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(options),
+            logger.Log);
         var resolved = await ILOffsetQuery.ResolveAsync(
             service, packageName, packageVersion, isPlatformAssembly, options,
             httpClient, logger);
@@ -2458,7 +2559,21 @@ public partial class LibraryCommand
             : [];
         var projections = new List<ILOffsetProjection>();
         var failed = false;
-        using var service = subject.OpenSourceLink(logger.Log);
+        var analysisOptions = options with
+        {
+            IncludeSections = sections,
+        };
+        using var service = subject.OpenSourceLink(
+            ILOffsetQuery.RequiresAnalysis(analysisOptions),
+            logger.Log);
+        ILOffsetAnalysisPreparation analysis =
+            ILOffsetQuery.PrepareAnalysis(
+                service,
+                analysisOptions,
+                population.Records
+                    .OfType<
+                        ILCoordinatePopulationRecord.Coordinate>()
+                    .Select(record => record.MethodToken));
         foreach (ILCoordinatePopulationRecord record in population.Records)
         {
             if (record is ILCoordinatePopulationRecord.Malformed malformed)
@@ -2480,7 +2595,8 @@ public partial class LibraryCommand
                 options,
                 httpClient,
                 logger,
-                allowNonBoundaryContextAbsence: true);
+                allowNonBoundaryContextAbsence: true,
+                analysis);
             if (resolved.Result is { } result)
             {
                 projections.Add(result);
@@ -3968,7 +4084,7 @@ public partial class LibraryCommand
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(
         string? assemblyName,
-        string packageSource,
+        PackageReferenceTarget packageTarget,
         string? tfm,
         NuGetSourceOptions? sourceOptions,
         bool includePrerelease,
@@ -3976,7 +4092,11 @@ public partial class LibraryCommand
         HttpClient httpClient)
     {
         var outcome = await PackageExtractor.ExtractPackageAsync(
-            httpClient, packageSource, logger.Log, sourceOptions: sourceOptions, includePrerelease: includePrerelease);
+            httpClient,
+            packageTarget,
+            logger.Log,
+            sourceOptions: sourceOptions,
+            includePrerelease: includePrerelease);
         if (!outcome.IsSuccess)
         {
             CommandError.Write($"{outcome.ErrorMessage}");
@@ -3995,7 +4115,11 @@ public partial class LibraryCommand
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
-                resolution, packageSource, sourceOptions, logger, httpClient).ConfigureAwait(false);
+                resolution,
+                packageTarget,
+                sourceOptions,
+                logger,
+                httpClient).ConfigureAwait(false);
 
             if (payload.Error != null)
             {
@@ -4092,7 +4216,7 @@ public partial class LibraryCommand
 
     private static async Task<ToolPayloadResolution> TryResolveToolPayloadPackageAsync(
         PackageExtractionResult package,
-        string originalPackageSource,
+        PackageReferenceTarget originalPackageTarget,
         NuGetSourceOptions? sourceOptions,
         VerboseLogger logger,
         HttpClient httpClient)
@@ -4105,7 +4229,12 @@ public partial class LibraryCommand
         if (version == null)
             return new(null, $"Tool package '{package.PackageName}' has no DLLs and its version could not be determined.");
 
-        var localPayload = TryFindLocalSiblingPackage(originalPackageSource, payloadId, version);
+        var localPayload = originalPackageTarget.IsLocalFile
+            ? TryFindLocalSiblingPackage(
+                originalPackageTarget.OriginalArgument,
+                payloadId,
+                version)
+            : null;
         var payloadOutcome = localPayload != null
             ? await PackageExtractor.ExtractPackageAsync(httpClient, localPayload, logger.Log).ConfigureAwait(false)
             : await PackageExtractor.ExtractPackageAsync(
@@ -4230,6 +4359,17 @@ internal sealed record LibraryInspectionSubject(
         AssemblyReference is null
             ? SourceLinkService.Open(Path, log)
             : SourceLinkService.Open(AssemblyReference, log);
+
+    internal SourceLinkService OpenSourceLink(
+        bool prefetch,
+        Action<string>? log = null) =>
+        prefetch
+            ? AssemblyReference is null
+                ? SourceLinkService.OpenPrefetched(Path, log)
+                : SourceLinkService.OpenPrefetched(
+                    AssemblyReference,
+                    log)
+            : OpenSourceLink(log);
 }
 
 internal abstract record LibraryInspectionSubjectSelection
