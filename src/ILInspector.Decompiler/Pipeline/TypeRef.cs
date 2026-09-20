@@ -956,6 +956,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 != other.FunctionPointerGenericParameterCount
             || FunctionPointerRequiredParameterCount
                 != other.FunctionPointerRequiredParameterCount
+            || FunctionPointerConventionModifiersAreExact
+                != other.FunctionPointerConventionModifiersAreExact
             || FunctionPointerParameterRefKinds.Length != other.FunctionPointerParameterRefKinds.Length
             || !Equals(ElementType, other.ElementType)
             || TypeArguments.Length != other.TypeArguments.Length)
@@ -1002,6 +1004,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(FunctionPointerSignatureDiscriminator);
         hash.Add(FunctionPointerGenericParameterCount);
         hash.Add(FunctionPointerRequiredParameterCount);
+        hash.Add(FunctionPointerConventionModifiersAreExact);
         foreach (var kind in FunctionPointerParameterRefKinds)
             hash.Add(kind);
         hash.Add(ElementType);

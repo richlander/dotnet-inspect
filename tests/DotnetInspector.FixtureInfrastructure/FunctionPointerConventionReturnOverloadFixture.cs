@@ -19,12 +19,16 @@ public static class FunctionPointerConventionReturnOverloadFixture
     public const string RequiredModifierTypeName =
         "FunctionPointerRequiredModifierReturnSample";
 
+    public const string DuplicateConventionModifierTypeName =
+        "FunctionPointerDuplicateConventionModifierReturnSample";
+
     public enum IdentityCase
     {
         ConventionModifiers,
         SignatureHeader,
         UnsupportedModifier,
         RequiredModifier,
+        DuplicateConventionModifier,
     }
 
     public static string GetTypeName(IdentityCase identityCase)
@@ -34,6 +38,8 @@ public static class FunctionPointerConventionReturnOverloadFixture
             IdentityCase.SignatureHeader => SignatureHeaderTypeName,
             IdentityCase.UnsupportedModifier => UnsupportedModifierTypeName,
             IdentityCase.RequiredModifier => RequiredModifierTypeName,
+            IdentityCase.DuplicateConventionModifier =>
+                DuplicateConventionModifierTypeName,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(identityCase)),
         };
@@ -90,6 +96,18 @@ public static class FunctionPointerConventionReturnOverloadFixture
                     {
                         0x00, 0x01, 0x1B, 0x09, 0x00,
                         0x20, 0x05, 0x1F, 0x0D, 0x08, 0x02,
+                    }),
+                IdentityCase.DuplicateConventionModifier => (
+                    GetTypeName(identityCase),
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x09, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
+                    },
+                    new byte[]
+                    {
+                        0x00, 0x01, 0x1B, 0x01, 0x00,
+                        0x20, 0x05, 0x08, 0x02,
                     }),
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(identityCase)),

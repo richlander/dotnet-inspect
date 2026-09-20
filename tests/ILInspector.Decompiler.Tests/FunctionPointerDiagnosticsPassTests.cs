@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -74,6 +75,38 @@ public class FunctionPointerDiagnosticsPassTests
                 Enumerable.Repeat(Object, parameterCount).ToImmutableArray(),
                 "unmanaged[Cdecl]"),
             pointer);
+    }
+
+    [Fact]
+    public void
+        TypeRefDecoder_DistinguishesLosslessAndDuplicateConventionModifiers()
+    {
+        byte[] image =
+            FunctionPointerConventionReturnOverloadFixture.Build(
+                returnOne: false,
+                identityCase:
+                    FunctionPointerConventionReturnOverloadFixture.IdentityCase
+                        .DuplicateConventionModifier);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeRef[] pointers =
+        [
+            .. reader.MethodDefinitions
+                .Select(handle => reader.GetMethodDefinition(handle))
+                .Where(method => reader.GetString(method.Name) == "Changed")
+                .Select(method => method.DecodeSignature(
+                    TypeRefDecoder.Instance,
+                    GenericScope.Empty).ReturnType),
+        ];
+
+        Assert.Equal(2, pointers.Length);
+        Assert.NotEqual(pointers[0], pointers[1]);
+        Assert.Equal(2, pointers.ToHashSet().Count);
+        Assert.Equal(
+            2,
+            pointers.Select(CSharpBodyDiff.CanonicalTypeName)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
     }
 
     [Fact]

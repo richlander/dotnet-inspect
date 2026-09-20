@@ -187,6 +187,9 @@ public sealed class ImplementationDiffEnvelopeCommandTests
     [InlineData(
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             .RequiredModifier)]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .DuplicateConventionModifier)]
     public async Task
         FunctionPointerReturnOverloads_SelectByExactBodyIdentity(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase

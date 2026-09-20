@@ -975,6 +975,10 @@ public sealed class ImplementationComparisonQueryTests
         FunctionPointerConventionReturnOverloadFixture.IdentityCase
             .RequiredModifier,
         "modreq(Probe.Marker)")]
+    [InlineData(
+        FunctionPointerConventionReturnOverloadFixture.IdentityCase
+            .DuplicateConventionModifier,
+        "modopt(System.Runtime.CompilerServices.CallConvCdecl)")]
     public void
         DocumentQuery_CorrelatesFunctionPointerStructuralReturnCollisions(
             FunctionPointerConventionReturnOverloadFixture.IdentityCase
