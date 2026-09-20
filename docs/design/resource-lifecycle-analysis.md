@@ -145,11 +145,11 @@ narrow compatibility walk over the root local's reaching-definition uses. The
 walk reuses the established ArrayPool use classifier and downstream
 setup-boundary traversal so transparent framework wrappers retain their
 reported boundary sequence, while nonthrowing setup calls, address-taken
-flows, and indirect dispatch that participates in the tracked root remain
-suppressed or incomplete exactly as the legacy oracle requires. Unrelated
-method-group or indirect-dispatch instructions do not suppress another root's
-sound boundary evidence. Other resource kinds continue to use
-occurrence-derived direct-call boundaries.
+flows, and method-group or indirect-dispatch shapes encountered after the
+tracked load remain suppressed or incomplete exactly as the legacy oracle
+requires. Dispatch outside that root-use interval does not suppress sound
+boundary evidence. Other resource kinds continue to use occurrence-derived
+direct-call boundaries.
 
 The result preserves positive outcomes even when another root or another part
 of the method is incomplete. A root is complete only when:
@@ -231,7 +231,9 @@ The Release `ILInspector.Analysis.Tests` gate establishes:
 - same-block use after release and double release;
 - exceptional cleanup protected, unprotected, conditionally protected, or
   preceded by modeled throwing setup in `finally`;
-- an unprotected root remains reportable beside an unrelated method group;
+- unprotected roots remain reportable beside unrelated or leading
+  method-group construction while the legacy-suppressed trailing shape remains
+  incomplete;
 - exact boundary suppression for `throws=never`;
 - legacy suppression for address-taken and indirect-dispatch shapes;
 - invalid storage and caller-return transfer;

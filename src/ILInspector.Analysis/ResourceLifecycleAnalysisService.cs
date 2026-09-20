@@ -41,7 +41,9 @@ internal static class ResourceLifecycleAnalysisService
         IReadOnlySet<int> cleanupHazards = methodCalls
             .Where(call =>
                 call.Kind is CallKind.CallIndirect
-                || (call.Kind is CallKind.Call or CallKind.CallVirtual
+                || (call.Kind is CallKind.Call
+                        or CallKind.CallVirtual
+                        or CallKind.NewObject
                     && !ArrayPoolUseClassifier
                         .IsNonThrowingSetupBoundary(call.Callee)
                     && !IsArrayPoolSharedGetter(call.Callee)))

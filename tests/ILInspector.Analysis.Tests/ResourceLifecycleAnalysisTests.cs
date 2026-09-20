@@ -152,12 +152,20 @@ public sealed class ResourceLifecycleAnalysisTests
                     .ExceptionalCleanupMissing);
     }
 
-    [Fact]
-    public void LifecycleRequest_PreservesRootWithUnrelatedMethodGroup()
+    [Theory]
+    [InlineData(
+        "RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup",
+        "ObserveResource")]
+    [InlineData(
+        "RentWithLeadingMethodGroup",
+        "OwnershipSinkWithLeadingCallback")]
+    public void LifecycleRequest_PreservesLegacyReportableMethodGroupShapes(
+        string methodName,
+        string boundaryName)
     {
         ResourceLifecycleRootResult root = Root(
             Analyze(),
-            "RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup");
+            methodName);
 
         ResourceLifecycleOutcome outcome = Assert.Single(
             root.Outcomes,
@@ -168,7 +176,7 @@ public sealed class ResourceLifecycleAnalysisTests
         Assert.Contains(
             outcome.Boundaries,
             boundary =>
-                boundary.Call.Callee.Name == "ObserveResource");
+                boundary.Call.Callee.Name == boundaryName);
     }
 
     [Fact]
@@ -212,6 +220,26 @@ public sealed class ResourceLifecycleAnalysisTests
     {
         ResourceLifecycleRootResult root =
             Root(Analyze(), "RentAcrossThrowingCleanupSetup");
+
+        Assert.False(root.IsComplete);
+        Assert.DoesNotContain(
+            root.Outcomes,
+            outcome =>
+                outcome.Kind
+                    == ResourceLifecycleOutcomeKind
+                        .ExceptionalCleanupMissing);
+        Assert.Contains(
+            root.Limitations,
+            limitation =>
+                limitation.Kind
+                    == ResourceLifecycleLimitationKind.ExceptionFlow);
+    }
+
+    [Fact]
+    public void LifecycleRequest_DoesNotCreditConstructorCleanupSetup()
+    {
+        ResourceLifecycleRootResult root =
+            Root(Analyze(), "RentAcrossConstructorCleanupSetup");
 
         Assert.False(root.IsComplete);
         Assert.DoesNotContain(

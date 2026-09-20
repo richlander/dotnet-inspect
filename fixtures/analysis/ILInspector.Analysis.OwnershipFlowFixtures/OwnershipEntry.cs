@@ -155,6 +155,22 @@ public static class Entry
         return buffer.Length;
     }
 
+    public static int RentWithLeadingMethodGroup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            OwnershipSinkWithLeadingCallback(
+                new OwnershipWorker().Work,
+                buffer);
+        }
+        finally
+        {
+            s_ownershipProbe++;
+        }
+        return buffer.Length;
+    }
+
     public static int RentAcrossUnprotectedBoundaryWithUnrelatedMethodGroup()
     {
         Action callback = OwnershipBarrier;
@@ -288,6 +304,11 @@ public static class Entry
         ArrayPool<byte>.Shared.Return(returned);
     }
 
+    static void OwnershipSinkWithLeadingCallback(
+        Action callback,
+        byte[] leaked) =>
+        s_rentedArray = leaked;
+
     static void OwnershipSinkWithReturnedValue(
         byte[] leaked,
         int marker,
@@ -418,6 +439,20 @@ public static class Entry
         finally
         {
             OwnershipBarrier();
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public static void RentAcrossConstructorCleanupSetup()
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(16);
+        try
+        {
+            ObserveResource(buffer);
+        }
+        finally
+        {
+            _ = new OwnershipWorker();
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
