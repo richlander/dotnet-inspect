@@ -126,7 +126,8 @@ substrates, and inspection producers that will extend that space.
   is the target host-neutral composition for resolving one exact `AssemblyRef`
   through its referencing context, an applicable platform, and owner-issued
   package dependency routes without mutating a sealed assembly-context group.
-  The source query owns a Decompiler fallback over retained assembly content;
+  The source query delegates exact member and type decompilation to SourceHouse
+  over retained Library content while it still owns authored-first ordering;
   the
   [authored project dependency facts](design/authored-project-dependency-facts.md)
   owner projects bounded exact project XML into literal target observations,
