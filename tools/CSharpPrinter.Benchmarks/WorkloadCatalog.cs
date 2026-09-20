@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -45,6 +46,54 @@ internal static class WorkloadCatalog
     public static WorkloadDefinition Get(string id)
         => s_all.Single(
             workload => StringComparer.Ordinal.Equals(workload.Id, id));
+
+    public static int ResolveUniqueMethodToken(WorkloadDefinition definition)
+    {
+        using FileStream stream = File.OpenRead(definition.AssemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle[] matchingTypes = reader.TypeDefinitions
+            .Where(handle => HasFullName(reader, handle, definition.TypeName))
+            .ToArray();
+
+        if (matchingTypes is not [var typeHandle])
+        {
+            throw new InvalidOperationException(
+                $"Expected one type named {definition.TypeName}; "
+                + $"found {matchingTypes.Length}.");
+        }
+
+        MethodDefinitionHandle[] matchingMethods = reader
+            .GetTypeDefinition(typeHandle)
+            .GetMethods()
+            .Where(handle => StringComparer.Ordinal.Equals(
+                reader.GetString(reader.GetMethodDefinition(handle).Name),
+                definition.MethodName))
+            .ToArray();
+
+        if (matchingMethods is not [var methodHandle])
+        {
+            throw new InvalidOperationException(
+                $"Expected one method named "
+                + $"{definition.TypeName}.{definition.MethodName}; "
+                + $"found {matchingMethods.Length}.");
+        }
+
+        return MetadataTokens.GetToken(methodHandle);
+    }
+
+    static bool HasFullName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        string expectedFullName)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(handle);
+        string name = reader.GetString(type.Name);
+        string @namespace = reader.GetString(type.Namespace);
+        return StringComparer.Ordinal.Equals(
+            @namespace.Length == 0 ? name : $"{@namespace}.{name}",
+            expectedFullName);
+    }
 }
 
 internal static class WorkloadValidator
@@ -57,8 +106,9 @@ internal static class WorkloadValidator
 
         foreach (WorkloadDefinition definition in WorkloadCatalog.All)
         {
+            int methodToken = WorkloadCatalog.ResolveUniqueMethodToken(definition);
             using var source = MetadataSource.Open(definition.AssemblyPath);
-            IrFunction raisedFunction = Import(source, definition);
+            IrFunction raisedFunction = Import(source, definition, methodToken);
             string productPathOutput =
                 CSharpPrinterAllocationBenchmarks.RequireOutput(
                     CSharpPrinter.PrintRaised(raisedFunction));
@@ -67,7 +117,8 @@ internal static class WorkloadValidator
                     CSharpPrinter.Print(raisedFunction));
             string repeatedProductPathOutput =
                 CSharpPrinterAllocationBenchmarks.RequireOutput(
-                    CSharpPrinter.PrintRaised(Import(source, definition)));
+                    CSharpPrinter.PrintRaised(
+                        Import(source, definition, methodToken)));
 
             if (!StringComparer.Ordinal.Equals(productPathOutput, renderOnlyOutput)
                 || !StringComparer.Ordinal.Equals(
@@ -102,12 +153,22 @@ internal static class WorkloadValidator
 
     static IrFunction Import(
         MetadataSource source,
-        WorkloadDefinition definition)
-        => IrImporter.Import(
+        WorkloadDefinition definition,
+        int methodToken)
+    {
+        IrFunction function = IrImporter.Import(
             source,
             definition.TypeName,
             definition.MethodName,
             publicOnly: false)
         ?? throw new InvalidOperationException(
             $"Could not import {definition.TypeName}.{definition.MethodName}.");
+
+        return function.MetadataToken == methodToken
+            ? function
+            : throw new InvalidOperationException(
+                $"Imported {definition.TypeName}.{definition.MethodName} "
+                + $"as 0x{function.MetadataToken:X8}; "
+                + $"expected 0x{methodToken:X8}.");
+    }
 }

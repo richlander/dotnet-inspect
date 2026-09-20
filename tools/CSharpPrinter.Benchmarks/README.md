@@ -46,8 +46,10 @@ dotnet run --project tools/CSharpPrinter.Benchmarks -c Release -- --validate
 Validation emits tab-separated workload scale, assembly, module version ID,
 MethodDef token, output length, and SHA-256. It imports and renders each method
 twice through the product path, then verifies that rendering the already raised
-IR produces identical output. A missing method, failed render, unstable output,
-or path mismatch fails visibly.
+IR produces identical output. Each configured type and method name must resolve
+to exactly one MethodDef, and every import must return that token. A missing or
+ambiguous method, failed render, unstable output, or path mismatch fails
+visibly.
 
 ## Run the benchmark
 
@@ -58,13 +60,18 @@ dotnet run --project tools/CSharpPrinter.Benchmarks -c Release -- \
   --filter '*' --exporters markdown json
 ```
 
-Use a short job only for harness smoke testing, never as the published
-before/after result:
+Use the explicit in-process smoke configuration only for harness smoke testing,
+never as the published before/after result:
 
 ```bash
 dotnet run --project tools/CSharpPrinter.Benchmarks -c Release -- \
-  --filter '*' --job short
+  --filter '*' --smoke
 ```
+
+`--smoke` applies BenchmarkDotNet's short-run characteristics to the same
+in-process toolchain. Do not use BenchmarkDotNet's `--job short` option: it adds
+an out-of-process job whose runtime validator does not recognize the selected
+.NET 11 runtime.
 
 BenchmarkDotNet writes artifacts under `BenchmarkDotNet.Artifacts/`; that
 directory is ignored. Preserve the validation output and the Markdown/JSON

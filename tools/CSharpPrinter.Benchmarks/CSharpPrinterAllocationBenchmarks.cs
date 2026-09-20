@@ -7,7 +7,6 @@ using ILInspector.Metadata;
 namespace ILInspector.CSharpPrinterBenchmarks;
 
 [MemoryDiagnoser]
-[InProcess]
 [Orderer(SummaryOrderPolicy.Method)]
 public class CSharpPrinterAllocationBenchmarks
 {
@@ -15,6 +14,7 @@ public class CSharpPrinterAllocationBenchmarks
     IrFunction? _raisedFunction;
     string? _expectedOutput;
     WorkloadDefinition? _definition;
+    int _methodToken;
 
     [ParamsSource(nameof(Workloads))]
     public string Workload { get; set; } = null!;
@@ -25,6 +25,7 @@ public class CSharpPrinterAllocationBenchmarks
     public void Setup()
     {
         _definition = WorkloadCatalog.Get(Workload);
+        _methodToken = WorkloadCatalog.ResolveUniqueMethodToken(_definition);
         _source = MetadataSource.Open(_definition.AssemblyPath);
         _raisedFunction = Import();
         _expectedOutput = RequireOutput(CSharpPrinter.PrintRaised(_raisedFunction));
@@ -66,13 +67,22 @@ public class CSharpPrinterAllocationBenchmarks
     }
 
     IrFunction Import()
-        => IrImporter.Import(
+    {
+        IrFunction function = IrImporter.Import(
             _source!,
             _definition!.TypeName,
             _definition.MethodName,
             publicOnly: false)
         ?? throw new InvalidOperationException(
             $"Could not import {_definition.TypeName}.{_definition.MethodName}.");
+
+        return function.MetadataToken == _methodToken
+            ? function
+            : throw new InvalidOperationException(
+                $"Imported {_definition.TypeName}.{_definition.MethodName} "
+                + $"as 0x{function.MetadataToken:X8}; "
+                + $"expected 0x{_methodToken:X8}.");
+    }
 
     internal static string RequireOutput(DecompilerResult result)
         => result.Succeeded && result.Output is { } output
