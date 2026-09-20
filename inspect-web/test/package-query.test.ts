@@ -131,6 +131,13 @@ const CONTENT_TERM: QueryTermDescriptor = {
   executionClass: "package-content",
 };
 
+const NUSPEC_EXPENSIVE_TERM: QueryTermDescriptor = {
+  ...DEPENDS_TERM,
+  key: "depends-transitive",
+  label: "Transitive dependency",
+  executionClass: "nuspec-expensive",
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -275,6 +282,16 @@ test("operand-bearing terms participate in candidate bounds", () => {
     "tools/");
   assert.equal(content.requestedLimit, 20);
   assert.equal(withoutTerm(content, 0).requestedLimit, 200);
+
+  const transitive = withTerm(
+    createQueryRequest("Contoso."),
+    NUSPEC_EXPENSIVE_TERM,
+    "eq",
+    "Contoso.Dependency");
+  const transitiveWithContent = withPreset(transitive, SKILL_FACET);
+  assert.equal(transitive.requestedLimit, 5);
+  assert.equal(transitiveWithContent.requestedLimit, 5);
+  assert.equal(withoutTerm(transitiveWithContent, 0).requestedLimit, 20);
 });
 
 test("package requests preserve editor spelling without resolving source defaults", () => {

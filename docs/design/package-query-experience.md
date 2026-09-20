@@ -105,9 +105,12 @@ its candidate limits. The latter is the UI taxonomy:
 or `metadata-expensive`. The Browser preserves the class through its generated
 facade and TypeScript catalog instead of deriving it from acquisition tier.
 For example, `references` has package-content acquisition and metadata
-execution. The expensive classes currently have no controls; they reserve
-explicit disclosure for future transitive, call-graph, or decompiler-driven
-queries rather than silently broadening a cheaper class.
+execution, while `depends-transitive` and its `dependency-depth` qualifier use
+nuspec acquisition with `nuspec-expensive` execution. Selecting either
+transitive control lowers the Browser's candidate bound to five, including
+when a package-content term is also active. The remaining expensive class
+reserves explicit disclosure for future call-graph or decompiler-driven queries
+rather than silently broadening a cheaper class.
 
 ### Active term delivery
 

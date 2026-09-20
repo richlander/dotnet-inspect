@@ -584,10 +584,53 @@ public static class PackagePlatformLibraryMaterializer
         out IReadOnlyList<
             PlatformPopulationLibraryArtifactMaterializationItem> items)
     {
+        if (request.Target is not PlatformTargetDemand.Exact exact)
+        {
+            items = [];
+            return false;
+        }
+        return TryPrepareReferencePopulation(
+            request,
+            exact.Target,
+            expectedView,
+            reference,
+            items: out items);
+    }
+
+    internal static bool TryPrepareSelectedReferencePopulation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
+    {
+        if (request.Target is not PlatformTargetDemand.FamilyDefault demand
+            || demand.Family != target.Family)
+        {
+            items = [];
+            return false;
+        }
+        return TryPrepareReferencePopulation(
+            request,
+            target,
+            PlatformViewDemand.Reference,
+            reference,
+            items: out items);
+    }
+
+    static bool TryPrepareReferencePopulation(
+        PlatformHouseRequest request,
+        PlatformFamilyTarget target,
+        PlatformViewDemand expectedView,
+        PackagePlatformHouseResult<
+            PackageReferenceRealization>.Succeeded reference,
+        out IReadOnlyList<
+            PlatformPopulationLibraryArtifactMaterializationItem> items)
+    {
         items = [];
         if (expectedView is not PlatformViewDemand.Reference
                 and not PlatformViewDemand.ReferenceAndImplementation
-            || request.Target is not PlatformTargetDemand.Exact exact
             || request.Operation is not PlatformHouseOperation.Realize
             {
                 View: var view,
@@ -597,14 +640,16 @@ public static class PackagePlatformLibraryMaterializer
             || view != expectedView
             || !ValidContribution(
                 request,
-                exact.Target,
+                target,
                 reference.Contribution,
                 PlatformSourceFacet.Reference,
                 reference.Value.Generation.Name)
-            || reference.Value.Coordinate.Target != exact.Target
+            || reference.Value.Coordinate.Target != target
             || reference.Value.Population
                 is not PackageReferencePopulationDemand.CompletePopulation
-            || reference.Value.Libraries.Length == 0)
+            || reference.Value.Libraries.Length == 0
+            || reference.Value.Libraries.Any(
+                static library => library.Documentation is not null))
         {
             return false;
         }
@@ -624,7 +669,7 @@ public static class PackagePlatformLibraryMaterializer
                 new PlatformPopulationLibraryArtifactMaterializationItem(
                     ReferenceItem(reference, library),
                     new PlatformPopulationMemberAttribution(
-                        exact.Target,
+                        target,
                         PlatformPopulationMemberRole.Focus)));
         }
 

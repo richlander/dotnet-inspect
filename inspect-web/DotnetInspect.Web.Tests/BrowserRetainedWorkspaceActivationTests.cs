@@ -13,7 +13,7 @@ public sealed class BrowserRetainedWorkspaceActivationCollection;
 
 [Collection("Retained Workspace activation")]
 [SupportedOSPlatform("browser")]
-public sealed class BrowserRetainedWorkspaceActivationTests
+public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
     [Fact]
     public async Task A_B_A_RestoresWholeWorkspaceAndSelectedPackage()

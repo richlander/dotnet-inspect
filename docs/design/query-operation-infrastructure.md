@@ -3,8 +3,9 @@
 ## Status
 
 **Implemented host-neutral substrate with Package Query adopted in CLI and
-Inspect Web, and Graph Libraries adopted across its CLI query sections;
-remaining production adoption continues under
+Inspect Web, Graph Libraries adopted across its CLI query sections, Dependency
+adopted across its command and section routes, and Find adopted across its Type
+and Member result routes; remaining production adoption continues under
 [#7712](https://github.com/richlander/dotnet-inspect/issues/7712), targeting
 0.26.0.** The user explicitly approved defining this shared pattern before
 Package Query, Library Query, Find, Depends, and Graph adopt it separately.
@@ -562,8 +563,9 @@ The migration begins from useful but separate systems:
   The type route projects the existing Source, Target, Kind, Traversal, row
   selection, ranking, and depth semantics. Top-level and Package hierarchy
   routes share the hierarchy profile, depth dimension, and row stages.
-- Find exposes its Results and Members sections to discovery but currently has
-  no executable query-term or order inventory.
+- Find owns distinct Type and Member result routes over their authorized search
+  populations. Both routes share the executable Head, Tail, and Window result
+  profile and intentionally expose no query-term or order inventory.
 
 The new registry is implemented, and Package Query has replaced its
 host-local term inventories with one route-backed projection. Remaining
@@ -587,8 +589,8 @@ eight-step path:
 5. **Implemented:** adopt Depends and operation-backed Dependency sections
    without changing root, traversal, evidence, completion, or hierarchy
    semantics.
-6. Adopt Find Type and Member query capability without changing its discovery
-   grammar, scope rules, or result grains.
+6. **Implemented:** adopt Find Type and Member query capability without changing
+   its discovery grammar, scope rules, or result grains.
 7. Add Library Query over explicit Library populations, with assembly-reference
    qualification as its first production facet.
 8. Remove superseded command-local query catalogs and lowerers after every
@@ -628,6 +630,16 @@ the independent Depth work dimension. Asset-mode `depends` and Package
 profile, depth dimension, and row-stage contract. CLI lowering retains the
 existing Dependency acquisition, traversal, evidence, completion, hierarchy,
 failure, and rendering paths.
+
+Find is the fourth adopter. One operation binds distinct authorized Type and
+Member search-population roles to their existing result grains and row sets.
+Both routes use the same result-row profile, which admits Head, Tail, and Window
+without inventing predicates, ordering, or ranking that the Find owners do not
+define. The CLI lowers its existing semantic row-selection grammar to portable
+intent, resolves the active route before acquisition, and executes the
+owner-issued plan after the complete Type or Member search result is available.
+The existing pattern grammars, scope authorization, operation limit,
+completion, Count, diagnostics, result shapes, and rendering remain unchanged.
 
 Before an implementing PR or stack merges, record its user-observable change
 on the [0.26.0 release tracker](https://github.com/richlander/dotnet-inspect/issues/7493).

@@ -963,6 +963,7 @@ function parseFailure(
         "InvalidManifest",
         "PackageContentAcquisition",
         "PackageContentEvaluation",
+        "DependencyTraversal",
         "AssemblyAcquisition",
         "AssemblyEvaluation",
       ] as const,
@@ -986,7 +987,13 @@ function parseProgress(
   return {
     phase: literal(
       progress.phase,
-      ["Search", "Manifest", "PackageContent", "Assembly"] as const,
+      [
+        "Search",
+        "Manifest",
+        "PackageContent",
+        "DependencyTraversal",
+        "Assembly",
+      ] as const,
       "Package Query progress phase"),
     completed: integer(
       progress.completed,

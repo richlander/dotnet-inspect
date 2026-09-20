@@ -47,7 +47,10 @@ public static class WorkspaceSharePacketCodec
     public const int MaxDecodedUtf8Length = 24 * 1024;
     public const int MaxJsonDepth = 24;
     public const int MaxJsonValues = 2048;
-    public const int MaxTabs = 12;
+    public const int MaxFormat1Tabs = 12;
+    public const int MaxFormat2Tabs = 12;
+    public const int MaxFormat3Tabs = 64;
+    public const int MaxFormat4Tabs = 64;
     public const int MaxContexts = 24;
     public const int MaxRegistrations = 24;
     public const int MaxQueries = 24;
@@ -395,10 +398,13 @@ public static class WorkspaceSharePacketCodec
             "c",
             "l");
 
-        WorkspaceShareTab[] tabs = ReadTabs(Required(root, "t"));
+        WorkspaceShareTab[] tabs = ReadTabs(
+            Required(root, "t"),
+            LegacyFormatVersion);
         WorkspaceShareContext[] contexts = ReadContexts(
             Required(root, "g"),
-            tabs);
+            tabs,
+            LegacyFormatVersion);
 
         int activeTab = ReadIndex(Required(root, "a"), "a", tabs.Length);
         int selectedContext = ReadIndex(
@@ -435,10 +441,13 @@ public static class WorkspaceSharePacketCodec
     {
         ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
 
-        WorkspaceShareTab[] tabs = ReadTabs(Required(root, "t"));
+        WorkspaceShareTab[] tabs = ReadTabs(
+            Required(root, "t"),
+            Format2Version);
         WorkspaceShareContext[] contexts = ReadContexts(
             Required(root, "g"),
-            tabs);
+            tabs,
+            Format2Version);
         PortableQueryIdentity[] queries = ReadQueries(root);
         int? focusedTab = ReadNullableIndex(
             Required(root, "a"),
@@ -479,10 +488,12 @@ public static class WorkspaceSharePacketCodec
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
+            formatVersion,
             allowEmpty: true);
         WorkspaceShareContext[] contexts = ReadContexts(
             Required(root, "g"),
             tabs,
+            formatVersion,
             allowEmpty: true);
         WorkspaceRegistration[] registrations = ReadRegistrations(
             Required(root, "r"));
@@ -578,18 +589,20 @@ public static class WorkspaceSharePacketCodec
 
     private static WorkspaceShareTab[] ReadTabs(
         JsonElement element,
+        int formatVersion,
         bool allowEmpty = false)
     {
         if (element.ValueKind != JsonValueKind.Array)
             throw InvalidShape("Workspace share field 't' must be an array.");
 
         int count = element.GetArrayLength();
-        if ((!allowEmpty && count == 0) || count > MaxTabs)
+        int maxTabs = MaxTabsFor(formatVersion);
+        if ((!allowEmpty && count == 0) || count > maxTabs)
         {
             throw InvalidShape(
                 allowEmpty
-                    ? $"Workspace share field 't' permits at most {MaxTabs} entries."
-                    : $"Workspace share field 't' requires between 1 and {MaxTabs} entries.");
+                    ? $"Workspace share field 't' permits at most {maxTabs} entries."
+                    : $"Workspace share field 't' requires between 1 and {maxTabs} entries.");
         }
 
         var tabs = new WorkspaceShareTab[count];
@@ -677,6 +690,7 @@ public static class WorkspaceSharePacketCodec
     private static WorkspaceShareContext[] ReadContexts(
         JsonElement element,
         WorkspaceShareTab[] tabs,
+        int formatVersion,
         bool allowEmpty = false)
     {
         if (element.ValueKind != JsonValueKind.Array)
@@ -694,14 +708,16 @@ public static class WorkspaceSharePacketCodec
         var contexts = new WorkspaceShareContext[count];
         var referenced = new bool[tabs.Length];
         var contextIdentities = new HashSet<string>(StringComparer.Ordinal);
+        int maxTabs = MaxTabsFor(formatVersion);
         int contextIndex = 0;
         foreach (JsonElement context in element.EnumerateArray())
         {
             if (context.ValueKind != JsonValueKind.Array
-                || context.GetArrayLength() is < 1 or > MaxTabs)
+                || context.GetArrayLength() is < 1
+                || context.GetArrayLength() > maxTabs)
             {
                 throw InvalidShape(
-                    $"Every workspace share context requires between 1 and {MaxTabs} tab indexes.");
+                    $"Every workspace share context requires between 1 and {maxTabs} tab indexes.");
             }
 
             int[] indexes = new int[context.GetArrayLength()];
@@ -761,6 +777,16 @@ public static class WorkspaceSharePacketCodec
 
         return contexts;
     }
+
+    private static int MaxTabsFor(int formatVersion) =>
+        formatVersion switch
+        {
+            LegacyFormatVersion => MaxFormat1Tabs,
+            Format2Version => MaxFormat2Tabs,
+            CurrentFormatVersion => MaxFormat3Tabs,
+            Format4Version => MaxFormat4Tabs,
+            _ => throw new UnreachableException(),
+        };
 
     private static WorkspaceRegistration[] ReadRegistrations(
         JsonElement element)
