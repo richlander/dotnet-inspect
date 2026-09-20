@@ -151,7 +151,8 @@ public static class StringMaterializationAnalysis
             return StringMaterializationKind.EncodingDecode;
         }
 
-        if (FrameworkIdentity.IsCoreLibraryType(
+        if (call.Kind == CallKind.CallVirtual
+            && FrameworkIdentity.IsCoreLibraryType(
                 member.DeclaringType,
                 "System",
                 "Object")

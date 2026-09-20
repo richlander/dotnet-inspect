@@ -506,6 +506,37 @@ public sealed class MethodCallAnalysisTests
     }
 
     [Fact]
+    public void NonVirtualObjectToStringIsNotBuilderFinalization()
+    {
+        byte[] il =
+        [
+            0x73, 0x01, 0x00, 0x00, 0x0A,
+            0x28, 0x02, 0x00, 0x00, 0x0A,
+            0x2A,
+        ];
+        var calls = ImmutableArray.CreateBuilder<DirectCall>();
+        var evidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var receiverSources = new Dictionary<int, CallReceiverSource>();
+        MethodCallAnalysis.Collect(
+            Context(il),
+            new Resolver(stringBuilderObjectToString: true),
+            _ => AllocationMultiplicity.Once,
+            calls,
+            evidence,
+            includeIndirectOpcodes: false,
+            includeCallValueFlow: false,
+            privateReceiverSources: receiverSources);
+
+        Assert.Equal(
+            [CallKind.NewObject, CallKind.Call],
+            calls.Select(call => call.Kind));
+        Assert.Empty(
+            StringMaterializationAnalysis.Collect(
+                calls,
+                receiverSources));
+    }
+
+    [Fact]
     public void ClassifiesReturnSinkSourcesAndIncompleteCoverage()
     {
         byte[] sharedLocalReturn =
@@ -720,6 +751,7 @@ public sealed class MethodCallAnalysisTests
         bool throwOnIndirectCall = false,
         bool returningFirst = false,
         bool instanceSecond = false,
+        bool stringBuilderObjectToString = false,
         List<string>? events = null,
         bool stringParameterFirst = false,
         IReadOnlyDictionary<int, string>? userStrings = null)
@@ -731,6 +763,37 @@ public sealed class MethodCallAnalysisTests
             if (throwOnSecondMember && token == SecondToken)
                 throw new BadImageFormatException(
                     "Malformed member token.");
+            if (stringBuilderObjectToString)
+            {
+                return token switch
+                {
+                    FirstToken => new MemberRef(
+                        TypeRef.CoreLib(
+                            "System.Text",
+                            "StringBuilder"),
+                        ".ctor",
+                        [],
+                        s_void,
+                        MemberKind.Constructor)
+                    {
+                        HasThis = true,
+                    },
+                    SecondToken => new MemberRef(
+                        TypeRef.CoreLib(
+                            "System",
+                            "Object"),
+                        "ToString",
+                        [],
+                        TypeRef.CoreLib(
+                            "System",
+                            "String"),
+                        MemberKind.Method)
+                    {
+                        HasThis = true,
+                    },
+                    _ => throw new InvalidOperationException(),
+                };
+            }
             return new MemberRef(
                 TypeRef.Definition(
                     "Fixture",
