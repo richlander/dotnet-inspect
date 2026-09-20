@@ -609,7 +609,15 @@ public class IlToolsActivationTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void ReleaseCertificationValidator_SelfTest()
+    public void ReleaseCertificationValidator_SelfTest() =>
+        RunDotnetFileSelfTest("validate-release-certification.cs");
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void ReleaseResultValidator_SelfTest() =>
+        RunDotnetFileSelfTest("validate-release-result.cs");
+
+    static void RunDotnetFileSelfTest(string fileName)
     {
         var info = new ProcessStartInfo("dotnet")
         {
@@ -619,7 +627,7 @@ public class IlToolsActivationTests
             WorkingDirectory = RepoRoot,
         };
         info.ArgumentList.Add("run");
-        info.ArgumentList.Add(Path.Combine("eng", "validate-release-certification.cs"));
+        info.ArgumentList.Add(Path.Combine("eng", fileName));
         info.ArgumentList.Add("--");
         info.ArgumentList.Add("--self-test");
 
@@ -630,23 +638,8 @@ public class IlToolsActivationTests
 
         Assert.True(
             process.ExitCode == 0,
-            $"Certification validator self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            $"{fileName} self-test failed.\nstdout:\n{stdout}\nstderr:\n{stderr}");
         Assert.Contains("self-test passed", stdout);
-    }
-
-    [Fact]
-    public void ReleaseWorkflow_TagsResolvedCiCommit()
-    {
-        string workflow = File.ReadAllText(
-            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
-        int releaseStep = workflow.IndexOf(
-            "- name: Create GitHub Release",
-            StringComparison.Ordinal);
-
-        Assert.True(releaseStep >= 0);
-        Assert.Contains(
-            "target_commitish: ${{ needs.resolve.outputs.sha }}",
-            workflow[releaseStep..]);
     }
 
     // --- harness ---

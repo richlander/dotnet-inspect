@@ -257,3 +257,19 @@ jobs:
           target_commitish: ${{ needs.resolve.outputs.sha }}
           files: packages/*.nupkg
           generate_release_notes: true
+
+      - name: Verify GitHub release commit
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ steps.version.outputs.version }}
+        run: |
+          release_json="$RUNNER_TEMP/github-release.json"
+          tag_commit_json="$RUNNER_TEMP/github-release-tag-commit.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$release_json"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" > "$tag_commit_json"
+          dotnet run eng/validate-release-result.cs -- \
+            --release "$release_json" \
+            --tag-commit "$tag_commit_json" \
+            --expected-tag "$RELEASE_TAG" \
+            --expected-sha "$EXPECTED_SHA"
