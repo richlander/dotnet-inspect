@@ -202,6 +202,7 @@ public partial class PackageCommand
                 context,
                 workspaceResolution.Resolution,
                 workspaceResolution.ManifestBytes,
+                () => PackageInfoMeasurementInspection.Project(target.Root),
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
             return new(inspection, exitCode);

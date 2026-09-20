@@ -390,6 +390,49 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task PackageInfoUsesRestorationSelectedMeasurements()
+    {
+        var store = await StoreAsync(SelectedPackage);
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            Select = [PackageSections.PackageInfo],
+            SelectExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            $"| Selected TFM | {Framework} |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| Selected-TFM Library Count | 1 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"| TFMs | {Framework} |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task LayoutShareRefusalPreservesLayoutOutput()
     {
         var store = await StoreAsync(SelectedPackage);
@@ -425,6 +468,53 @@ public sealed class ExactPackageWorkspaceRouteTests
             "--share is not projectable at package/lens",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspaceLayoutPreservesExplicitToolsScope()
+    {
+        const string ToolFile = "Workspace.Tool.dll";
+        var store = new InMemoryPackageStore();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ApiType).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        await CommitAsync(
+            store,
+            SelectedPackage,
+            Archive(
+                ($"lib/{Framework}/{SelectedPackage}.dll", assembly),
+                ($"tools/{Framework}/{ToolFile}", assembly),
+                ($"{SelectedPackage}.nuspec", Nuspec(SelectedPackage))));
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new InspectionOptions
+        {
+            PackageArgs = [SelectedPackage],
+            WorkspacePacket = packet,
+            ListLayout = true,
+            ListLayoutExplicitlySet = true,
+            ScopeTools = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                options,
+                new CommandContext(verbose: false),
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(ToolFile, result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"{SelectedPackage}.dll",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Empty(result.Error);
     }
 
     [Fact]

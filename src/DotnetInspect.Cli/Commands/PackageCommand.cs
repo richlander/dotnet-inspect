@@ -49,6 +49,7 @@ public partial class PackageCommand
             context,
             preResolved: null,
             admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
             inspectionObserver: null,
             workspaceLoadOptions: null).ConfigureAwait(false);
 
@@ -61,6 +62,7 @@ public partial class PackageCommand
             context,
             preResolved: null,
             admittedPackageManifest: null,
+            admittedPackageInfoMeasurements: null,
             inspectionObserver: null,
             workspaceLoadOptions).ConfigureAwait(false);
 
@@ -69,6 +71,8 @@ public partial class PackageCommand
         CommandContext context,
         PackageExtractionResult? preResolved,
         byte[]? admittedPackageManifest,
+        Func<InspectionEnvelope<PackageInfoMeasurements>>?
+            admittedPackageInfoMeasurements,
         Action<InspectionResult>? inspectionObserver,
         WorkspaceContextLoadOptions? workspaceLoadOptions)
     {
@@ -1262,12 +1266,25 @@ public partial class PackageCommand
                 sourceOptions: options.SourceOptions);
             observedInspection = result;
 
-            await ApplyPackageInfoMeasurementsAsync(
-                result,
-                resolution,
-                packageSize,
-                options.Tfm,
-                logger.Log);
+            if (admittedPackageInfoMeasurements is not null
+                && RequestsPackageInfoMeasurements(
+                    producerOptions,
+                    pipeline))
+            {
+                ApplyPackageInfoMeasurementInspection(
+                    result,
+                    admittedPackageInfoMeasurements(),
+                    logger.Log);
+            }
+            else
+            {
+                await ApplyPackageInfoMeasurementsAsync(
+                    result,
+                    resolution,
+                    packageSize,
+                    options.Tfm,
+                    logger.Log);
+            }
 
             await PopulatePackageSignatureAsync(
                 result,

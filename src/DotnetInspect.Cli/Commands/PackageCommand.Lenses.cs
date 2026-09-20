@@ -169,16 +169,20 @@ public partial class PackageCommand
         }
 
         if (inspection is not null)
-        {
-            result.PackageInfoMeasurementInspection = inspection;
-            result.PackageSize =
-                inspection.Content.CompressedPackageBytes;
-            foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
-                log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
-            return;
-        }
+            ApplyPackageInfoMeasurementInspection(result, inspection, log);
+        else
+            result.PackageSize = fallbackPackageSize;
+    }
 
-        result.PackageSize = fallbackPackageSize;
+    private static void ApplyPackageInfoMeasurementInspection(
+        InspectionResult result,
+        InspectionEnvelope<PackageInfoMeasurements> inspection,
+        Action<string>? log)
+    {
+        result.PackageInfoMeasurementInspection = inspection;
+        result.PackageSize = inspection.Content.CompressedPackageBytes;
+        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
+            log?.Invoke($"{diagnostic.Code}: {diagnostic.Summary}");
     }
 
     private static int ListPackageLayout(string extractPath, InspectionOptions options, string packageName, TipLevel tipLevel)
@@ -189,13 +193,20 @@ public partial class PackageCommand
         // Scope to a specific TFM if requested
         if (!string.IsNullOrEmpty(options.Tfm))
         {
-            string libDir = Path.Combine(extractPath, "lib", options.Tfm);
-            string toolsDir = Path.Combine(extractPath, "tools", options.Tfm);
+            string? scope = options.ScopeLib
+                ? "lib"
+                : options.ScopeTools
+                    ? "tools"
+                    : null;
+            string scopedDirectory =
+                Path.Combine(extractPath, scope ?? "lib", options.Tfm);
+            string toolsDirectory =
+                Path.Combine(extractPath, "tools", options.Tfm);
 
-            if (Directory.Exists(libDir))
-                searchPath = libDir;
-            else if (Directory.Exists(toolsDir))
-                searchPath = toolsDir;
+            if (Directory.Exists(scopedDirectory))
+                searchPath = scopedDirectory;
+            else if (scope is null && Directory.Exists(toolsDirectory))
+                searchPath = toolsDirectory;
             else
             {
                 CommandError.Write($"TFM '{options.Tfm}' not found. Use --tfms to list available frameworks.");
