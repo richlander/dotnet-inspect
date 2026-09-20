@@ -8,9 +8,10 @@ owns its `CSharpDecompilerService` boundary, tracked in
 producer step of [#6512](https://github.com/richlander/dotnet-inspect/issues/6512)
 and project 4 of [#7177](https://github.com/richlander/dotnet-inspect/issues/7177).
 The service is implemented and consumed by the shared source-query family.
-SourceHouse now consumes the service for its shared exact-member decompilation
-operation. Broader type and host-envelope adoption remain separate steps of
-the broader #6512 plan.
+SourceHouse now consumes the service for shared exact-member and exact-type
+decompilation. Browser Type Source consumes the exact-type path through the
+completed shared query envelope; direct CLI whole-type adoption remains a
+separate step of the broader #6512 plan.
 
 > Given caller-selected assembly content, one exact type or member in that
 > content, a binding policy, explicit supplied-PDB or no-PDB input, rendering
@@ -146,12 +147,14 @@ family. The path has three steps:
    comparisons, supplying the PDB already selected by its acquisition stage.
    Both hosts consume that query family.
 
-SourceHouse consumes the same service for exact-member decompilation while
-retaining its Library snapshot, finite work, symbol-contribution, and lease
-settlement evidence. Ordinary CLI selected-member Decompiled Source now
-consumes that shared operation's exact native body projection while retaining
-its existing declaration formatter. Type decompilation and other direct
-consumers remain later adoption under the broader #6512 plan.
+SourceHouse consumes the same service for exact-member and exact-type
+decompilation while retaining its Library snapshot, finite work,
+symbol-contribution, and lease-settlement evidence. Ordinary CLI
+selected-member Decompiled Source consumes the member operation's exact native
+body projection while retaining its existing declaration formatter. Browser
+Type Source consumes the type operation through `TypeSourceInspection`;
+ordinary CLI whole-type decompilation and other direct consumers remain later
+adoption under the broader #6512 plan.
 
 Retire direct composer calls in the adopted shared-query path. Other existing
 `MemberBodyProducer` consumers remain supported until their own adoption;

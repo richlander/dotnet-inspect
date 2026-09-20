@@ -205,12 +205,6 @@ public sealed class PackageDependencyTraversalQueryTests
             authorization,
             "bridge",
             "1.0.0");
-        PackageAcquisitionCandidate rootBAsCandidate = Pinned(
-            issuer,
-            authorization,
-            "rootb",
-            "1.0.0");
-
         PackageDependencyTraversalRootOccurrence rootA = Root(
             "roota",
             "1.0.0",
@@ -220,19 +214,20 @@ public sealed class PackageDependencyTraversalQueryTests
             "rootb",
             "1.0.0",
             Dependency("bridge", "[1.0.0]"),
-            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources,
+            recurrenceAuthority:
+                PackageDependencyTraversalRootRecurrenceAuthority
+                    .ExactCoordinate);
 
         var resolver = new StubCandidateResolver();
         resolver.SetResponse("roota", "shared", () => Resolved(shared));
         resolver.SetResponse("rootb", "bridge", () => Resolved(bridge));
         resolver.SetResponse("bridge", "shared", () => Resolved(shared));
-        resolver.SetResponse("shared", "rootb", () => Resolved(rootBAsCandidate));
         var acquirer = new StubManifestAcquirer();
         acquirer.SetManifest(bridge,
             ManifestBytes("bridge", "1.0.0", Dependency("shared", "[1.0.0]")));
         acquirer.SetManifest(shared,
             ManifestBytes("shared", "1.0.0", Dependency("rootb", "[1.0.0]")));
-        acquirer.SetManifest(rootBAsCandidate, ManifestBytes("rootb", "1.0.0", ""));
 
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [rootA, rootB],
@@ -255,6 +250,14 @@ public sealed class PackageDependencyTraversalQueryTests
         Assert.Equal(2, aDistance);
         Assert.False(
             outcome.RootReachability[1].IsEdgeAdmitted(closingEdgeIndex, out _));
+        Assert.Equal(
+            PackageDependencyTraversalEdgeEmissionAuthority.SuppliedRoot,
+            closingEdge.Authority);
+        Assert.Equal(
+            PackageDependencyTraversalProjectionKind.RootSupplied,
+            outcome.Projections[
+                Assert.IsType<PackageDependencyTraversalEdgeTarget.Node>(
+                    closingEdge.Target).ProjectionIndex].Kind);
 
         PackageDependencyTraversalEdge bridgeToSharedEdge = Assert.Single(
             outcome.Edges.Where(
@@ -266,6 +269,8 @@ public sealed class PackageDependencyTraversalQueryTests
                 out int bridgeDistance));
         Assert.Equal(2, bridgeDistance);
         Assert.Equal(1, acquirer.CallsFor(shared.Coordinate));
+        Assert.Equal(3, resolver.CallCount);
+        Assert.Equal(2, acquirer.CallCount);
     }
 
     [Fact]
@@ -1713,10 +1718,13 @@ public sealed class PackageDependencyTraversalQueryTests
         string version,
         string dependenciesXml,
         PackageDependencyTraversalExpansionAuthority authority,
-        string? requestedFramework = null) =>
+        string? requestedFramework = null,
+        PackageDependencyTraversalRootRecurrenceAuthority recurrenceAuthority =
+            PackageDependencyTraversalRootRecurrenceAuthority.None) =>
         new(
             BuildRoot(packageId, version, dependenciesXml, requestedFramework),
-            authority);
+            authority,
+            recurrenceAuthority);
 
     private static string CreateTemporaryDirectory()
     {
