@@ -15,7 +15,7 @@ public abstract record AssemblyMemberDecompilationEntry(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
         CSharpDecompilationAttempt Attempt,
-        SourceHouseMemberDecompilationOutcome HouseOutcome)
+        SourceHouseDecompilationOutcome HouseOutcome)
         : AssemblyMemberDecompilationEntry(Subject, Request);
 
     public sealed record Rejected(
@@ -113,7 +113,7 @@ public static partial class AssemblyContextSourceQuery
 
         try
         {
-            SourceHouseMemberDecompilationLimits limits =
+            SourceHouseDecompilationLimits limits =
                 context.MemberDecompilationLimits;
             AssemblyContextLibraryAdapterResult admission =
                 await AssemblyContextLibraryAdapter.MaterializeAsync(
@@ -163,13 +163,19 @@ public static partial class AssemblyContextSourceQuery
             try
             {
                 (CSharpDecompilationAttempt attempt,
-                    SourceHouseMemberDecompilationOutcome houseOutcome) =
-                        await DecompileMemberAsync(
+                    SourceHouseDecompilationOutcome houseOutcome) =
+                        await DecompileAsync(
                             participant,
-                            request,
+                            new SourceHouseTarget.MemberTarget(
+                                request.Type,
+                                request.Member,
+                                request.MetadataToken),
+                            request.PrinterOptions,
                             completed,
                             bindingPolicyVersion,
+                            limits,
                             context,
+                            "member-decompilation",
                             cancellationToken)
                         .ConfigureAwait(false);
                 settled = new AssemblyMemberDecompilationEntry.Settled(
