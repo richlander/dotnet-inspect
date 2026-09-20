@@ -3,7 +3,9 @@
 ## Status and ownership
 
 This document defines a proposed `ILInspector.Metadata` contract, tracked by
-[#4851][issue-4851]. Its first implementation is [#7887][issue-7887].
+[#4851][issue-4851]. The owner-backed declaration-session substrate is the
+separate prerequisite [#7929][issue-7929]; the first MethodImpl implementation
+is [#7887][issue-7887].
 
 The initial contract owns only exact `MethodImpl` body/declaration
 relationships for one `TypeDef`. Property, event, accessor, and ordinary
@@ -21,10 +23,11 @@ This is physical metadata evidence. It is not C# declaration
 representability, source reconstruction, runtime dispatch equivalence, or
 ReturnToSender admission.
 
-The production host is DecompilerHarness through the tools-first migration in
-[#6199][issue-6199]. The approved focused path is Metadata evidence, CSharp
-representability in [#4852][issue-4852], RTS target selection in
-[#7888][issue-7888], and raised standalone adoption in
+The production host is DecompilerHarness through the sixteen-step tools-first
+migration in [#6199][issue-6199]. The approved focused path includes the
+owner-backed Metadata session substrate in [#7929][issue-7929], this MethodImpl
+evidence, CSharp representability in [#4852][issue-4852], RTS target selection
+in [#7888][issue-7888], and raised standalone adoption in
 [#7890][issue-7890]. Exact `InterfaceImpl` association is the separate
 Metadata-owned prerequisite [#7897][issue-7897]; CSharp composes that result
 with this one rather than reopening either relationship. CLI and browser/Wasm
@@ -418,9 +421,10 @@ Metadata, and this contract does not adopt its source-generation behavior.
 
 ## Evidence plan
 
-The contract is design-only until [#7887][issue-7887] lands. The following
-properties are currently **unverified** by this document and require Release
-gates in that implementation:
+The contract is design-only until [#7929][issue-7929] supplies its owner-backed
+session prerequisite and [#7887][issue-7887] lands the MethodImpl operation.
+The following properties are currently **unverified** by this document and
+require Release gates in that implementation:
 
 | Property | Required gate |
 | --- | --- |
@@ -475,6 +479,7 @@ This contract does not:
 [issue-7888]: https://github.com/richlander/dotnet-inspect/issues/7888
 [issue-7890]: https://github.com/richlander/dotnet-inspect/issues/7890
 [issue-7897]: https://github.com/richlander/dotnet-inspect/issues/7897
+[issue-7929]: https://github.com/richlander/dotnet-inspect/issues/7929
 [metadata-image-generation]: member-inspection-planning-and-metadata-projection.md
 [roslyn-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/Metadata.cs#L9-L43
 [roslyn-module-metadata]: https://github.com/dotnet/roslyn/blob/5a9f1b4bb88ec57c776fd9be0c8693eafb375b10/src/Compilers/Core/Portable/MetadataReference/ModuleMetadata.cs#L32-L61
