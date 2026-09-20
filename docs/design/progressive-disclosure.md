@@ -48,8 +48,8 @@ and `@SourceLink`; the resolved broad, overload, or exact-member catalog
 determines which authored members each door exposes.
 Diff uses `@Diff` as its base category for the composable `Changes`, `Analysis
 Diff`, and `Implementation Diff` views. Its focused, non-composable
-`Complexity Context` and `Finding Transitions` views remain standalone
-exact-name sections.
+`Complexity Context`, `Structural Context`, and `Finding Transitions` views
+remain standalone exact-name sections.
 Project uses `@Project` as its base category for package-authored `Skills` and
 `Package README file` documents from restored direct dependencies. Bare `-S`
 retains `Skills`; selecting `@Project` explicitly requests both inventories.
@@ -170,6 +170,9 @@ The library command is the reference discovery model:
 | `-D --schema` | Complete structural graph without target inspection |
 | `-D Section` | Structural section fields |
 | `-D Section --effective` | Fields backed by a full section probe |
+| `-D --details` | Complete structural top-level catalog with owner-issued detail columns |
+| `-D @Category --details` | Exact structural category and member details |
+| `-D Section --details` | Exact structural section details; omit `--details` to list its fields |
 
 Plain `-D` must remain network-free and should return in under 0.5 seconds for
 a local target. Resolving a package that is not local is target acquisition and
@@ -185,6 +188,11 @@ Package, type-listing, member, diff, project, vocabulary, and ecosystem
 catalogs follow this model. Commands not yet migrated may retain their existing
 discovery behavior; new work should follow the reference model rather than
 copy a legacy command.
+
+`--details` is an opt-in discovery projection, not inspection verbosity. It may
+add stable columns without making them part of the concise default. The first
+Library adoption adds only `Formats` and remains structural and target-free;
+other details and command adoptions require their owning slices.
 
 ## Query discovery
 

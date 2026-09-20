@@ -57,7 +57,11 @@ public static class DiffSections
 {
     public static IReadOnlySet<string> ExactOnlySections { get; } =
         new HashSet<string>(
-            [FindingTransitions.Name, ComplexityContext.Name],
+            [
+                FindingTransitions.Name,
+                ComplexityContext.Name,
+                StructuralContext.Name,
+            ],
             StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The reusable fixed-domain catalog for Diff queries.</summary>
@@ -101,6 +105,7 @@ public static class DiffSections
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
             .Add<ComplexityContext>(ImplementationComparisonQuery.Definition)
+            .Add<StructuralContext>(ImplementationComparisonQuery.Definition)
             .Add<FindingTransitions>()
             .AddBaseCategory(
                 SectionCategoryNames.Diff,
@@ -155,6 +160,28 @@ public static class DiffSections
                 "Percentile Rank",
                 "Evidence",
                 "Kind")
+            .Add(
+                StructuralContext.Name,
+                "section",
+                "Member",
+                "State",
+                "Instruction Delta",
+                "Complexity Delta",
+                "Loop Delta",
+                "Exception Region Delta",
+                "Direct Call Delta",
+                "Allocation Delta",
+                "Async Delta",
+                "Instruction Direction",
+                "Complexity Direction",
+                "Loop Direction",
+                "Exception Region Direction",
+                "Direct Call Direction",
+                "Allocation Direction",
+                "Async Direction",
+                "Population Size",
+                "Cohort Size",
+                "Kind")
             .Add(FindingTransitions.Name, "section", "Transition", "Finding", "Target", "From", "To", "Old", "New", "Detail");
     }
 
@@ -193,6 +220,14 @@ public static class DiffSections
     public sealed class ComplexityContext : ISectionDescriptor<DiffDiscoveryModel>
     {
         public static string Name => "Complexity Context";
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static bool CanRender(DiffDiscoveryModel model) => true;
+    }
+
+    public sealed class StructuralContext : ISectionDescriptor<DiffDiscoveryModel>
+    {
+        public static string Name => "Structural Context";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool CanRender(DiffDiscoveryModel model) => true;

@@ -150,7 +150,7 @@ stderr rather than mixed into structured output.
 | Ecosystem catalog | `ecosystem` | Product-configured ecosystem packs, namespace hints, core/tool packages, demos, and known Integration bindings without package acquisition. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, SourceLink, PDBs, references, resources, async methods, and body-shape search. |
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
-| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL and selected-member authored-source evidence. |
+| API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in C#/IL, selected-member authored-source, complexity, and structural-cohort context. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Structural clone discovery | `library`/`type`/`member -S "Clone Candidates"` | Workspace-scoped structural candidate ranking for an exact Library, Type, or logical Member seed, with independent Breadth and Discovery facets. |
@@ -388,6 +388,7 @@ not adopted this transport.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
+| Add Library format details | `-D --details`, `-D <exact-name> --details` |
 | Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
@@ -417,6 +418,9 @@ Useful discovery and projection patterns:
 
 ```bash
 dotnet-inspect library System.Text.Json -D
+dotnet-inspect library System.Text.Json -D --details
+dotnet-inspect library System.Text.Json -D @Dependencies --details
+dotnet-inspect library System.Text.Json -D "Reference Hierarchy" --details
 dotnet-inspect library -Q
 dotnet-inspect type -Q "Body Shapes"
 dotnet-inspect library -Q "Performance: Arrays" --json
@@ -437,6 +441,13 @@ dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect project ./src/DotnetInspect.Cli -S Skills --jsonl -T q
 ```
+
+Library `-D --details` is structural and does not acquire the target. It adds a
+`Formats` column to the top-level catalog, or reports one exact category or
+section in detail. A category reports the formats supported by its complete
+expansion plus the formats of each member; it never selects or drops members to
+satisfy a format. Use the result to choose an exact section before requesting a
+single-result projection such as `--tree` or `--mermaid`.
 
 ## Common examples
 
@@ -1060,9 +1071,9 @@ Diff, Finding Transitions, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Complexity Context` and `Finding Transitions` remain exact-name
-sections because their focused semantics do not compose with those comparison
-views.
+Diff` views. `Complexity Context`, `Structural Context`, and `Finding
+Transitions` remain exact-name sections because their focused semantics do not
+compose with those comparison views.
 
 Select `Implementation Diff` directly to inspect body-level C#, IL, and
 normal-flow complexity evidence. Select `Complexity Context` directly for a
@@ -1079,6 +1090,23 @@ dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
   --type Markout.MarkoutWriter \
   -S "Complexity Context" \
   --columns Member,State,Delta,PopulationSize,PercentileRank,Kind \
+  --jsonl
+```
+
+Select `Structural Context` directly to inspect signed instruction, complexity,
+loop, exception-region, direct-call, allocation, and async deltas with their
+direction signature and exact local cohort frequency. It includes complete,
+unambiguous pairs, including all-Unchanged pairs; added, removed, incomplete,
+and ambiguous pairs do not appear. `Cohort Size` is a local frequency, not an
+outlier or quality judgment. Use the stable `Kind` value
+`research.complexity.structural-cohort` and dedicated fields for structured
+automation:
+
+```bash
+dotnet-inspect diff --package Markout@0.33.0..0.35.2 \
+  --type Markout.MarkoutWriter \
+  -S "Structural Context" \
+  --columns Member,InstructionDelta,ComplexityDelta,InstructionDirection,CohortSize,PopulationSize,Kind \
   --jsonl
 ```
 
