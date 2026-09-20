@@ -432,6 +432,11 @@ public static class InspectionCommandDefinitions
                 assemblyCommand,
                 assemblyPathArg,
                 metadataRootOption));
+        assemblyCommand.Subcommands.Add(
+            LibraryQueryCommandDefinitions.Create(
+                opts,
+                assemblyCommand,
+                assemblyPathArg));
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
@@ -658,6 +663,36 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(referenceRowSelectionError!);
                 return 1;
             }
+            RowSelectionIntent<string>? ecosystemDependencyRowSelection = null;
+            if (LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
+                    parseResult,
+                    opts,
+                    asmTfmOption,
+                    select)
+                && !CliRowSelectionCommandRegistry
+                    .TryGetPreparedSemanticIntent(
+                        parseResult,
+                        "Library ecosystem dependency",
+                        out ecosystemDependencyRowSelection,
+                        out string? ecosystemRowSelectionError))
+            {
+                CommandError.Write(ecosystemRowSelectionError!);
+                return 1;
+            }
+            if (opts.IsJsonDocumentOutput(parseResult)
+                && LibraryEcosystemDependencyRowSelectionAdoption
+                    .IsMultiSectionSelection(
+                        parseResult,
+                        opts,
+                        asmTfmOption,
+                        select)
+                && LibraryEcosystemDependencyRowSelectionAdoption
+                    .HasExplicitSelection(parseResult, opts))
+            {
+                CommandError.Write(
+                    "Rendered-line selection cannot be combined with JSON output.");
+                return 1;
+            }
 
             if (!TryParseMetadataRoot(
                     parseResult.GetValue(metadataRootOption),
@@ -729,12 +764,15 @@ public static class InspectionCommandDefinitions
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = cloneCandidateRowSelection is null
                     && referenceRowSelection is null
+                    && ecosystemDependencyRowSelection is null
                     ? opts.ParseRows(parseResult)
                     : null,
                 CloneCandidateRowSelection =
                     cloneCandidateRowSelection,
                 ReferenceRowSelection =
                     referenceRowSelection,
+                EcosystemDependencyRowSelection =
+                    ecosystemDependencyRowSelection,
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 CloneCandidateQuery = cloneCandidateQuery,
@@ -790,6 +828,29 @@ public static class InspectionCommandDefinitions
                 referencesOption,
                 asmTfmOption,
                 typeFilterOption),
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result),
+                    lowering));
+        CliRowSelectionCommandRegistry.Register(
+            assemblyCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result => LibraryEcosystemDependencyRowSelectionAdoption.IsActive(
+                result,
+                opts,
+                asmTfmOption,
+                opts.ParseSelect(result)),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),

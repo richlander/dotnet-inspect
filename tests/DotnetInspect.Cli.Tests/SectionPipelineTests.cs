@@ -7,9 +7,11 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -398,6 +400,23 @@ public partial class SectionPipelineTests
                 References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
                 TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
             },
+            EcosystemDependencyRecognitionInspection =
+                LibraryEcosystemDependencyRecognitionInspection.Execute(
+                    new ExactLibrarySourceCoordinate.Local(
+                        new ManagedMetadataIdentity.Assembly(
+                            new AssemblyReferenceIdentity(
+                                "System.Test",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null))),
+                    new AssemblyReferencesResult.Available(
+                        [
+                            new AssemblyReferenceIdentity(
+                                "System.Runtime",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                        ])),
             PdbPath = "test.pdb",
             HasSourceLink = true,
             HasEmbeddedPdb = true,

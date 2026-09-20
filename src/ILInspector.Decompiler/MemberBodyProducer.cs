@@ -2909,7 +2909,8 @@ public static class MemberBodyProducer
                     projection,
                     DecompilerResult.Failure(
                         DiagnosticIds.ContextUnavailable,
-                        "method has no importable IL body"));
+                        "method has no importable IL body"),
+                    propertySource);
                 projection.MarkNonContributing();
             }
             return null;
@@ -2921,7 +2922,10 @@ public static class MemberBodyProducer
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
         if (projection is not null)
         {
-            tracker!.Complete(projection, result);
+            tracker!.Complete(
+                projection,
+                result,
+                propertySource);
             tracker.ObserveSymbols(pipelineSource.Symbols);
         }
         if (!result.Succeeded
