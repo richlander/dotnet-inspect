@@ -1508,6 +1508,8 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Configuration (List`1): computed projection still null after the walk",
         "LibraryInspection.CustomAttributes (List`1): computed projection still null after the walk",
         "LibraryInspection.DependencyInjection (List`1): computed projection still null after the walk",
+        "LibraryInspection.EcosystemDependencies (EcosystemDependencyRecognitionJson): computed projection still null after the walk",
+        "LibraryInspection.EcosystemDependencyRecognitionInspection (InspectionEnvelope`1): constructor threw ArgumentNullException",
         "LibraryInspection.ExtensionMemberInspection (FindingInspection`1): computed projection still null after the walk",
         "LibraryInspection.ExtensionMethods (List`1): computed projection still null after the walk",
         "LibraryInspection.HealthChecks (List`1): computed projection still null after the walk",

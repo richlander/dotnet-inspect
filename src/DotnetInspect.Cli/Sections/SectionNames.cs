@@ -302,6 +302,7 @@ public static class SectionNames
 
     /// <summary>Section for direct assembly references.</summary>
     public const string References = "References";
+    public const string EcosystemDependencies = "Ecosystem Dependencies";
     public const string ReferenceHierarchy = "Reference Hierarchy";
 
     /// <summary>Section for P/Invoke declarations.</summary>

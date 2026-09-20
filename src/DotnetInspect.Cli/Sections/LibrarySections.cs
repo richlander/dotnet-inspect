@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -74,6 +75,7 @@ public static class LibrarySections
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
                 [
+                    AssemblyReferencesQuery.Definition,
                     ClassifiedMethodsQuery.Definition,
                     CustomAttributesQuery.Definition,
                     ExtensionMethodsQuery.Definition,
@@ -115,6 +117,8 @@ public static class LibrarySections
             .Add<IntegrationOpportunities>(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
+            .Add<EcosystemDependencies>(
+                AssemblyReferencesQuery.Definition)
             .Add<ReferenceHierarchy>()
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(
@@ -176,6 +180,7 @@ public static class LibrarySections
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddBaseCategory(SectionCategoryNames.Surface,
@@ -209,6 +214,7 @@ public static class LibrarySections
             .AddCategory(
                 SectionCategoryNames.Dependencies,
                 SectionNames.References,
+                SectionNames.EcosystemDependencies,
                 SectionNames.ReferenceHierarchy)
             .AddCategory(SectionCategoryNames.Context,
                 SectionNames.ILOffset,
@@ -871,6 +877,25 @@ public static class LibrarySections
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static bool CanRender(LibraryInspection model)
             => HasReferenceData(model);
+    }
+
+    public sealed class EcosystemDependencies :
+        ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.EcosystemDependencies;
+        public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass =>
+            SectionSizeClass.Informative;
+        public static bool CanRender(LibraryInspection model) =>
+            model.EcosystemDependencyRecognitionInspection?.Content
+                is EcosystemDependencyRecognitionOutcome.Complete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    }
+                or EcosystemDependencyRecognitionOutcome.Incomplete
+                    {
+                        Document.Classification.Recognized.Length: > 0,
+                    };
     }
 
     public sealed class ReferenceHierarchy :

@@ -227,6 +227,26 @@ dotnet-inspect ecosystem microsoft-extensions -S "Core Packages"
 dotnet-inspect ecosystem runtime -S Pruning
 ```
 
+Package Info and Library Info summarize ecosystems recognized from direct
+dependencies. Select `Ecosystem Dependencies` to see the dependency/ecosystem
+pairs, including one row per ecosystem when a dependency intentionally
+overlaps multiple packs:
+
+```bash
+dotnet-inspect package Microsoft.Extensions.Http@10.0.0 \
+  -S "Package Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Library Info"
+dotnet-inspect library --platform System.Text.Json \
+  -S "Ecosystem Dependencies" \
+  --columns "Ecosystem,Kind,Dependency,Declared By"
+```
+
+Library recognition classifies the selected Library's declared assembly
+references. It does not resolve or traverse those references. Unrecognized
+references do not become ecosystem rows, while JSON still reports the
+recognition status as complete.
+
 `Core Packages` are inert registered package roots. Catalog inspection performs
 no source work; a later bounded operation that selects the ecosystem may resolve
 those concrete packages and follow their ordinary dependencies. Package-prefix
